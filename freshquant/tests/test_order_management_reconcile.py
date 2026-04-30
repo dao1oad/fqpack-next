@@ -150,6 +150,13 @@ class InMemoryRepository:
                 return order
         return None
 
+    def list_orders_by_broker_order_id(self, broker_order_id):
+        return [
+            order
+            for order in self.orders
+            if str(order.get("broker_order_id")) == str(broker_order_id)
+        ]
+
     def update_order(self, internal_order_id, updates):
         order = self.find_order(internal_order_id)
         if order is None:
@@ -941,6 +948,98 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
         == 700
     )
     assert len(repository.sell_allocations) == 1
+
+
+def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    tracking_service = OrderTrackingService(repository=repository)
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_duplicate_seed_buy_1",
+            "symbol": "002262",
+            "side": "buy",
+            "quantity": 2300,
+            "price": 21.0,
+            "trade_time": 1_000,
+            "date": 20260429,
+            "time": "09:31:00",
+        }
+    )
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=50_000, grid_interval=1.03),
+    )
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "002262",
+            "price": 21.0,
+            "quantity": 2300,
+            "source": "strategy",
+            "internal_order_id": "ord_old_buy_duplicate",
+            "broker_order_type": 27,
+            "trace_id": "trc_old",
+            "request_id": "req_old",
+        }
+    )
+    repository.update_order(
+        "ord_old_buy_duplicate",
+        {
+            "broker_order_id": "1477443585",
+            "broker_order_type": 27,
+            "state": "FILLED",
+            "submitted_at": "2026-04-13T14:22:07+08:00",
+        },
+    )
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "002262",
+            "price": 22.41,
+            "quantity": 2300,
+            "source": "strategy",
+            "internal_order_id": "ord_new_sell_duplicate",
+            "broker_order_type": 24,
+            "trace_id": "trc_new",
+            "request_id": "req_new",
+        }
+    )
+    repository.update_order(
+        "ord_new_sell_duplicate",
+        {
+            "broker_order_id": "1477443585",
+            "broker_order_type": 24,
+            "state": "SUBMITTED",
+            "submitted_at": "2026-04-29T10:14:06+08:00",
+        },
+    )
+
+    outcome = service.reconcile_trade_report(
+        {
+            "order_id": 1477443585,
+            "traded_id": "0103000030649603",
+            "stock_code": "002262.SZ",
+            "order_type": 24,
+            "traded_volume": 2300,
+            "traded_price": 22.41,
+            "traded_time": 1777428846,
+        }
+    )
+
+    assert outcome.handled is True
+    assert outcome.ingested is True
+    assert outcome.action == "known_internal_order_ingested"
+    assert outcome.result["trade_fact"]["internal_order_id"] == (
+        "ord_new_sell_duplicate"
+    )
+    assert outcome.result["trade_fact"]["side"] == "sell"
+    assert repository.trade_facts[0]["internal_order_id"] == "ord_new_sell_duplicate"
+    assert repository.execution_fills[0]["broker_order_key"] == (
+        "ord_new_sell_duplicate"
+    )
 
 
 def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatch):

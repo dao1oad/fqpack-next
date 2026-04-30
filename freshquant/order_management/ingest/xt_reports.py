@@ -6,6 +6,7 @@ from uuid import uuid4
 from loguru import logger
 
 from freshquant.carnation import xtconstant
+from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_adapter import (
     list_open_entry_slices_compat,
     list_open_entry_views,
@@ -434,7 +435,14 @@ def normalize_xt_trade_report(report, repository=None):
     if internal_order_id is not None and repository is not None:
         order = repository.find_order(internal_order_id)
     if internal_order_id is None and repository is not None and order_id is not None:
-        order = repository.find_order_by_broker_order_id(order_id)
+        order = find_order_for_broker_report(
+            repository,
+            broker_order_id=order_id,
+            report=report,
+            symbol=symbol,
+            order_type=order_type,
+            report_time=traded_time,
+        )
         if order is not None:
             internal_order_id = order["internal_order_id"]
     if order is not None and order.get("broker_order_type") is not None:
@@ -468,7 +476,14 @@ def normalize_xt_order_report(report, repository=None):
     internal_order_id = report.get("internal_order_id")
     order = None
     if internal_order_id is None and repository is not None:
-        order = repository.find_order_by_broker_order_id(broker_order_id)
+        order = find_order_for_broker_report(
+            repository,
+            broker_order_id=broker_order_id,
+            report=report,
+            symbol=report.get("symbol") or report.get("stock_code"),
+            order_type=report.get("order_type"),
+            report_time=report.get("order_time"),
+        )
         if order is not None:
             internal_order_id = order["internal_order_id"]
     else:

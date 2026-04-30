@@ -172,6 +172,11 @@ class OrderManagementRepository:
     def find_order_by_broker_order_id(self, broker_order_id):
         return self.orders.find_one({"broker_order_id": str(broker_order_id)})
 
+    def list_orders_by_broker_order_id(self, broker_order_id):
+        if broker_order_id in (None, "", "None"):
+            return []
+        return list(self.orders.find({"broker_order_id": str(broker_order_id)}))
+
     def update_order(self, internal_order_id, updates):
         self.orders.update_one(
             {"internal_order_id": internal_order_id},

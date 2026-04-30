@@ -123,6 +123,30 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
   - 最后再恢复 indexer
 - 不要直接删除 progress 后让 indexer 从 0 全量重扫；`runtime_events` 当前不是去重表，这样会把历史事件重复写入 ClickHouse。
 
+## Runtime Trace 显示 XT 回报链路状态迁移失败
+
+现象：
+
+- `/runtime-observability` 单条 Trace 显示 `链路类型=外部上报`、`链路状态=失败`
+- 右侧异常阶段包含 `xt_report_ingest.order_match`
+- stderr 或 runtime payload 出现 `InvalidOrderTransition`，例如 `FILLED -> SUBMITTED`
+
+先检查：
+
+- `Get-ChildItem logs/runtime/host_broker/broker_gateway -Recurse -Filter *.jsonl | Select-String -Pattern "<trace_id>|<broker_order_id>"`
+- `Get-ChildItem logs/runtime/host_xt_report_ingest/xt_report_ingest -Recurse -Filter *.jsonl | Select-String -Pattern "<trace_id>|<broker_order_id>"`
+- `@'
+from freshquant.order_management.db import DBOrderManagement
+broker_order_id = "<broker_order_id>"
+print(list(DBOrderManagement["om_orders"].find({"broker_order_id": str(broker_order_id)}, {"_id": 0, "internal_order_id": 1, "trace_id": 1, "symbol": 1, "side": 1, "broker_order_type": 1, "state": 1, "submitted_at": 1})))
+'@ | py -3.12 -m uv run -`
+
+处理：
+
+- 当前 `broker_order_id` 不能单独当作全局唯一键；如果同号命中多条 `om_orders`，以 `symbol`、`side/order_type` 与回报时间确认真实内部订单。
+- 若重复券商订单号曾把回报挂到旧内部订单，需要同步核对 `om_execution_fills`、`om_trade_facts` 与 `om_position_entries` 是否已有错归属事实；必要时按券商真值 `xt_orders/xt_trades/xt_positions` 做账本修复。
+- 修复代码后需要重新部署 `order_management` host surface，并确认 broker / XT report ingest runtime event 已回到新内部订单对应的 trace。
+
 ## broker_gateway 健康摘要停留在旧 warning
 
 现象：

@@ -644,6 +644,61 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
     assert collector.events[0]["payload"]["broker_trade_id"] == "T-90001"
 
 
+def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_duplicate_order", BROKER_PATH)
+    collector = EventCollector()
+    broker._runtime_logger = collector
+
+    class DuplicateBrokerOrderRepository:
+        def list_orders_by_broker_order_id(self, broker_order_id):
+            assert str(broker_order_id) == "1477443585"
+            return [
+                {
+                    "trace_id": "trc_old",
+                    "intent_id": "int_old",
+                    "request_id": "req_old",
+                    "internal_order_id": "ord_old_buy",
+                    "symbol": "002262",
+                    "side": "buy",
+                    "broker_order_type": 27,
+                    "state": "FILLED",
+                    "submitted_at": "2026-04-13T14:22:07+08:00",
+                },
+                {
+                    "trace_id": "trc_new",
+                    "intent_id": "int_new",
+                    "request_id": "req_new",
+                    "internal_order_id": "ord_new_sell",
+                    "symbol": "002262",
+                    "side": "sell",
+                    "broker_order_type": 24,
+                    "state": "SUBMITTED",
+                    "submitted_at": "2026-04-29T10:14:06+08:00",
+                },
+            ]
+
+    broker.order_management_repository = DuplicateBrokerOrderRepository()
+
+    callback = broker.MyXtQuantTraderCallback()
+    callback.on_stock_trade(
+        types.SimpleNamespace(
+            order_id="1477443585",
+            traded_id="0103000030649603",
+            stock_code="002262.SZ",
+            order_type=24,
+            traded_time=1777428846,
+        )
+    )
+
+    assert collector.events[0]["node"] == "trade_callback"
+    assert collector.events[0]["trace_id"] == "trc_new"
+    assert collector.events[0]["request_id"] == "req_new"
+    assert collector.events[0]["internal_order_id"] == "ord_new_sell"
+    assert collector.events[0]["symbol"] == "002262"
+    assert collector.events[0]["action"] == "sell"
+
+
 def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
     monkeypatch,
 ):

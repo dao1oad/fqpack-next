@@ -92,6 +92,7 @@
   - 定义当前券商仓位真值
 - `om_broker_orders + om_execution_fills`
   - 定义执行事实
+  - XT 回报进入订单账本时，`broker_order_id` 只作为候选检索键；重复券商订单号需要结合 `symbol`、`side/order_type` 与回报时间确定内部订单
 - `om_position_entries`
   - 定义系统可消费的持仓入口
 - `om_reconciliation_*`

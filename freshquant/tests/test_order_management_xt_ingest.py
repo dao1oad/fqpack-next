@@ -86,6 +86,13 @@ class InMemoryRepository:
                 return order
         return None
 
+    def list_orders_by_broker_order_id(self, broker_order_id):
+        return [
+            order
+            for order in self.orders
+            if str(order.get("broker_order_id")) == str(broker_order_id)
+        ]
+
     def update_order(self, internal_order_id, updates):
         order = self.find_order(internal_order_id)
         if order is None:
@@ -364,6 +371,138 @@ def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
 
     assert normalized["internal_order_id"] == "ord_credit_ingest_1"
     assert normalized["side"] == "buy"
+
+
+def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "002262",
+            "price": 21.0,
+            "quantity": 2300,
+            "source": "api",
+            "internal_order_id": "ord_old_buy",
+            "broker_order_type": 27,
+            "trace_id": "trc_old",
+            "request_id": "req_old",
+        }
+    )
+    repository.update_order(
+        "ord_old_buy",
+        {
+            "broker_order_id": "1477443585",
+            "broker_order_type": 27,
+            "state": "FILLED",
+            "submitted_at": "2026-04-13T14:22:07+08:00",
+        },
+    )
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "002262",
+            "price": 22.41,
+            "quantity": 2300,
+            "source": "api",
+            "internal_order_id": "ord_new_sell",
+            "broker_order_type": 24,
+            "trace_id": "trc_new",
+            "request_id": "req_new",
+        }
+    )
+    repository.update_order(
+        "ord_new_sell",
+        {
+            "broker_order_id": "1477443585",
+            "broker_order_type": 24,
+            "state": "SUBMITTED",
+            "submitted_at": "2026-04-29T10:14:06+08:00",
+        },
+    )
+
+    normalized = normalize_xt_trade_report(
+        {
+            "order_id": "1477443585",
+            "traded_id": "0103000030649603",
+            "stock_code": "002262.SZ",
+            "order_type": 24,
+            "traded_volume": 2300,
+            "traded_price": 22.41,
+            "traded_time": 1777428846,
+        },
+        repository=repository,
+    )
+
+    assert normalized["internal_order_id"] == "ord_new_sell"
+    assert normalized["side"] == "sell"
+    assert normalized["trace_id"] == "trc_new"
+    assert normalized["request_id"] == "req_new"
+
+
+def test_normalize_xt_order_report_disambiguates_reused_broker_order_id():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "002262",
+            "price": 21.0,
+            "quantity": 2300,
+            "source": "api",
+            "internal_order_id": "ord_old_buy",
+            "broker_order_type": 27,
+            "trace_id": "trc_old",
+            "request_id": "req_old",
+        }
+    )
+    repository.update_order(
+        "ord_old_buy",
+        {
+            "broker_order_id": "1477443585",
+            "broker_order_type": 27,
+            "state": "FILLED",
+            "submitted_at": "2026-04-13T14:22:07+08:00",
+        },
+    )
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "002262",
+            "price": 22.41,
+            "quantity": 2300,
+            "source": "api",
+            "internal_order_id": "ord_new_sell",
+            "broker_order_type": 24,
+            "trace_id": "trc_new",
+            "request_id": "req_new",
+        }
+    )
+    repository.update_order(
+        "ord_new_sell",
+        {
+            "broker_order_id": "1477443585",
+            "broker_order_type": 24,
+            "state": "SUBMITTED",
+            "submitted_at": "2026-04-29T10:14:06+08:00",
+        },
+    )
+
+    normalized = normalize_xt_order_report(
+        {
+            "order_id": 1477443585,
+            "stock_code": "002262.SZ",
+            "order_type": 24,
+            "order_time": 1777428846,
+            "order_status": 50,
+        },
+        repository=repository,
+    )
+
+    assert normalized["internal_order_id"] == "ord_new_sell"
+    assert normalized["state"] == "SUBMITTED"
+    assert normalized["trace_id"] == "trc_new"
+    assert normalized["request_id"] == "req_new"
 
 
 def test_upsert_broker_position_entry_uses_beijing_time_when_local_fromtimestamp_differs(
