@@ -1,7 +1,18 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from freshquant.tpsl.consumer import TpslTickConsumer
 from freshquant.tpsl.service import TpslService
+
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+AFTER_CONTINUOUS_AUCTION_TS = int(
+    datetime(2026, 4, 30, 9, 30, 1, tzinfo=BEIJING_TZ).timestamp()
+)
+PRE_CONTINUOUS_AUCTION_TS = int(
+    datetime(2026, 4, 30, 9, 16, 17, tzinfo=BEIJING_TZ).timestamp()
+)
 
 
 class FakeRuntimeLogger:
@@ -178,12 +189,50 @@ def test_tpsl_tick_consumer_does_not_emit_pretrigger_info_events():
             "ask1": 10.8,
             "bid1": 9.2,
             "lastPrice": 10.0,
-            "time": 1710000000,
+            "time": AFTER_CONTINUOUS_AUCTION_TS,
         }
     )
 
     assert runtime_logger.events == []
     assert service.calls == [("takeprofit", "000001")]
+
+
+def test_tpsl_tick_consumer_ignores_preopen_ticks_without_runtime_events():
+    runtime_logger = FakeRuntimeLogger()
+
+    class FakeService:
+        def __init__(self):
+            self.calls = []
+
+        def evaluate_takeprofit(self, **kwargs):
+            self.calls.append(("takeprofit", kwargs["symbol"]))
+            return None
+
+        def evaluate_stoploss(self, **kwargs):
+            self.calls.append(("stoploss", kwargs["symbol"]))
+            return None
+
+    service = FakeService()
+    consumer = TpslTickConsumer(
+        service=service,
+        universe_loader=lambda: ["sz000001"],
+        refresh_interval_s=999,
+        runtime_logger=runtime_logger,
+    )
+
+    result = consumer.handle_tick(
+        {
+            "code": "sz000001",
+            "ask1": 10.8,
+            "bid1": 9.2,
+            "lastPrice": 10.0,
+            "time": PRE_CONTINUOUS_AUCTION_TS,
+        }
+    )
+
+    assert result is None
+    assert runtime_logger.events == []
+    assert service.calls == []
 
 
 def test_tpsl_tick_consumer_emits_error_when_universe_refresh_fails():
@@ -204,7 +253,7 @@ def test_tpsl_tick_consumer_emits_error_when_universe_refresh_fails():
                 "ask1": 10.8,
                 "bid1": 9.2,
                 "lastPrice": 10.0,
-                "time": 1710000000,
+                "time": AFTER_CONTINUOUS_AUCTION_TS,
             }
         )
 
@@ -314,7 +363,7 @@ def test_tpsl_tick_consumer_without_takeprofit_hit_does_not_create_global_trace(
             "ask1": 10.0,
             "bid1": 9.9,
             "lastPrice": 10.0,
-            "time": 1710000000,
+            "time": AFTER_CONTINUOUS_AUCTION_TS,
         }
     )
 

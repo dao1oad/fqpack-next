@@ -880,9 +880,37 @@ def _build_trace_summary_query(
             countIf(component = 'guardian_strategy') > 0, 'guardian_signal',
             countIf(component = 'xt_report_ingest') > 0, 'external_reported',
             countIf(component = 'order_reconcile') > 0, 'external_inferred',
-            countIf(component = 'tpsl_worker' AND (reason_code = 'takeprofit' OR lowerUTF8(message) LIKE '%takeprofit%')) > 0, 'takeprofit',
-            countIf(component = 'tpsl_worker' AND (reason_code = 'stoploss' OR lowerUTF8(message) LIKE '%stoploss%')) > 0, 'stoploss',
-            countIf(component = 'order_submit') > 0, 'manual_api_order',
+            countIf(
+                lowerUTF8(source) IN ('takeprofit', 'tpsl_takeprofit')
+                OR lowerUTF8(strategy_name) = 'takeprofit'
+                OR lowerUTF8(payload_json) LIKE '%"kind": "takeprofit"%'
+                OR lowerUTF8(payload_json) LIKE '%"scope_type": "takeprofit_batch"%'
+                OR (
+                    component = 'tpsl_worker'
+                    AND (
+                        reason_code = 'takeprofit'
+                        OR lowerUTF8(message) LIKE '%takeprofit%'
+                    )
+                )
+            ) > 0, 'takeprofit',
+            countIf(
+                lowerUTF8(source) IN ('stoploss', 'tpsl_stoploss', 'tpsl_symbol_stoploss')
+                OR lowerUTF8(strategy_name) LIKE '%stoploss%'
+                OR lowerUTF8(payload_json) LIKE '%"kind": "stoploss"%'
+                OR lowerUTF8(payload_json) LIKE '%"scope_type": "stoploss_batch"%'
+                OR lowerUTF8(payload_json) LIKE '%"scope_type": "symbol_stoploss_batch"%'
+                OR (
+                    component = 'tpsl_worker'
+                    AND (
+                        reason_code = 'stoploss'
+                        OR lowerUTF8(message) LIKE '%stoploss%'
+                    )
+                )
+            ) > 0, 'stoploss',
+            countIf(
+                component = 'order_submit'
+                AND lowerUTF8(source) IN ('api', 'web-order', 'manual_import')
+            ) > 0, 'manual_api_order',
             'unknown'
         ) AS trace_kind,
         multiIf(

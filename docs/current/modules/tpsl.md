@@ -10,6 +10,7 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 - `must_pool.stop_loss_price` 当前承担 symbol 级 `全仓止损价`
 - 历史与详情优先读取 `entry ledger`
 - 止盈卖出提交前会统一按 `xt_positions.can_use_volume` 截断，并按一手向下取整；Guardian 卖出现在复用同一套约束 helper
+- tick listener 在北京时间 `09:30:00` 前不响应 tick 事件，不评估止盈/止损，也不生成退出单或 Runtime Trace
 
 ## 入口
 
