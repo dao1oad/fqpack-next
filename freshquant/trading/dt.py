@@ -9,7 +9,7 @@ import pydash
 from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from freshquant.carnation.config import DT_FORMAT_DAY
-from freshquant.database.cache import redis_cache
+from freshquant.data.trade_calendar_cache import fetch_trade_dates_with_persistent_cache
 from freshquant.runtime.network import without_proxy_env
 
 T = TypeVar("T")
@@ -36,11 +36,16 @@ def _fetch_trade_dates_from_source(
     raise RuntimeError("trade date fetch failed without exception")
 
 
-@redis_cache.memoize(expiration=86400)
 def fq_trading_fetch_trade_dates(source="sina") -> pd.DataFrame:
     if source == "sina":
-        return _fetch_trade_dates_from_source(ak.tool_trade_date_hist_sina)
-    return _fetch_trade_dates_from_source(ak.tool_trade_date_hist_sina)
+        return fetch_trade_dates_with_persistent_cache(
+            lambda: _fetch_trade_dates_from_source(ak.tool_trade_date_hist_sina),
+            source="sina",
+        )
+    return fetch_trade_dates_with_persistent_cache(
+        lambda: _fetch_trade_dates_from_source(ak.tool_trade_date_hist_sina),
+        source="sina",
+    )
 
 
 def query_current_trade_date() -> Optional[date]:
