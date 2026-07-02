@@ -74,12 +74,14 @@ services:
       FRESHQUANT_MONGODB__PORT: "27017"
       FRESHQUANT_REDIS__HOST: fq_redis
       FRESHQUANT_REDIS__PORT: "6379"
+      FQ_TRADE_CALENDAR_STATE_DIR: /freshquant/state/trade-calendar
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.rear.api_server", "--port", "5000"]
     ports:
       - "15000:5000"
     volumes:
+      - fqnext_trade_calendar_state:/freshquant/state/trade-calendar
       - ${FQ_RUNTIME_LOG_HOST_DIR:?Set FQ_RUNTIME_LOG_HOST_DIR to the host runtime log directory}:/freshquant/logs/runtime
       - type: bind
         source: ${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}
@@ -155,6 +157,7 @@ services:
       FRESHQUANT_MONGODB__PORT: "27017"
       FRESHQUANT_REDIS__HOST: fq_redis
       FRESHQUANT_REDIS__PORT: "6379"
+      FQ_TRADE_CALENDAR_STATE_DIR: /freshquant/state/trade-calendar
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command:
@@ -166,6 +169,7 @@ services:
     ports:
       - "11003:10003"
     volumes:
+      - fqnext_trade_calendar_state:/freshquant/state/trade-calendar
       - fqnext_dagster_data:/opt/dagster
       - type: bind
         source: ${FQPACK_CONFIG_DIR:-D:/fqpack/config}
@@ -197,6 +201,7 @@ services:
       FRESHQUANT_MONGODB__PORT: "27017"
       FRESHQUANT_REDIS__HOST: fq_redis
       FRESHQUANT_REDIS__PORT: "6379"
+      FQ_TRADE_CALENDAR_STATE_DIR: /freshquant/state/trade-calendar
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command:
@@ -206,6 +211,7 @@ services:
         "mkdir -p /opt/dagster/home; cp -f /freshquant/morningglory/fqdagsterconfig/* /opt/dagster/home/; /freshquant/.venv/bin/dagster-daemon run -w /opt/dagster/home/workspace.yaml",
       ]
     volumes:
+      - fqnext_trade_calendar_state:/freshquant/state/trade-calendar
       - fqnext_dagster_data:/opt/dagster
       - type: bind
         source: ${FQPACK_CONFIG_DIR:-D:/fqpack/config}
@@ -382,3 +388,4 @@ volumes:
   fqnext_redis_data:
   fqnext_runtime_clickhouse_data:
   fqnext_dagster_data:
+  fqnext_trade_calendar_state:

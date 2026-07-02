@@ -180,4 +180,6 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - Dagster provides `trade_calendar_refresh_job` to refresh the persisted A-share trade calendar cache.
 - `trade_calendar_morning_refresh_schedule` runs at `08:30` Asia/Shanghai on weekdays.
 - `trade_calendar_postclose_refresh_schedule` runs at `15:10` Asia/Shanghai on weekdays.
-- Stock, ETF, Gantt, and daily-screening date resolution read the shared FreshQuant trade calendar entry, which falls back to Mongo last-known-good data when the live Sina/AkShare request fails.
+- A successful live Sina/AkShare refresh updates Mongo and the shared disk snapshot under `FQ_TRADE_CALENDAR_STATE_DIR`.
+- When a live refresh fails, FreshQuant falls back to Mongo last-known-good first, then the disk snapshot; the Dagster asset reports `refresh_status` and `degraded` so a cache-served refresh is visible without failing the run.
+- Stock, ETF, Gantt, and daily-screening date resolution read the shared FreshQuant trade calendar entry, which falls back to Mongo last-known-good data and then the disk snapshot when the live Sina/AkShare request fails.

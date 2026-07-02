@@ -152,4 +152,5 @@
 - `freshquant.trade_calendar_cache` stores the persisted A-share trade calendar snapshot used by FreshQuant and Dagster.
 - The current document key is `market=cn_a`, `source=sina`, with `_id=cn_a:sina`.
 - `trade_dates` are stored as ISO date strings, with `min_trade_date`, `max_trade_date`, `date_count`, `checksum`, `last_success_at`, `last_error_*`, and `fallback_hits` for audit.
-- Redis is not the durable truth for the trade calendar; Mongo is the last-known-good source used when the live Sina/AkShare request fails.
+- Docker API and Dagster share a disk snapshot volume at `FQ_TRADE_CALENDAR_STATE_DIR`; the default file is `cn_a_sina.json` and is rewritten only after a successful live refresh.
+- Redis is not the durable truth for the trade calendar; Mongo is the primary last-known-good source and the disk snapshot is the cold fallback when the live Sina/AkShare request or Mongo read path fails.
