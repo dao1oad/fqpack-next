@@ -227,7 +227,15 @@ function Invoke-GitCleanPreservingRepoVenv {
         "-e",
         ".venv/",
         "-e",
-        ".venv"
+        ".venv",
+        "-e",
+        ".pytest_cache/",
+        "-e",
+        ".pytest_cache",
+        "-e",
+        "logs/runtime/",
+        "-e",
+        "logs/runtime"
     )
 }
 
