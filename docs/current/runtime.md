@@ -173,3 +173,10 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - `freshquant.position_management.credit_client.PositionCreditClient` 现在对 `query_credit_detail()` 采用相同的读请求自愈逻辑；这层被 `xt_auto_repay`、`position_management.snapshot_service` 等宿主机链路复用。
 - `freshquant.xt_auto_repay.worker.XtAutoRepayWorker` 现在只对“确认还款前的 `query_credit_detail()`”做带退避的可重试 XT 自愈：命中 `xtquant connect/subscribe failed` 或空明细时，会先 reset 当前 credit client，再重建新的 executor 后继续查询。
 - `xt_auto_repay` 的真实 `submit_direct_cash_repay()` 仍然不做盲目自动重提，避免在券商侧已受理但客户端回包异常时制造重复还款。
+
+## Trade Calendar Refresh Runtime
+
+- Dagster provides `trade_calendar_refresh_job` to refresh the persisted A-share trade calendar cache.
+- `trade_calendar_morning_refresh_schedule` runs at `08:30` Asia/Shanghai on weekdays.
+- `trade_calendar_postclose_refresh_schedule` runs at `15:10` Asia/Shanghai on weekdays.
+- Stock, ETF, Gantt, and daily-screening date resolution read the shared FreshQuant trade calendar entry, which falls back to Mongo last-known-good data when the live Sina/AkShare request fails.

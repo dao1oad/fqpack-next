@@ -146,3 +146,10 @@
 - 查执行事实先看 `om_broker_orders / om_execution_fills`
 - 查 odd-lot 或拒绝写入先看 `om_ingest_rejections`
 - 查 legacy 镜像问题最后再看 `stock_fills_compat / om_buy_lots`
+
+## Trade Calendar Cache
+
+- `freshquant.trade_calendar_cache` stores the persisted A-share trade calendar snapshot used by FreshQuant and Dagster.
+- The current document key is `market=cn_a`, `source=sina`, with `_id=cn_a:sina`.
+- `trade_dates` are stored as ISO date strings, with `min_trade_date`, `max_trade_date`, `date_count`, `checksum`, `last_success_at`, `last_error_*`, and `fallback_hits` for audit.
+- Redis is not the durable truth for the trade calendar; Mongo is the last-known-good source used when the live Sina/AkShare request fails.

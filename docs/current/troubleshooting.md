@@ -773,3 +773,10 @@ print(inspect.signature(resolve_stock_account))
 - 确认 `fqnext-supervisord` 为 `Running`
 - 用 `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 恢复命中的宿主机 surface
 - 若 verify 失败，先修运行面，再重新执行正式 deploy
+
+## Trade Calendar Failures
+
+- If Dagster stock, ETF, Gantt, or daily-screening runs fail while resolving a trade date, inspect `freshquant.trade_calendar_cache` first.
+- The expected document is `_id=cn_a:sina`; it must have non-empty `trade_dates` and `max_trade_date >= today`.
+- `last_error_type`, `last_error_message`, and `fallback_hits` show whether FreshQuant is serving the last-known-good calendar after a Sina/AkShare request failure.
+- Run `trade_calendar_refresh_job` in Dagster to force a live refresh after the upstream endpoint recovers.

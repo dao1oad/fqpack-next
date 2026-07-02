@@ -7,9 +7,22 @@ from freshquant.database.cache import redis_cache
 from freshquant.trading.dt import fq_trading_fetch_trade_dates
 
 
-@redis_cache.memoize(expiration=86400)
 def tool_trade_date_hist_sina():
     return fq_trading_fetch_trade_dates(source="sina")
+
+
+def refresh_trade_date_hist_sina_cache():
+    import akshare as ak
+
+    from freshquant.data.trade_calendar_cache import (
+        refresh_trade_calendar_cache,
+    )
+    from freshquant.trading.dt import _fetch_trade_dates_from_source
+
+    return refresh_trade_calendar_cache(
+        lambda: _fetch_trade_dates_from_source(ak.tool_trade_date_hist_sina),
+        source="sina",
+    )
 
 
 @redis_cache.memoize(expiration=15)
@@ -86,12 +99,12 @@ def get_trade_dates_between(start_date, end_date):
     """
     # 转换输入参数为date对象
     if isinstance(start_date, str):
-        start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+        start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
     elif isinstance(start_date, datetime):
         start_date = start_date.date()
 
     if isinstance(end_date, str):
-        end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+        end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
     elif isinstance(end_date, datetime):
         end_date = end_date.date()
 
@@ -115,4 +128,4 @@ if __name__ == "__main__":
     print(tool_trade_date_last())
 
     # 测试新函数
-    print(get_trade_dates_between('2024-01-01', '2024-01-31'))
+    print(get_trade_dates_between("2024-01-01", "2024-01-31"))
