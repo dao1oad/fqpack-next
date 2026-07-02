@@ -78,6 +78,15 @@ def test_run_production_deploy_cleans_ignored_artifacts_but_keeps_repo_venv() ->
     assert '".venv"' in text
 
 
+def test_run_production_deploy_sets_production_compose_env_file() -> None:
+    text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
+
+    assert "function Ensure-ProductionComposeEnvFile" in text
+    assert '$env:FQ_COMPOSE_ENV_FILE' in text
+    assert '"config\\fqnext.compose.env"' in text
+    assert "Ensure-ProductionComposeEnvFile -CanonicalRoot $CanonicalRoot" in text
+
+
 def test_run_production_deploy_quiesces_host_runtime_before_retrying_uv_sync() -> None:
     text = Path("script/ci/run_production_deploy.ps1").read_text(encoding="utf-8")
 
