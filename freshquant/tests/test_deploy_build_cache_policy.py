@@ -23,7 +23,9 @@ def test_web_context_has_local_dockerignore_for_build_outputs() -> None:
 def test_dockerfile_web_installs_dependencies_before_copying_sources() -> None:
     text = Path("docker/Dockerfile.web").read_text(encoding="utf-8")
 
-    manifest_copy = text.index("COPY package.json pnpm-lock.yaml ./")
+    manifest_copy = text.index(
+        "COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./"
+    )
     source_copy = text.index("COPY src ./src")
     install = text.index("pnpm install --prefer-offline")
 
