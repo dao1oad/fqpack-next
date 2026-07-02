@@ -21,6 +21,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - 这条命令只用于显式全量重建；日常 selective deploy 统一优先走 `script/fq_apply_deploy_plan.ps1`
 - Docker 构建默认启用 BuildKit 本地缓存；未显式设置时，`script/docker_parallel_compose.ps1` 会把 `FQ_DOCKER_BUILD_CACHE_ROOT` 设为仓库下的 `.artifacts/docker-build-cache`
+- `fq_webui` Docker 构建在 `pnpm install` 前复制 `pnpm-workspace.yaml`；其中的 `allowBuilds` 只允许 `core-js`、`esbuild`、`vue-demi` 执行安装期 build scripts，避免 pnpm 11 非交互构建被 `ERR_PNPM_IGNORED_BUILDS` 阻断。
 - Runtime Observability 的 ClickHouse 默认通过 `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD` 创建并使用专用查询用户；不要再让 API / indexer 走无凭证 `default`
 - 当前默认不会主动拉取 GHCR 远端缓存；只有显式设置 `FQ_ENABLE_REMOTE_CACHE_PULL=1` 时，`docker_parallel_compose.ps1` 才会进入 `remote_cached` 分支并执行 `docker pull`
 - `main` 合并后的镜像发布 workflow：`.github/workflows/docker-images.yml`
