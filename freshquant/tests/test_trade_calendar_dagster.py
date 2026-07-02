@@ -5,6 +5,14 @@ from types import ModuleType, SimpleNamespace
 
 import pandas as pd
 
+from freshquant.data.trade_calendar_cache import (
+    FRAME_ATTR_ERROR_MESSAGE,
+    FRAME_ATTR_ERROR_TYPE,
+    FRAME_ATTR_STATUS,
+    STATUS_FILE_SNAPSHOT,
+    STATUS_LIVE,
+)
+
 
 def _build_dagster_stub():
     module = ModuleType("dagster")
@@ -100,6 +108,41 @@ def test_trade_calendar_asset_refreshes_persistent_cache(monkeypatch):
         "min_trade_date": "2026-03-18",
         "max_trade_date": "2026-03-19",
         "source": "sina",
+        "refresh_status": STATUS_LIVE,
+        "degraded": False,
+        "source_error_type": "",
+        "source_error_message": "",
+    }
+
+
+def test_trade_calendar_asset_reports_degraded_cache_refresh(monkeypatch):
+    _prepare_fqdagster_import(monkeypatch)
+    assets_module = importlib.import_module("fqdagster.defs.assets.trade_calendar")
+
+    def fake_refresh():
+        frame = pd.DataFrame(
+            {"trade_date": pd.to_datetime(["2026-03-18", "2026-12-31"]).date}
+        )
+        frame.attrs[FRAME_ATTR_STATUS] = STATUS_FILE_SNAPSHOT
+        frame.attrs[FRAME_ATTR_ERROR_TYPE] = "SSLError"
+        frame.attrs[FRAME_ATTR_ERROR_MESSAGE] = "temporary ssl failure"
+        return frame
+
+    monkeypatch.setattr(
+        assets_module,
+        "refresh_trade_date_hist_sina_cache",
+        fake_refresh,
+    )
+
+    assert assets_module.trade_calendar_cache_asset() == {
+        "date_count": 2,
+        "min_trade_date": "2026-03-18",
+        "max_trade_date": "2026-12-31",
+        "source": "sina",
+        "refresh_status": STATUS_FILE_SNAPSHOT,
+        "degraded": True,
+        "source_error_type": "SSLError",
+        "source_error_message": "temporary ssl failure",
     }
 
 

@@ -15,13 +15,14 @@ def refresh_trade_date_hist_sina_cache():
     import akshare as ak
 
     from freshquant.data.trade_calendar_cache import (
-        refresh_trade_calendar_cache,
+        fetch_trade_dates_with_persistent_cache,
     )
     from freshquant.trading.dt import _fetch_trade_dates_from_source
 
-    return refresh_trade_calendar_cache(
+    return fetch_trade_dates_with_persistent_cache(
         lambda: _fetch_trade_dates_from_source(ak.tool_trade_date_hist_sina),
         source="sina",
+        prefer_cache=False,
     )
 
 

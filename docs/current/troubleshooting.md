@@ -779,4 +779,6 @@ print(inspect.signature(resolve_stock_account))
 - If Dagster stock, ETF, Gantt, or daily-screening runs fail while resolving a trade date, inspect `freshquant.trade_calendar_cache` first.
 - The expected document is `_id=cn_a:sina`; it must have non-empty `trade_dates` and `max_trade_date >= today`.
 - `last_error_type`, `last_error_message`, and `fallback_hits` show whether FreshQuant is serving the last-known-good calendar after a Sina/AkShare request failure.
-- Run `trade_calendar_refresh_job` in Dagster to force a live refresh after the upstream endpoint recovers.
+- In Docker, API and Dagster also share `FQ_TRADE_CALENDAR_STATE_DIR`; check `cn_a_sina.json` there if Mongo is unavailable or the cache document is missing.
+- `trade_calendar_refresh_job` can complete in degraded mode when live Sina/AkShare fails but Mongo or the disk snapshot covers the current date; inspect the asset result fields `refresh_status`, `degraded`, `source_error_type`, and `source_error_message`.
+- Run `trade_calendar_refresh_job` in Dagster to force a live refresh after the upstream endpoint recovers; a successful live refresh rewrites both Mongo and the disk snapshot.

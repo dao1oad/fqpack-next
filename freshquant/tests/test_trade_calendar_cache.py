@@ -5,8 +5,15 @@ import pytest
 from requests.exceptions import SSLError  # type: ignore[import-untyped]
 
 from freshquant.data.trade_calendar_cache import (
+    FRAME_ATTR_ERROR_MESSAGE,
+    FRAME_ATTR_ERROR_TYPE,
+    FRAME_ATTR_STATUS,
+    STATUS_FILE_SNAPSHOT,
+    STATUS_LIVE,
+    STATUS_MONGO_CACHE,
     TradeCalendarUnavailable,
     fetch_trade_dates_with_persistent_cache,
+    read_trade_calendar_snapshot,
     refresh_trade_calendar_cache,
 )
 from freshquant.trading import dt
@@ -43,6 +50,17 @@ class FakeTradeCalendarCollection:
             doc[field] = int(doc.get(field) or 0) + int(increment)
         self.docs[(doc["market"], doc["source"])] = doc
         return doc
+
+
+class FailingTradeCalendarCollection:
+    def create_index(self, fields, **kwargs):
+        raise RuntimeError("mongo unavailable")
+
+    def find_one(self, query):
+        raise RuntimeError("mongo unavailable")
+
+    def update_one(self, query, update, upsert=False):
+        raise RuntimeError("mongo unavailable")
 
 
 def _cache_doc(*, max_trade_date="2026-12-31"):
@@ -85,10 +103,12 @@ def test_fetch_trade_dates_uses_valid_mongo_cache_without_remote_call():
         "2026-03-19",
         "2026-12-31",
     ]
+    assert result.attrs[FRAME_ATTR_STATUS] == STATUS_MONGO_CACHE
 
 
-def test_refresh_trade_calendar_cache_persists_normalized_source_dates():
+def test_refresh_trade_calendar_cache_persists_normalized_source_dates(tmp_path):
     collection = FakeTradeCalendarCollection()
+    snapshot_path = tmp_path / "cn_a_sina.json"
 
     result = refresh_trade_calendar_cache(
         lambda: pd.DataFrame(
@@ -102,16 +122,25 @@ def test_refresh_trade_calendar_cache_persists_normalized_source_dates():
         ),
         collection=collection,
         now_provider=_now,
+        snapshot_path=snapshot_path,
     )
 
     doc = collection.find_one({"market": "cn_a", "source": "sina"})
     assert list(result["trade_date"].astype(str)) == ["2026-03-18", "2026-03-19"]
+    assert result.attrs[FRAME_ATTR_STATUS] == STATUS_LIVE
     assert doc["trade_dates"] == ["2026-03-18", "2026-03-19"]
     assert doc["min_trade_date"] == "2026-03-18"
     assert doc["max_trade_date"] == "2026-03-19"
     assert doc["date_count"] == 2
     assert doc["last_error_type"] == ""
     assert collection.created_indexes
+    snapshot = read_trade_calendar_snapshot(
+        snapshot_path=snapshot_path,
+        require_covering_today=False,
+    )
+    assert snapshot is not None
+    assert list(snapshot["trade_date"].astype(str)) == ["2026-03-18", "2026-03-19"]
+    assert snapshot.attrs[FRAME_ATTR_STATUS] == STATUS_FILE_SNAPSHOT
 
 
 def test_fetch_trade_dates_falls_back_to_cache_and_records_source_error():
@@ -126,9 +155,37 @@ def test_fetch_trade_dates_falls_back_to_cache_and_records_source_error():
 
     doc = collection.find_one({"market": "cn_a", "source": "sina"})
     assert list(result["trade_date"].astype(str))[-1] == "2026-12-31"
+    assert result.attrs[FRAME_ATTR_STATUS] == STATUS_MONGO_CACHE
+    assert result.attrs[FRAME_ATTR_ERROR_TYPE] == "SSLError"
+    assert result.attrs[FRAME_ATTR_ERROR_MESSAGE] == "temporary ssl failure"
     assert doc["last_error_type"] == "SSLError"
     assert doc["last_error_message"] == "temporary ssl failure"
     assert doc["fallback_hits"] == 1
+
+
+def test_fetch_trade_dates_falls_back_to_file_snapshot_when_mongo_unavailable(
+    tmp_path,
+):
+    snapshot_path = tmp_path / "cn_a_sina.json"
+    refresh_trade_calendar_cache(
+        lambda: pd.DataFrame({"trade_date": ["2026-03-18", "2026-12-31"]}),
+        collection=FakeTradeCalendarCollection(),
+        now_provider=_now,
+        snapshot_path=snapshot_path,
+    )
+
+    result = fetch_trade_dates_with_persistent_cache(
+        lambda: (_ for _ in ()).throw(SSLError("temporary ssl failure")),
+        collection=FailingTradeCalendarCollection(),
+        now_provider=_now,
+        prefer_cache=False,
+        snapshot_path=snapshot_path,
+    )
+
+    assert list(result["trade_date"].astype(str)) == ["2026-03-18", "2026-12-31"]
+    assert result.attrs[FRAME_ATTR_STATUS] == STATUS_FILE_SNAPSHOT
+    assert result.attrs[FRAME_ATTR_ERROR_TYPE] == "SSLError"
+    assert result.attrs[FRAME_ATTR_ERROR_MESSAGE] == "temporary ssl failure"
 
 
 def test_fetch_trade_dates_fails_closed_when_cache_no_longer_covers_today():
