@@ -217,6 +217,24 @@ function Ensure-SafeDirectory {
     }
 }
 
+function Ensure-ProductionComposeEnvFile {
+    param([string]$CanonicalRoot)
+
+    if (-not [string]::IsNullOrWhiteSpace($env:FQ_COMPOSE_ENV_FILE)) {
+        if (-not (Test-Path $env:FQ_COMPOSE_ENV_FILE)) {
+            throw "FQ_COMPOSE_ENV_FILE does not exist: $($env:FQ_COMPOSE_ENV_FILE)"
+        }
+        return
+    }
+
+    $fqpackRoot = Split-Path -Parent $CanonicalRoot
+    $productionComposeEnvFile = Join-Path $fqpackRoot "config\fqnext.compose.env"
+    if (-not (Test-Path $productionComposeEnvFile)) {
+        throw "production compose env file not found: $productionComposeEnvFile"
+    }
+    $env:FQ_COMPOSE_ENV_FILE = $productionComposeEnvFile
+}
+
 function Invoke-GitCleanPreservingRepoVenv {
     param([string]$RepoRoot)
 
@@ -413,6 +431,7 @@ $CanonicalRoot = [System.IO.Path]::GetFullPath((Resolve-Path $CanonicalRoot).Pat
 if (-not (Test-Path $CanonicalRoot)) {
     throw "canonical repo root does not exist: $CanonicalRoot"
 }
+Ensure-ProductionComposeEnvFile -CanonicalRoot $CanonicalRoot
 
 $pythonExe = Resolve-Python312Executable
 Ensure-UserPythonCoreRegistration -PythonExe $pythonExe

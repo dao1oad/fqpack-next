@@ -115,7 +115,7 @@
 
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`
 - 宿主机 `.env` 示例默认不再携带 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
-- Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向主工作树 `.env`
+- Production Docker API 使用 `FQ_COMPOSE_ENV_FILE` 指向 `D:/fqpack/config/fqnext.compose.env`，不要依赖会被 `git clean -ffdx` 清理的仓库根 `.env`
 - GHCR 预构建镜像仅用于加速 Docker 部署，不改变运行真值；实际运行真值仍来自当前 `main`、deploy 结果与 health/runtime ops evidence
 - `deploy-production.yml` 在正式 Windows self-hosted runner 上把 deploy state / logs 固化到 `formal-deploy` artifacts 目录，但正式 deploy 真值已经改为本机 mirror，不再依赖下载部署归档或把 Docker Images 作为前置。
 - `deploy-production.yml` 不走 `actions/checkout`，而是先把 `D:\fqpack\freshquant-2026.2.23` 这个 local main sync root reset 到目标 SHA，再直接调用那里的 `script/ci/run_production_deploy.ps1`；随后该脚本继续确保 `D:\fqpack\freshquant-2026.2.23` 这个本机 canonical repo root worktree 存在并 fast-forward 到目标 SHA。
