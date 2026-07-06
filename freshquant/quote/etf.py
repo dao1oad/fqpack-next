@@ -18,6 +18,7 @@ from freshquant.data.adj_intraday import (
 from freshquant.database.cache import in_memory_cache, redis_cache
 from freshquant.db import DBfreshquant
 from freshquant.quote.general import resample3min, resampleStockOrIndex120min
+from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
 
@@ -74,6 +75,13 @@ def _resolve_etf_history_days(period: str, bar_count=0):
     return default_days
 
 
+def _filter_trade_date_realtime_rows(rows: pd.DataFrame) -> pd.DataFrame:
+    if rows is None or len(rows) == 0 or "datetime" not in rows.columns:
+        return rows
+    mask = rows["datetime"].apply(is_cn_a_trade_date)
+    return rows.loc[mask].copy()
+
+
 @in_memory_cache.memoize(expiration=3)
 def queryEtfCandleSticks(code: str, period: str, endDate=None, bar_count=0):
     if endDate is None or endDate == "":
@@ -105,7 +113,7 @@ def queryEtfCandleSticks(code: str, period: str, endDate=None, bar_count=0):
     elif period == "1w":
         candleSticks = queryEtfCandleSticksDay(code, start, end)
         candleSticks = QA_data_day_resample(candleSticks, "w")
-        candleSticks['time_stamp'] = candleSticks.index.to_series().apply(
+        candleSticks["time_stamp"] = candleSticks.index.to_series().apply(
             lambda value: value[0].timestamp()
         )
     if candleSticks is not None and bar_count and len(candleSticks) > int(bar_count):
@@ -139,13 +147,13 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
     data = data[
         ["datetime", "open", "close", "high", "low", "volume", "amount", "time_stamp"]
     ]
-    last_datetime = data["datetime"][-1]
+    last_datetime = data["datetime"].iloc[-1]
     realtime_data_list = (
         DBfreshquant["index_realtime"]
         .find(
             {
                 "code": fq_util_code_append_market_code(code, upper_case=False),
-                "frequence": '1d',
+                "frequence": "1d",
                 "datetime": {"$gt": last_datetime, "$lte": end_dt},
                 "open": {"$gt": 0},
                 "high": {"$gt": 0},
@@ -156,6 +164,7 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
         .sort("datetime", pymongo.ASCENDING)
     )
     realtime_data_list = pd.DataFrame(realtime_data_list)
+    realtime_data_list = _filter_trade_date_realtime_rows(realtime_data_list)
     if len(realtime_data_list) > 0:
         realtime_data_list["time_stamp"] = realtime_data_list["datetime"].apply(
             lambda value: QA_util_time_stamp(value)
@@ -230,7 +239,7 @@ def queryEtfCandleSticksMin(code, frequence, start=None, end=None):
     data = data[
         ["datetime", "open", "close", "high", "low", "volume", "amount", "time_stamp"]
     ]
-    last_datetime = data["datetime"][-1]
+    last_datetime = data["datetime"].iloc[-1]
     realtime_data_list = (
         DBfreshquant["index_realtime"]
         .find(
@@ -247,6 +256,7 @@ def queryEtfCandleSticksMin(code, frequence, start=None, end=None):
         .sort("datetime", pymongo.ASCENDING)
     )
     realtime_data_list = pd.DataFrame(realtime_data_list)
+    realtime_data_list = _filter_trade_date_realtime_rows(realtime_data_list)
     if len(realtime_data_list) > 0:
         realtime_data_list["time_stamp"] = realtime_data_list["datetime"].apply(
             lambda value: QA_util_time_stamp(value)

@@ -49,7 +49,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - `11:30:00` 与 `15:00:00` 这类交易时段结束边界快照会归入最后一个有效分钟 bar，而不是落到午休或收盘后的无效分钟桶。
 - `StrategyConsumer` 当前只允许“当天”的 realtime bar 参与 history/realtime merge；所有已完成交易日的分钟线都只信任盘后同步到 QuantAxis 的历史库，不再允许旧 `index_realtime/stock_realtime` 覆盖历史分钟线。
 - `OneMinuteBarGenerator` 和 `StrategyConsumer` 都会通过 FreshQuant A 股交易日历拦截非交易日 bar；周末/节假日 tick 不生成 bar，非交易日 `BAR_CLOSE` 不写入 `stock_realtime/index_realtime`。
-- consumer prewarm 与股票分钟线 API 拼接都会过滤非交易日 realtime 行，避免历史脏数据继续进入 Redis Kline cache 或 `/api/stock_data` 返回值。
+- consumer prewarm、股票分钟线 API 拼接与 ETF/index K 线查询都会过滤非交易日 realtime 行，避免历史脏数据继续进入 Redis Kline cache 或 `/api/stock_data` 返回值。
 
 ## 存储
 
