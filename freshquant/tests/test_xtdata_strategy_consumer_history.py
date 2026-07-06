@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 import pandas as pd
+import pytest
 
 import freshquant.market_data.xtdata.strategy_consumer as sc
 from freshquant.config import cfg
@@ -113,6 +114,11 @@ def _make_consumer(*, is_index_like: bool) -> sc.StrategyConsumer:
     consumer._is_index_like = lambda _code: is_index_like
     consumer._heartbeat_state = sc.ConsumerHeartbeatState(window_s=300.0)
     return cast(sc.StrategyConsumer, consumer)
+
+
+@pytest.fixture(autouse=True)
+def _patch_trade_calendar(monkeypatch):
+    monkeypatch.setattr(sc, "is_cn_a_trade_date", lambda dt: dt.weekday() < 5)
 
 
 def test_load_window_from_db_reads_stock_history_without_external_quantaxis(
@@ -224,7 +230,7 @@ def test_load_window_from_db_applies_single_qfq_to_raw_stock_realtime(
 
 
 def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
-    now_dt = datetime.now(tz=cfg.TZ).replace(second=0, microsecond=0)
+    now_dt = cfg.TZ.localize(datetime(2026, 7, 6, 9, 35, 0))
     captured: dict[str, Any] = {}
 
     def fake_upsert_realtime_bars(*, collection, code, frequence, records):
@@ -300,10 +306,61 @@ def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
     assert captured["records"][0]["close"] == 10.5
 
 
+def test_handle_bar_close_skips_non_trading_day(monkeypatch):
+    weekend_dt = cfg.TZ.localize(datetime(2026, 7, 4, 9, 35, 0))
+    calls: list[dict[str, Any]] = []
+
+    class DummyScheduler:
+        def __init__(self) -> None:
+            self.updates: list[tuple[tuple[str, str], dict[str, Any]]] = []
+
+        def update(self, key, meta) -> None:
+            self.updates.append((key, meta))
+
+    monkeypatch.setattr(
+        sc, "upsert_realtime_bars", lambda **kwargs: calls.append(kwargs)
+    )
+
+    consumer = cast(Any, object.__new__(sc.StrategyConsumer))
+    consumer.max_bars = 32
+    consumer._is_index_like = lambda _code: False
+    consumer._lock = threading.Lock()
+    consumer._backfill_lock = threading.Lock()
+    consumer._backfilling_codes = set()
+    consumer._known_codes = {"sh600104"}
+    consumer._last_bar_ts = {}
+    consumer._windows = {}
+    consumer._dirty_latest = {}
+    consumer._catchup_mode = False
+    consumer._heartbeat_state = sc.ConsumerHeartbeatState(window_s=300.0)
+    consumer._scheduler = DummyScheduler()
+    consumer._model_ids_for = lambda _code, _period: []
+    consumer._maybe_trigger_backfill = lambda **_kwargs: False
+
+    consumer.handle_bar_close(
+        BarCloseEvent(
+            code="sh600104",
+            period="5min",
+            data={
+                "time": int(weekend_dt.timestamp()),
+                "open": 9.87,
+                "high": 10.11,
+                "low": 9.11,
+                "close": 10.1,
+                "volume": 160.0,
+                "amount": 160000.0,
+            },
+        )
+    )
+
+    assert calls == []
+    assert consumer._scheduler.updates == []
+
+
 def test_handle_bar_close_does_not_refresh_symbol_position_snapshot_on_1min(
     monkeypatch,
 ):
-    now_dt = datetime.now(tz=cfg.TZ).replace(second=0, microsecond=0)
+    now_dt = cfg.TZ.localize(datetime(2026, 7, 6, 9, 35, 0))
 
     class DummyScheduler:
         def update(self, _key, _meta) -> None:
@@ -544,3 +601,62 @@ def test_load_window_from_db_ignores_completed_day_realtime_overlap(monkeypatch)
     assert result["low"].tolist() == [0.518, 0.514]
     assert result["open"].tolist() == [0.518, 0.515]
     assert result["close"].tolist() == [0.519, 0.515]
+
+
+def test_load_window_from_db_filters_non_trading_day_realtime(monkeypatch):
+    _disable_quantaxis_import(monkeypatch)
+
+    now_dt = cfg.TZ.localize(datetime(2026, 7, 4, 10, 0, 0))
+    friday_bar = cfg.TZ.localize(datetime(2026, 7, 3, 15, 0, 0))
+    saturday_bar = cfg.TZ.localize(datetime(2026, 7, 4, 9, 35, 0))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return now_dt
+            return now_dt.astimezone(tz)
+
+    monkeypatch.setattr(sc, "datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        sc,
+        "DBQuantAxis",
+        FakeDatabase(
+            {
+                "stock_min": FakeCollection(
+                    [_make_bar_doc(friday_bar, code="600104", period="5min", open_=9.8)]
+                ),
+                "stock_adj": FakeCollection([]),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        sc,
+        "DBfreshquant",
+        FakeDatabase(
+            {
+                "stock_realtime": FakeCollection(
+                    [
+                        {
+                            "code": "sh600104",
+                            "frequence": "5min",
+                            "datetime": saturday_bar,
+                            "open": 9.87,
+                            "high": 10.11,
+                            "low": 9.11,
+                            "close": 10.1,
+                            "volume": 160.0,
+                            "amount": 160000.0,
+                        }
+                    ]
+                )
+            }
+        ),
+    )
+
+    consumer = _make_consumer(is_index_like=False)
+    result = consumer._load_window_from_db(code="sh600104", period_backend="5min")
+
+    assert result["datetime"].dt.strftime("%Y-%m-%d %H:%M").tolist() == [
+        friday_bar.strftime("%Y-%m-%d %H:%M")
+    ]

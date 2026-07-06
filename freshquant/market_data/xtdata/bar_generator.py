@@ -14,6 +14,7 @@ from typing import Any, Optional
 from freshquant.market_data.xtdata.constants import queue_key_for_code
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 from freshquant.runtime_constants import TZ
+from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -22,6 +23,8 @@ except Exception:  # pragma: no cover
 
 
 def _is_cn_a_trading_datetime(dt: datetime) -> bool:
+    if not is_cn_a_trade_date(dt):
+        return False
     t = dt.time()
     return (
         t >= datetime(dt.year, dt.month, dt.day, 9, 30).time()
@@ -74,6 +77,8 @@ def _timer_close_cutoff(dt: datetime) -> int:
 
 
 def _should_scan_timer(dt: datetime) -> bool:
+    if not is_cn_a_trade_date(dt):
+        return False
     if _is_cn_a_trading_datetime(dt):
         return True
     return (dt.hour, dt.minute) in {(11, 30), (15, 0)}

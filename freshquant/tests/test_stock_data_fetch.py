@@ -102,6 +102,7 @@ def _patch_common(monkeypatch, stock_module, collection):
         lambda code, upper_case=False: f"sz{code}",
     )
     monkeypatch.setattr(stock_module, "QA_util_time_stamp", lambda _: 0)
+    monkeypatch.setattr(stock_module, "is_cn_a_trade_date", lambda _value: True)
     monkeypatch.setattr(
         stock_module,
         "QA_util_datetime_to_strdatetime",

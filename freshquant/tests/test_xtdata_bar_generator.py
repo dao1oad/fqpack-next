@@ -9,6 +9,14 @@ from freshquant.market_data.xtdata.bar_generator import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _patch_trade_calendar(monkeypatch):
+    monkeypatch.setattr(
+        "freshquant.market_data.xtdata.bar_generator.is_cn_a_trade_date",
+        lambda dt: dt.weekday() < 5,
+    )
+
+
 def _tick(y, m, d, hour, minute, second, *, price, volume, amount):
     dt = runtime_constants.TZ.localize(datetime(y, m, d, hour, minute, second))
     return {
@@ -50,6 +58,21 @@ def generator():
 )
 def test_timer_only_scans_during_trading_or_session_close_window(dt, expected):
     assert _should_scan_timer(dt) is expected
+
+
+def test_timer_skips_non_trading_day_session_window():
+    assert _should_scan_timer(_dt(2026, 7, 4, 9, 35, 0)) is False
+    assert _should_scan_timer(_dt(2026, 7, 4, 15, 0, 0)) is False
+
+
+def test_weekend_tick_is_ignored(generator):
+    events = generator._process_single_tick(
+        "sh600104",
+        _tick(2026, 7, 4, 9, 35, 0, price=9.87, volume=100, amount=98700),
+    )
+
+    assert events == []
+    assert "sh600104" not in generator._bars
 
 
 def test_zero_delta_snapshot_does_not_rewrite_bar_ohlc(generator):
