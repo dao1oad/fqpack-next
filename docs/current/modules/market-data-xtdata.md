@@ -48,6 +48,8 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - `OneMinuteBarGenerator` 当前只在 `whole_quote` 快照带来正向 `volume/amount` 增量时更新 1 分钟 bar 的 OHLC；无成交的 quote-only 快照不会再改写分钟高低收。
 - `11:30:00` 与 `15:00:00` 这类交易时段结束边界快照会归入最后一个有效分钟 bar，而不是落到午休或收盘后的无效分钟桶。
 - `StrategyConsumer` 当前只允许“当天”的 realtime bar 参与 history/realtime merge；所有已完成交易日的分钟线都只信任盘后同步到 QuantAxis 的历史库，不再允许旧 `index_realtime/stock_realtime` 覆盖历史分钟线。
+- `OneMinuteBarGenerator` 和 `StrategyConsumer` 都会通过 FreshQuant A 股交易日历拦截非交易日 bar；周末/节假日 tick 不生成 bar，非交易日 `BAR_CLOSE` 不写入 `stock_realtime/index_realtime`。
+- consumer prewarm 与股票分钟线 API 拼接都会过滤非交易日 realtime 行，避免历史脏数据继续进入 Redis Kline cache 或 `/api/stock_data` 返回值。
 
 ## 存储
 
@@ -121,6 +123,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 - 检查 Redis realtime cache 是否更新。
 - 检查 `/api/stock_data` 是否启用了 realtime cache。
+- 如果页面出现周末/节假日 Kline，先查 `freshquant.stock_realtime` 与 `freshquant.index_realtime` 对应日期是否存在 `source=xtdata` 行；这些行属于实时表脏数据，需要先备份后删除，并同步清理受影响的 `CACHE:KLINE:<code>:<period>` Redis 缓存。
 
 ### TPSL 不收到 tick
 

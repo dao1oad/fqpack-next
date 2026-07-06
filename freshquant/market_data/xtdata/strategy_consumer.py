@@ -40,6 +40,7 @@ from freshquant.market_data.xtdata.schema import BarCloseEvent
 from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.system_settings import system_settings
+from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.period import (
     PUBSUB_CHANNEL,
     get_redis_cache_key,
@@ -104,6 +105,8 @@ def _is_cn_a_trading_bar_end(dt: datetime) -> bool:
     """
     dt is bar end time (e.g. 09:31, 11:30, 13:01, 15:00).
     """
+    if not is_cn_a_trade_date(dt):
+        return False
     t = dt.time()
     return (
         t >= datetime(dt.year, dt.month, dt.day, 9, 31).time()
@@ -183,6 +186,15 @@ def _normalize_bar_window_df(df: pd.DataFrame) -> pd.DataFrame:
     bars["datetime"] = pd.DatetimeIndex(bars["datetime"])
 
     return bars.sort_values("datetime").reset_index(drop=True)
+
+
+def _filter_trade_date_bar_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty or "datetime" not in df.columns:
+        return df
+    bars = df.copy()
+    bars["_fq_is_trade_date"] = bars["datetime"].apply(is_cn_a_trade_date)
+    bars = bars[bars["_fq_is_trade_date"]].drop(columns=["_fq_is_trade_date"])
+    return bars.reset_index(drop=True)
 
 
 def _load_minute_history_from_quantaxis_db(
@@ -601,6 +613,7 @@ class StrategyConsumer:
             .sort("datetime", 1)
         )
         rt_df = pd.DataFrame(list(rt_cur))
+        rt_df = _filter_trade_date_bar_df(rt_df)
 
         start_date = start_dt.strftime("%Y-%m-%d")
         end_date = end_dt.strftime("%Y-%m-%d")
@@ -1104,6 +1117,12 @@ class StrategyConsumer:
             return
 
         dt = datetime.fromtimestamp(ts, tz=TZ)
+        if not _is_cn_a_trading_bar_end(dt):
+            logger.warning(
+                f"[Consumer] ignore non-trading bar close {code} {period} {dt.isoformat()}"
+            )
+            return
+
         bar_raw = {
             "datetime": dt,
             "code": code,

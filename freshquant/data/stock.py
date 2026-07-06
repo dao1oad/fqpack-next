@@ -14,6 +14,7 @@ from freshquant.data.adj_intraday import (
 )
 from freshquant.database.cache import redis_cache
 from freshquant.db import DBfreshquant
+from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
 
@@ -64,6 +65,13 @@ def _apply_stock_qfq(
     )
 
 
+def _filter_trade_date_realtime_rows(rows: pd.DataFrame) -> pd.DataFrame:
+    if rows is None or len(rows) == 0 or "datetime" not in rows.columns:
+        return rows
+    mask = rows["datetime"].apply(is_cn_a_trade_date)
+    return rows.loc[mask].copy()
+
+
 def fq_data_stock_fetch_min(code, frequence, start=None, end=None):
     start_dt = start
     end_dt = end
@@ -95,6 +103,7 @@ def fq_data_stock_fetch_min(code, frequence, start=None, end=None):
         .sort("datetime", pymongo.ASCENDING)
     )
     realtime_data_list = pd.DataFrame(realtime_data_list)
+    realtime_data_list = _filter_trade_date_realtime_rows(realtime_data_list)
     data = data[
         ["datetime", "open", "close", "high", "low", "volume", "amount", "time_stamp"]
     ]
@@ -171,7 +180,7 @@ def fq_data_stock_fetch_day(code, start=None, end=None):
         .find(
             {
                 "code": fq_util_code_append_market_code(code, upper_case=False),
-                "frequence": '1d',
+                "frequence": "1d",
                 "datetime": {"$gt": last_datetime, "$lte": end},
                 "open": {"$gt": 0},
                 "high": {"$gt": 0},
@@ -182,6 +191,7 @@ def fq_data_stock_fetch_day(code, start=None, end=None):
         .sort("datetime", pymongo.ASCENDING)
     )
     realtime_data_list = pd.DataFrame(realtime_data_list)
+    realtime_data_list = _filter_trade_date_realtime_rows(realtime_data_list)
     if len(realtime_data_list) > 0:
         realtime_data_list["time_stamp"] = realtime_data_list["datetime"].apply(
             lambda value: QA_util_time_stamp(value)
