@@ -540,6 +540,38 @@ print(repo.list_reconciliation_resolutions())
 - 重新执行命中的 Docker deploy 或整轮 formal deploy
 - 再次执行 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify`，确认 Dagster 容器从 `Restarting` 恢复为 `running`
 
+## 股票日线/分钟线停更但 Dagster run 显示成功
+
+现象：
+
+- KlineSlim 行情图表最新 K 线停在某个历史交易日，全市场（不只个股）都缺同一段日期
+- `quantaxis.stock_day` / `quantaxis.stock_min` 的 `max(date)` 落后于最近交易日
+- Dagster `stock_data_job` 每天照跑且状态 SUCCESS
+- `stock_day` 步骤 compute log 里逐票刷 `'open'`、`'NoneType' object has no attribute 'columns'`，结尾打出覆盖几乎全市场的 `ERROR CODE` 列表
+
+先检查：
+
+```powershell
+docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getSiblingDB("quantaxis").stock_day; print(JSON.stringify(c.find({code:"000001"}).sort({date:-1}).limit(1).toArray()[0]))'
+```
+
+- Dagster UI (`http://127.0.0.1:11003`) 中最近 `stock_data_job` run 的 `stock_day` 步骤日志
+- 宿主机是否开启了 TUN 全局代理（`route print -4` 看默认路由是否被 `singbox_tun` 一类虚拟网卡以 metric 0 抢占；容器内出口 IP 是否变成海外）
+
+常见根因：
+
+- 宿主机开启 sing-box/v2rayN 等 TUN 全局代理后，Docker 容器到 TDX 行情端口(7709)的流量被劫持出海外；部分 TDX 服务器直接拒绝(`head_buf is not 0x10`)，其余延迟升到 2~3 秒
+- 旧实现 ping 探活超时 0.7 秒且只测证券列表接口，坏服务器（列表接口正常、K 线接口损坏）会持续通过健康检查，好服务器全部被误判超时，永远切换不出去
+- `QA_SU_save_stock_day` / `QA_SU_save_stock_min` 把逐票异常吞进 `err` 列表只打印，asset 不失败，Dagster 呈现假成功
+
+处理：
+
+- TDX 行情服务器列表由仓库内 `freshquant/gateway/tdx_ip_pool.json` 人工维护（`QUANTAXIS.QAUtil.QAIPPool` 加载，优先于 `~/.quantaxis/setting/*_ip.json` 缓存）；服务器批量失效时更新该 JSON 即可
+- 当前 `QATdx.ping` 已加 K 线接口探活并把连接超时放宽到 3 秒；`select_best_ip` 判定阈值同步放宽，坏 default 服务器会被自动淘汰重选
+- 当前 Dagster `stock_day` / `stock_min` asset 落库后会做数据新鲜度断言（样本蓝筹全部落后或当日文档数过低即 fail），行情停更时 run 会真实失败，不再假成功
+- 宿主机代理软件建议启用"绕过中国大陆"分流或在使用系统链路时关闭 TUN 模式；即使代理未关，修复后的选点/超时也能在慢链路下工作
+- 补缺口：直接在 Dagster UI 手动 launch 一次 `stock_data_job`（增量逻辑按"库内最后日期 → 今天"自动回补），完成后核对 `stock_day` / `stock_min` 的 `max(date)`
+
 ## ETF 前复权未生效但 Dagster run 显示成功
 
 现象：

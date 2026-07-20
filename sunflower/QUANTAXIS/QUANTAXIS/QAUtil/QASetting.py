@@ -28,6 +28,7 @@ import os
 from multiprocessing import Lock
 
 from QUANTAXIS.QASetting.QALocalize import qa_path, setting_path, strategy_path
+from QUANTAXIS.QAUtil.QAIPPool import load_tdx_ip_pool
 from QUANTAXIS.QAUtil.QAMongoRuntime import QA_util_resolve_mongo_runtime
 from QUANTAXIS.QAUtil.QASql import (
     QA_util_sql_async_mongo_setting,
@@ -280,7 +281,12 @@ else:
     with open(INFO_IP_FILE_PATH, "w") as f:
         json.dump(info_ip_list, f)
 
-if os.path.exists(STOCK_IP_FILE_PATH):
+# 仓库内人工维护的 IP 池优先(freshquant/gateway/tdx_ip_pool.json),
+# 避免 ~/.quantaxis 的陈旧缓存把失效服务器带回选点流程
+_pool_stock_ip_list = load_tdx_ip_pool("stock")
+if _pool_stock_ip_list:
+    stock_ip_list = _pool_stock_ip_list
+elif os.path.exists(STOCK_IP_FILE_PATH):
     with open(STOCK_IP_FILE_PATH, "r") as f:
         stock_ip_list = json.load(f)
 else:
@@ -365,7 +371,10 @@ else:
     with open(STOCK_IP_FILE_PATH, "w") as f:
         json.dump(stock_ip_list, f)
 
-if os.path.exists(FUTURE_IP_FILE_PATH):
+_pool_future_ip_list = load_tdx_ip_pool("future")
+if _pool_future_ip_list:
+    future_ip_list = _pool_future_ip_list
+elif os.path.exists(FUTURE_IP_FILE_PATH):
     with open(FUTURE_IP_FILE_PATH, "r") as f:
         future_ip_list = json.load(f)
 else:

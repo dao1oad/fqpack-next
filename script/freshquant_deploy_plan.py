@@ -245,8 +245,10 @@ PATH_RULES: tuple[PathRule, ...] = (
     PrefixRule(
         label="quantaxis",
         prefix="sunflower/QUANTAXIS/",
-        surfaces=("qa", "guardian"),
-        notes=("QUANTAXIS 变更通常同时影响 QAWebServer 和宿主机策略链。",),
+        surfaces=("dagster", "qa", "guardian"),
+        notes=(
+            "QUANTAXIS 变更通常同时影响 Dagster 行情同步、QAWebServer 和宿主机策略链。",
+        ),
     ),
     PrefixRule(
         label="gantt-readmodel",
