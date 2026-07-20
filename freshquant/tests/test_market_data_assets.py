@@ -557,15 +557,22 @@ def test_etf_postclose_ready_asset_writes_marker(monkeypatch):
     )
 
     context = SimpleNamespace(run_id="run-etf-1", log=FakeLog())
-    payload = module.etf_postclose_ready_asset(context, "2026-03-19 16:05:00")
+    payload = module.etf_postclose_ready_asset(
+        context,
+        "2026-03-19 16:05:00",
+        "2026-03-19 16:10:00",
+    )
 
-    assert module.etf_postclose_ready_asset.dependency_names == ["etf_adj"]
+    assert module.etf_postclose_ready_asset.dependency_names == ["etf_adj", "etf_min"]
     assert calls == [
         {
             "pipeline_key": "etf_postclose_ready",
             "trade_date": "2026-03-19",
             "run_id": "run-etf-1",
-            "payload": {},
+            "payload": {
+                "etf_adj_completed_at": "2026-03-19 16:05:00",
+                "etf_min_completed_at": "2026-03-19 16:10:00",
+            },
         }
     ]
     assert payload["trade_date"] == "2026-03-19"
