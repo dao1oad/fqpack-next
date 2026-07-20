@@ -103,7 +103,8 @@ where = ["."]
 include = ["freshquant*"]
 
 [tool.setuptools.package-data]
-freshquant = ["*.pyd", "*.so", "*.yaml", "*.md", "*.toml"]
+freshquant = ["*.pyd", "*.so", "*.yaml", "*.md", "*.toml", "*.json"]
+"freshquant.gateway" = ["*.json"]
 
 [tool.dg]
 directory_type = "project"

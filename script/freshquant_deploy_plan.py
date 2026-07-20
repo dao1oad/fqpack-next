@@ -245,8 +245,18 @@ PATH_RULES: tuple[PathRule, ...] = (
     PrefixRule(
         label="quantaxis",
         prefix="sunflower/QUANTAXIS/",
-        surfaces=("qa", "guardian"),
-        notes=("QUANTAXIS 变更通常同时影响 QAWebServer 和宿主机策略链。",),
+        surfaces=("dagster", "qa", "guardian"),
+        notes=(
+            "QUANTAXIS 变更通常同时影响 Dagster 行情同步、QAWebServer 和宿主机策略链。",
+        ),
+    ),
+    PrefixRule(
+        label="tdx-gateway",
+        prefix="freshquant/gateway/",
+        surfaces=("api", "dagster", "qa", "guardian"),
+        notes=(
+            "TDX 网关与权威 IP 池(tdx_ip_pool.json)被 QUANTAXIS 选点链路消费, 更新后必须重建相关运行面。",
+        ),
     ),
     PrefixRule(
         label="gantt-readmodel",
