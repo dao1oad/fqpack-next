@@ -198,9 +198,7 @@ def test_stock_min_all_samples_stale_raises():
 def test_etf_day_fresh_passes():
     module = _load_module()
     collection = FakeDayCollection({}, day_docs=1655)
-    result = module.assert_etf_day_fresh(
-        collection, expected_trade_date="2026-07-20"
-    )
+    result = module.assert_etf_day_fresh(collection, expected_trade_date="2026-07-20")
     assert result == {"expected_trade_date": "2026-07-20", "day_docs": 1655}
     assert collection.created_indexes == ["date"]
 
@@ -224,9 +222,7 @@ def test_etf_min_fresh_checks_all_frequencies_and_skips_placeholder():
             _etf_day_document("159079", placeholder=True),
         ],
     )
-    min_collection = FakeEtfMinCollection(
-        {"510300": _complete_etf_min_counts()}
-    )
+    min_collection = FakeEtfMinCollection({"510300": _complete_etf_min_counts()})
 
     result = module.assert_etf_min_fresh(
         day_collection,

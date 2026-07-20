@@ -154,11 +154,11 @@ def _is_etf_placeholder_day(document: Mapping[str, object]) -> bool:
     """TDX 发行期 ETF 日线占位: OHLC=1 且成交量/额为浮点哨兵。"""
     try:
         ohlc_placeholder = all(
-            abs(float(document.get(field, 0)) - 1.0) < 1e-9
+            abs(float(str(document.get(field, 0))) - 1.0) < 1e-9
             for field in ("open", "close", "high", "low")
         )
         no_turnover = all(
-            abs(float(document.get(field, 0))) < 1e-30
+            abs(float(str(document.get(field, 0)))) < 1e-30
             for field in ("vol", "amount")
         )
     except (TypeError, ValueError):
@@ -200,9 +200,7 @@ def assert_etf_min_fresh(
     *,
     expected_trade_date: str | None = None,
     frequencies: Sequence[str] = ETF_MIN_FREQUENCES,
-    expected_bar_counts: Mapping[str, frozenset[int]] = (
-        ETF_MIN_EXPECTED_BAR_COUNTS
-    ),
+    expected_bar_counts: Mapping[str, frozenset[int]] = (ETF_MIN_EXPECTED_BAR_COUNTS),
     min_day_docs: int = ETF_DAY_MIN_DOCS,
     min_real_codes: int = ETF_MIN_REAL_CODES,
 ) -> dict:
@@ -248,9 +246,7 @@ def assert_etf_min_fresh(
         )
 
     real_documents = [
-        document
-        for document in day_documents
-        if not _is_etf_placeholder_day(document)
+        document for document in day_documents if not _is_etf_placeholder_day(document)
     ]
     placeholder_codes = sorted(
         str(document.get("code") or "")
