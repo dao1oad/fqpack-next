@@ -251,6 +251,14 @@ PATH_RULES: tuple[PathRule, ...] = (
         ),
     ),
     PrefixRule(
+        label="tdx-gateway",
+        prefix="freshquant/gateway/",
+        surfaces=("api", "dagster", "qa", "guardian"),
+        notes=(
+            "TDX 网关与权威 IP 池(tdx_ip_pool.json)被 QUANTAXIS 选点链路消费, 更新后必须重建相关运行面。",
+        ),
+    ),
+    PrefixRule(
         label="gantt-readmodel",
         prefix="freshquant/data/gantt",
         surfaces=("api",),

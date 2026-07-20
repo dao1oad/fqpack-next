@@ -37,6 +37,7 @@ class FakeDayCollection:
     def __init__(self, latest_by_code: dict[str, str], day_docs: int):
         self.latest_by_code = latest_by_code
         self.day_docs = day_docs
+        self.created_indexes: list = []
 
     def find_one(self, query, sort=None):
         code = query.get("code")
@@ -44,6 +45,10 @@ class FakeDayCollection:
         if latest is None:
             return None
         return {"code": code, "date": latest}
+
+    def create_index(self, keys, **kwargs):
+        self.created_indexes.append(keys)
+        return keys
 
     def count_documents(self, query):
         return self.day_docs

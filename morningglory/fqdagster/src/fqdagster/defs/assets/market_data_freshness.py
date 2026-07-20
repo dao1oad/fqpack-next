@@ -72,6 +72,9 @@ def assert_stock_day_fresh(
             "upstream TDX daily fetch likely failed for the whole market"
         )
 
+    # QUANTAXIS 默认只有 (code, date_stamp) 复合索引, 按 date 计数会全表扫;
+    # 这里确保 date 单列索引存在(幂等, MongoDB 4.2+ 建索引不阻塞读写)
+    coll.create_index("date")
     day_docs = int(coll.count_documents({"date": expected}))
     if day_docs < min_docs:
         raise RuntimeError(

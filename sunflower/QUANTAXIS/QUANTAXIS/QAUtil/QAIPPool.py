@@ -5,8 +5,12 @@
 加载成功时 QASetting 跳过 ``~/.quantaxis/setting/*_ip.json`` 用户目录缓存,
 避免陈旧缓存把失效服务器带回选点流程。
 
-本模块只用标准库, 通过 ``find_spec`` 定位 ``freshquant.gateway`` 包目录,
-不执行其包初始化代码, 因此不会引入 QUANTAXIS -> freshquant 的循环导入。
+定位顺序:
+1. 仓库布局推导(vendored 源码运行, 零导入副作用):
+   本文件位于 ``<repo>/sunflower/QUANTAXIS/QUANTAXIS/QAUtil/``,
+   池文件位于 ``<repo>/freshquant/gateway/``;
+2. ``find_spec("freshquant.gateway")`` 回退(wheel/site-packages 安装形态,
+   会触发 ``freshquant`` 包初始化)。
 """
 
 import importlib.util
@@ -17,8 +21,19 @@ _DEFAULT_PORTS = {"stock": 7709, "future": 7727}
 _POOL_FILENAME = "tdx_ip_pool.json"
 
 
-def locate_tdx_ip_pool_file():
-    """返回 tdx_ip_pool.json 的绝对路径, 找不到时返回 None。"""
+def _locate_by_repo_layout():
+    here = os.path.abspath(__file__)
+    # QAUtil -> QUANTAXIS(pkg) -> QUANTAXIS(dist) -> sunflower -> repo root
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(here))))
+    )
+    candidate = os.path.join(repo_root, "freshquant", "gateway", _POOL_FILENAME)
+    if os.path.exists(candidate):
+        return candidate
+    return None
+
+
+def _locate_by_import_spec():
     try:
         spec = importlib.util.find_spec("freshquant.gateway")
     except (ImportError, ValueError):
@@ -30,6 +45,11 @@ def locate_tdx_ip_pool_file():
         if os.path.exists(candidate):
             return candidate
     return None
+
+
+def locate_tdx_ip_pool_file():
+    """返回 tdx_ip_pool.json 的绝对路径, 找不到时返回 None。"""
+    return _locate_by_repo_layout() or _locate_by_import_spec()
 
 
 def load_tdx_ip_pool(kind, pool_path=None):
