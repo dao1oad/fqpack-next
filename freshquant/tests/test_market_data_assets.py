@@ -1,4 +1,5 @@
 import importlib
+import logging
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -480,13 +481,42 @@ def test_stock_postclose_ready_asset_depends_on_quality_snapshot(monkeypatch):
     module = _import_market_data_module(monkeypatch)
 
     assert module.stock_postclose_ready_asset.dependency_names == [
-        "refresh_quality_stock_universe_snapshot"
+        "refresh_quality_stock_universe_snapshot",
+        "stock_day",
+        "stock_min",
     ]
+
+
+def test_stock_assets_raise_when_quantaxis_reports_partial_failures(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    context = SimpleNamespace(log=FakeLog())
+
+    def report_failure(code, result):
+        def sync(*_):
+            logging.warning("ERROR CODE")
+            logging.warning([code])
+            return result
+
+        return sync
+
+    monkeypatch.setattr(module, "QA_SU_save_stock_day", report_failure("000065", True))
+    monkeypatch.setattr(module, "QA_SU_save_stock_min", report_failure("002390", None))
+
+    with pytest.raises(RuntimeError, match="stock_day sync failed.*000065"):
+        module.stock_day(context, "2026-07-20 16:00:00")
+    with pytest.raises(RuntimeError, match="stock_min sync failed.*002390"):
+        module.stock_min(context, "2026-07-20 16:00:00")
 
 
 def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
     module = _import_market_data_module(monkeypatch)
     calls = []
+
+    monkeypatch.setattr(
+        module,
+        "assert_stock_market_data_consistent",
+        lambda: {"audited_dates": ["2026-03-19"]},
+    )
 
     monkeypatch.setattr(
         module,
@@ -513,6 +543,8 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
             "source_version": "xgt_hot_blocks_v1",
             "count": 18,
         },
+        "2026-03-19 16:00:00",
+        "2026-03-19 16:05:00",
     )
 
     assert calls == [
@@ -523,6 +555,7 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
             "payload": {
                 "count": 18,
                 "source_version": "xgt_hot_blocks_v1",
+                "integrity_audited_dates": ["2026-03-19"],
             },
         }
     ]

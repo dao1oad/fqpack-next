@@ -17,6 +17,7 @@ from pymongo.errors import (
 
 from freshquant.data.etf_adj import compute_etf_qfq_adj
 from freshquant.db import DBQuantAxis
+from freshquant.gateway.tdx_ip_pool import load_tdx_ip_pool
 
 _CATEGORY_MEANING = {
     1: "除权除息",
@@ -43,6 +44,19 @@ class TdxHqHost:
     port: int
 
 
+def _repo_hq_hosts() -> list[TdxHqHost]:
+    hosts = []
+    for item in load_tdx_ip_pool("stock") or []:
+        hosts.append(
+            TdxHqHost(
+                name=str(item.get("name") or "repo-pool"),
+                ip=str(item["ip"]),
+                port=int(item.get("port") or 7709),
+            )
+        )
+    return hosts
+
+
 def _import_pytdx():
     try:
         from pytdx.config.hosts import hq_hosts  # type: ignore
@@ -62,12 +76,18 @@ def _import_pytdx():
 
 
 def _pick_hq_host(
-    timeout: float = 0.7,
+    timeout: float = 3.0,
     *,
     exclude_hosts: Optional[set[tuple[str, int]]] = None,
 ) -> TdxHqHost:
-    TdxHq_API, hq_hosts = _import_pytdx()
+    TdxHq_API, pytdx_hq_hosts = _import_pytdx()
     api = TdxHq_API()
+    repo_hosts = _repo_hq_hosts()
+    hq_hosts = (
+        [(host.name, host.ip, host.port) for host in repo_hosts]
+        if repo_hosts
+        else pytdx_hq_hosts
+    )
     for name, ip, port in hq_hosts:
         if exclude_hosts and (ip, int(port)) in exclude_hosts:
             continue
@@ -78,7 +98,7 @@ def _pick_hq_host(
                 return TdxHqHost(name=name, ip=ip, port=int(port))
         except Exception:
             continue
-    raise RuntimeError("No reachable TDX HQ host found in pytdx.config.hosts.hq_hosts")
+    raise RuntimeError("No reachable TDX HQ host found in canonical host pool")
 
 
 def _market_from_sse_or_code(*, sse: str | None, code: str) -> int:
@@ -303,7 +323,7 @@ def sync_etf_xdxr_all(
     *,
     db=DBQuantAxis,
     codes: Optional[Iterable[str]] = None,
-    timeout: float = 0.7,
+    timeout: float = 3.0,
     preserve_on_empty: bool = True,
     reconnect_every: int = 200,
 ) -> dict:
@@ -468,7 +488,7 @@ def audit_recent_etf_xdxr_coverage(
     *,
     db=DBQuantAxis,
     codes: Optional[Iterable[str]] = None,
-    timeout: float = 0.7,
+    timeout: float = 3.0,
     reconnect_every: int = 200,
     recent_days: int = 120,
     as_of_date: str | None = None,

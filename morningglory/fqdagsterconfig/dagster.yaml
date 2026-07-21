@@ -50,6 +50,6 @@ run_monitoring:
   enabled: true
   start_timeout_seconds: 1800
   cancel_timeout_seconds: 1800
-  max_resume_run_attempts: 0
+  max_resume_run_attempts: 2
   poll_interval_seconds: 120
   max_runtime_seconds: 18000

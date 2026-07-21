@@ -17,16 +17,26 @@ QUANTAXIS 的 ``QA_SU_save_stock_day`` / ``QA_SU_save_stock_min`` 会把逐票�
 
 from __future__ import annotations
 
+import datetime as dt
 from collections import Counter
 from datetime import datetime, timedelta
 from types import MappingProxyType
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 # 大盘蓝筹样本: 平安银行 / 浦发银行 / 贵州茅台
 FRESHNESS_SAMPLE_CODES: tuple[str, ...] = ("000001", "600000", "600519")
 # 全市场约 5200 只, 正常交易日 stock_day 当日文档数约 5190(停牌股无 bar)
 STOCK_DAY_MIN_DOCS = 3000
+STOCK_MIN_FREQUENCIES: tuple[str, ...] = (
+    "1min",
+    "5min",
+    "15min",
+    "30min",
+    "60min",
+)
+STOCK_INTEGRITY_LOOKBACK_TRADE_DAYS = 15
+STOCK_INTEGRITY_CODE_CHUNK_SIZE = 250
 
 # ETF 全市场约 1675 只, 正常交易日 index_day 当日文档数约 1650。
 ETF_DAY_MIN_DOCS = 1000
@@ -363,4 +373,161 @@ def assert_etf_min_fresh(
         "placeholder_sample": placeholder_codes[:10],
         "frequencies": list(requested_frequencies),
         "checked_groups": checked_groups,
+    }
+
+
+def _date_start_stamp(value: str) -> int:
+    parsed = dt.date.fromisoformat(str(value)[:10])
+    midnight = dt.datetime.combine(
+        parsed,
+        dt.time.min,
+        tzinfo=ZoneInfo("Asia/Shanghai"),
+    )
+    return int(midnight.timestamp())
+
+
+def _chunks(values: Sequence[str], size: int):
+    for start in range(0, len(values), size):
+        yield values[start : start + size]
+
+
+def _default_stock_integrity_trade_dates() -> Sequence[object]:
+    from freshquant.data.trade_date_hist import tool_trade_date_hist_sina
+
+    return list(tool_trade_date_hist_sina()["trade_date"])
+
+
+def assert_stock_market_data_consistent(
+    day_collection=None,
+    min_collection=None,
+    stock_list_collection=None,
+    *,
+    expected_trade_date: str | None = None,
+    lookback_trade_days: int = STOCK_INTEGRITY_LOOKBACK_TRADE_DAYS,
+    frequencies: Sequence[str] = STOCK_MIN_FREQUENCIES,
+    code_chunk_size: int = STOCK_INTEGRITY_CODE_CHUNK_SIZE,
+    trade_dates_provider: Callable[[], Sequence[object]] | None = None,
+) -> dict:
+    """Cross-check recent stock daily bars against every minute frequency.
+
+    ``stock_min`` is intentionally queried through its existing
+    ``(code, time_stamp, date_stamp)`` index in bounded code chunks. This keeps
+    the audit proportional to the recent window instead of scanning the full
+    collection.
+    """
+    day_coll = (
+        day_collection
+        if day_collection is not None
+        else _default_collection("stock_day")
+    )
+    min_coll = (
+        min_collection
+        if min_collection is not None
+        else _default_collection("stock_min")
+    )
+    list_coll = (
+        stock_list_collection
+        if stock_list_collection is not None
+        else _default_collection("stock_list")
+    )
+    expected = expected_trade_date or resolve_expected_trade_date()
+
+    provider = trade_dates_provider or _default_stock_integrity_trade_dates
+    calendar_dates = sorted(
+        {str(value)[:10] for value in provider() if str(value)[:10] <= expected}
+    )
+    audited_dates = calendar_dates[-max(int(lookback_trade_days), 1) :]
+    if not audited_dates or audited_dates[-1] != expected:
+        raise RuntimeError(
+            f"stock market integrity audit has no daily data for {expected}"
+        )
+
+    universe = sorted(
+        {str(code) for code in list_coll.distinct("code") if str(code).strip()}
+    )
+    if not universe:
+        raise RuntimeError("stock market integrity audit found an empty stock_list")
+
+    day_codes_by_date = {
+        trade_date: {
+            str(code)
+            for code in day_coll.distinct(
+                "code",
+                {"date": trade_date, "code": {"$in": universe}},
+            )
+        }
+        for trade_date in audited_dates
+    }
+    minute_codes_by_date: dict[str, dict[str, set[str]]] = {
+        trade_date: {str(frequence): set() for frequence in frequencies}
+        for trade_date in audited_dates
+    }
+    start_stamp = _date_start_stamp(audited_dates[0])
+    end_stamp = _date_start_stamp(expected) + 86400
+
+    for code_chunk in _chunks(universe, max(int(code_chunk_size), 1)):
+        pipeline = [
+            {
+                "$match": {
+                    "code": {"$in": list(code_chunk)},
+                    "time_stamp": {"$gte": start_stamp, "$lt": end_stamp},
+                    "type": {"$in": list(frequencies)},
+                }
+            },
+            {"$group": {"_id": {"date": "$date", "code": "$code", "type": "$type"}}},
+        ]
+        for row in min_coll.aggregate(pipeline, allowDiskUse=True):
+            identity = row.get("_id") or {}
+            trade_date = str(identity.get("date") or "")[:10]
+            code = str(identity.get("code") or "")
+            frequence = str(identity.get("type") or "")
+            date_frequencies = minute_codes_by_date.get(trade_date)
+            if date_frequencies is not None and frequence in date_frequencies:
+                date_frequencies[frequence].add(code)
+
+    issues = []
+    missing_market_day_total = 0
+    missing_day_total = 0
+    missing_min_total = 0
+    for trade_date in audited_dates:
+        day_codes = day_codes_by_date[trade_date]
+        minute_by_frequency = minute_codes_by_date[trade_date]
+        minute_union = set().union(*minute_by_frequency.values())
+        missing_market_day = not day_codes and not minute_union
+        missing_day = sorted(minute_union - day_codes)
+        missing_min = {
+            frequence: sorted(day_codes - minute_by_frequency[str(frequence)])
+            for frequence in frequencies
+            if day_codes - minute_by_frequency[str(frequence)]
+        }
+        missing_market_day_total += int(missing_market_day)
+        missing_day_total += len(missing_day)
+        missing_min_total += sum(len(codes) for codes in missing_min.values())
+        if missing_market_day or missing_day or missing_min:
+            issues.append(
+                {
+                    "date": trade_date,
+                    "missing_market_day": missing_market_day,
+                    "missing_day": missing_day[:20],
+                    "missing_min": {
+                        key: value[:20] for key, value in missing_min.items()
+                    },
+                }
+            )
+
+    if issues:
+        raise RuntimeError(
+            "stock market integrity audit failed: "
+            f"missing_market_days={missing_market_day_total} "
+            f"missing_day={missing_day_total} missing_min={missing_min_total}; "
+            f"issues={issues[:5]}"
+        )
+
+    return {
+        "expected_trade_date": expected,
+        "audited_dates": audited_dates,
+        "universe_codes": len(universe),
+        "day_codes": {
+            trade_date: len(codes) for trade_date, codes in day_codes_by_date.items()
+        },
     }

@@ -371,8 +371,55 @@ def QA_fetch_get_security_bars(code, _type, lens, ip=None, port=None):
             return None
 
 
-@retry(stop_max_attempt_number=3, wait_random_min=50, wait_random_max=100)
-def QA_fetch_get_stock_day(
+def _stock_hq_endpoints(ip=None, port=None):
+    endpoints = []
+    try:
+        preferred_ip, preferred_port = get_mainmarket_ip(ip, port)
+        if preferred_ip and preferred_port:
+            endpoints.append((str(preferred_ip), int(preferred_port)))
+    except Exception:
+        pass
+
+    for item in stock_ip_list or []:
+        host = str(item.get('ip') or '').strip()
+        if not host:
+            continue
+        endpoint = (host, int(item.get('port') or 7709))
+        if endpoint not in endpoints:
+            endpoints.append(endpoint)
+    return endpoints
+
+
+def _fetch_stock_bars_with_failover(fetcher, *args, ip=None, port=None, **kwargs):
+    endpoints = _stock_hq_endpoints(ip, port)
+    if not endpoints:
+        raise RuntimeError('TDX stock host pool is empty')
+
+    source_empty = None
+    failures = []
+    for host, host_port in endpoints:
+        try:
+            result = fetcher(*args, ip=host, port=host_port, **kwargs)
+        except Exception as exc:
+            failures.append(f'{host}:{host_port} {exc}')
+            continue
+        if result is None:
+            failures.append(f'{host}:{host_port} returned None')
+            continue
+        if bool(getattr(result, 'attrs', {}).get('_tdx_source_empty')):
+            source_empty = result
+            failures.append(f'{host}:{host_port} returned no source bars')
+            continue
+        return result
+
+    if source_empty is not None:
+        return source_empty
+    raise RuntimeError(
+        'all TDX stock hosts failed: {}'.format('; '.join(failures[-5:]))
+    )
+
+
+def _fetch_get_stock_day_from_endpoint(
     code, start_date, end_date, if_fq='00', frequence='day', ip=None, port=None
 ):
     """获取日线及以上级别的数据
@@ -393,7 +440,10 @@ def QA_fetch_get_stock_day(
     ip, port = get_mainmarket_ip(ip, port)
     api = TdxHq_API()
     try:
-        with api.connect(ip, port, time_out=TDX_CONNECT_TIMEOUT):
+        connection = api.connect(ip, port, time_out=TDX_CONNECT_TIMEOUT)
+        if not connection:
+            raise ConnectionError(f'TDX HQ connect failed: {ip}:{port}')
+        with connection:
 
             if frequence in ['day', 'd', 'D', 'DAY', 'Day']:
                 frequence = 9
@@ -409,26 +459,25 @@ def QA_fetch_get_stock_day(
             today_ = datetime.date.today()
             lens = QA_util_get_trade_gap(start_date, today_)
 
-            data = pd.concat(
-                [
-                    api.to_df(
-                        api.get_security_bars(
-                            frequence,
-                            _select_market_code(code),
-                            code,
-                            (int(lens / 800) - i) * 800,
-                            800,
-                        )
-                    )
-                    for i in range(int(lens / 800) + 1)
-                ],
-                axis=0,
-                sort=False,
-            )
+            frames = []
+            for i in range(int(lens / 800) + 1):
+                raw = api.get_security_bars(
+                    frequence,
+                    _select_market_code(code),
+                    code,
+                    (int(lens / 800) - i) * 800,
+                    800,
+                )
+                if raw:
+                    frame = api.to_df(raw)
+                    if frame is not None and len(frame) > 0:
+                        frames.append(frame)
 
-            # 这里的问题是: 如果只取了一天的股票,而当天停牌, 那么就直接返回None了
-            if len(data) < 1:
-                return None
+            if not frames:
+                empty = pd.DataFrame()
+                empty.attrs['_tdx_source_empty'] = True
+                return empty
+            data = pd.concat(frames, axis=0, sort=False)
             data = data[data['open'] != 0]
 
             data = data.assign(
@@ -464,8 +513,24 @@ def QA_fetch_get_stock_day(
             print(e)
 
 
-@retry(stop_max_attempt_number=3, wait_random_min=50, wait_random_max=100)
-def QA_fetch_get_stock_min(code, start, end, frequence='1min', ip=None, port=None):
+def QA_fetch_get_stock_day(
+    code, start_date, end_date, if_fq='00', frequence='day', ip=None, port=None
+):
+    return _fetch_stock_bars_with_failover(
+        _fetch_get_stock_day_from_endpoint,
+        code,
+        start_date,
+        end_date,
+        if_fq,
+        frequence,
+        ip=ip,
+        port=port,
+    )
+
+
+def _fetch_get_stock_min_from_endpoint(
+    code, start, end, frequence='1min', ip=None, port=None
+):
     ip, port = get_mainmarket_ip(ip, port)
     api = TdxHq_API()
     type_ = ''
@@ -489,24 +554,28 @@ def QA_fetch_get_stock_min(code, start, end, frequence='1min', ip=None, port=Non
         lens = 4 * lens
     if lens > 20800:
         lens = 20800
-    with api.connect(ip, port):
-
-        data = pd.concat(
-            [
-                api.to_df(
-                    api.get_security_bars(
-                        frequence,
-                        _select_market_code(str(code)),
-                        str(code),
-                        (int(lens / 800) - i) * 800,
-                        800,
-                    )
-                )
-                for i in range(int(lens / 800) + 1)
-            ],
-            axis=0,
-            sort=False,
-        )
+    connection = api.connect(ip, port, time_out=TDX_CONNECT_TIMEOUT)
+    if not connection:
+        raise ConnectionError(f'TDX HQ connect failed: {ip}:{port}')
+    with connection:
+        frames = []
+        for i in range(int(lens / 800) + 1):
+            raw = api.get_security_bars(
+                frequence,
+                _select_market_code(str(code)),
+                str(code),
+                (int(lens / 800) - i) * 800,
+                800,
+            )
+            if raw:
+                frame = api.to_df(raw)
+                if frame is not None and len(frame) > 0:
+                    frames.append(frame)
+        if not frames:
+            empty = pd.DataFrame()
+            empty.attrs['_tdx_source_empty'] = True
+            return empty
+        data = pd.concat(frames, axis=0, sort=False)
         data = (
             data.drop(['year', 'month', 'day', 'hour', 'minute'], axis=1, inplace=False)
             .assign(
@@ -520,6 +589,18 @@ def QA_fetch_get_stock_min(code, start, end, frequence='1min', ip=None, port=Non
             .set_index('datetime', drop=False, inplace=False)[start:end]
         )
         return data.assign(datetime=data['datetime'].apply(lambda x: str(x)))
+
+
+def QA_fetch_get_stock_min(code, start, end, frequence='1min', ip=None, port=None):
+    return _fetch_stock_bars_with_failover(
+        _fetch_get_stock_min_from_endpoint,
+        code,
+        start,
+        end,
+        frequence,
+        ip=ip,
+        port=port,
+    )
 
 
 @retry(stop_max_attempt_number=3, wait_random_min=50, wait_random_max=100)

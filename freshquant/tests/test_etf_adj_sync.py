@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pandas as pd
@@ -121,6 +120,9 @@ class FakeTdxApi:
             )
         return outcome
 
+    def disconnect(self):
+        return None
+
     def __enter__(self):
         return self
 
@@ -154,6 +156,40 @@ class FakeTdxApi:
         if not raw:
             return pd.DataFrame()
         return pd.DataFrame(raw)
+
+
+def test_repo_hq_hosts_use_canonical_tdx_ip_pool(monkeypatch):
+    monkeypatch.setattr(
+        etf_adj_sync,
+        "load_tdx_ip_pool",
+        lambda kind: [
+            {"ip": "10.0.0.1", "port": 7709, "name": "primary"},
+            {"ip": "10.0.0.2", "port": 7710},
+        ],
+    )
+
+    assert etf_adj_sync._repo_hq_hosts() == [
+        etf_adj_sync.TdxHqHost("primary", "10.0.0.1", 7709),
+        etf_adj_sync.TdxHqHost("repo-pool", "10.0.0.2", 7710),
+    ]
+
+
+def test_pick_hq_host_prefers_canonical_pool_over_pytdx_defaults(monkeypatch):
+    monkeypatch.setattr(
+        etf_adj_sync,
+        "load_tdx_ip_pool",
+        lambda kind: [{"ip": "10.0.0.2", "port": 7709, "name": "canonical"}],
+    )
+    monkeypatch.setattr(
+        etf_adj_sync,
+        "_import_pytdx",
+        lambda: (FakeTdxApi, [("legacy", "192.0.2.1", 7709)]),
+    )
+    FakeTdxApi.connect_outcome_by_endpoint = {}
+
+    assert etf_adj_sync._pick_hq_host() == etf_adj_sync.TdxHqHost(
+        "canonical", "10.0.0.2", 7709
+    )
 
 
 def test_sync_etf_xdxr_all_preserves_existing_docs_when_source_returns_empty(

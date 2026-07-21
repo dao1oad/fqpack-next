@@ -32,7 +32,11 @@ stock_data_job = define_asset_job(
         AssetSelection.assets(stock_list).downstream()
         - AssetSelection.groups("cjsd_data")
     ),
-    tags={"dagster/max_concurrent_runs": "1"},
+    tags={
+        "dagster/max_concurrent_runs": "1",
+        "dagster/max_retries": "2",
+        "dagster/max_runtime": "28800",
+    },
 )
 
 future_data_job = define_asset_job(
@@ -46,7 +50,11 @@ etf_data_job = define_asset_job(
     name="etf_data_job",
     description="Materialize ETF data assets starting from etf_list",
     selection=AssetSelection.assets(etf_list).downstream(),
-    tags={"dagster/max_concurrent_runs": "1"},
+    tags={
+        "dagster/max_concurrent_runs": "1",
+        "dagster/max_retries": "2",
+        "dagster/max_runtime": "28800",
+    },
 )
 
 bond_data_job = define_asset_job(

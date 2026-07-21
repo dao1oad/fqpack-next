@@ -182,4 +182,6 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - `trade_calendar_postclose_refresh_schedule` runs at `15:10` Asia/Shanghai on weekdays.
 - A successful live Sina/AkShare refresh updates Mongo and the shared disk snapshot under `FQ_TRADE_CALENDAR_STATE_DIR`.
 - When a live refresh fails, FreshQuant falls back to Mongo last-known-good first, then the disk snapshot; the Dagster asset reports `refresh_status` and `degraded` so a cache-served refresh is visible without failing the run.
+- Dagster run monitoring allows two crash-resume attempts. `stock_data_job` and `etf_data_job` carry an eight-hour per-run limit because full daily/minute/xdxr recovery can exceed the global five-hour default, and each job limits automatic failed-run retries to two so a persistent upstream failure cannot create a long retry chain.
+- `stock_postclose_ready` is emitted only after the latest 15 trade dates pass a cross-collection audit between `stock_day` and all five `stock_min` frequencies for the current stock universe.
 - Stock, ETF, Gantt, and daily-screening date resolution read the shared FreshQuant trade calendar entry, which falls back to Mongo last-known-good data and then the disk snapshot when the live Sina/AkShare request fails.
