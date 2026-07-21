@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import yaml
+
 
 def _prepare_schedule_import(monkeypatch):
     project_src = (
@@ -50,3 +52,16 @@ def test_stock_and_etf_jobs_bound_runtime_and_failed_run_retries(monkeypatch):
     }
     assert module.stock_data_job.tags == expected_tags
     assert module.etf_data_job.tags == expected_tags
+
+
+def test_default_run_launcher_disables_run_resumption():
+    config_path = (
+        Path(__file__).resolve().parents[2]
+        / "morningglory"
+        / "fqdagsterconfig"
+        / "dagster.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    assert config["run_launcher"]["class"] == "DefaultRunLauncher"
+    assert config["run_monitoring"]["max_resume_run_attempts"] == 0

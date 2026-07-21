@@ -517,6 +517,7 @@ print(repo.list_reconciliation_resolutions())
 - `check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 只报 `fq_dagster_webserver` / `fq_dagster_daemon` 为 `Restarting`
 - `docker logs fqnext_20260223-fq_dagster_webserver-1` 或 `docker logs fqnext_20260223-fq_dagster_daemon-1` 出现 `DagsterInvariantViolationError`
 - 日志明确提示 `$DAGSTER_HOME "D:/fqpack/dagster" must be an absolute path`
+- 日志提示 `configured run launcher does not support resuming runs`，并要求把 `max_resume_run_attempts` 设为 `0`
 
 先检查：
 
@@ -531,12 +532,14 @@ print(repo.list_reconciliation_resolutions())
 - 主工作树 `.env` 里保留了宿主机 Windows 路径 `DAGSTER_HOME=D:/fqpack/dagster`
 - `env_file` 把这个 Windows 路径直接注入了 Linux Dagster 容器
 - Dagster 容器没有在 compose `environment` 中显式覆盖为 `/opt/dagster/home`
+- 当前 `DefaultRunLauncher` 不支持 run worker 自动恢复；若 `run_monitoring.max_resume_run_attempts` 大于 `0`，Dagster 实例初始化会直接失败
 
 处理：
 
 - 保留宿主机 `.env` 的 Windows 路径给本机链路使用，但在 `docker/compose.parallel.yaml` 的 `fq_dagster_webserver` / `fq_dagster_daemon` 下显式覆盖：
   - `DAGSTER_HOME=/opt/dagster/home`
   - `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`
+- 使用 `DefaultRunLauncher` 时保持 `morningglory/fqdagsterconfig/dagster.yaml` 中 `run_monitoring.max_resume_run_attempts=0`；失败 run 由 job 级 `dagster/max_retries` 标签重试，不要把 run worker resume 配置混为一谈
 - 重新执行命中的 Docker deploy 或整轮 formal deploy
 - 再次执行 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify`，确认 Dagster 容器从 `Restarting` 恢复为 `running`
 
