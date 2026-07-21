@@ -60,7 +60,13 @@ class FakeDayCollection:
         return self.day_docs
 
     def find(self, query, projection=None):
-        return [doc for doc in self.documents if doc.get("date") == query.get("date")]
+        allowed_codes = set(query.get("code", {}).get("$in", []))
+        return [
+            doc
+            for doc in self.documents
+            if doc.get("date") == query.get("date")
+            and (not allowed_codes or doc.get("code") in allowed_codes)
+        ]
 
 
 class FakeMinCollection:
@@ -90,6 +96,14 @@ class FakeEtfMinCollection:
             for frequence, count in code_counts.items()
             for _ in range(count)
         ]
+
+
+class FakeEtfListCollection:
+    def __init__(self, codes: list[str]):
+        self.codes = codes
+
+    def find(self, query, projection=None):
+        return [{"code": code} for code in self.codes]
 
 
 def _etf_day_document(code: str, *, placeholder: bool = False) -> dict:
@@ -197,18 +211,57 @@ def test_stock_min_all_samples_stale_raises():
 
 def test_etf_day_fresh_passes():
     module = _load_module()
-    collection = FakeDayCollection({}, day_docs=1655)
-    result = module.assert_etf_day_fresh(collection, expected_trade_date="2026-07-20")
-    assert result == {"expected_trade_date": "2026-07-20", "day_docs": 1655}
+    collection = FakeDayCollection(
+        {},
+        day_docs=2,
+        documents=[_etf_day_document("510300"), _etf_day_document("159915")],
+    )
+    etf_list_collection = FakeEtfListCollection(["510300", "159915"])
+    result = module.assert_etf_day_fresh(
+        collection,
+        etf_list_collection,
+        expected_trade_date="2026-07-20",
+        min_docs=2,
+        min_universe_codes=2,
+    )
+    assert result == {
+        "expected_trade_date": "2026-07-20",
+        "universe_codes": 2,
+        "day_docs": 2,
+    }
     assert collection.created_indexes == ["date"]
 
 
 def test_etf_day_low_doc_count_raises():
     module = _load_module()
-    collection = FakeDayCollection({}, day_docs=80)
-    with pytest.raises(RuntimeError, match="etf_day incomplete"):
+    collection = FakeDayCollection(
+        {},
+        day_docs=2,
+        documents=[_etf_day_document("510300"), _etf_day_document("000300")],
+    )
+    etf_list_collection = FakeEtfListCollection(["510300", "159915"])
+    with pytest.raises(RuntimeError, match="only 1 unique ETF docs"):
         module.assert_etf_day_fresh(
-            collection, expected_trade_date="2026-07-20", min_docs=100
+            collection,
+            etf_list_collection,
+            expected_trade_date="2026-07-20",
+            min_docs=2,
+            min_universe_codes=2,
+        )
+
+
+def test_etf_day_low_universe_count_raises():
+    module = _load_module()
+    collection = FakeDayCollection(
+        {}, day_docs=1, documents=[_etf_day_document("510300")]
+    )
+    with pytest.raises(RuntimeError, match="etf_list incomplete"):
+        module.assert_etf_day_fresh(
+            collection,
+            FakeEtfListCollection(["510300"]),
+            expected_trade_date="2026-07-20",
+            min_docs=1,
+            min_universe_codes=2,
         )
 
 
@@ -220,18 +273,24 @@ def test_etf_min_fresh_checks_all_frequencies_and_skips_placeholder():
         documents=[
             _etf_day_document("510300"),
             _etf_day_document("159079", placeholder=True),
+            _etf_day_document("000300"),
         ],
     )
     min_collection = FakeEtfMinCollection({"510300": _complete_etf_min_counts()})
+    etf_list_collection = FakeEtfListCollection(["510300", "159079"])
 
     result = module.assert_etf_min_fresh(
         day_collection,
         min_collection,
+        etf_list_collection,
         expected_trade_date="2026-07-20",
         min_day_docs=2,
         min_real_codes=1,
+        min_universe_codes=2,
     )
 
+    assert result["universe_codes"] == 2
+    assert result["day_docs"] == 2
     assert result["real_codes"] == 1
     assert result["placeholder_codes"] == 1
     assert result["checked_groups"] == 5
@@ -258,9 +317,11 @@ def test_etf_min_missing_frequency_raises():
         module.assert_etf_min_fresh(
             day_collection,
             min_collection,
+            FakeEtfListCollection(["510300"]),
             expected_trade_date="2026-07-20",
             min_day_docs=1,
             min_real_codes=1,
+            min_universe_codes=1,
         )
 
 
@@ -277,7 +338,9 @@ def test_etf_min_invalid_bar_count_raises():
         module.assert_etf_min_fresh(
             day_collection,
             min_collection,
+            FakeEtfListCollection(["510300"]),
             expected_trade_date="2026-07-20",
             min_day_docs=1,
             min_real_codes=1,
+            min_universe_codes=1,
         )

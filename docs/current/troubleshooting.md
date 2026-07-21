@@ -583,13 +583,13 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 先检查：
 
 - Dagster UI (`http://127.0.0.1:11003`) 中最近 `etf_data_job` 的 `etf_day` / `etf_min` compute log
-- `quantaxis.index_day` 最新交易日文档数，以及对应正常交易 ETF 的五种分钟周期 bar 数
+- 按 `quantaxis.etf_list` 唯一代码过滤后的 `quantaxis.index_day` 最新交易日覆盖数，以及对应正常交易 ETF 的五种分钟周期 bar 数；不要把同集合中的指数文档计入 ETF 覆盖
 - `quantaxis.etf_list` 中 `pre_close=5.877471754e-39` 的发行期标的；这类 TDX 占位标的可能没有分钟源
 
 处理：
 
-- 当前 `etf_day` 落库后会断言最新交易日文档数达到全市场覆盖下限，低于下限时 step 直接失败
-- 当前 `etf_min` 会在 `etf_day` 成功后执行，并以最新交易日真实 ETF 日线为基准，逐代码校验 `1/5/15/30/60min` 是否存在且 bar 数合理
+- 当前 `etf_day` 落库后会读取 `etf_list` 唯一代码 universe，只统计这些代码在最新交易日的日线覆盖；ETF universe 或日线覆盖低于下限时 step 直接失败
+- 当前 `etf_min` 会在 `etf_day` 成功后执行，并以 ETF universe 内最新交易日的真实 ETF 日线为基准，逐代码校验 `1/5/15/30/60min` 是否存在且 bar 数合理
 - TDX 发行期占位日线（OHLC 全为 `1.0` 且成交量/额为浮点哨兵）会被显式豁免；不要为这类无源日期伪造分钟 bar
 - 任何真实 ETF 分钟周期缺失或 bar 数异常都会使 `etf_min` step 失败；`etf_postclose_ready_asset` 显式依赖 `etf_min`，不会生成假 ready marker
 - 修复 TDX 连通性或权威 IP 池后重跑 `etf_data_job`，再确认全部 step SUCCESS 和 freshness check 日志

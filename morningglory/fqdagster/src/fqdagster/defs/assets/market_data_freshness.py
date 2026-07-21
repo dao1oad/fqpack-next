@@ -30,6 +30,7 @@ STOCK_DAY_MIN_DOCS = 3000
 
 # ETF 全市场约 1675 只, 正常交易日 index_day 当日文档数约 1650。
 ETF_DAY_MIN_DOCS = 1000
+ETF_UNIVERSE_MIN_CODES = 1000
 ETF_MIN_REAL_CODES = 1000
 ETF_MIN_FREQUENCES: tuple[str, ...] = (
     "1min",
@@ -172,37 +173,86 @@ def _trade_date_timestamp_bounds(trade_date: str) -> tuple[float, float]:
     return start.timestamp(), end.timestamp()
 
 
+def _normalize_security_code(value: object) -> str:
+    code = str(value or "").strip()
+    return code.zfill(6) if code else ""
+
+
+def _load_etf_universe_codes(
+    collection=None,
+    *,
+    min_codes: int = ETF_UNIVERSE_MIN_CODES,
+) -> tuple[str, ...]:
+    coll = collection if collection is not None else _default_collection("etf_list")
+    codes = tuple(
+        sorted(
+            {
+                code
+                for document in coll.find({}, {"_id": 0, "code": 1})
+                if (code := _normalize_security_code(document.get("code")))
+            }
+        )
+    )
+    if len(codes) < min_codes:
+        raise RuntimeError(
+            f"etf_list incomplete: only {len(codes)} unique codes "
+            f"(expected >= {min_codes})"
+        )
+    return codes
+
+
 def assert_etf_day_fresh(
     collection=None,
+    etf_list_collection=None,
     *,
     expected_trade_date: str | None = None,
     min_docs: int = ETF_DAY_MIN_DOCS,
+    min_universe_codes: int = ETF_UNIVERSE_MIN_CODES,
 ) -> dict:
     """校验 quantaxis.index_day 的 ETF 日线已覆盖最新交易日。"""
     coll = collection if collection is not None else _default_collection("index_day")
     expected = expected_trade_date or resolve_expected_trade_date()
+    etf_codes = _load_etf_universe_codes(
+        etf_list_collection,
+        min_codes=min_universe_codes,
+    )
+    etf_code_set = set(etf_codes)
 
     coll.create_index("date")
-    day_docs = int(coll.count_documents({"date": expected}))
+    day_codes = {
+        code
+        for document in coll.find(
+            {"date": expected, "code": {"$in": list(etf_codes)}},
+            {"_id": 0, "code": 1},
+        )
+        if (code := _normalize_security_code(document.get("code"))) in etf_code_set
+    }
+    day_docs = len(day_codes)
     if day_docs < min_docs:
         raise RuntimeError(
-            f"etf_day incomplete for {expected}: only {day_docs} docs "
+            f"etf_day incomplete for {expected}: only {day_docs} unique ETF docs "
             f"(expected >= {min_docs}); upstream TDX ETF daily fetch likely "
             "failed for most of the market"
         )
 
-    return {"expected_trade_date": expected, "day_docs": day_docs}
+    return {
+        "expected_trade_date": expected,
+        "universe_codes": len(etf_codes),
+        "day_docs": day_docs,
+    }
 
 
 def assert_etf_min_fresh(
     day_collection=None,
     min_collection=None,
+    etf_list_collection=None,
     *,
     expected_trade_date: str | None = None,
     frequencies: Sequence[str] = ETF_MIN_FREQUENCES,
     expected_bar_counts: Mapping[str, frozenset[int]] = (ETF_MIN_EXPECTED_BAR_COUNTS),
     min_day_docs: int = ETF_DAY_MIN_DOCS,
     min_real_codes: int = ETF_MIN_REAL_CODES,
+    min_universe_codes: int = ETF_UNIVERSE_MIN_CODES,
 ) -> dict:
     """校验真实 ETF 日线都有五种分钟周期且 bar 数合理。"""
     day_coll = (
@@ -216,6 +266,11 @@ def assert_etf_min_fresh(
         else _default_collection("index_min")
     )
     expected = expected_trade_date or resolve_expected_trade_date()
+    etf_codes = _load_etf_universe_codes(
+        etf_list_collection,
+        min_codes=min_universe_codes,
+    )
+    etf_code_set = set(etf_codes)
     requested_frequencies = tuple(str(item) for item in frequencies)
     unknown_frequencies = [
         item for item in requested_frequencies if item not in expected_bar_counts
@@ -224,25 +279,28 @@ def assert_etf_min_fresh(
         raise ValueError(f"missing expected bar counts for {unknown_frequencies}")
 
     day_coll.create_index("date")
-    day_documents = list(
-        day_coll.find(
-            {"date": expected},
-            {
-                "_id": 0,
-                "code": 1,
-                "open": 1,
-                "close": 1,
-                "high": 1,
-                "low": 1,
-                "vol": 1,
-                "amount": 1,
-            },
-        )
-    )
+    day_documents_by_code: dict[str, Mapping[str, object]] = {}
+    for document in day_coll.find(
+        {"date": expected, "code": {"$in": list(etf_codes)}},
+        {
+            "_id": 0,
+            "code": 1,
+            "open": 1,
+            "close": 1,
+            "high": 1,
+            "low": 1,
+            "vol": 1,
+            "amount": 1,
+        },
+    ):
+        code = _normalize_security_code(document.get("code"))
+        if code in etf_code_set:
+            day_documents_by_code[code] = document
+    day_documents = list(day_documents_by_code.values())
     if len(day_documents) < min_day_docs:
         raise RuntimeError(
             f"etf_min cannot validate {expected}: only {len(day_documents)} "
-            f"ETF day docs (expected >= {min_day_docs})"
+            f"unique ETF day docs (expected >= {min_day_docs})"
         )
 
     real_documents = [
@@ -298,6 +356,7 @@ def assert_etf_min_fresh(
 
     return {
         "expected_trade_date": expected,
+        "universe_codes": len(etf_codes),
         "day_docs": len(day_documents),
         "real_codes": len(real_documents),
         "placeholder_codes": len(placeholder_codes),

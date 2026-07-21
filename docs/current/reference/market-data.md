@@ -43,7 +43,7 @@ Dagster 盘后桥接口径当前新增两条 ready asset：
   - 依赖股票日线与 `quality_stock_universe` 快照刷新
   - 成功后写入 `dagster_pipeline_markers.stock_postclose_ready`
 - `etf_postclose_ready_asset`
-  - 依赖 `etf_adj`
+  - 依赖 `etf_adj` 和通过日线/五周期完整性门禁的 `etf_min`
   - 成功后写入 `dagster_pipeline_markers.etf_postclose_ready`
 
 其中：
