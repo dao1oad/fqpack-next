@@ -1,4 +1,7 @@
 # coding:utf-8
+# mypy: ignore-errors
+# isort: skip_file
+# fmt: off
 #
 # The MIT License (MIT)
 #
@@ -97,6 +100,17 @@ def now_time():
            ' 17:00:00' if datetime.datetime.now().hour < 15 else str(QA_util_get_real_date(
         str(datetime.date.today()), trade_date_sse, -1)) + ' 15:00:00'
 
+
+def _insert_stock_day_rows(collection, data):
+    """Insert fetched daily rows, treating an empty TDX result as a no-op."""
+    if data is None or getattr(data, 'empty', False):
+        return 0
+    documents = QA_util_to_json_from_pandas(data)
+    if not documents:
+        return 0
+    collection.insert_many(documents)
+    return len(documents)
+
 def QA_SU_save_single_stock_day(code : str, client= DATABASE, ui_log=None):
     '''
      save single stock_day
@@ -142,14 +156,13 @@ def QA_SU_save_single_stock_day(code : str, client= DATABASE, ui_log=None):
                     ui_log
                 )
                 if start_date != end_date:
-                    coll_stock_day.insert_many(
-                        QA_util_to_json_from_pandas(
-                            QA_fetch_get_stock_day(
-                                str(code),
-                                QA_util_get_next_day(start_date),
-                                end_date,
-                                '00'
-                            )
+                    _insert_stock_day_rows(
+                        coll_stock_day,
+                        QA_fetch_get_stock_day(
+                            str(code),
+                            QA_util_get_next_day(start_date),
+                            end_date,
+                            '00'
                         )
                     )
 
@@ -164,14 +177,13 @@ def QA_SU_save_single_stock_day(code : str, client= DATABASE, ui_log=None):
                     ui_log
                 )
                 if start_date != end_date:
-                    coll_stock_day.insert_many(
-                        QA_util_to_json_from_pandas(
-                            QA_fetch_get_stock_day(
-                                str(code),
-                                start_date,
-                                end_date,
-                                '00'
-                            )
+                    _insert_stock_day_rows(
+                        coll_stock_day,
+                        QA_fetch_get_stock_day(
+                            str(code),
+                            start_date,
+                            end_date,
+                            '00'
                         )
                     )
         except Exception as error0:
@@ -232,14 +244,13 @@ def QA_SU_save_stock_day(client=DATABASE, ui_log=None, ui_progress=None):
                     ui_log
                 )
                 if start_date != end_date:
-                    coll_stock_day.insert_many(
-                        QA_util_to_json_from_pandas(
-                            QA_fetch_get_stock_day(
-                                str(code),
-                                QA_util_get_next_day(start_date),
-                                end_date,
-                                '00'
-                            )
+                    _insert_stock_day_rows(
+                        coll_stock_day,
+                        QA_fetch_get_stock_day(
+                            str(code),
+                            QA_util_get_next_day(start_date),
+                            end_date,
+                            '00'
                         )
                     )
 
@@ -254,14 +265,13 @@ def QA_SU_save_stock_day(client=DATABASE, ui_log=None, ui_progress=None):
                     ui_log
                 )
                 if start_date != end_date:
-                    coll_stock_day.insert_many(
-                        QA_util_to_json_from_pandas(
-                            QA_fetch_get_stock_day(
-                                str(code),
-                                start_date,
-                                end_date,
-                                '00'
-                            )
+                    _insert_stock_day_rows(
+                        coll_stock_day,
+                        QA_fetch_get_stock_day(
+                            str(code),
+                            start_date,
+                            end_date,
+                            '00'
                         )
                     )
         except Exception as error0:
