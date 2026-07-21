@@ -4,6 +4,7 @@ This module replaces the traditional op/job pattern with assets that have clear 
 Each data type (stock, future, etf, bond, index) has its own set of assets with proper dependencies.
 """
 
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -46,6 +47,7 @@ from .market_data_freshness import (
     assert_etf_day_fresh,
     assert_etf_min_fresh,
     assert_stock_day_fresh,
+    assert_stock_market_data_consistent,
     assert_stock_min_fresh,
 )
 from .postclose_ready import refresh_quality_stock_universe_snapshot
@@ -66,6 +68,38 @@ LOCAL_TDX_ROOT_CANDIDATES = (
     r"D:\通达信",
     r"C:\通达信",
 )
+
+
+class _QasuFailureCapture(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self._awaiting_codes = False
+        self.failed_codes: list[str] = []
+
+    def emit(self, record):
+        message = record.msg
+        if isinstance(message, str) and "ERROR CODE" in message:
+            self._awaiting_codes = True
+            return
+        if self._awaiting_codes and isinstance(message, list):
+            self.failed_codes.extend(str(code) for code in message)
+
+
+def _run_qasu_stock_sync(sync_name: str, sync_function) -> None:
+    capture = _QasuFailureCapture()
+    root_logger = logging.getLogger()
+    root_logger.addHandler(capture)
+    try:
+        sync_function("tdx")
+    finally:
+        root_logger.removeHandler(capture)
+
+    failed_codes = list(dict.fromkeys(capture.failed_codes))
+    if failed_codes:
+        raise RuntimeError(
+            f"{sync_name} sync failed for {len(failed_codes)} codes: "
+            f"{failed_codes[:20]}"
+        )
 
 
 def _normalize_stock_block_docs(documents, source: str):
@@ -388,9 +422,8 @@ def stock_day(context: AssetExecutionContext, stock_list: str) -> str:
     context.log.info(
         f"Saving stock daily data, triggered after stock_list at {stock_list}"
     )
-    QA_SU_save_stock_day("tdx")
-    # QA_SU_save_stock_day 会吞掉逐票抓取异常; 这里直接断言库内数据已覆盖
-    # 最新交易日, 上游 TDX 故障时让 asset 真实失败, 不再假成功
+    _run_qasu_stock_sync("stock_day", QA_SU_save_stock_day)
+    # 采集入口会抛出逐票失败; 这里再断言库内数据已覆盖最新交易日。
     freshness = assert_stock_day_fresh()
     context.log.info(f"stock_day freshness check passed: {freshness}")
     market_data_alert.send(
@@ -409,7 +442,7 @@ def stock_min(context: AssetExecutionContext, stock_list: str) -> str:
     context.log.info(
         f"Saving stock minute data, triggered after stock_list at {stock_list}"
     )
-    QA_SU_save_stock_min("tdx")
+    _run_qasu_stock_sync("stock_min", QA_SU_save_stock_min)
     # 与 stock_day 相同: 断言分钟线已覆盖最新交易日, 消灭假成功
     freshness = assert_stock_min_fresh()
     context.log.info(f"stock_min freshness check passed: {freshness}")
@@ -444,16 +477,21 @@ def stock_xdxr(context: AssetExecutionContext, stock_day: str) -> str:
 def stock_postclose_ready_asset(
     context: AssetExecutionContext,
     refresh_quality_stock_universe_snapshot: dict,
+    stock_day: str,
+    stock_min: str,
 ) -> dict:
     trade_date = (
         str(refresh_quality_stock_universe_snapshot.get("trade_date") or "")
         or resolve_latest_completed_trade_date()
     )
+    integrity = assert_stock_market_data_consistent()
+    context.log.info(f"stock market integrity check passed: {integrity}")
     payload = {
         "count": int(refresh_quality_stock_universe_snapshot.get("count") or 0),
         "source_version": str(
             refresh_quality_stock_universe_snapshot.get("source_version") or ""
         ).strip(),
+        "integrity_audited_dates": list(integrity.get("audited_dates") or []),
     }
     upsert_postclose_marker(
         "stock_postclose_ready",

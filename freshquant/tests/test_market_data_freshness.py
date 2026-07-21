@@ -134,6 +134,26 @@ def _complete_etf_min_counts() -> dict[str, int]:
     return {"1min": 240, "5min": 48, "15min": 16, "30min": 8, "60min": 4}
 
 
+class FakeIntegrityCollection:
+    def __init__(self, *, distinct_values=None, aggregate_rows=None):
+        self.distinct_values = distinct_values or {}
+        self.aggregate_rows = list(aggregate_rows or [])
+        self.aggregate_pipelines = []
+
+    def distinct(self, field, query=None):
+        key = (field, str((query or {}).get("date") or ""))
+        return list(self.distinct_values.get(key, self.distinct_values.get(field, [])))
+
+    def aggregate(self, pipeline, **kwargs):
+        self.aggregate_pipelines.append((pipeline, kwargs))
+        selected_codes = set(pipeline[0]["$match"]["code"]["$in"])
+        return [
+            row
+            for row in self.aggregate_rows
+            if str(row["_id"]["code"]) in selected_codes
+        ]
+
+
 def test_stock_day_fresh_passes():
     module = _load_module()
     collection = FakeDayCollection(
@@ -343,4 +363,85 @@ def test_etf_min_invalid_bar_count_raises():
             min_day_docs=1,
             min_real_codes=1,
             min_universe_codes=1,
+        )
+
+
+def test_stock_market_data_consistency_passes_for_all_frequencies():
+    module = _load_module()
+    dates = ["2026-07-17", "2026-07-20"]
+    codes = ["000001", "600000"]
+    day = FakeIntegrityCollection(
+        distinct_values={
+            "date": dates,
+            ("code", "2026-07-17"): codes,
+            ("code", "2026-07-20"): codes,
+        }
+    )
+    stock_list = FakeIntegrityCollection(distinct_values={"code": codes})
+    rows = []
+    for date in dates:
+        for code in codes:
+            for frequence in module.STOCK_MIN_FREQUENCIES:
+                rows.append({"_id": {"date": date, "code": code, "type": frequence}})
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    result = module.assert_stock_market_data_consistent(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date="2026-07-20",
+        trade_dates_provider=lambda: dates,
+    )
+
+    assert result["audited_dates"] == dates
+    assert result["day_codes"] == {"2026-07-17": 2, "2026-07-20": 2}
+    assert minute.aggregate_pipelines
+
+
+def test_stock_market_data_consistency_rejects_day_and_minute_holes():
+    module = _load_module()
+    date = "2026-07-20"
+    day = FakeIntegrityCollection(
+        distinct_values={"date": [date], ("code", date): ["000001", "600000"]}
+    )
+    stock_list = FakeIntegrityCollection(
+        distinct_values={"code": ["000001", "600000", "600519"]}
+    )
+    rows = []
+    for frequence in module.STOCK_MIN_FREQUENCIES:
+        rows.append({"_id": {"date": date, "code": "000001", "type": frequence}})
+        rows.append({"_id": {"date": date, "code": "600519", "type": frequence}})
+    rows.append({"_id": {"date": date, "code": "600000", "type": "1min"}})
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    with pytest.raises(RuntimeError, match="missing_day=1.*missing_min"):
+        module.assert_stock_market_data_consistent(
+            day_collection=day,
+            min_collection=minute,
+            stock_list_collection=stock_list,
+            expected_trade_date=date,
+            trade_dates_provider=lambda: [date],
+        )
+
+
+def test_stock_market_data_consistency_rejects_fully_missing_trade_date():
+    module = _load_module()
+    dates = ["2026-07-17", "2026-07-20"]
+    codes = ["000001", "600000"]
+    day = FakeIntegrityCollection(distinct_values={("code", "2026-07-20"): codes})
+    stock_list = FakeIntegrityCollection(distinct_values={"code": codes})
+    rows = [
+        {"_id": {"date": "2026-07-20", "code": code, "type": frequence}}
+        for code in codes
+        for frequence in module.STOCK_MIN_FREQUENCIES
+    ]
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    with pytest.raises(RuntimeError, match="missing_market_days=1"):
+        module.assert_stock_market_data_consistent(
+            day_collection=day,
+            min_collection=minute,
+            stock_list_collection=stock_list,
+            expected_trade_date="2026-07-20",
+            trade_dates_provider=lambda: dates,
         )

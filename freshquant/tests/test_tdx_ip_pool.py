@@ -14,10 +14,21 @@ _MODULE_PATH = (
     _REPO_ROOT / "sunflower" / "QUANTAXIS" / "QUANTAXIS" / "QAUtil" / "QAIPPool.py"
 )
 _POOL_PATH = _REPO_ROOT / "freshquant" / "gateway" / "tdx_ip_pool.json"
+_FRESHQUANT_MODULE_PATH = _REPO_ROOT / "freshquant" / "gateway" / "tdx_ip_pool.py"
 
 
 def _load_module():
     spec = importlib.util.spec_from_file_location("qa_ip_pool_under_test", _MODULE_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_freshquant_module():
+    spec = importlib.util.spec_from_file_location(
+        "freshquant_tdx_ip_pool_under_test", _FRESHQUANT_MODULE_PATH
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -33,6 +44,16 @@ def test_repo_pool_file_exists_and_loads():
     for host in stock_hosts + future_hosts:
         assert host["ip"]
         assert isinstance(host["port"], int)
+
+
+def test_freshquant_loader_reads_same_canonical_pool():
+    module = _load_freshquant_module()
+
+    stock_hosts = module.load_tdx_ip_pool("stock")
+    future_hosts = module.load_tdx_ip_pool("future")
+
+    assert stock_hosts
+    assert future_hosts
 
 
 def test_locate_pool_file_resolves_repo_json():
