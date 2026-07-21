@@ -42,7 +42,12 @@ from ..postclose_markers import (
     resolve_latest_completed_trade_date,
     upsert_postclose_marker,
 )
-from .market_data_freshness import assert_stock_day_fresh, assert_stock_min_fresh
+from .market_data_freshness import (
+    assert_etf_day_fresh,
+    assert_etf_min_fresh,
+    assert_stock_day_fresh,
+    assert_stock_min_fresh,
+)
 from .postclose_ready import refresh_quality_stock_universe_snapshot
 
 market_data_alert = signal("market_data_alert")
@@ -534,6 +539,8 @@ def etf_day(context: AssetExecutionContext, etf_list: str) -> str:
     """Download and save ETF daily data. Depends on etf_list."""
     context.log.info(f"Saving ETF daily data, triggered after etf_list at {etf_list}")
     QA_SU_save_etf_day("tdx")
+    freshness = assert_etf_day_fresh()
+    context.log.info(f"etf_day freshness check passed: {freshness}")
     market_data_alert.send(
         "dagster-asset",
         payload={
@@ -544,11 +551,13 @@ def etf_day(context: AssetExecutionContext, etf_list: str) -> str:
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
 
 
-@asset(deps=[etf_list], group_name="etf_data")
-def etf_min(context: AssetExecutionContext, etf_list: str) -> str:
-    """Download and save ETF minute data. Depends on etf_list."""
-    context.log.info(f"Saving ETF minute data, triggered after etf_list at {etf_list}")
+@asset(deps=[etf_day], group_name="etf_data")
+def etf_min(context: AssetExecutionContext, etf_day: str) -> str:
+    """Download and validate ETF minute data after ETF daily data."""
+    context.log.info(f"Saving ETF minute data, triggered after etf_day at {etf_day}")
     QA_SU_save_etf_min("tdx")
+    freshness = assert_etf_min_fresh()
+    context.log.info(f"etf_min freshness check passed: {freshness}")
     market_data_alert.send(
         "dagster-asset",
         payload={
@@ -616,9 +625,11 @@ def etf_adj(context: AssetExecutionContext, etf_day: str, etf_xdxr: str) -> str:
 
 
 @asset(group_name="etf_data")
-def etf_postclose_ready_asset(context: AssetExecutionContext, etf_adj: str) -> dict:
+def etf_postclose_ready_asset(
+    context: AssetExecutionContext, etf_adj: str, etf_min: str
+) -> dict:
     trade_date = resolve_latest_completed_trade_date()
-    payload: dict[str, str] = {}
+    payload = {"etf_adj_completed_at": etf_adj, "etf_min_completed_at": etf_min}
     upsert_postclose_marker(
         "etf_postclose_ready",
         trade_date,
