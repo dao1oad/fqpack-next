@@ -177,6 +177,23 @@ def _is_etf_placeholder_day(document: Mapping[str, object]) -> bool:
     return ohlc_placeholder and no_turnover
 
 
+def _is_stock_placeholder_day(document: Mapping[str, object]) -> bool:
+    """TDX stock suspension placeholder: flat OHLC with no turnover source."""
+    try:
+        prices = [
+            float(str(document.get(field, 0)))
+            for field in ("open", "close", "high", "low")
+        ]
+        flat_price = all(abs(price - prices[0]) < 1e-9 for price in prices[1:])
+        no_turnover = all(
+            abs(float(str(document.get(field, 0)))) < 1e-30
+            for field in ("vol", "amount")
+        )
+    except (TypeError, ValueError):
+        return False
+    return flat_price and no_turnover
+
+
 def _trade_date_timestamp_bounds(trade_date: str) -> tuple[float, float]:
     start = datetime.strptime(trade_date, "%Y-%m-%d").replace(tzinfo=_CHINA_TZ)
     end = start + timedelta(days=1)
@@ -448,15 +465,38 @@ def assert_stock_market_data_consistent(
     if not universe:
         raise RuntimeError("stock market integrity audit found an empty stock_list")
 
+    day_documents_by_date: dict[str, dict[str, Mapping[str, object]]] = {
+        trade_date: {} for trade_date in audited_dates
+    }
+    for document in day_coll.find(
+        {"date": {"$in": audited_dates}, "code": {"$in": universe}},
+        {
+            "_id": 0,
+            "date": 1,
+            "code": 1,
+            "open": 1,
+            "close": 1,
+            "high": 1,
+            "low": 1,
+            "vol": 1,
+            "amount": 1,
+        },
+    ):
+        trade_date = str(document.get("date") or "")[:10]
+        code = str(document.get("code") or "")
+        if trade_date in day_documents_by_date and code:
+            day_documents_by_date[trade_date][code] = document
     day_codes_by_date = {
+        trade_date: set(documents)
+        for trade_date, documents in day_documents_by_date.items()
+    }
+    placeholder_codes_by_date = {
         trade_date: {
-            str(code)
-            for code in day_coll.distinct(
-                "code",
-                {"date": trade_date, "code": {"$in": universe}},
-            )
+            code
+            for code, document in documents.items()
+            if _is_stock_placeholder_day(document)
         }
-        for trade_date in audited_dates
+        for trade_date, documents in day_documents_by_date.items()
     }
     minute_codes_by_date: dict[str, dict[str, set[str]]] = {
         trade_date: {str(frequence): set() for frequence in frequencies}
@@ -491,14 +531,15 @@ def assert_stock_market_data_consistent(
     missing_min_total = 0
     for trade_date in audited_dates:
         day_codes = day_codes_by_date[trade_date]
+        real_day_codes = day_codes - placeholder_codes_by_date[trade_date]
         minute_by_frequency = minute_codes_by_date[trade_date]
         minute_union = set().union(*minute_by_frequency.values())
         missing_market_day = not day_codes and not minute_union
         missing_day = sorted(minute_union - day_codes)
         missing_min = {
-            frequence: sorted(day_codes - minute_by_frequency[str(frequence)])
+            frequence: sorted(real_day_codes - minute_by_frequency[str(frequence)])
             for frequence in frequencies
-            if day_codes - minute_by_frequency[str(frequence)]
+            if real_day_codes - minute_by_frequency[str(frequence)]
         }
         missing_market_day_total += int(missing_market_day)
         missing_day_total += len(missing_day)
@@ -529,5 +570,9 @@ def assert_stock_market_data_consistent(
         "universe_codes": len(universe),
         "day_codes": {
             trade_date: len(codes) for trade_date, codes in day_codes_by_date.items()
+        },
+        "placeholder_codes": {
+            trade_date: len(codes)
+            for trade_date, codes in placeholder_codes_by_date.items()
         },
     }
