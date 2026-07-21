@@ -41,6 +41,8 @@ Dagster 盘后桥接口径当前新增两条 ready asset：
 
 - `stock_postclose_ready_asset`
   - 依赖股票日线与 `quality_stock_universe` 快照刷新
+  - 对最近 15 个已收盘交易日交叉核验日线与 1/5/15/30/60 分钟线
+  - TDX 成交量和成交额均为浮点哨兵值的零成交占位日线不要求分钟线，避免为停牌/无效占位记录伪造 bar
   - 成功后写入 `dagster_pipeline_markers.stock_postclose_ready`
 - `etf_postclose_ready_asset`
   - 依赖 `etf_adj` 和通过日线/五周期完整性门禁的 `etf_min`

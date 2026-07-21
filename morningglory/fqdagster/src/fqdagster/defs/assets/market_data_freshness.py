@@ -37,6 +37,7 @@ STOCK_MIN_FREQUENCIES: tuple[str, ...] = (
 )
 STOCK_INTEGRITY_LOOKBACK_TRADE_DAYS = 15
 STOCK_INTEGRITY_CODE_CHUNK_SIZE = 250
+TDX_NO_TURNOVER_SENTINEL_ABS_LIMIT = 1e-30
 
 # ETF 全市场约 1675 只, 正常交易日 index_day 当日文档数约 1650。
 ETF_DAY_MIN_DOCS = 1000
@@ -175,6 +176,26 @@ def _is_etf_placeholder_day(document: Mapping[str, object]) -> bool:
     except (TypeError, ValueError):
         return False
     return ohlc_placeholder and no_turnover
+
+
+def _is_tdx_no_turnover_day(document: Mapping[str, object]) -> bool:
+    """Return whether a TDX day row is a non-trading sentinel.
+
+    Some inactive securities are represented by flat OHLC rows whose volume
+    and amount are both the float sentinel ``5.877e-39``. TDX has no minute
+    bars for those rows, so they must not create a minute-coverage obligation.
+    Malformed turnover values remain in scope so the integrity gate fails
+    closed instead of silently ignoring bad data.
+    """
+    if any(field not in document for field in ("vol", "amount")):
+        return False
+    try:
+        return all(
+            abs(float(str(document.get(field, 0)))) < TDX_NO_TURNOVER_SENTINEL_ABS_LIMIT
+            for field in ("vol", "amount")
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _trade_date_timestamp_bounds(trade_date: str) -> tuple[float, float]:
@@ -448,16 +469,34 @@ def assert_stock_market_data_consistent(
     if not universe:
         raise RuntimeError("stock market integrity audit found an empty stock_list")
 
-    day_codes_by_date = {
-        trade_date: {
-            str(code)
-            for code in day_coll.distinct(
-                "code",
-                {"date": trade_date, "code": {"$in": universe}},
-            )
-        }
-        for trade_date in audited_dates
+    day_codes_by_date: dict[str, set[str]] = {
+        trade_date: set() for trade_date in audited_dates
     }
+    placeholder_codes_by_date: dict[str, set[str]] = {
+        trade_date: set() for trade_date in audited_dates
+    }
+    for code_chunk in _chunks(universe, max(int(code_chunk_size), 1)):
+        for document in day_coll.find(
+            {
+                "date": {"$in": audited_dates},
+                "code": {"$in": list(code_chunk)},
+            },
+            {
+                "_id": 0,
+                "date": 1,
+                "code": 1,
+                "vol": 1,
+                "amount": 1,
+            },
+        ):
+            trade_date = str(document.get("date") or "")[:10]
+            code = str(document.get("code") or "")
+            if trade_date not in day_codes_by_date or not code:
+                continue
+            if _is_tdx_no_turnover_day(document):
+                placeholder_codes_by_date[trade_date].add(code)
+            else:
+                day_codes_by_date[trade_date].add(code)
     minute_codes_by_date: dict[str, dict[str, set[str]]] = {
         trade_date: {str(frequence): set() for frequence in frequencies}
         for trade_date in audited_dates
@@ -492,7 +531,8 @@ def assert_stock_market_data_consistent(
     for trade_date in audited_dates:
         day_codes = day_codes_by_date[trade_date]
         minute_by_frequency = minute_codes_by_date[trade_date]
-        minute_union = set().union(*minute_by_frequency.values())
+        placeholder_codes = placeholder_codes_by_date[trade_date]
+        minute_union = set().union(*minute_by_frequency.values()) - placeholder_codes
         missing_market_day = not day_codes and not minute_union
         missing_day = sorted(minute_union - day_codes)
         missing_min = {
@@ -529,5 +569,9 @@ def assert_stock_market_data_consistent(
         "universe_codes": len(universe),
         "day_codes": {
             trade_date: len(codes) for trade_date, codes in day_codes_by_date.items()
+        },
+        "placeholder_codes": {
+            trade_date: len(codes)
+            for trade_date, codes in placeholder_codes_by_date.items()
         },
     }

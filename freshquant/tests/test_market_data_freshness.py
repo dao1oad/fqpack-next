@@ -135,9 +135,10 @@ def _complete_etf_min_counts() -> dict[str, int]:
 
 
 class FakeIntegrityCollection:
-    def __init__(self, *, distinct_values=None, aggregate_rows=None):
+    def __init__(self, *, distinct_values=None, aggregate_rows=None, documents=None):
         self.distinct_values = distinct_values or {}
         self.aggregate_rows = list(aggregate_rows or [])
+        self.documents = list(documents or [])
         self.aggregate_pipelines = []
 
     def distinct(self, field, query=None):
@@ -151,6 +152,28 @@ class FakeIntegrityCollection:
             row
             for row in self.aggregate_rows
             if str(row["_id"]["code"]) in selected_codes
+        ]
+
+    def find(self, query, projection=None):
+        selected_dates = set(query.get("date", {}).get("$in", []))
+        selected_codes = set(query.get("code", {}).get("$in", []))
+        documents = self.documents
+        if not documents:
+            documents = [
+                {
+                    "date": date,
+                    "code": code,
+                    "vol": 1000,
+                    "amount": 10000,
+                }
+                for date in selected_dates
+                for code in self.distinct_values.get(("code", date), [])
+            ]
+        return [
+            document
+            for document in documents
+            if document.get("date") in selected_dates
+            and document.get("code") in selected_codes
         ]
 
 
@@ -396,6 +419,57 @@ def test_stock_market_data_consistency_passes_for_all_frequencies():
     assert result["audited_dates"] == dates
     assert result["day_codes"] == {"2026-07-17": 2, "2026-07-20": 2}
     assert minute.aggregate_pipelines
+
+
+def test_stock_market_data_consistency_ignores_tdx_no_turnover_placeholders():
+    module = _load_module()
+    date = "2026-06-30"
+    real_code = "000001"
+    placeholder_code = "002729"
+    day = FakeIntegrityCollection(
+        documents=[
+            {
+                "date": date,
+                "code": real_code,
+                "vol": 1000,
+                "amount": 10000,
+            },
+            {
+                "date": date,
+                "code": placeholder_code,
+                "vol": 5.877471754e-39,
+                "amount": 5.877471754e-39,
+            },
+        ]
+    )
+    stock_list = FakeIntegrityCollection(
+        distinct_values={"code": [real_code, placeholder_code]}
+    )
+    rows = [
+        {"_id": {"date": date, "code": real_code, "type": frequence}}
+        for frequence in module.STOCK_MIN_FREQUENCIES
+    ]
+    # Neighboring TDX snapshots can contain sentinel minute rows too. They do
+    # not turn a non-trading placeholder day into a real coverage obligation.
+    rows.append({"_id": {"date": date, "code": placeholder_code, "type": "1min"}})
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    result = module.assert_stock_market_data_consistent(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date=date,
+        trade_dates_provider=lambda: [date],
+    )
+
+    assert result["day_codes"] == {date: 1}
+    assert result["placeholder_codes"] == {date: 1}
+
+
+def test_tdx_no_turnover_placeholder_requires_both_turnover_fields():
+    module = _load_module()
+
+    assert not module._is_tdx_no_turnover_day({"vol": 5.877471754e-39})
 
 
 def test_stock_market_data_consistency_rejects_day_and_minute_holes():
