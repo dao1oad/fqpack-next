@@ -579,6 +579,20 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 - 宿主机代理软件建议启用"绕过中国大陆"分流或在使用系统链路时关闭 TUN 模式；即使代理未关，修复后的选点/超时也能在慢链路下工作
 - 补缺口：直接在 Dagster UI 手动 launch 一次 `stock_data_job`（增量逻辑按"库内最后日期 → 今天"自动回补），完成后核对 `stock_day` / `stock_min` 的 `max(date)`
 
+## ETF 日线启动时报 `IndexKeySpecsConflict`
+
+现象：
+
+- `etf_data_job` 在 `etf_day` 刚启动时失败，Mongo 返回 `codeName=IndexKeySpecsConflict`
+- 报错同时列出 `quantaxis.index_day` 的 `code_1_date_stamp_1` 已有唯一索引，以及 QASU 请求创建的同名非唯一索引
+- `etf_adj`、`etf_min` 与 `etf_postclose_ready_asset` 因依赖失败而跳过
+
+处理：
+
+- 先用 `db.index_day.getIndexes()` 确认已有索引的 key pattern；`(code, date_stamp)` 的唯一或非唯一索引都满足 QASU 的查询要求
+- 当前 vendored QASU 在创建 `index_day` 索引前会复用相同 key pattern 的已有索引，不再因数据迁移保留的 `unique` 选项不同而重复创建同名索引
+- 重新部署 Dagster 使用的 rear 镜像后重跑 `etf_data_job`，确认 `etf_day` 已越过索引初始化并继续执行 freshness check
+
 ## ETF 日线/分钟线停更但 Dagster run 显示成功
 
 现象：

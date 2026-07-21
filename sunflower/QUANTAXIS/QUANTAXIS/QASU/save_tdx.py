@@ -92,6 +92,15 @@ from QUANTAXIS.QAFetch.QATdx import ping, get_ip_list_by_multi_process_ping, sto
 from multiprocessing import cpu_count
 
 
+def _ensure_compatible_index(collection, fields):
+    """Reuse an existing index with the same key pattern, regardless of options."""
+    normalized_fields = list(fields)
+    for spec in collection.index_information().values():
+        if list(spec.get("key") or []) == normalized_fields:
+            return
+    collection.create_index(normalized_fields)
+
+
 # ip=select_best_ip()
 
 
@@ -968,11 +977,12 @@ def QA_SU_save_single_index_day(code : str, client=DATABASE, ui_log=None):
 
     #__index_list = QA_fetch_get_stock_list('index')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
@@ -1061,11 +1071,12 @@ def QA_SU_save_index_day(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('index')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
@@ -1425,11 +1436,12 @@ def QA_SU_save_single_etf_day(code : str, client=DATABASE, ui_log=None):
 
     #__index_list = QA_fetch_get_stock_list('etf')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
@@ -1499,11 +1511,12 @@ def QA_SU_save_etf_day(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('etf')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
