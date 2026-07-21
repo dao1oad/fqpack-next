@@ -517,6 +517,7 @@ print(repo.list_reconciliation_resolutions())
 - `check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 只报 `fq_dagster_webserver` / `fq_dagster_daemon` 为 `Restarting`
 - `docker logs fqnext_20260223-fq_dagster_webserver-1` 或 `docker logs fqnext_20260223-fq_dagster_daemon-1` 出现 `DagsterInvariantViolationError`
 - 日志明确提示 `$DAGSTER_HOME "D:/fqpack/dagster" must be an absolute path`
+- 日志提示 `configured run launcher does not support resuming runs`，并要求把 `max_resume_run_attempts` 设为 `0`
 
 先检查：
 
@@ -531,12 +532,14 @@ print(repo.list_reconciliation_resolutions())
 - 主工作树 `.env` 里保留了宿主机 Windows 路径 `DAGSTER_HOME=D:/fqpack/dagster`
 - `env_file` 把这个 Windows 路径直接注入了 Linux Dagster 容器
 - Dagster 容器没有在 compose `environment` 中显式覆盖为 `/opt/dagster/home`
+- 当前 `DefaultRunLauncher` 不支持 run worker 自动恢复；若 `run_monitoring.max_resume_run_attempts` 大于 `0`，Dagster 实例初始化会直接失败
 
 处理：
 
 - 保留宿主机 `.env` 的 Windows 路径给本机链路使用，但在 `docker/compose.parallel.yaml` 的 `fq_dagster_webserver` / `fq_dagster_daemon` 下显式覆盖：
   - `DAGSTER_HOME=/opt/dagster/home`
   - `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`
+- 使用 `DefaultRunLauncher` 时保持 `morningglory/fqdagsterconfig/dagster.yaml` 中 `run_monitoring.max_resume_run_attempts=0`；失败 run 由 job 级 `dagster/max_retries` 标签重试，不要把 run worker resume 配置混为一谈
 - 重新执行命中的 Docker deploy 或整轮 formal deploy
 - 再次执行 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify`，确认 Dagster 容器从 `Restarting` 恢复为 `running`
 
@@ -570,6 +573,7 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 - 当前 `QATdx.ping` 已加 K 线接口探活并把连接超时放宽到 3 秒；`select_best_ip` 判定阈值同步放宽，坏 default 服务器会被自动淘汰重选
 - 当前股票日线/分钟线逐票抓取会在首选 host 返回异常、`None` 或源侧空响应时切换仓库 IP 池；旧 QASU 即使继续收集逐票错误，最终 ready asset 的跨集合审计也会阻断假成功 marker
 - 当前 Dagster `stock_day` / `stock_min` asset 落库后仍做基础新鲜度断言；`stock_postclose_ready_asset` 写 marker 前还会交叉审计最近 15 个交易日的当前股票日线与 `1min/5min/15min/30min/60min` 覆盖，任一确定性缺口都会 fail
+- 全市场交叉审计会豁免 OHLC 同值且成交量/额为 TDX 浮点哨兵的停牌占位日线；这类日期源侧没有分钟 bar，不要伪造数据
 - 当前默认 run launcher 不支持 crash resume，因此 run worker 崩溃后由 monitoring 将该 run 标记为失败；股票与 ETF 长任务通过 job tag 把单次最长运行时间设为 8 小时，并把自动失败重试限制为 2 次。容器重启后应确认失败 run 已结束、后续重试 run 的 compute log 继续增长，不能只看 UI 的 `STARTED`
 - 宿主机代理软件建议启用"绕过中国大陆"分流或在使用系统链路时关闭 TUN 模式；即使代理未关，修复后的选点/超时也能在慢链路下工作
 - 补缺口：直接在 Dagster UI 手动 launch 一次 `stock_data_job`（增量逻辑按"库内最后日期 → 今天"自动回补），完成后核对 `stock_day` / `stock_min` 的 `max(date)`

@@ -59,4 +59,5 @@ def test_dagster_instance_disables_resume_for_default_run_launcher():
     config_path = repo_root / "morningglory" / "fqdagsterconfig" / "dagster.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
+    assert config["run_launcher"]["class"] == "DefaultRunLauncher"
     assert config["run_monitoring"]["max_resume_run_attempts"] == 0

@@ -135,9 +135,12 @@ def _complete_etf_min_counts() -> dict[str, int]:
 
 
 class FakeIntegrityCollection:
-    def __init__(self, *, distinct_values=None, aggregate_rows=None):
+    def __init__(
+        self, *, distinct_values=None, aggregate_rows=None, find_documents=None
+    ):
         self.distinct_values = distinct_values or {}
         self.aggregate_rows = list(aggregate_rows or [])
+        self.find_documents = list(find_documents or [])
         self.aggregate_pipelines = []
 
     def distinct(self, field, query=None):
@@ -152,6 +155,40 @@ class FakeIntegrityCollection:
             for row in self.aggregate_rows
             if str(row["_id"]["code"]) in selected_codes
         ]
+
+    def find(self, query, projection=None):
+        selected_codes = set((query.get("code") or {}).get("$in") or [])
+        selected_dates = set((query.get("date") or {}).get("$in") or [])
+        return [
+            document
+            for document in self.find_documents
+            if str(document.get("code") or "") in selected_codes
+            and str(document.get("date") or "") in selected_dates
+        ]
+
+
+def _stock_day_document(code: str, date: str, *, placeholder: bool = False) -> dict:
+    if placeholder:
+        return {
+            "code": code,
+            "date": date,
+            "open": 10.25,
+            "close": 10.25,
+            "high": 10.25,
+            "low": 10.25,
+            "vol": 5.877471754e-39,
+            "amount": 5.877471754e-39,
+        }
+    return {
+        "code": code,
+        "date": date,
+        "open": 10.0,
+        "close": 10.2,
+        "high": 10.3,
+        "low": 9.9,
+        "vol": 1000,
+        "amount": 10200,
+    }
 
 
 def test_stock_day_fresh_passes():
@@ -371,11 +408,9 @@ def test_stock_market_data_consistency_passes_for_all_frequencies():
     dates = ["2026-07-17", "2026-07-20"]
     codes = ["000001", "600000"]
     day = FakeIntegrityCollection(
-        distinct_values={
-            "date": dates,
-            ("code", "2026-07-17"): codes,
-            ("code", "2026-07-20"): codes,
-        }
+        find_documents=[
+            _stock_day_document(code, date) for date in dates for code in codes
+        ]
     )
     stock_list = FakeIntegrityCollection(distinct_values={"code": codes})
     rows = []
@@ -402,7 +437,10 @@ def test_stock_market_data_consistency_rejects_day_and_minute_holes():
     module = _load_module()
     date = "2026-07-20"
     day = FakeIntegrityCollection(
-        distinct_values={"date": [date], ("code", date): ["000001", "600000"]}
+        find_documents=[
+            _stock_day_document("000001", date),
+            _stock_day_document("600000", date),
+        ]
     )
     stock_list = FakeIntegrityCollection(
         distinct_values={"code": ["000001", "600000", "600519"]}
@@ -428,7 +466,9 @@ def test_stock_market_data_consistency_rejects_fully_missing_trade_date():
     module = _load_module()
     dates = ["2026-07-17", "2026-07-20"]
     codes = ["000001", "600000"]
-    day = FakeIntegrityCollection(distinct_values={("code", "2026-07-20"): codes})
+    day = FakeIntegrityCollection(
+        find_documents=[_stock_day_document(code, "2026-07-20") for code in codes]
+    )
     stock_list = FakeIntegrityCollection(distinct_values={"code": codes})
     rows = [
         {"_id": {"date": "2026-07-20", "code": code, "type": frequence}}
@@ -445,3 +485,33 @@ def test_stock_market_data_consistency_rejects_fully_missing_trade_date():
             expected_trade_date="2026-07-20",
             trade_dates_provider=lambda: dates,
         )
+
+
+def test_stock_market_data_consistency_skips_suspension_placeholder_minutes():
+    module = _load_module()
+    date = "2026-07-20"
+    codes = ["000001", "300214"]
+    day = FakeIntegrityCollection(
+        find_documents=[
+            _stock_day_document("000001", date),
+            _stock_day_document("300214", date, placeholder=True),
+        ]
+    )
+    stock_list = FakeIntegrityCollection(distinct_values={"code": codes})
+    minute = FakeIntegrityCollection(
+        aggregate_rows=[
+            {"_id": {"date": date, "code": "000001", "type": frequence}}
+            for frequence in module.STOCK_MIN_FREQUENCIES
+        ]
+    )
+
+    result = module.assert_stock_market_data_consistent(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date=date,
+        trade_dates_provider=lambda: [date],
+    )
+
+    assert result["day_codes"] == {date: 2}
+    assert result["placeholder_codes"] == {date: 1}
