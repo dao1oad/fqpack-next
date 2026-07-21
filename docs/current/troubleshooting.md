@@ -570,7 +570,7 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 - 当前 `QATdx.ping` 已加 K 线接口探活并把连接超时放宽到 3 秒；`select_best_ip` 判定阈值同步放宽，坏 default 服务器会被自动淘汰重选
 - 当前股票日线/分钟线逐票抓取会在首选 host 返回异常、`None` 或源侧空响应时切换仓库 IP 池；旧 QASU 即使继续收集逐票错误，最终 ready asset 的跨集合审计也会阻断假成功 marker
 - 当前 Dagster `stock_day` / `stock_min` asset 落库后仍做基础新鲜度断言；`stock_postclose_ready_asset` 写 marker 前还会交叉审计最近 15 个交易日的当前股票日线与 `1min/5min/15min/30min/60min` 覆盖，任一确定性缺口都会 fail
-- Dagster run monitoring 允许最多 2 次 crash resume；股票与 ETF 长任务通过 job tag 把单次最长运行时间设为 8 小时，并把自动失败重试限制为 2 次。容器重启后仍需确认 compute log 继续增长，不能只看 UI 的 `STARTED`
+- 当前默认 run launcher 不支持 crash resume，因此 run worker 崩溃后由 monitoring 将该 run 标记为失败；股票与 ETF 长任务通过 job tag 把单次最长运行时间设为 8 小时，并把自动失败重试限制为 2 次。容器重启后应确认失败 run 已结束、后续重试 run 的 compute log 继续增长，不能只看 UI 的 `STARTED`
 - 宿主机代理软件建议启用"绕过中国大陆"分流或在使用系统链路时关闭 TUN 模式；即使代理未关，修复后的选点/超时也能在慢链路下工作
 - 补缺口：直接在 Dagster UI 手动 launch 一次 `stock_data_job`（增量逻辑按"库内最后日期 → 今天"自动回补），完成后核对 `stock_day` / `stock_min` 的 `max(date)`
 
