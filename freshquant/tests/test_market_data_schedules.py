@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 def _prepare_schedule_import(monkeypatch):

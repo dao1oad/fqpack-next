@@ -467,9 +467,7 @@ def test_stock_market_data_consistency_rejects_fully_missing_trade_date():
     dates = ["2026-07-17", "2026-07-20"]
     codes = ["000001", "600000"]
     day = FakeIntegrityCollection(
-        find_documents=[
-            _stock_day_document(code, "2026-07-20") for code in codes
-        ]
+        find_documents=[_stock_day_document(code, "2026-07-20") for code in codes]
     )
     stock_list = FakeIntegrityCollection(distinct_values={"code": codes})
     rows = [
