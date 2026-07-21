@@ -85,6 +85,42 @@ class _QasuFailureCapture(logging.Handler):
             self.failed_codes.extend(str(code) for code in message)
 
 
+def _is_expected_prelisting_qasu_failure(code: str) -> bool:
+    """Return whether an empty QASU result is expected before a stock lists.
+
+    TDX exposes issuance-stage securities in ``stock_list`` before their first
+    historical bar exists. QASU calls ``insert_many([])`` for those codes and
+    reports them through ``ERROR CODE`` even though the upstream request did
+    not fail. Existing securities are never exempted: any prior daily bar
+    keeps the failure actionable.
+    """
+    normalized_code = str(code).strip().zfill(6)
+    if DBQuantAxis["stock_day"].find_one({"code": normalized_code}, {"_id": 1}):
+        return False
+
+    document = DBQuantAxis["stock_list"].find_one(
+        {"code": normalized_code},
+        {"_id": 0, "name": 1, "pre_close": 1},
+    )
+    if not document:
+        return False
+
+    try:
+        if abs(float(document.get("pre_close", 0))) < 1e-30:
+            return True
+    except (TypeError, ValueError):
+        pass
+
+    # Before the close, QASU intentionally ends at the previous completed
+    # trade date. A same-day IPO (TDX name prefix ``N``) therefore has no bar
+    # in the requested range yet and must not turn the historical sync red.
+    today = pendulum.now("Asia/Shanghai").to_date_string()
+    return (
+        str(document.get("name") or "").strip().upper().startswith("N")
+        and resolve_latest_completed_trade_date() < today
+    )
+
+
 def _run_qasu_stock_sync(sync_name: str, sync_function) -> None:
     capture = _QasuFailureCapture()
     root_logger = logging.getLogger()
@@ -94,7 +130,17 @@ def _run_qasu_stock_sync(sync_name: str, sync_function) -> None:
     finally:
         root_logger.removeHandler(capture)
 
-    failed_codes = list(dict.fromkeys(capture.failed_codes))
+    reported_codes = list(dict.fromkeys(capture.failed_codes))
+    ignored_codes = [
+        code for code in reported_codes if _is_expected_prelisting_qasu_failure(code)
+    ]
+    if ignored_codes:
+        logging.getLogger(__name__).warning(
+            "%s ignored expected pre-listing empty results for: %s",
+            sync_name,
+            ignored_codes[:20],
+        )
+    failed_codes = [code for code in reported_codes if code not in ignored_codes]
     if failed_codes:
         raise RuntimeError(
             f"{sync_name} sync failed for {len(failed_codes)} codes: "

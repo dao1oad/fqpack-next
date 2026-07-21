@@ -490,6 +490,11 @@ def test_stock_postclose_ready_asset_depends_on_quality_snapshot(monkeypatch):
 def test_stock_assets_raise_when_quantaxis_reports_partial_failures(monkeypatch):
     module = _import_market_data_module(monkeypatch)
     context = SimpleNamespace(log=FakeLog())
+    monkeypatch.setattr(
+        module,
+        "_is_expected_prelisting_qasu_failure",
+        lambda _code: False,
+    )
 
     def report_failure(code, result):
         def sync(*_):
@@ -506,6 +511,115 @@ def test_stock_assets_raise_when_quantaxis_reports_partial_failures(monkeypatch)
         module.stock_day(context, "2026-07-20 16:00:00")
     with pytest.raises(RuntimeError, match="stock_min sync failed.*002390"):
         module.stock_min(context, "2026-07-20 16:00:00")
+
+
+def test_stock_assets_ignore_only_expected_prelisting_empty_results(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    context = SimpleNamespace(log=FakeLog())
+
+    def report_failures(*_):
+        logging.warning("ERROR CODE")
+        logging.warning(["001232", "000065"])
+
+    monkeypatch.setattr(module, "QA_SU_save_stock_day", report_failures)
+    monkeypatch.setattr(
+        module,
+        "_is_expected_prelisting_qasu_failure",
+        lambda code: code == "001232",
+    )
+
+    with pytest.raises(RuntimeError, match="stock_day sync failed.*000065") as error:
+        module.stock_day(context, "2026-07-20 16:00:00")
+
+    assert "001232" not in str(error.value)
+
+
+def test_stock_assets_allow_run_when_all_failures_are_prelisting(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    context = SimpleNamespace(log=FakeLog())
+
+    def report_failure(*_):
+        logging.warning("ERROR CODE")
+        logging.warning(["001232", "688806"])
+
+    monkeypatch.setattr(module, "QA_SU_save_stock_day", report_failure)
+    monkeypatch.setattr(
+        module,
+        "_is_expected_prelisting_qasu_failure",
+        lambda _code: True,
+    )
+    monkeypatch.setattr(
+        module,
+        "assert_stock_day_fresh",
+        lambda: {"expected_trade_date": "2026-07-20"},
+    )
+    result = module.stock_day(context, "2026-07-20 16:00:00")
+
+    assert isinstance(result, str)
+
+
+def test_prelisting_qasu_failure_requires_no_existing_history(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+
+    class FindOneCollection:
+        def __init__(self, document):
+            self.document = document
+
+        def find_one(self, *_args, **_kwargs):
+            return self.document
+
+    monkeypatch.setattr(
+        module,
+        "DBQuantAxis",
+        {
+            "stock_day": FindOneCollection(None),
+            "stock_list": FindOneCollection(
+                {"name": "嘉立创", "pre_close": 5.877471754e-39}
+            ),
+        },
+    )
+    assert module._is_expected_prelisting_qasu_failure("001232") is True
+
+    module.DBQuantAxis["stock_day"] = FindOneCollection({"_id": "historical"})
+    assert module._is_expected_prelisting_qasu_failure("001232") is False
+
+
+def test_same_day_ipo_empty_result_is_ignored_only_before_close(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+
+    class FindOneCollection:
+        def __init__(self, document):
+            self.document = document
+
+        def find_one(self, *_args, **_kwargs):
+            return self.document
+
+    monkeypatch.setattr(
+        module,
+        "DBQuantAxis",
+        {
+            "stock_day": FindOneCollection(None),
+            "stock_list": FindOneCollection({"name": "N泰诺", "pre_close": 1656.0225}),
+        },
+    )
+    monkeypatch.setattr(
+        module.pendulum,
+        "now",
+        lambda _timezone: SimpleNamespace(to_date_string=lambda: "2026-07-21"),
+    )
+    monkeypatch.setattr(
+        module,
+        "resolve_latest_completed_trade_date",
+        lambda: "2026-07-20",
+    )
+    assert module._is_expected_prelisting_qasu_failure("688806") is True
+
+    monkeypatch.setattr(
+        module,
+        "resolve_latest_completed_trade_date",
+        lambda: "2026-07-21",
+    )
+    assert module._is_expected_prelisting_qasu_failure("688806") is False
 
 
 def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
