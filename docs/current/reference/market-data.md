@@ -37,6 +37,7 @@ FreshQuant 当前同时使用三类行情来源：
 - endDate 为空时，可优先命中 Redis realtime cache
 - 指定 `endDate` 时，以历史查询为准
 - TDX 股票日线对未上市/暂无源数据代码返回空结果时按 no-op 处理，不执行空批量写入；连接、抓取或真实写库异常仍由 Dagster 标记为失败
+- 股票除权除息复权计算使用显式列赋值与 `DataFrame.ffill()`，避免 Pandas 3.0 链式 `inplace`/`fillna(method=...)` 兼容性问题，计算口径不变
 
 Dagster 盘后桥接口径当前新增两条 ready asset：
 
