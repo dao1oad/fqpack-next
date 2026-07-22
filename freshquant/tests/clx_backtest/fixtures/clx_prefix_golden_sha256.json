@@ -10,7 +10,7 @@
   "benchmark_input": "Golden OHLCV repeated to N; each additional 1400-bar cycle scales price by 1+0.03125*cycle and volume by 1+0.01*cycle.",
   "cumulative_sha256": "2ea8d238a4b8fcd87e30d66c56a175d9919154fb8351c58607176945b750bea4",
   "description": "Every from-zero prefix, all 18 model rows and every position, serialized as compact integer JSON plus LF.",
-  "engine_fixture_sha256": "31832cf585fa3624ac2d3a386d4f1d64fcf697fb87019bfe7da706c64bf67ebc",
+  "engine_fixture_sha256": "d8a76c25407ee962b7c7639f75f7442e592290362316b272cd9f271fde92264b",
   "matrix_values": 17652600,
   "prefix_matrix_sha256": [
     "95eba39b2c29b2576d87d8919853332f412c06b3a0de5ee1ec2d77a648d7331b",

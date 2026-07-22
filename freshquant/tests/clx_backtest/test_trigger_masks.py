@@ -12,6 +12,15 @@ from freshquant.backtest.clx import ClxEngineOptions, FqCopilotClxEngine
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
+def test_prefix_golden_references_current_engine_fixture_bytes() -> None:
+    fixture_path = FIXTURE_DIR / "clx_engine_golden.json"
+    prefix_golden = _load("clx_prefix_golden_sha256.json")
+
+    assert hashlib.sha256(fixture_path.read_bytes()).hexdigest() == (
+        prefix_golden["engine_fixture_sha256"]
+    )
+
+
 def _load(name: str) -> dict[str, Any]:
     return json.loads((FIXTURE_DIR / name).read_text(encoding="utf-8"))
 
