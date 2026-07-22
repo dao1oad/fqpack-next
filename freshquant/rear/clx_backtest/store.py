@@ -210,6 +210,27 @@ def _control_event(
     }
 
 
+def _holdout_queued_audit(
+    job: Mapping[str, object], event: Mapping[str, object]
+) -> dict[str, object]:
+    """Build the idempotent audit projection owned by a HOLDOUT reservation."""
+
+    audit_id = f"{event['_id']}:HOLDOUT_REVEAL_QUEUED"
+    return {
+        "_id": audit_id,
+        "finding_id": audit_id,
+        "run_id": job["run_id"],
+        "kind": "HOLDOUT_REVEAL_QUEUED",
+        "severity": "INFO",
+        "status": "RECORDED",
+        "details": {
+            "freeze_id": job["freeze_id"],
+            "job_id": job["_id"],
+        },
+        "created_at": event["created_at"],
+    }
+
+
 def _value_after(
     document: Mapping[str, object],
     sort: Sequence[tuple[str, int]],
@@ -414,10 +435,22 @@ class MemoryClxBacktestStore:
             if record is None:
                 return {"reason": "NOT_FOUND"}
             if record.get("state") != "FROZEN" or record.get("reveal_count") != 0:
-                return {"reason": "ALREADY_REVEALED", "freeze": _copy(record)}
-            record["state"] = "REVEALED"
-            record["holdout_revealed_at"] = now
-            record["reveal_count"] = 1
+                reason = (
+                    "ALREADY_REVEALED"
+                    if record.get("state") == "REVEALED"
+                    and record.get("reveal_count") == 1
+                    else (
+                        "REVEAL_FAILED"
+                        if record.get("state") == "REVEAL_FAILED"
+                        else "ALREADY_REQUESTED"
+                    )
+                )
+                return {"reason": reason, "freeze": _copy(record)}
+            # This transition only reserves the one reveal job.  HOLDOUT remains
+            # query-locked until the worker has verified both artifacts,
+            # projected them, and atomically publishes REVEALED on this record.
+            record["state"] = "REVEALING"
+            record["holdout_reveal_requested_at"] = now
             job = {
                 "_id": job_id,
                 "job_id": job_id,
@@ -472,6 +505,11 @@ class MemoryClxBacktestStore:
         else:
             projected.update(copy.deepcopy(dict(job)))
         self._collections["progress_events"].append(copy.deepcopy(dict(event)))
+        if job.get("kind") == "HOLDOUT":
+            audit = _holdout_queued_audit(job, event)
+            existing_audit = self._find_mutable("audit_findings", {"_id": audit["_id"]})
+            if existing_audit is None:
+                self._collections["audit_findings"].append(audit)
 
     def _find_mutable(
         self, collection: str, equals: Mapping[str, object]
@@ -738,15 +776,14 @@ class MongoClxBacktestStore:
             },
             {
                 "$set": {
-                    "state": "REVEALED",
-                    "holdout_revealed_at": now,
+                    "state": "REVEALING",
+                    "holdout_reveal_requested_at": now,
                     "holdout_job_id": job_id,
                     "holdout_job": copy.deepcopy(job),
                     "last_control_event": copy.deepcopy(event),
                     "projection_pending": True,
                     "updated_at": now,
                 },
-                "$inc": {"reveal_count": 1},
             },
             return_document=ReturnDocument.AFTER,
         )
@@ -769,10 +806,15 @@ class MongoClxBacktestStore:
         current = self._db.freeze_records.find_one(
             {"run_id": run_id, "freeze_id": freeze_id}
         )
-        return {
-            "reason": "NOT_FOUND" if current is None else "ALREADY_REVEALED",
-            "freeze": _copy(current),
-        }
+        if current is None:
+            reason = "NOT_FOUND"
+        elif current.get("state") == "REVEALED" and current.get("reveal_count") == 1:
+            reason = "ALREADY_REVEALED"
+        elif current.get("state") == "REVEAL_FAILED":
+            reason = "REVEAL_FAILED"
+        else:
+            reason = "ALREADY_REQUESTED"
+        return {"reason": reason, "freeze": _copy(current)}
 
     def holdout_revealed(self, run_id: str) -> bool:
         return (
@@ -812,6 +854,13 @@ class MongoClxBacktestStore:
             {"$setOnInsert": copy.deepcopy(dict(event))},
             upsert=True,
         )
+        if job.get("kind") == "HOLDOUT":
+            audit = _holdout_queued_audit(job, event)
+            self._db.audit_findings.update_one(
+                {"_id": audit["_id"]},
+                {"$setOnInsert": audit},
+                upsert=True,
+            )
 
     def _clear_projection_pending(self, run_id: str, event_id: object) -> bool:
         result = self._db.runs.update_one(

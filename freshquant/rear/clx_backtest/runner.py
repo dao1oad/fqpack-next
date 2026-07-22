@@ -268,104 +268,67 @@ class BacktestPipelineRunner:
             layout = resolve_pipeline_layout(run, self.root)
         lineage = asdict(layout)
         event_dir = Path(layout.event_dir)
-        if (event_dir / "manifest.sha256").is_file():
-            self.execute(
-                "event_verify",
-                [
-                    sys.executable,
-                    "-m",
-                    "freshquant.backtest.clx.event_study",
-                    "verify",
-                    "--output-dir",
-                    layout.event_dir,
-                ],
-                0.25,
-            )
-        else:
-            command = [
-                sys.executable,
-                "-m",
-                "freshquant.backtest.clx.event_study",
-                "build",
-                "--snapshot-dir",
-                layout.snapshot_dir,
-                "--signal-dir",
-                layout.signal_dir,
-                "--output-dir",
-                layout.event_dir,
-                "--split-plan",
-                layout.split_plan_path,
-                "--bootstrap-replicates",
-                str(int(_config(run).get("bootstrap_replicates", 1000))),
-            ]
-            if event_dir.exists():
-                command.append("--resume")
-            self.execute("event_build", command, 0.25)
-        ranking_dir = Path(layout.ranking_dir)
-        ranking_command = (
-            [
-                sys.executable,
-                "-m",
-                "freshquant.backtest.clx.ranking",
-                "verify",
-                "--ranking-dir",
-                layout.ranking_dir,
-            ]
-            if (ranking_dir / "manifest.sha256").is_file()
-            else [
-                sys.executable,
-                "-m",
-                "freshquant.backtest.clx.ranking",
-                "build",
-                "--event-dir",
-                layout.event_dir,
-                "--calendar",
-                layout.calendar_path,
-                "--split-plan",
-                layout.split_plan_path,
-                "--ranking-config",
-                layout.ranking_config_path,
-                "--output-dir",
-                layout.ranking_dir,
-                "--access-log",
-                str(Path(layout.run_root) / "control" / "ranking-access.jsonl"),
-            ]
-        )
+        command = [
+            sys.executable,
+            "-m",
+            "freshquant.backtest.clx.event_study",
+            "build",
+            "--snapshot-dir",
+            layout.snapshot_dir,
+            "--signal-dir",
+            layout.signal_dir,
+            "--output-dir",
+            layout.event_dir,
+            "--split-plan",
+            layout.split_plan_path,
+            "--bootstrap-replicates",
+            str(int(_config(run).get("bootstrap_replicates", 1000))),
+        ]
+        if event_dir.exists():
+            command.append("--resume")
+        self.execute("event_build", command, 0.25)
+        ranking_command = [
+            sys.executable,
+            "-m",
+            "freshquant.backtest.clx.ranking",
+            "build",
+            "--event-dir",
+            layout.event_dir,
+            "--calendar",
+            layout.calendar_path,
+            "--split-plan",
+            layout.split_plan_path,
+            "--ranking-config",
+            layout.ranking_config_path,
+            "--output-dir",
+            layout.ranking_dir,
+            "--access-log",
+            str(Path(layout.run_root) / "control" / "ranking-access.jsonl"),
+        ]
         self.execute("ranking", ranking_command, 0.55)
         splits = sorted(layout.portfolio_dirs)
         for index, split_id in enumerate(splits):
             output = layout.portfolio_dirs[split_id]
             destination = Path(output)
-            command = (
-                [
-                    sys.executable,
-                    "-m",
-                    "freshquant.backtest.clx.portfolio.pipeline",
-                    "verify",
-                    "--output-dir",
-                    output,
-                ]
-                if (destination / "manifest.sha256").is_file()
-                else [
-                    sys.executable,
-                    "-m",
-                    "freshquant.backtest.clx.portfolio.pipeline",
-                    "build",
-                    "--snapshot-dir",
-                    layout.snapshot_dir,
-                    "--event-dir",
-                    layout.event_dir,
-                    "--ranking-dir",
-                    layout.ranking_dir,
-                    "--output-dir",
-                    output,
-                    "--portfolio-config",
-                    layout.portfolio_config_path,
-                    "--split-id",
-                    split_id,
-                    *(["--resume"] if destination.exists() else []),
-                ]
-            )
+            command = [
+                sys.executable,
+                "-m",
+                "freshquant.backtest.clx.portfolio.pipeline",
+                "build",
+                "--snapshot-dir",
+                layout.snapshot_dir,
+                "--event-dir",
+                layout.event_dir,
+                "--ranking-dir",
+                layout.ranking_dir,
+                "--output-dir",
+                output,
+                "--portfolio-config",
+                layout.portfolio_config_path,
+                "--split-id",
+                split_id,
+                *(["--resume"] if destination.exists() else []),
+            ]
             progress = 0.55 + (index + 1) * (0.35 / max(1, len(splits)))
             self.execute(f"portfolio_{split_id.lower()}", command, progress)
         return lineage
@@ -412,69 +375,51 @@ class HoldoutPipelineRunner:
         holdout_root = Path(base.run_root) / "holdout" / suffix
         ranking_output = holdout_root / "ranking"
         ledger = self.root / "holdout-ledgers" / str(run["_id"])
-        ranking_command = (
-            [
-                sys.executable,
-                "-m",
-                "freshquant.backtest.clx.ranking",
-                "verify",
-                "--holdout-dir",
-                str(ranking_output),
-            ]
-            if (ranking_output / "manifest.sha256").is_file()
-            else [
-                sys.executable,
-                "-m",
-                "freshquant.backtest.clx.ranking",
-                "reveal",
-                "--event-dir",
-                base.event_dir,
-                "--calendar",
-                base.calendar_path,
-                "--ranking-dir",
-                base.ranking_dir,
-                "--output-dir",
-                str(ranking_output),
-                "--ledger-dir",
-                str(ledger),
-                "--access-log",
-                str(holdout_root / "access.jsonl"),
-            ]
-        )
+        # `reveal` is idempotent after publication and also reconciles the
+        # narrow crash window between atomic artifact rename and ledger
+        # completion.  A plain artifact verify would leave that CLAIMED ledger
+        # unresolved and could expose results without the one-read proof.
+        ranking_command = [
+            sys.executable,
+            "-m",
+            "freshquant.backtest.clx.ranking",
+            "reveal",
+            "--event-dir",
+            base.event_dir,
+            "--calendar",
+            base.calendar_path,
+            "--ranking-dir",
+            base.ranking_dir,
+            "--output-dir",
+            str(ranking_output),
+            "--ledger-dir",
+            str(ledger),
+            "--access-log",
+            str(holdout_root / "access.jsonl"),
+        ]
         self.execute("holdout_ranking", ranking_command, 0.45)
         portfolio_output = holdout_root / "portfolio"
-        portfolio_command = (
-            [
-                sys.executable,
-                "-m",
-                "freshquant.backtest.clx.portfolio.pipeline",
-                "verify",
-                "--output-dir",
-                str(portfolio_output),
-            ]
-            if (portfolio_output / "manifest.sha256").is_file()
-            else [
-                sys.executable,
-                "-m",
-                "freshquant.backtest.clx.portfolio.pipeline",
-                "build",
-                "--snapshot-dir",
-                base.snapshot_dir,
-                "--event-dir",
-                base.event_dir,
-                "--ranking-dir",
-                base.ranking_dir,
-                "--output-dir",
-                str(portfolio_output),
-                "--portfolio-config",
-                base.portfolio_config_path,
-                "--split-id",
-                "HOLDOUT",
-                "--reveal-dir",
-                str(ranking_output),
-                *(["--resume"] if portfolio_output.exists() else []),
-            ]
-        )
+        portfolio_command = [
+            sys.executable,
+            "-m",
+            "freshquant.backtest.clx.portfolio.pipeline",
+            "build",
+            "--snapshot-dir",
+            base.snapshot_dir,
+            "--event-dir",
+            base.event_dir,
+            "--ranking-dir",
+            base.ranking_dir,
+            "--output-dir",
+            str(portfolio_output),
+            "--portfolio-config",
+            base.portfolio_config_path,
+            "--split-id",
+            "HOLDOUT",
+            "--reveal-dir",
+            str(ranking_output),
+            *(["--resume"] if portfolio_output.exists() else []),
+        ]
         self.execute("holdout_portfolio", portfolio_command, 0.90)
         return {
             **asdict(base),

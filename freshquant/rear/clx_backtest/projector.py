@@ -176,6 +176,69 @@ def _source_id_values(value: object, *, decision_id: object) -> list[str]:
     return identifiers
 
 
+def _projection_date(value: object, *, context: str) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError) as exc:
+        raise ProjectionError(f"{context} has an invalid reveal_date") from exc
+
+
+def _validate_decision_source_events(
+    decision: Mapping[str, object],
+    events: Sequence[Mapping[str, object]],
+) -> None:
+    decision_id = decision.get("decision_id")
+    decision_code = str(decision.get("code", ""))
+    decision_day = _projection_date(
+        decision.get("reveal_date"), context=f"portfolio decision {decision_id}"
+    )
+    decision_direction_value: Any = decision.get("direction", 0)
+    try:
+        decision_direction = int(decision_direction_value)
+    except (TypeError, ValueError) as exc:
+        raise ProjectionError(
+            f"portfolio decision has invalid direction: {decision_id}"
+        ) from exc
+    if not decision_code or decision_direction not in (-1, 1):
+        raise ProjectionError(f"portfolio decision has invalid identity: {decision_id}")
+
+    has_anchor = False
+    for event in events:
+        signal_fact_id = str(event.get("signal_fact_id", ""))
+        if str(event.get("code", "")) != decision_code:
+            raise ProjectionError(
+                f"decision and source event codes differ: {signal_fact_id}"
+            )
+        event_day = _projection_date(
+            event.get("reveal_date"), context=f"source event {signal_fact_id}"
+        )
+        if event_day > decision_day:
+            raise ProjectionError(
+                f"source event is after its decision: {signal_fact_id}"
+            )
+        event_direction_value: Any = event.get("direction", 0)
+        try:
+            event_direction = int(event_direction_value)
+        except (TypeError, ValueError) as exc:
+            raise ProjectionError(
+                f"source event has invalid direction: {signal_fact_id}"
+            ) from exc
+        if event_direction not in (-1, 1):
+            raise ProjectionError(
+                f"source event has invalid direction: {signal_fact_id}"
+            )
+        if event_day == decision_day and event_direction == decision_direction:
+            has_anchor = True
+    if not has_anchor:
+        raise ProjectionError(
+            f"portfolio decision has no matching anchor source fact: {decision_id}"
+        )
+
+
 def _decision_source_ids(root: Path, manifest: Mapping[str, object]) -> set[str]:
     identifiers: set[str] = set()
     for meta in manifest.get("artifacts", []):
@@ -301,6 +364,8 @@ def _source_signal_facts(
             "event": event,
             "projection": {
                 "signal_date": event["signal_date"],
+                "reveal_date": event["reveal_date"],
+                "direction": int(event["direction"]),
                 "model_id": int(event["expected_model_id"]),
                 "occurrence": int(event["occurrence"]),
                 "primary_trigger": str(event["primary_trigger_semantic"]),
@@ -325,6 +390,72 @@ def _assert_event_signal_identity(
         "sha256:"
     ) != signal_manifest_sha256.removeprefix("sha256:"):
         raise ProjectionError("event and signal manifest identities differ")
+
+
+def _same_sha256_reference(left: object, right: object) -> bool:
+    return (
+        bool(left)
+        and bool(right)
+        and str(left).removeprefix("sha256:") == str(right).removeprefix("sha256:")
+    )
+
+
+def _assert_manifest_run_id(
+    manifest: Mapping[str, object], run_id: str, *, kind: str
+) -> None:
+    if manifest.get("run_id") != run_id:
+        raise ProjectionError(f"{kind} manifest belongs to another run")
+
+
+def _assert_portfolio_split(
+    manifest: Mapping[str, object], expected_split: str
+) -> None:
+    if manifest.get("split_id") != expected_split:
+        raise ProjectionError(
+            f"portfolio manifest split differs from mapping key: {expected_split}"
+        )
+
+
+def _assert_portfolio_source_identity(
+    portfolio_manifest: Mapping[str, object],
+    *,
+    event_manifest: Mapping[str, object],
+    event_manifest_sha256: str,
+    ranking_manifest: Mapping[str, object],
+    ranking_manifest_sha256: str,
+    holdout_manifest: Mapping[str, object] | None = None,
+    holdout_manifest_sha256: str | None = None,
+) -> None:
+    source = portfolio_manifest.get("source_identity")
+    if not isinstance(source, Mapping):
+        raise ProjectionError("portfolio manifest has no source identity")
+    mismatch = (
+        portfolio_manifest.get("run_id") != event_manifest.get("run_id")
+        or source.get("event_set_id") != event_manifest.get("event_set_id")
+        or not _same_sha256_reference(
+            source.get("event_manifest_sha256"), event_manifest_sha256
+        )
+        or source.get("ranking_set_id") != ranking_manifest.get("ranking_set_id")
+        or not _same_sha256_reference(
+            source.get("ranking_manifest_sha256"), ranking_manifest_sha256
+        )
+        or source.get("freeze_id") != ranking_manifest.get("freeze_id")
+    )
+    if mismatch:
+        raise ProjectionError("portfolio source identity differs from event/ranking")
+    if holdout_manifest is None:
+        if (
+            source.get("reveal_id") is not None
+            or source.get("reveal_manifest_sha256") is not None
+        ):
+            raise ProjectionError("non-HOLDOUT portfolio carries reveal identity")
+        return
+    if source.get("reveal_id") != holdout_manifest.get(
+        "reveal_id"
+    ) or not _same_sha256_reference(
+        source.get("reveal_manifest_sha256"), holdout_manifest_sha256
+    ):
+        raise ProjectionError("HOLDOUT portfolio source identity differs from reveal")
 
 
 def _freeze_input(
@@ -437,8 +568,11 @@ class ClxArtifactProjector:
         ranking_verification = dict(self._verify_ranking(ranking_dir))
         event_manifest, event_sha = read_hashed_manifest(event_dir)
         signal_manifest, signal_sha = read_hashed_manifest(signal_dir)
+        _assert_manifest_run_id(signal_manifest, run_id, kind="signal")
+        _assert_manifest_run_id(event_manifest, run_id, kind="event")
         _assert_event_signal_identity(event_manifest, signal_manifest, signal_sha)
         ranking_manifest, ranking_sha = read_hashed_manifest(ranking_dir)
+        _assert_manifest_run_id(ranking_manifest, run_id, kind="ranking")
         ranking_config_document = json.loads(
             (Path(ranking_dir) / "config/ranking_config.json").read_text(
                 encoding="utf-8"
@@ -458,8 +592,21 @@ class ClxArtifactProjector:
         source_signal_fact_ids: set[str] = set()
         portfolio_lineage: dict[str, object] = {}
         for split_id, directory in sorted(portfolio_dirs.items()):
+            if split_id not in {"TRAIN", "VALIDATION"}:
+                raise ProjectionError(
+                    f"unsupported BACKTEST portfolio split: {split_id}"
+                )
             verification = dict(self._verify_portfolio(directory))
             manifest, digest = read_hashed_manifest(directory)
+            _assert_manifest_run_id(manifest, run_id, kind="portfolio")
+            _assert_portfolio_split(manifest, split_id)
+            _assert_portfolio_source_identity(
+                manifest,
+                event_manifest=event_manifest,
+                event_manifest_sha256=event_sha,
+                ranking_manifest=ranking_manifest,
+                ranking_manifest_sha256=ranking_sha,
+            )
             portfolio_root = Path(directory)
             source_signal_fact_ids.update(
                 _decision_source_ids(portfolio_root, manifest)
@@ -582,6 +729,7 @@ class ClxArtifactProjector:
         api_freeze_id: str,
     ) -> dict[str, object]:
         run_id = str(run["_id"])
+        self._verify_event(event_dir)
         self._verify_ranking(ranking_dir)
         holdout_verification = dict(self._verify_holdout(holdout_dir))
         portfolio_verification = dict(self._verify_portfolio(portfolio_dir))
@@ -589,7 +737,26 @@ class ClxArtifactProjector:
         portfolio_manifest, portfolio_sha = read_hashed_manifest(portfolio_dir)
         event_manifest, event_sha = read_hashed_manifest(event_dir)
         signal_manifest, signal_sha = read_hashed_manifest(signal_dir)
+        ranking_manifest, ranking_sha = read_hashed_manifest(ranking_dir)
+        for kind, manifest in (
+            ("signal", signal_manifest),
+            ("event", event_manifest),
+            ("ranking", ranking_manifest),
+            ("HOLDOUT ranking", holdout_manifest),
+            ("HOLDOUT portfolio", portfolio_manifest),
+        ):
+            _assert_manifest_run_id(manifest, run_id, kind=kind)
+        _assert_portfolio_split(portfolio_manifest, "HOLDOUT")
         _assert_event_signal_identity(event_manifest, signal_manifest, signal_sha)
+        _assert_portfolio_source_identity(
+            portfolio_manifest,
+            event_manifest=event_manifest,
+            event_manifest_sha256=event_sha,
+            ranking_manifest=ranking_manifest,
+            ranking_manifest_sha256=ranking_sha,
+            holdout_manifest=holdout_manifest,
+            holdout_manifest_sha256=holdout_sha,
+        )
         source_ids = _decision_source_ids(Path(portfolio_dir), portfolio_manifest)
         source_facts = _source_signal_facts(
             event_root=Path(event_dir),
@@ -951,6 +1118,9 @@ class ClxArtifactProjector:
                         row.get("source_signal_fact_ids"),
                         decision_id=row.get("decision_id"),
                     )
+                    resolved_sources: list[
+                        tuple[str, Mapping[str, object], Mapping[str, object]]
+                    ] = []
                     for signal_fact_id in source_ids:
                         source = source_facts.get(signal_fact_id)
                         if not isinstance(source, Mapping):
@@ -965,17 +1135,11 @@ class ClxArtifactProjector:
                             raise ProjectionError(
                                 f"decision source fact is invalid: {signal_fact_id}"
                             )
-                        if (
-                            str(event.get("code")) != str(row.get("code"))
-                            or str(event.get("reveal_date"))
-                            != str(row.get("reveal_date"))
-                            or int(event.get("direction", 0))
-                            != int(row.get("direction", 0))
-                        ):
-                            raise ProjectionError(
-                                "decision and source event identities differ: "
-                                f"{signal_fact_id}"
-                            )
+                        resolved_sources.append((signal_fact_id, event, projection))
+                    _validate_decision_source_events(
+                        row, [event for _, event, _ in resolved_sources]
+                    )
+                    for signal_fact_id, _, projection in resolved_sources:
                         document = {
                             "_id": self._id(
                                 collection,
@@ -990,6 +1154,8 @@ class ClxArtifactProjector:
                             "combo_id": combo_id,
                             "split_id": split_id,
                             "signal_fact_id": str(signal_fact_id),
+                            "decision_reveal_date": row.get("reveal_date"),
+                            "decision_direction": row.get("direction"),
                             "sequence": sequence,
                             **copy.deepcopy(dict(projection)),
                         }

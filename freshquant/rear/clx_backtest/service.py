@@ -296,20 +296,27 @@ class ClxBacktestService:
         )
         if result["reason"] == "NOT_FOUND":
             raise not_found("freeze", freeze_id)
-        if result["reason"] != "OK":
+        if result["reason"] == "ALREADY_REVEALED":
             raise conflict(
                 "HOLDOUT_ALREADY_REVEALED",
                 "HOLDOUT has already been revealed for this freeze",
                 run_id=run_id,
                 freeze_id=freeze_id,
             )
-        self.audit(
-            run_id,
-            kind="HOLDOUT_REVEALED",
-            severity="INFO",
-            status="RECORDED",
-            details={"freeze_id": freeze_id},
-        )
+        if result["reason"] == "REVEAL_FAILED":
+            raise conflict(
+                "HOLDOUT_REVEAL_FAILED",
+                "The reserved HOLDOUT reveal failed and requires operator inspection",
+                run_id=run_id,
+                freeze_id=freeze_id,
+            )
+        if result["reason"] != "OK":
+            raise conflict(
+                "HOLDOUT_REVEAL_IN_PROGRESS",
+                "A HOLDOUT reveal job has already been reserved for this freeze",
+                run_id=run_id,
+                freeze_id=freeze_id,
+            )
         freeze = result["freeze"]
         assert isinstance(freeze, Mapping)
         return copy.deepcopy(dict(freeze))

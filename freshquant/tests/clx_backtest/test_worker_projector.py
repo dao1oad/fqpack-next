@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
@@ -18,11 +19,13 @@ from pymongo import MongoClient
 from freshquant.rear.clx_backtest.projector import (
     ClxArtifactProjector,
     ProjectionError,
+    _validate_decision_source_events,
 )
 from freshquant.rear.clx_backtest.routes import create_clx_backtest_blueprint
-from freshquant.rear.clx_backtest.runner import ExportRunner
 from freshquant.rear.clx_backtest.runner import (
     BacktestPipelineRunner,
+    ExportRunner,
+    HoldoutPipelineRunner,
     JobCancelled,
     SubprocessStageExecutor,
     resolve_pipeline_layout,
@@ -87,7 +90,15 @@ def _signal_fixture(root: Path, artifact_run_id: str) -> tuple[str, str]:
                 "signal_date": "2023-01-01",
                 "reveal_date": "2023-01-02",
                 "current_raw_signal": 21312,
-            }
+            },
+            {
+                "signal_fact_id": "SFH",
+                "code": "000001",
+                "expected_model_id": 8,
+                "signal_date": "2022-12-31",
+                "reveal_date": "2023-01-01",
+                "current_raw_signal": -8107,
+            },
         ]
     )
     meta = _file_meta(
@@ -114,7 +125,7 @@ def _event_fixture(
     *,
     signal_set_id: str,
     signal_manifest_sha256: str,
-) -> None:
+) -> str:
     outcomes = pl.DataFrame(
         [
             {
@@ -130,7 +141,21 @@ def _event_fixture(
                 "direction_base_trigger_mask": 4,
                 "synthetic_primary_mask": 0,
                 "concurrent_trigger_mask": 70,
-            }
+            },
+            {
+                "signal_fact_id": "SFH",
+                "signal_date": "2022-12-31",
+                "code": "000001",
+                "expected_model_id": 8,
+                "reveal_date": "2023-01-01",
+                "direction": -1,
+                "occurrence": 1,
+                "primary_entrypoint": 7,
+                "primary_trigger_semantic": "MACD_CROSS",
+                "direction_base_trigger_mask": 64,
+                "synthetic_primary_mask": 0,
+                "concurrent_trigger_mask": 64,
+            },
         ]
     )
     meta = _file_meta(
@@ -139,7 +164,7 @@ def _event_fixture(
         "event_outcomes",
         outcomes,
     )
-    _manifest(
+    return _manifest(
         root,
         {
             "state": "COMPLETE",
@@ -155,7 +180,7 @@ def _event_fixture(
     )
 
 
-def _ranking_fixture(root: Path, artifact_run_id: str, combo_id: str) -> None:
+def _ranking_fixture(root: Path, artifact_run_id: str, combo_id: str) -> str:
     canonical = json.dumps(
         {
             "dsl_version": "1",
@@ -266,7 +291,7 @@ def _ranking_fixture(root: Path, artifact_run_id: str, combo_id: str) -> None:
         json.dumps({"frozen_order": [combo_id]}, sort_keys=True),
         encoding="utf-8",
     )
-    _manifest(
+    return _manifest(
         root,
         {
             "state": "COMPLETE",
@@ -286,6 +311,7 @@ def _portfolio_fixture(
     split: str,
     *,
     signal_fact_ids: list[str] | None = None,
+    source_identity: dict[str, object] | None = None,
 ) -> None:
     relative = f"splits/split_id={split}/combo=fixture"
     checkpoint = {
@@ -358,6 +384,7 @@ def _portfolio_fixture(
             "run_id": artifact_run_id,
             "portfolio_set_id": f"portfolio-set-{split.lower()}",
             "split_id": split,
+            "source_identity": source_identity or {},
             "frozen_order": [combo_id],
             "checkpoint_paths": [relative],
             "artifacts": artifacts,
@@ -365,7 +392,7 @@ def _portfolio_fixture(
     )
 
 
-def _holdout_fixture(root: Path, combo_id: str) -> None:
+def _holdout_fixture(root: Path, combo_id: str, run_id: str) -> str:
     metrics = pl.DataFrame(
         [
             {
@@ -396,10 +423,11 @@ def _holdout_fixture(root: Path, combo_id: str) -> None:
             }
         ],
     )
-    _manifest(
+    return _manifest(
         root,
         {
             "state": "COMPLETE",
+            "run_id": run_id,
             "freeze_id": "ranking-freeze",
             "reveal_id": "reveal-fixture",
             "frozen_order": [combo_id],
@@ -407,6 +435,95 @@ def _holdout_fixture(root: Path, combo_id: str) -> None:
             "artifacts": [metric_meta, audit_meta],
         },
     )
+
+
+def test_decision_source_validation_distinguishes_anchor_and_history() -> None:
+    decision = {
+        "decision_id": "decision-1",
+        "code": "000001",
+        "reveal_date": date(2023, 1, 3),
+        "direction": 1,
+    }
+    historical = {
+        "signal_fact_id": "historical",
+        "code": "000001",
+        "reveal_date": date(2023, 1, 2),
+        "direction": -1,
+    }
+    anchor = {
+        "signal_fact_id": "anchor",
+        "code": "000001",
+        "reveal_date": date(2023, 1, 3),
+        "direction": 1,
+    }
+
+    _validate_decision_source_events(decision, [historical, anchor])
+
+    with pytest.raises(ProjectionError, match="has no matching anchor source fact"):
+        _validate_decision_source_events(decision, [historical])
+    with pytest.raises(ProjectionError, match="source event is after its decision"):
+        _validate_decision_source_events(
+            decision,
+            [{**historical, "reveal_date": date(2023, 1, 4)}],
+        )
+    with pytest.raises(ProjectionError, match="source event codes differ"):
+        _validate_decision_source_events(
+            decision,
+            [{**anchor, "code": "000002"}],
+        )
+
+
+def test_holdout_runner_always_invokes_reveal_to_reconcile_ledger(
+    tmp_path: Path,
+) -> None:
+    run_id = "RUN-HOLDOUT-RESUME"
+    api_freeze_id = "sha256:" + "a" * 64
+    run_root = tmp_path / "runs" / run_id
+    ranking_dir = run_root / "ranking"
+    _manifest(ranking_dir, {"state": "COMPLETE"})
+    freeze_path = ranking_dir / "config/freeze_record.json"
+    freeze_path.parent.mkdir(parents=True, exist_ok=True)
+    freeze_path.write_text(json.dumps({"frozen_order": ["C1"]}), encoding="utf-8")
+    suffix = content_hash(
+        {"run_id": run_id, "api_freeze_id": api_freeze_id}
+    ).removeprefix("sha256:")
+    ranking_output = run_root / "holdout" / suffix / "ranking"
+    ranking_output.mkdir(parents=True)
+    (ranking_output / "manifest.sha256").write_text("published\n", encoding="ascii")
+    lineage = {
+        "root": str(tmp_path),
+        "run_root": str(run_root),
+        "snapshot_dir": str(tmp_path / "snapshot"),
+        "signal_dir": str(tmp_path / "signals"),
+        "event_dir": str(run_root / "event"),
+        "ranking_dir": str(ranking_dir),
+        "calendar_path": str(tmp_path / "calendar.parquet"),
+        "split_plan_path": str(tmp_path / "split.json"),
+        "ranking_config_path": str(tmp_path / "ranking.json"),
+        "portfolio_config_path": str(tmp_path / "portfolio.json"),
+        "portfolio_dirs": {},
+    }
+    commands: list[tuple[str, list[str]]] = []
+
+    def execute(
+        stage: str, command: Sequence[str], progress: float
+    ) -> Mapping[str, object]:
+        commands.append((stage, list(command)))
+        return {}
+
+    HoldoutPipelineRunner(execute, root=tmp_path).run(
+        {"_id": run_id, "resolved_lineage": lineage},
+        {"_id": "HOLDOUT-JOB"},
+        {
+            "freeze_id": api_freeze_id,
+            "specification": {"validation": {"rank_order": ["C1"]}},
+        },
+    )
+
+    stage, command = commands[0]
+    assert stage == "holdout_ranking"
+    assert command[3] == "reveal"
+    assert "--ledger-dir" in command
 
 
 @pytest.fixture(scope="module")
@@ -601,7 +718,7 @@ def test_claim_cancellation_race_finishes_cancelled(mongo_database, monkeypatch)
 def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
     database, prefix = mongo_database
     run_id = prefix + "-RUN-PROJECT"
-    artifact_run_id = prefix + "-SOURCE"
+    artifact_run_id = run_id
     combo_id = "sha256:" + "c" * 64
     signal_dir = tmp_path / "signal"
     event_dir = tmp_path / "event"
@@ -610,14 +727,30 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
     holdout_dir = tmp_path / "holdout-ranking"
     holdout_portfolio = tmp_path / "portfolio-holdout"
     signal_set_id, signal_manifest_sha256 = _signal_fixture(signal_dir, artifact_run_id)
-    _event_fixture(
+    event_manifest_sha256 = _event_fixture(
         event_dir,
         artifact_run_id,
         signal_set_id=signal_set_id,
         signal_manifest_sha256=signal_manifest_sha256,
     )
-    _ranking_fixture(ranking_dir, artifact_run_id, combo_id)
-    _portfolio_fixture(validation_portfolio, artifact_run_id, combo_id, "VALIDATION")
+    ranking_manifest_sha256 = _ranking_fixture(ranking_dir, artifact_run_id, combo_id)
+    portfolio_source_identity: dict[str, object] = {
+        "event_set_id": "event-fixture",
+        "event_manifest_sha256": event_manifest_sha256,
+        "ranking_set_id": "ranking-fixture",
+        "ranking_manifest_sha256": ranking_manifest_sha256,
+        "freeze_id": "ranking-freeze",
+        "reveal_id": None,
+        "reveal_manifest_sha256": None,
+    }
+    _portfolio_fixture(
+        validation_portfolio,
+        artifact_run_id,
+        combo_id,
+        "VALIDATION",
+        signal_fact_ids=["SF1", "SFH"],
+        source_identity=portfolio_source_identity,
+    )
     database.runs.insert_one(
         {
             "_id": run_id,
@@ -640,6 +773,22 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
         verify_holdout=accept,
         verify_portfolio=accept,
     )
+    with pytest.raises(ProjectionError, match="belongs to another run"):
+        projector.project_backtest(
+            {**run, "_id": prefix + "-OTHER-RUN"},
+            signal_dir=signal_dir,
+            event_dir=event_dir,
+            ranking_dir=ranking_dir,
+            portfolio_dirs={"VALIDATION": validation_portfolio},
+        )
+    with pytest.raises(ProjectionError, match="split differs"):
+        projector.project_backtest(
+            run,
+            signal_dir=signal_dir,
+            event_dir=event_dir,
+            ranking_dir=ranking_dir,
+            portfolio_dirs={"TRAIN": validation_portfolio},
+        )
     first = projector.project_backtest(
         run,
         signal_dir=signal_dir,
@@ -707,7 +856,9 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
     )
     assert database.portfolio_equity.count_documents({"run_id": run_id}) == 1
     assert database.portfolio_trades.count_documents({"run_id": run_id}) == 1
-    signal = database.combo_signals.find_one({"run_id": run_id})
+    signal = database.combo_signals.find_one(
+        {"run_id": run_id, "signal_fact_id": "SF1"}
+    )
     assert signal["signal_fact_id"] == "SF1"
     assert signal["signal_date"] == "2023-01-01"
     assert signal["model_id"] == 2
@@ -719,6 +870,41 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
     assert signal["code"] == "000001"
     assert signal["reveal_date"] == "2023-01-02"
     assert signal["direction"] == 1
+    assert signal["decision_reveal_date"] == "2023-01-02"
+    assert signal["decision_direction"] == 1
+
+    projected_sources = {
+        item["signal_fact_id"]: item
+        for item in database.combo_signals.find({"run_id": run_id})
+    }
+    assert set(projected_sources) == {"SF1", "SFH"}
+    historical = projected_sources["SFH"]
+    assert historical["reveal_date"] == "2023-01-01"
+    assert historical["direction"] == -1
+    assert historical["decision_reveal_date"] == "2023-01-02"
+    assert historical["decision_direction"] == 1
+
+    mismatched_portfolio = tmp_path / "portfolio-mismatched-source"
+    _portfolio_fixture(
+        mismatched_portfolio,
+        artifact_run_id,
+        combo_id,
+        "VALIDATION",
+        source_identity={
+            **portfolio_source_identity,
+            "event_manifest_sha256": "sha256:" + "f" * 64,
+        },
+    )
+    with pytest.raises(
+        ProjectionError, match="source identity differs from event/ranking"
+    ):
+        projector.project_backtest(
+            run,
+            signal_dir=signal_dir,
+            event_dir=event_dir,
+            ranking_dir=ranking_dir,
+            portfolio_dirs={"VALIDATION": mismatched_portfolio},
+        )
 
     missing_portfolio = tmp_path / "portfolio-missing-source"
     _portfolio_fixture(
@@ -727,13 +913,11 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
         combo_id,
         "VALIDATION",
         signal_fact_ids=["MISSING"],
+        source_identity=portfolio_source_identity,
     )
     with pytest.raises(ProjectionError, match="source signal facts are missing"):
         projector.project_backtest(
-            {
-                "_id": prefix + "-RUN-MISSING-SOURCE",
-                "config_sha256": content_hash({"fixture": "missing"}),
-            },
+            run,
             signal_dir=signal_dir,
             event_dir=event_dir,
             ranking_dir=ranking_dir,
@@ -765,8 +949,18 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
     assert frozen.status_code == 201
     api_freeze_id = frozen.get_json()["data"]["freeze_id"]
 
-    _holdout_fixture(holdout_dir, combo_id)
-    _portfolio_fixture(holdout_portfolio, artifact_run_id, combo_id, "HOLDOUT")
+    holdout_manifest_sha256 = _holdout_fixture(holdout_dir, combo_id, run_id)
+    _portfolio_fixture(
+        holdout_portfolio,
+        artifact_run_id,
+        combo_id,
+        "HOLDOUT",
+        source_identity={
+            **portfolio_source_identity,
+            "reveal_id": "reveal-fixture",
+            "reveal_manifest_sha256": holdout_manifest_sha256,
+        },
+    )
     first_holdout = projector.project_holdout(
         run,
         signal_dir=signal_dir,
@@ -878,8 +1072,386 @@ def test_mongo_reveal_projects_exactly_one_holdout_job(mongo_database):
     assert [item["reason"] for item in results].count("OK") == 1
     assert database.jobs.count_documents({"run_id": run_id, "kind": "HOLDOUT"}) == 1
     record = database.freeze_records.find_one({"run_id": run_id})
-    assert record["reveal_count"] == 1
+    assert record["state"] == "REVEALING"
+    assert record["reveal_count"] == 0
+    assert record["holdout_revealed_at"] is None
     assert record["projection_pending"] is False
+    queued_audit = database.audit_findings.find_one(
+        {"run_id": run_id, "kind": "HOLDOUT_REVEAL_QUEUED"}
+    )
+    assert queued_audit["details"]["freeze_id"] == freeze_id
+    assert queued_audit["details"]["job_id"] == record["holdout_job_id"]
+
+    worker_store = MongoWorkerStore(database, lease_seconds=10)
+    claimed = worker_store.claim("holdout-worker", kinds=("HOLDOUT",))
+    assert claimed is not None
+    assert database.freeze_records.find_one({"run_id": run_id})["state"] == "REVEALING"
+    worker_store.complete(
+        claimed,
+        result={
+            "projection": {
+                "holdout": {
+                    "api_freeze_id": freeze_id,
+                    "projection_sha256": "sha256:" + "1" * 64,
+                }
+            }
+        },
+        now="2026-07-22T05:10:00.000Z",
+    )
+    record = database.freeze_records.find_one({"run_id": run_id})
+    assert record["state"] == "REVEALED"
+    assert record["reveal_count"] == 1
+    assert record["holdout_revealed_at"] == "2026-07-22T05:10:00.000Z"
+    assert record["holdout_projection_sha256"] == "sha256:" + "1" * 64
+    assert (
+        database.audit_findings.count_documents(
+            {"run_id": run_id, "kind": "HOLDOUT_REVEALED"}
+        )
+        == 1
+    )
+
+
+def test_reconcile_pending_restores_queued_holdout_audit_after_projection_crash(
+    mongo_database,
+):
+    database, prefix = mongo_database
+    run_id = prefix + "-RUN-QUEUE-AUDIT-CRASH"
+    freeze_id = prefix + "-FREEZE-QUEUE-AUDIT-CRASH"
+    job_id = prefix + "-JOB-QUEUE-AUDIT-CRASH"
+    database.runs.insert_one({"_id": run_id, "run_id": run_id, "status": "COMPLETE"})
+    database.freeze_records.insert_one(
+        {
+            "_id": prefix + "-FREEZE-QUEUE-AUDIT-CRASH-DOC",
+            "run_id": run_id,
+            "freeze_id": freeze_id,
+            "state": "FROZEN",
+            "reveal_count": 0,
+            "holdout_revealed_at": None,
+        }
+    )
+
+    class CrashingProjectionStore(MongoClxBacktestStore):
+        def _project_control(self, job, event) -> None:
+            raise SystemExit("injected crash before queued audit projection")
+
+    store = CrashingProjectionStore(database, create_indexes=False)
+    with pytest.raises(SystemExit, match="queued audit projection"):
+        store.reveal_holdout(
+            run_id,
+            freeze_id,
+            now="2026-07-22T05:00:00.000Z",
+            job_id=job_id,
+        )
+
+    pending = database.freeze_records.find_one({"run_id": run_id})
+    assert pending["state"] == "REVEALING"
+    assert pending["projection_pending"] is True
+    assert database.jobs.count_documents({"_id": job_id}) == 0
+    assert database.audit_findings.count_documents({"run_id": run_id}) == 0
+
+    worker_store = MongoWorkerStore(database, lease_seconds=10)
+    assert worker_store.reconcile_pending(limit=100) >= 1
+    reconciled = database.freeze_records.find_one({"run_id": run_id})
+    assert reconciled["state"] == "REVEALING"
+    assert reconciled["projection_pending"] is False
+    assert database.jobs.count_documents({"_id": job_id}) == 1
+    assert (
+        database.audit_findings.count_documents(
+            {"run_id": run_id, "kind": "HOLDOUT_REVEAL_QUEUED"}
+        )
+        == 1
+    )
+    database.jobs.delete_one({"_id": job_id})
+    database.freeze_records.delete_one({"_id": pending["_id"]})
+
+
+def test_terminal_holdout_audit_crash_keeps_freeze_locked_until_reconciled(
+    mongo_database, monkeypatch
+):
+    from pymongo.collection import Collection
+
+    database, prefix = mongo_database
+    run_id = prefix + "-RUN-TERMINAL-AUDIT-CRASH"
+    freeze_id = prefix + "-FREEZE-TERMINAL-AUDIT-CRASH"
+    job_id = prefix + "-JOB-TERMINAL-AUDIT-CRASH"
+    database.runs.insert_one({"_id": run_id, "run_id": run_id, "status": "COMPLETE"})
+    database.freeze_records.insert_one(
+        {
+            "_id": prefix + "-FREEZE-TERMINAL-AUDIT-CRASH-DOC",
+            "run_id": run_id,
+            "freeze_id": freeze_id,
+            "state": "FROZEN",
+            "reveal_count": 0,
+            "holdout_revealed_at": None,
+        }
+    )
+    api_store = MongoClxBacktestStore(database, create_indexes=False)
+    assert (
+        api_store.reveal_holdout(
+            run_id,
+            freeze_id,
+            now="2026-07-22T05:00:00.000Z",
+            job_id=job_id,
+        )["reason"]
+        == "OK"
+    )
+    worker_store = MongoWorkerStore(database, lease_seconds=10)
+    claimed = worker_store.claim("holdout-worker", kinds=("HOLDOUT",))
+    assert claimed is not None
+    assert claimed["_id"] == job_id
+
+    original_update_one = Collection.update_one
+    crash_pending = True
+
+    def crash_terminal_audit(collection, *args, **kwargs):
+        nonlocal crash_pending
+        update = args[1] if len(args) > 1 else kwargs.get("update", {})
+        finding = update.get("$setOnInsert", {}) if isinstance(update, dict) else {}
+        if (
+            crash_pending
+            and collection.name == "audit_findings"
+            and finding.get("kind") == "HOLDOUT_REVEALED"
+        ):
+            crash_pending = False
+            raise SystemExit("injected crash before terminal audit commit")
+        return original_update_one(collection, *args, **kwargs)
+
+    monkeypatch.setattr(Collection, "update_one", crash_terminal_audit)
+    with pytest.raises(SystemExit, match="terminal audit commit"):
+        worker_store.complete(
+            claimed,
+            result={
+                "projection": {
+                    "holdout": {
+                        "api_freeze_id": freeze_id,
+                        "projection_sha256": "sha256:" + "3" * 64,
+                    }
+                }
+            },
+            now="2026-07-22T05:10:00.000Z",
+        )
+
+    pending = database.freeze_records.find_one({"run_id": run_id})
+    assert pending["state"] == "REVEALING"
+    assert pending["reveal_count"] == 0
+    assert database.jobs.find_one({"_id": job_id})["status"] == "COMPLETE"
+
+    assert worker_store.reconcile_pending(limit=100) >= 1
+    revealed = database.freeze_records.find_one({"run_id": run_id})
+    assert revealed["state"] == "REVEALED"
+    assert revealed["reveal_count"] == 1
+    assert (
+        database.audit_findings.count_documents(
+            {"run_id": run_id, "kind": "HOLDOUT_REVEALED"}
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("_id", "WRONG-JOB-ID"),
+        ("job_id", "WRONG-JOB-ID"),
+        ("kind", "BACKTEST"),
+        ("run_id", "WRONG-RUN-ID"),
+        ("freeze_id", "WRONG-FREEZE-ID"),
+    ],
+)
+def test_terminal_holdout_identity_mismatch_remains_locked(
+    mongo_database, field, bad_value
+):
+    database, prefix = mongo_database
+    case_id = field.upper()
+    run_id = prefix + f"-RUN-IDENTITY-LOCK-{case_id}"
+    freeze_id = prefix + f"-FREEZE-IDENTITY-LOCK-{case_id}"
+    job_id = prefix + f"-JOB-IDENTITY-LOCK-{case_id}"
+    record = {
+        "_id": prefix + f"-FREEZE-IDENTITY-LOCK-DOC-{case_id}",
+        "run_id": run_id,
+        "freeze_id": freeze_id,
+        "state": "REVEALING",
+        "reveal_count": 0,
+        "holdout_job_id": job_id,
+    }
+    database.freeze_records.insert_one(record)
+    terminal_job = {
+        "_id": job_id,
+        "job_id": job_id,
+        "run_id": run_id,
+        "freeze_id": freeze_id,
+        "kind": "HOLDOUT",
+        "status": "COMPLETE",
+        "result": {
+            "projection": {
+                "holdout": {
+                    "api_freeze_id": freeze_id,
+                    "projection_sha256": "sha256:" + "4" * 64,
+                }
+            }
+        },
+    }
+    terminal_job[field] = bad_value
+
+    worker_store = MongoWorkerStore(database, lease_seconds=10)
+    assert (
+        worker_store._reconcile_holdout_terminal(record, terminal_job=terminal_job)
+        is False
+    )
+    current = database.freeze_records.find_one({"_id": record["_id"]})
+    assert current["state"] == "REVEALING"
+    assert current["reveal_count"] == 0
+    assert database.audit_findings.count_documents({"run_id": run_id}) == 0
+
+
+def test_terminal_holdout_rejects_noncanonical_projection_hash(mongo_database):
+    database, prefix = mongo_database
+    run_id = prefix + "-RUN-BAD-PROOF"
+    freeze_id = prefix + "-FREEZE-BAD-PROOF"
+    job_id = prefix + "-JOB-BAD-PROOF"
+    record = {
+        "_id": prefix + "-FREEZE-BAD-PROOF-DOC",
+        "run_id": run_id,
+        "freeze_id": freeze_id,
+        "state": "REVEALING",
+        "reveal_count": 0,
+        "holdout_job_id": job_id,
+    }
+    database.freeze_records.insert_one(record)
+    terminal_job = {
+        "_id": job_id,
+        "job_id": job_id,
+        "run_id": run_id,
+        "freeze_id": freeze_id,
+        "kind": "HOLDOUT",
+        "status": "COMPLETE",
+        "result": {
+            "projection": {
+                "holdout": {
+                    "api_freeze_id": freeze_id,
+                    "projection_sha256": "sha256:" + "G" * 64,
+                }
+            }
+        },
+    }
+
+    worker_store = MongoWorkerStore(database, lease_seconds=10)
+    assert worker_store._reconcile_holdout_terminal(record, terminal_job=terminal_job)
+    current = database.freeze_records.find_one({"_id": record["_id"]})
+    assert current["state"] == "REVEAL_FAILED"
+    assert current["reveal_count"] == 0
+    assert current["holdout_reveal_error"]["code"] == (
+        "HOLDOUT_PROJECTION_PROOF_MISSING"
+    )
+
+
+def test_reconcile_pending_closes_terminal_job_freeze_crash_window(mongo_database):
+    database, prefix = mongo_database
+    run_id = prefix + "-RUN-REVEAL-RECONCILE"
+    freeze_id = prefix + "-FREEZE-RECONCILE"
+    job_id = prefix + "-HOLDOUT-RECONCILE"
+    projection_sha256 = "sha256:" + "2" * 64
+    database.runs.insert_one({"_id": run_id, "run_id": run_id, "status": "COMPLETE"})
+    database.freeze_records.insert_one(
+        {
+            "_id": prefix + "-FREEZE-RECONCILE-DOC",
+            "run_id": run_id,
+            "freeze_id": freeze_id,
+            "state": "REVEALING",
+            "reveal_count": 0,
+            "holdout_revealed_at": None,
+            "holdout_job_id": job_id,
+            "projection_pending": False,
+        }
+    )
+    database.jobs.insert_one(
+        {
+            "_id": job_id,
+            "job_id": job_id,
+            "run_id": run_id,
+            "freeze_id": freeze_id,
+            "kind": "HOLDOUT",
+            "status": "COMPLETE",
+            "finished_at": "2026-07-22T05:20:00.000Z",
+            "result": {
+                "projection": {
+                    "holdout": {
+                        "api_freeze_id": freeze_id,
+                        "projection_sha256": projection_sha256,
+                    }
+                }
+            },
+        }
+    )
+
+    worker_store = MongoWorkerStore(database, lease_seconds=10)
+    assert worker_store.reconcile_pending(limit=100) >= 1
+    record = database.freeze_records.find_one({"run_id": run_id})
+    assert record["state"] == "REVEALED"
+    assert record["reveal_count"] == 1
+    assert record["holdout_projection_sha256"] == projection_sha256
+    assert record["holdout_revealed_at"] == "2026-07-22T05:20:00.000Z"
+
+    worker_store.reconcile_pending(limit=100)
+    assert database.freeze_records.find_one({"run_id": run_id})["reveal_count"] == 1
+    assert (
+        database.audit_findings.count_documents(
+            {"run_id": run_id, "kind": "HOLDOUT_REVEALED"}
+        )
+        == 1
+    )
+
+
+def test_failed_holdout_job_remains_query_locked(mongo_database):
+    database, prefix = mongo_database
+    run_id = prefix + "-RUN-REVEAL-FAIL"
+    freeze_id = prefix + "-FREEZE-FAIL"
+    job_id = prefix + "-HOLDOUT-FAIL"
+    database.runs.insert_one({"_id": run_id, "run_id": run_id, "status": "COMPLETE"})
+    database.freeze_records.insert_one(
+        {
+            "_id": prefix + "-FREEZE-FAIL-DOC",
+            "run_id": run_id,
+            "freeze_id": freeze_id,
+            "state": "FROZEN",
+            "reveal_count": 0,
+            "holdout_revealed_at": None,
+        }
+    )
+    api_store = MongoClxBacktestStore(database, create_indexes=False)
+    assert (
+        api_store.reveal_holdout(
+            run_id,
+            freeze_id,
+            now="2026-07-22T06:00:00.000Z",
+            job_id=job_id,
+        )["reason"]
+        == "OK"
+    )
+    worker_store = MongoWorkerStore(database, lease_seconds=10)
+    claimed = worker_store.claim("holdout-worker", kinds=("HOLDOUT",))
+    assert claimed is not None
+    assert claimed["_id"] == job_id
+    worker_store.fail(
+        claimed,
+        {"code": "ProjectionError", "message": "fixture projection failure"},
+        now="2026-07-22T06:10:00.000Z",
+    )
+
+    record = database.freeze_records.find_one({"run_id": run_id})
+    assert record["state"] == "REVEAL_FAILED"
+    assert record["reveal_count"] == 0
+    assert record["holdout_revealed_at"] is None
+    assert api_store.holdout_revealed(run_id) is False
+    assert (
+        api_store.reveal_holdout(
+            run_id,
+            freeze_id,
+            now="2026-07-22T06:20:00.000Z",
+            job_id=prefix + "-SECOND-HOLDOUT",
+        )["reason"]
+        == "REVEAL_FAILED"
+    )
 
 
 def test_real_fixture_backtest_cli_resume_and_subprocess_cancel(
@@ -893,6 +1465,8 @@ def test_real_fixture_backtest_cli_resume_and_subprocess_cancel(
     from freshquant.tests.clx_backtest import test_event_study as event_fixture
 
     database, prefix = mongo_database
+    run_id = prefix + "-RUN-PIPELINE"
+    job_id = prefix + "-JOB-PIPELINE"
     days = [
         date(year, 1, 1) + timedelta(days=index)
         for year in (2022, 2023, 2024)
@@ -906,6 +1480,16 @@ def test_real_fixture_backtest_cli_resume_and_subprocess_cancel(
         event_fixture, "_calendar", lambda count=150: separated_calendar
     )
     snapshot, signals, plan = event_fixture._write_inputs(tmp_path)
+    signal_manifest_path = signals / "manifest.json"
+    signal_manifest = json.loads(signal_manifest_path.read_text(encoding="utf-8"))
+    signal_manifest["run_id"] = run_id
+    signal_manifest_path.write_text(
+        json.dumps(signal_manifest, sort_keys=True), encoding="utf-8"
+    )
+    (signals / "manifest.sha256").write_text(
+        hashlib.sha256(signal_manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="ascii",
+    )
     event_dir = tmp_path / "events"
     build_event_study(
         snapshot,
@@ -939,8 +1523,6 @@ def test_real_fixture_backtest_cli_resume_and_subprocess_cancel(
         ),
         encoding="utf-8",
     )
-    run_id = prefix + "-RUN-PIPELINE"
-    job_id = prefix + "-JOB-PIPELINE"
     config = {
         "snapshot_id": "sha256:fixture-snapshot",
         "snapshot_dir": str(snapshot),
@@ -950,6 +1532,7 @@ def test_real_fixture_backtest_cli_resume_and_subprocess_cancel(
         "split_plan_path": str(split_plan),
         "ranking_config_path": str(ranking_config),
         "portfolio_splits": [],
+        "bootstrap_replicates": 20,
         "train": {
             "start": plan.windows[0].start_date.isoformat(),
             "end": plan.windows[0].end_date.isoformat(),

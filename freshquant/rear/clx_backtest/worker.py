@@ -174,12 +174,13 @@ class ClxBacktestWorker:
                 {
                     "run_id": job["run_id"],
                     "freeze_id": job["freeze_id"],
-                    "state": "REVEALED",
-                    "reveal_count": 1,
+                    "state": "REVEALING",
+                    "reveal_count": 0,
+                    "holdout_job_id": job["_id"],
                 }
             )
             if freeze is None:
-                raise RuntimeError("HOLDOUT job has no revealed freeze proof")
+                raise RuntimeError("HOLDOUT job has no reserved reveal proof")
             lineage = HoldoutPipelineRunner(execute, root=self.root).run(
                 run, job, freeze
             )

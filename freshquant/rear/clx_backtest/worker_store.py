@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 from pymongo import ReturnDocument
 
 from .artifacts import canonical_json_bytes
-from .store import DERIVED_DATABASE_NAME
+from .store import DERIVED_DATABASE_NAME, _holdout_queued_audit
 from .utils import new_ulid, utc_now
 
 ACTIVE_JOB_KINDS = ("BACKTEST", "EXPORT", "HOLDOUT")
@@ -74,6 +75,17 @@ class MongoWorkerStore:
         ):
             self._reconcile_freeze(record)
             reconciled += 1
+        # A worker may stop after committing the terminal job document but
+        # before publishing the corresponding freeze state.  Reconcile that
+        # narrow cross-document window fail-closed: readers remain locked while
+        # REVEALING and become visible only from an authoritative COMPLETE job
+        # carrying the projector attachment proof.
+        remaining = max(0, limit - reconciled)
+        for record in self.db.freeze_records.find(
+            {"state": "REVEALING", "reveal_count": 0}
+        ).limit(remaining):
+            if self._reconcile_holdout_terminal(record):
+                reconciled += 1
         return reconciled
 
     def _reconcile_run(self, run: Mapping[str, object]) -> None:
@@ -98,13 +110,17 @@ class MongoWorkerStore:
                 self.db.jobs.update_one(
                     {"_id": job_id}, {"$setOnInsert": job}, upsert=True
                 )
-        for event in run.get("control_events", []):
-            if isinstance(event, Mapping) and event.get("_id"):
-                self.db.progress_events.update_one(
-                    {"_id": event["_id"]},
-                    {"$setOnInsert": copy.deepcopy(dict(event))},
-                    upsert=True,
-                )
+        control_events = run.get("control_events")
+        if isinstance(control_events, Sequence) and not isinstance(
+            control_events, (str, bytes)
+        ):
+            for event in control_events:
+                if isinstance(event, Mapping) and event.get("_id"):
+                    self.db.progress_events.update_one(
+                        {"_id": event["_id"]},
+                        {"$setOnInsert": copy.deepcopy(dict(event))},
+                        upsert=True,
+                    )
         last = run.get("last_control_event")
         last_id = last.get("_id") if isinstance(last, Mapping) else None
         query: dict[str, object] = {"_id": run["_id"], "projection_pending": True}
@@ -114,12 +130,14 @@ class MongoWorkerStore:
 
     def _reconcile_freeze(self, record: Mapping[str, object]) -> None:
         job = record.get("holdout_job")
+        projected_job: Mapping[str, object] | None = None
         if isinstance(job, Mapping) and job.get("_id"):
             copied = copy.deepcopy(dict(job))
             job_id = copied.pop("_id")
             self.db.jobs.update_one(
                 {"_id": job_id}, {"$setOnInsert": copied}, upsert=True
             )
+            projected_job = job
         event = record.get("last_control_event")
         if isinstance(event, Mapping) and event.get("_id"):
             self.db.progress_events.update_one(
@@ -127,6 +145,13 @@ class MongoWorkerStore:
                 {"$setOnInsert": copy.deepcopy(dict(event))},
                 upsert=True,
             )
+            if projected_job is not None and projected_job.get("kind") == "HOLDOUT":
+                audit = _holdout_queued_audit(projected_job, event)
+                self.db.audit_findings.update_one(
+                    {"_id": audit["_id"]},
+                    {"$setOnInsert": audit},
+                    upsert=True,
+                )
         query: dict[str, object] = {
             "_id": record["_id"],
             "projection_pending": True,
@@ -136,6 +161,128 @@ class MongoWorkerStore:
         self.db.freeze_records.update_one(
             query, {"$set": {"projection_pending": False}}
         )
+
+    @staticmethod
+    def _holdout_projection_proof(
+        job: Mapping[str, object], freeze_id: object
+    ) -> Mapping[str, object] | None:
+        result = job.get("result")
+        projection = result.get("projection") if isinstance(result, Mapping) else None
+        attachment = (
+            projection.get("holdout") if isinstance(projection, Mapping) else None
+        )
+        if (
+            not isinstance(attachment, Mapping)
+            or attachment.get("api_freeze_id") != freeze_id
+            or not isinstance(attachment.get("projection_sha256"), str)
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}", str(attachment["projection_sha256"])
+            )
+            is None
+        ):
+            return None
+        return attachment
+
+    def _reconcile_holdout_terminal(
+        self,
+        record: Mapping[str, object],
+        *,
+        terminal_job: Mapping[str, object] | None = None,
+    ) -> bool:
+        job_id = record.get("holdout_job_id")
+        if not job_id:
+            return False
+        authoritative = terminal_job or self.db.jobs.find_one({"_id": job_id})
+        if not isinstance(authoritative, Mapping):
+            return False
+        if (
+            authoritative.get("_id") != job_id
+            or authoritative.get("job_id") != job_id
+            or authoritative.get("kind") != "HOLDOUT"
+            or authoritative.get("run_id") != record.get("run_id")
+            or authoritative.get("freeze_id") != record.get("freeze_id")
+        ):
+            return False
+        status = authoritative.get("status")
+        if status not in TERMINAL_JOB_STATUSES:
+            return False
+
+        now = str(authoritative.get("finished_at") or utc_now())
+        freeze_id = record.get("freeze_id")
+        proof = (
+            self._holdout_projection_proof(authoritative, freeze_id)
+            if status == "COMPLETE"
+            else None
+        )
+        revealed = status == "COMPLETE" and proof is not None
+        fields: dict[str, object] = {
+            "state": "REVEALED" if revealed else "REVEAL_FAILED",
+            "holdout_job": copy.deepcopy(dict(authoritative)),
+            "updated_at": now,
+            "projection_pending": False,
+        }
+        unset: dict[str, str] = {}
+        update: dict[str, object] = {"$set": fields}
+        if revealed:
+            assert proof is not None
+            fields["holdout_revealed_at"] = now
+            fields["holdout_projection_sha256"] = proof["projection_sha256"]
+            update["$inc"] = {"reveal_count": 1}
+            unset = {
+                "holdout_reveal_failed_at": "",
+                "holdout_reveal_error": "",
+            }
+        else:
+            fields["holdout_reveal_failed_at"] = now
+            error = authoritative.get("error")
+            if status == "COMPLETE":
+                error = {
+                    "code": "HOLDOUT_PROJECTION_PROOF_MISSING",
+                    "message": (
+                        "HOLDOUT job completed without a verified Mongo "
+                        "projection attachment"
+                    ),
+                }
+            fields["holdout_reveal_error"] = copy.deepcopy(error or {"status": status})
+        if unset:
+            update["$unset"] = unset
+        kind = "HOLDOUT_REVEALED" if revealed else "HOLDOUT_REVEAL_FAILED"
+        audit_id = _event_id(str(job_id), kind)
+        self.db.audit_findings.update_one(
+            {"_id": audit_id},
+            {
+                "$setOnInsert": {
+                    "finding_id": audit_id,
+                    "run_id": record["run_id"],
+                    "kind": kind,
+                    "severity": "INFO" if revealed else "ERROR",
+                    "status": "RECORDED" if revealed else "OPEN",
+                    "details": {
+                        "freeze_id": freeze_id,
+                        "job_id": job_id,
+                        "projection_sha256": (
+                            proof.get("projection_sha256")
+                            if proof is not None
+                            else None
+                        ),
+                    },
+                    "created_at": now,
+                }
+            },
+            upsert=True,
+        )
+        changed = self.db.freeze_records.update_one(
+            {
+                "_id": record["_id"],
+                "state": "REVEALING",
+                "reveal_count": 0,
+                "holdout_job_id": job_id,
+            },
+            update,
+        )
+        if changed.matched_count != 1:
+            return False
+        return True
 
     def claim(
         self,
@@ -237,8 +384,8 @@ class MongoWorkerStore:
                 {
                     "run_id": job["run_id"],
                     "freeze_id": job["freeze_id"],
-                    "state": "REVEALED",
-                    "reveal_count": 1,
+                    "state": "REVEALING",
+                    "reveal_count": 0,
                     "holdout_job_id": job["_id"],
                 },
                 {"$set": {"holdout_job": copy.deepcopy(dict(job)), "updated_at": now}},
@@ -619,14 +766,15 @@ class MongoWorkerStore:
                 },
             )
         elif job.get("kind") == "HOLDOUT":
-            self.db.freeze_records.update_one(
+            record = self.db.freeze_records.find_one(
                 {
                     "run_id": job["run_id"],
                     "freeze_id": job["freeze_id"],
                     "holdout_job_id": job["_id"],
-                },
-                {"$set": {"holdout_job": terminal_job, "updated_at": now}},
+                }
             )
+            if isinstance(record, Mapping):
+                self._reconcile_holdout_terminal(record, terminal_job=terminal_job)
         self.emit_progress(
             terminal_job,
             f"JOB_{status}",

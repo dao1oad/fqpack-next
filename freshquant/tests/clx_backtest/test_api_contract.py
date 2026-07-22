@@ -12,8 +12,8 @@ from freshquant.rear.clx_backtest import (
 )
 from freshquant.rear.clx_backtest.artifacts import (
     canonical_json_bytes,
-    content_hash as artifact_content_hash,
 )
+from freshquant.rear.clx_backtest.artifacts import content_hash as artifact_content_hash
 from freshquant.rear.clx_backtest.service import frozen_rank_digest
 from freshquant.rear.clx_backtest.store import (
     DERIVED_DATABASE_NAME,
@@ -930,21 +930,18 @@ def test_holdout_freeze_and_reveal_are_atomic_exactly_once(app, client, store):
     assert [status for status, _ in results].count(200) == 1
     assert [status for status, _ in results].count(409) == 7
     assert {code for status, code in results if status == 409} == {
-        "HOLDOUT_ALREADY_REVEALED"
+        "HOLDOUT_REVEAL_IN_PROGRESS"
     }
 
-    allowed = client.get(
+    still_locked = client.get(
         f"/api/clx-backtest/runs/{run['run_id']}/rankings?split_id=HOLDOUT"
     )
-    assert allowed.status_code == 200
-    allowed_detail = client.get(
+    assert still_locked.status_code == 423
+    locked_detail_after_queue = client.get(
         f"/api/clx-backtest/runs/{run['run_id']}/combos/C1?split_id=HOLDOUT"
     )
-    assert allowed_detail.status_code == 200
-    assert (
-        allowed_detail.get_json()["data"]["portfolio_summary"]["holdout_return"] == 9.99
-    )
-    allowed_export = client.post(
+    assert locked_detail_after_queue.status_code == 423
+    locked_export_after_queue = client.post(
         f"/api/clx-backtest/runs/{run['run_id']}/exports",
         json={
             "resource": "metrics",
@@ -953,28 +950,65 @@ def test_holdout_freeze_and_reveal_are_atomic_exactly_once(app, client, store):
             "split_id": "HOLDOUT",
         },
     )
-    assert allowed_export.status_code == 202
-    export_job = allowed_export.get_json()["data"]
-    assert export_job["split_id"] == "HOLDOUT"
-    assert export_job["holdout_access"]["freeze_id"] == freeze["freeze_id"]
-    assert export_job["holdout_access"]["reveal_count"] == 1
-    assert export_job["holdout_access"]["holdout_revealed_at"]
+    assert locked_export_after_queue.status_code == 423
     record = store.get_one(
         "freeze_records", {"run_id": run["run_id"], "freeze_id": freeze["freeze_id"]}
     )
-    assert record["state"] == "REVEALED"
-    assert record["reveal_count"] == 1
+    assert record["state"] == "REVEALING"
+    assert record["reveal_count"] == 0
+    assert record["holdout_revealed_at"] is None
+    assert record["holdout_reveal_requested_at"]
     assert record["run_config_sha256"] == run["config_sha256"]
     assert record["specification"] == server_freeze_input
+    queued_audit = store.get_one(
+        "audit_findings",
+        {"run_id": run["run_id"], "kind": "HOLDOUT_REVEAL_QUEUED"},
+    )
+    assert queued_audit is not None
+    assert queued_audit["details"]["freeze_id"] == freeze["freeze_id"]
+    assert queued_audit["details"]["job_id"] == record["holdout_job_id"]
     reloaded = client.get(f"/api/clx-backtest/runs/{run['run_id']}").get_json()["data"]
     assert reloaded["freeze"] == {
         "freeze_id": freeze["freeze_id"],
-        "state": "REVEALED",
-        "reveal_count": 1,
+        "state": "REVEALING",
+        "reveal_count": 0,
         "created_at": record["created_at"],
-        "holdout_revealed_at": record["holdout_revealed_at"],
+        "holdout_revealed_at": None,
         "run_config_sha256": run["config_sha256"],
     }
+
+
+def test_holdout_queries_open_only_after_worker_publishes_reveal(client, store):
+    run = seed_complete_run(store, "RUN_REVEALED_BY_WORKER")
+    store.seed(
+        "freeze_records",
+        [
+            {
+                "_id": "worker-revealed-freeze",
+                "run_id": run["run_id"],
+                "freeze_id": "sha256:" + "a" * 64,
+                "state": "REVEALED",
+                "reveal_count": 1,
+                "holdout_revealed_at": "2026-07-22T05:00:00.000Z",
+            }
+        ],
+    )
+
+    rankings = client.get(
+        f"/api/clx-backtest/runs/{run['run_id']}/rankings?split_id=HOLDOUT"
+    )
+    assert rankings.status_code == 200
+    exported = client.post(
+        f"/api/clx-backtest/runs/{run['run_id']}/exports",
+        json={
+            "resource": "metrics",
+            "format": "csv",
+            "combo_ids": [],
+            "split_id": "HOLDOUT",
+        },
+    )
+    assert exported.status_code == 202
+    assert exported.get_json()["data"]["holdout_access"]["reveal_count"] == 1
 
 
 def test_export_metadata_and_progress_stream(client):
