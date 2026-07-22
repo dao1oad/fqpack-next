@@ -599,19 +599,17 @@ def _mask_matrices(
     buy = np.asarray(result.buy_base_trigger_masks, dtype=np.uint8)
     sell = np.asarray(result.sell_base_trigger_masks, dtype=np.uint8)
     base = np.where(raw > 0, buy[None, :], sell[None, :]).astype(np.uint8)
-    base[raw == 0] = 0
-    synthetic = np.zeros_like(base, dtype=np.uint8)
+    nonzero = raw != 0
+    base[~nonzero] = 0
 
-    for model_id in range(MODEL_COUNT):
-        positions = np.flatnonzero(raw[model_id] != 0)
-        for position in positions:
-            decoded = decode_signal(
-                int(raw[model_id, position]), expected_model_id=model_id
-            )
-            assert decoded is not None
-            primary_bit = 1 << (decoded.primary_entrypoint - 1)
-            if not int(base[model_id, position]) & primary_bit:
-                synthetic[model_id, position] = primary_bit
+    model_offsets = np.arange(MODEL_COUNT, dtype=np.int32)[:, None] * 1000
+    entrypoints = (np.abs(raw) - model_offsets) % 100
+    primary_bits = np.left_shift(
+        np.uint8(1), np.clip(entrypoints - 1, 0, 6).astype(np.uint8)
+    ).astype(np.uint8)
+    synthetic = np.where(
+        nonzero & ((base & primary_bits) == 0), primary_bits, 0
+    ).astype(np.uint8)
     completed = np.bitwise_or(base, synthetic)
     return raw, base, synthetic, completed
 

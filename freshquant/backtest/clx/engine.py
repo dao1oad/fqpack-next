@@ -9,6 +9,8 @@ from importlib import import_module
 from numbers import Integral
 from typing import Any, Sequence
 
+import numpy as np
+
 from .signal import ALL_TRIGGER_MASK, ClxSignal, MODEL_IDS, decode_signal
 
 MODEL_COUNT = len(MODEL_IDS)
@@ -303,6 +305,10 @@ def _normalise_detailed_batch_output(
             "fq_clxs_all_detailed output is missing " + ", ".join(missing)
         )
 
+    native_result = _try_normalise_native_detailed_batch_output(raw_output, bar_count)
+    if native_result is not None:
+        return native_result
+
     raw_result = _normalise_batch_output(raw_output["signals_by_model"], bar_count)
     buy_masks = _normalise_base_trigger_masks(
         "buy_base_trigger_masks", raw_output["buy_base_trigger_masks"], bar_count
@@ -316,6 +322,74 @@ def _normalise_detailed_batch_output(
         bar_count,
         buy_base_trigger_masks=buy_masks,
         sell_base_trigger_masks=sell_masks,
+    )
+
+
+def _native_integer_array(value: object, shape: tuple[int, ...]) -> np.ndarray | None:
+    """Return a signed native-integer view, or defer to the generic validator."""
+
+    try:
+        array = np.asarray(value)
+    except (TypeError, ValueError):
+        return None
+    if array.shape != shape or array.dtype.kind not in {"i", "u"}:
+        return None
+    if array.dtype.kind == "u" and array.size:
+        if int(array.max()) > np.iinfo(np.int64).max:
+            return None
+    return array.astype(np.int64, copy=False)
+
+
+def _try_normalise_native_detailed_batch_output(
+    raw_output: Mapping[str, object], bar_count: int
+) -> ClxBatchResult | None:
+    """Vector-validate the integer lists emitted by the compiled backend.
+
+    Custom backends commonly use floats, objects, generators, or malformed
+    nested rows in protocol tests.  Those representations deliberately fall
+    through to the original scalar validator so its acceptance and exception
+    contracts stay unchanged.
+    """
+
+    signals = _native_integer_array(
+        raw_output["signals_by_model"], (MODEL_COUNT, bar_count)
+    )
+    buy = _native_integer_array(raw_output["buy_base_trigger_masks"], (bar_count,))
+    sell = _native_integer_array(raw_output["sell_base_trigger_masks"], (bar_count,))
+    if signals is None or buy is None or sell is None:
+        return None
+
+    if np.any(signals == np.iinfo(np.int64).min):
+        return None
+    magnitude = np.abs(signals)
+    model_offsets = np.arange(MODEL_COUNT, dtype=np.int64)[:, None] * 1000
+    remainder = magnitude - model_offsets
+    occurrence = remainder // 100
+    entrypoint = remainder % 100
+    nonzero = signals != 0
+    invalid_signal = nonzero & (
+        (remainder <= 0)
+        | (occurrence < 1)
+        | (occurrence > 99)
+        | (entrypoint < 1)
+        | (entrypoint > 7)
+    )
+    invalid_mask = (
+        (buy < 0)
+        | ((buy & ~ALL_TRIGGER_MASK) != 0)
+        | ((buy & 1) != 0)
+        | (sell < 0)
+        | ((sell & ~ALL_TRIGGER_MASK) != 0)
+        | ((sell & 1) != 0)
+    )
+    if np.any(invalid_signal) or np.any(invalid_mask):
+        return None
+
+    return ClxBatchResult(
+        tuple(tuple(row) for row in signals.tolist()),
+        bar_count,
+        buy_base_trigger_masks=tuple(buy.tolist()),
+        sell_base_trigger_masks=tuple(sell.tolist()),
     )
 
 

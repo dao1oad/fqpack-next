@@ -212,6 +212,76 @@ def _valid_detailed_output(bar_count: int) -> dict[str, object]:
     }
 
 
+def test_native_integer_detailed_output_uses_vector_fast_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import freshquant.backtest.clx.engine as engine_module
+
+    output = {
+        "signals_by_model": [[0] * 2 for _ in range(18)],
+        "buy_base_trigger_masks": [2, 0],
+        "sell_base_trigger_masks": [0, 2],
+    }
+    output["signals_by_model"][16][0] = 17001
+    output["signals_by_model"][0][1] = -102
+
+    def scalar_fallback_must_not_run(*_args: object) -> object:
+        raise AssertionError("valid native integer output must use the fast path")
+
+    monkeypatch.setattr(
+        engine_module, "_normalise_batch_output", scalar_fallback_must_not_run
+    )
+    monkeypatch.setattr(
+        engine_module,
+        "_normalise_base_trigger_masks",
+        scalar_fallback_must_not_run,
+    )
+
+    result = FqCopilotClxEngine(_DetailedRecordingBackend(output)).calculate_all(
+        [2, 3], [1, 2], [1, 2], [1.5, 2.5], [10, 20]
+    )
+
+    occurrence_ten = result.decoded_at(16, 0)
+    assert occurrence_ten is not None and occurrence_ten.occurrence == 10
+    assert result.buy_base_trigger_masks == (2, 0)
+    assert result.sell_base_trigger_masks == (0, 2)
+
+
+@pytest.mark.parametrize("bad_value", [True, 3101.5, object()])
+def test_detailed_fast_path_preserves_invalid_signal_contract(
+    bad_value: object,
+) -> None:
+    output = _valid_detailed_output(1)
+    signals = output["signals_by_model"]
+    assert isinstance(signals, list)
+    signals[3][0] = bad_value
+    engine = FqCopilotClxEngine(_DetailedRecordingBackend(output))
+
+    with pytest.raises(ClxEngineProtocolError, match="signal must be an integer"):
+        engine.calculate_all([2], [1], [1], [1.5], [10])
+
+
+def test_detailed_fast_path_preserves_ragged_row_contract() -> None:
+    output = _valid_detailed_output(2)
+    signals = output["signals_by_model"]
+    assert isinstance(signals, list)
+    signals[7] = [0.0]
+    engine = FqCopilotClxEngine(_DetailedRecordingBackend(output))
+
+    with pytest.raises(ClxEngineProtocolError, match="model 7 returned 1 bars"):
+        engine.calculate_all([2, 3], [1, 2], [1, 2], [1.5, 2.5], [10, 20])
+
+
+@pytest.mark.parametrize("bad_mask", [True, 1.5, object()])
+def test_detailed_fast_path_preserves_invalid_mask_contract(bad_mask: object) -> None:
+    output = _valid_detailed_output(1)
+    output["buy_base_trigger_masks"] = [bad_mask]
+    engine = FqCopilotClxEngine(_DetailedRecordingBackend(output))
+
+    with pytest.raises(ClxEngineProtocolError, match="mask must be an integer"):
+        engine.calculate_all([2], [1], [1], [1.5], [10])
+
+
 def test_detailed_batch_attaches_direction_mask_and_platform_structure_bit() -> None:
     output = _valid_detailed_output(2)
     signals = output["signals_by_model"]

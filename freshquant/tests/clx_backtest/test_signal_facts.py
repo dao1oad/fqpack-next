@@ -6,10 +6,15 @@ import os
 from datetime import date, timedelta
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import pytest
 
-from freshquant.backtest.clx.engine import ClxBatchResult
+from freshquant.backtest.clx.engine import (
+    ClxBatchResult,
+    ClxEngineOptions,
+    FqCopilotClxEngine,
+)
 from freshquant.backtest.clx.model_registry import (
     S0002_LEGACY_ENTRYPOINT3_SEMANTIC,
     canonical_json_bytes,
@@ -21,15 +26,84 @@ from freshquant.backtest.clx.signal_facts import (
     _acquire_build_lock,
     _build_lock_owner,
     _local_lock_owner_state,
+    _mask_matrices,
     _process_start_id,
     _release_build_lock,
     build_signal_facts,
     code_bucket,
     verify_signal_facts,
 )
+from freshquant.backtest.clx.signal import decode_signal
 
 RUN_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 SECOND_RUN_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+
+
+def _reference_mask_matrices(
+    result: ClxBatchResult,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    raw = np.asarray(result.signals_by_model, dtype=np.int32)
+    buy = np.asarray(result.buy_base_trigger_masks, dtype=np.uint8)
+    sell = np.asarray(result.sell_base_trigger_masks, dtype=np.uint8)
+    base = np.where(raw > 0, buy[None, :], sell[None, :]).astype(np.uint8)
+    base[raw == 0] = 0
+    synthetic = np.zeros_like(base, dtype=np.uint8)
+    for model_id in range(18):
+        for position in np.flatnonzero(raw[model_id] != 0):
+            decoded = decode_signal(
+                int(raw[model_id, position]), expected_model_id=model_id
+            )
+            assert decoded is not None
+            primary_bit = 1 << (decoded.primary_entrypoint - 1)
+            if not int(base[model_id, position]) & primary_bit:
+                synthetic[model_id, position] = primary_bit
+    return raw, base, synthetic, np.bitwise_or(base, synthetic)
+
+
+def test_native_fast_paths_match_every_golden_prefix_and_trigger_mask() -> None:
+    fixture_root = Path(__file__).parent / "fixtures"
+    fixture = json.loads(
+        (fixture_root / "clx_engine_golden.json").read_text(encoding="utf-8")
+    )
+    prefix_golden = json.loads(
+        (fixture_root / "clx_prefix_golden_sha256.json").read_text(encoding="utf-8")
+    )
+    trigger_golden = json.loads(
+        (fixture_root / "clx_trigger_masks_golden.json").read_text(encoding="utf-8")
+    )
+    bars = fixture["ohlcv"]
+    options = ClxEngineOptions(**fixture["options"])
+    engine = FqCopilotClxEngine()
+    result = None
+    for endpoint, expected_sha256 in enumerate(
+        prefix_golden["prefix_matrix_sha256"], 1
+    ):
+        result = engine.calculate_all(
+            bars["high"][:endpoint],
+            bars["low"][:endpoint],
+            bars["open"][:endpoint],
+            bars["close"][:endpoint],
+            bars["volume"][:endpoint],
+            options=options,
+        )
+        matrix_line = (
+            json.dumps(result.signals_by_model, separators=(",", ":")) + "\n"
+        ).encode("ascii")
+        assert hashlib.sha256(matrix_line).hexdigest() == expected_sha256
+        actual = _mask_matrices(result)
+        expected = _reference_mask_matrices(result)
+        assert all(
+            np.array_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected, strict=True)
+        )
+
+    assert result is not None
+    assert hashlib.sha256(bytes(result.buy_base_trigger_masks or ())).hexdigest() == (
+        trigger_golden["buy_masks_sha256"]
+    )
+    assert hashlib.sha256(bytes(result.sell_base_trigger_masks or ())).hexdigest() == (
+        trigger_golden["sell_masks_sha256"]
+    )
 
 
 def _file_sha(path: Path) -> str:
