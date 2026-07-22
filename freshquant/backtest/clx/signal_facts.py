@@ -255,7 +255,11 @@ def _windows_process_identity(pid: int) -> tuple[str, str | None]:
     error_invalid_parameter = 87
     error_access_denied = 5
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    win_dll = getattr(ctypes, "WinDLL")
+    set_last_error = getattr(ctypes, "set_last_error")
+    get_last_error = getattr(ctypes, "get_last_error")
+
+    kernel32 = win_dll("kernel32", use_last_error=True)
     open_process = kernel32.OpenProcess
     open_process.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
     open_process.restype = wintypes.HANDLE
@@ -272,10 +276,10 @@ def _windows_process_identity(pid: int) -> tuple[str, str | None]:
     close_handle.argtypes = (wintypes.HANDLE,)
     close_handle.restype = wintypes.BOOL
 
-    ctypes.set_last_error(0)
+    set_last_error(0)
     handle = open_process(process_query_limited_information, False, pid)
     if not handle:
-        error = ctypes.get_last_error()
+        error = get_last_error()
         if error == error_invalid_parameter:
             return "DEAD", None
         if error == error_access_denied:
