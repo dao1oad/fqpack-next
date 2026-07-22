@@ -8,6 +8,7 @@ snapshot_id="${CLX_SNAPSHOT_ID:-cf579f3b0c081b7097de19eca8103c27f6643b64e5fa9ca6
 : "${CLX_ENGINE_IMAGE_ID:?CLX_ENGINE_IMAGE_ID must name the verified immutable engine image}"
 image="$CLX_ENGINE_IMAGE_ID"
 : "${CLX_EXPECTED_ENGINE_SHA256:?CLX_EXPECTED_ENGINE_SHA256 must name the verified native engine digest}"
+: "${CLX_EXPECTED_ONLINE_ENGINE_SHA256:?CLX_EXPECTED_ONLINE_ENGINE_SHA256 must name the frozen online engine baseline}"
 run_root="${CLX_FULL_RUN_ROOT:-$runtime_root/events/$run_tag}"
 snapshot_dir="${CLX_SNAPSHOT_DIR:-$runtime_root/snapshots/$snapshot_id}"
 signal_dir="${CLX_SIGNAL_DIR:-$run_root/facts}"
@@ -138,6 +139,7 @@ export CLX_RANKING_ACCESS_LOG="$ranking_access_log"
 export CLX_HOLDOUT_ACCESS_LOG="$holdout_access_log"
 export CLX_ENGINE_IMAGE_ID="$image"
 export CLX_EXPECTED_ENGINE_SHA256
+export CLX_EXPECTED_ONLINE_ENGINE_SHA256
 
 # 1. The final causal Gate is the only entry into downstream research.
 run_v2_gate WI-004 v2-causal-signal-real "$causal_gate_script"

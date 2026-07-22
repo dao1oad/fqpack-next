@@ -92,6 +92,7 @@ def _chain_fixture(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
             "CLX_PORTFOLIO_CONFIG": str(runtime_root / "config/portfolio-config.json"),
             "CLX_ENGINE_IMAGE_ID": "sha256:test-image",
             "CLX_EXPECTED_ENGINE_SHA256": "a" * 64,
+            "CLX_EXPECTED_ONLINE_ENGINE_SHA256": "b" * 64,
         }
     )
     env.pop("CLX_GATE_RUNNER", None)
@@ -162,6 +163,26 @@ def test_chain_requires_an_explicit_native_engine_digest(
     assert result.returncode != 0
     assert (
         "CLX_EXPECTED_ENGINE_SHA256 must name the verified native engine digest"
+        in result.stderr
+    )
+    assert not command_log.exists()
+
+
+@pytest.mark.parametrize("digest_value", [None, ""])
+def test_chain_requires_an_explicit_online_engine_baseline(
+    tmp_path: Path, digest_value: str | None
+) -> None:
+    env, _, command_log = _chain_fixture(tmp_path)
+    if digest_value is None:
+        env.pop("CLX_EXPECTED_ONLINE_ENGINE_SHA256")
+    else:
+        env["CLX_EXPECTED_ONLINE_ENGINE_SHA256"] = digest_value
+
+    result = _run(env)
+
+    assert result.returncode != 0
+    assert (
+        "CLX_EXPECTED_ONLINE_ENGINE_SHA256 must name the frozen online engine baseline"
         in result.stderr
     )
     assert not command_log.exists()

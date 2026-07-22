@@ -222,7 +222,7 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 - `fq_clx_backtest_worker` 对同一目录可写挂载，使用 Mongo lease、心跳和阶段 checkpoint 执行任务。
 - 默认 worker 限额为 `4 CPU / 12G`；可用 `FQ_CLX_WORKER_CPUS / FQ_CLX_WORKER_MEM` 覆盖。
 - `/api/clx-backtest/health` 检查派生 Mongo 和 API 控制面。
-- 正式 artifact/V2 脚本要求显式传入不可变 `CLX_ENGINE_IMAGE_ID`；causal/full-chain 还要求 `CLX_EXPECTED_ENGINE_SHA256`，两者缺失或与实际 image/native module 不符时立即失败。
+- 正式 artifact/V2 脚本要求显式传入不可变 `CLX_ENGINE_IMAGE_ID`；causal/full-chain 还要求 `CLX_EXPECTED_ENGINE_SHA256` 和启动前冻结的 `CLX_EXPECTED_ONLINE_ENGINE_SHA256`。在线模块基线必须同时记录在不可变 `run-contract.json` 的 `engine.online_module_sha256`，Gate 核对环境 pin、run contract 与实际在线模块，任一缺失或不一致时立即失败。
 - 真实交付门禁为 `v2_causal_signal_real.sh`、`v2_ranking_real.sh`、`v2_portfolio_real.sh`、`v2_frontend_real.sh` 和 `v2_e2e_real.sh`；后两者只读取已经揭示并完成投影的真实 run，不触发第二次 HOLDOUT 揭示。
 - worker 容器 healthcheck 使用：
 

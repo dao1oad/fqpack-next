@@ -792,7 +792,7 @@ docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.re
 - `freshquant_clx_backtest.workers.heartbeat_at` 是否新鲜
 - `jobs.status / lease_expires_at / stage / checkpoint` 是否推进
 - `FQ_CLX_BACKTEST_HOST_ROOT` 是否同时挂载到 API 的只读 `/opt/clx-backtest` 和 worker 的可写 `/opt/clx-backtest`
-- 正式全量/Gate 环境是否显式设置当前 runner 的 `CLX_ENGINE_IMAGE_ID` 和 native module 的 `CLX_EXPECTED_ENGINE_SHA256`；不要使用旧 run 的 image 或 module digest
+- 正式全量/Gate 环境是否显式设置当前 runner 的 `CLX_ENGINE_IMAGE_ID`、native module 的 `CLX_EXPECTED_ENGINE_SHA256` 和启动前冻结的在线模块 `CLX_EXPECTED_ONLINE_ENGINE_SHA256`；后者还必须等于不可变 `run-contract.json` 的 `engine.online_module_sha256`，不要使用旧 run 的摘要或在 Gate 时按当前在线值重写基线
 - `runs/<run_id>/control/logs` 的首个失败 stage
 - `manifest.json / manifest.sha256`、上游 lineage 和实际 artifact SHA-256 是否一致
 

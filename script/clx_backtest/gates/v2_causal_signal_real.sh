@@ -11,9 +11,13 @@ expected_engine="${CLX_EXPECTED_ENGINE_SHA256#sha256:}"
 [[ "$expected_engine" =~ ^[0-9a-f]{64}$ ]] || {
   echo "CLX_EXPECTED_ENGINE_SHA256 must be a lowercase SHA-256 digest" >&2; exit 64;
 }
+: "${CLX_EXPECTED_ONLINE_ENGINE_SHA256:?CLX_EXPECTED_ONLINE_ENGINE_SHA256 must name the frozen online engine baseline}"
+expected_online="${CLX_EXPECTED_ONLINE_ENGINE_SHA256#sha256:}"
+[[ "$expected_online" =~ ^[0-9a-f]{64}$ ]] || {
+  echo "CLX_EXPECTED_ONLINE_ENGINE_SHA256 must be a lowercase SHA-256 digest" >&2; exit 64;
+}
 expected_snapshot="cf579f3b0c081b7097de19eca8103c27f6643b64e5fa9ca6d7cb3e99491feec4"
 expected_snapshot_manifest="e12b898e325e4573ebd156a49ddfed17036004d47aff29bc11fcc47a97db6e22"
-expected_online="06b82ea4cadd4faf358c0baa6f36edec084064b502139a2317341625594f6110"
 
 [[ -f "$runner/complete" && -f "$runner/finalized" ]] || {
   echo "V2 causal signal artifact is not complete/finalized" >&2; exit 1;
@@ -28,7 +32,7 @@ verify_two=$(docker run --rm --network none --entrypoint python   -v "$facts:/da
   echo "two deep verification runs differ" >&2; exit 1;
 }
 
-RUN_ROOT="$run_root" VERIFY_JSON="$verify_one" EXPECTED_SNAPSHOT="$expected_snapshot" EXPECTED_SNAPSHOT_MANIFEST="$expected_snapshot_manifest" EXPECTED_ENGINE="$expected_engine" python3 - <<'PY'
+RUN_ROOT="$run_root" VERIFY_JSON="$verify_one" EXPECTED_SNAPSHOT="$expected_snapshot" EXPECTED_SNAPSHOT_MANIFEST="$expected_snapshot_manifest" EXPECTED_IMAGE="$image" EXPECTED_ENGINE="$expected_engine" EXPECTED_ONLINE="$expected_online" python3 - <<'PY'
 import hashlib,json,os,pathlib
 root=pathlib.Path(os.environ["RUN_ROOT"])
 facts=root/"facts"
@@ -67,7 +71,9 @@ assert len(manifest["artifacts"])>0
 assert verify["signal_revisions"]==counts["signal_revisions"]
 assert verify["tradable_signal_facts"]==counts["tradable_signal_facts"]
 assert contract["holdout_state"]=="LOCKED"
+assert contract["engine"]["image_id"]==os.environ["EXPECTED_IMAGE"]
 assert contract["engine"]["module_sha256"]==os.environ["EXPECTED_ENGINE"]
+assert contract["engine"]["online_module_sha256"]==os.environ["EXPECTED_ONLINE"]
 for name in ("split_plan","ranking","portfolio"):
     item=contract["frozen_configs"][name]
     data=pathlib.Path(item["path"]).read_bytes()
@@ -84,7 +90,7 @@ print(json.dumps({
 },ensure_ascii=False,sort_keys=True))
 PY
 
-online=$(docker exec fq_apiserver python - <<'PY'
+online=$(docker exec -i fq_apiserver python - <<'PY'
 import hashlib,pathlib,fqcopilot
 p=pathlib.Path(fqcopilot.__file__)
 print(hashlib.sha256(p.read_bytes()).hexdigest())

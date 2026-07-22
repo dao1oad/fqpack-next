@@ -129,7 +129,7 @@ run 的控制面是 Mongo `runs / jobs / workers / progress_events`。外部 wor
 
 Gate 执行器由 `CLX_GATE_RUNNER=direct|governance` 显式选择，默认 `direct`，直接运行仓库内三个 `script/clx_backtest/gates/v2_*_real.sh`，因此普通正式 checkout 不依赖仓库外的治理运行时。仅保留 `.governance` 状态和 `tools/governance.py` 的治理 VM 使用 `CLX_GATE_RUNNER=governance`；配置值非法或所选执行器缺文件时立即失败，不在两种模式间自动切换。
 
-全量脚本不带可回退的 engine pin：运行时必须显式注入不可变 `CLX_ENGINE_IMAGE_ID` 与 native `CLX_EXPECTED_ENGINE_SHA256`。artifact 链通过后，`v2_frontend_real.sh` 验证已部署真实 F1～F3，`v2_e2e_real.sh` 再对账 artifact、唯一 HOLDOUT ledger、Mongo 投影、API/Web、容器镜像、健康检查和治理 Gate 证据。
+全量脚本不带可回退的 engine pin：运行时必须显式注入不可变 `CLX_ENGINE_IMAGE_ID`、native `CLX_EXPECTED_ENGINE_SHA256` 与启动前冻结的在线模块基线 `CLX_EXPECTED_ONLINE_ENGINE_SHA256`。在线基线同时写入不可变 `run-contract.json` 的 `engine.online_module_sha256`；causal V2 Gate 要求环境 pin、run contract 与 Gate 时在线模块三者一致，不从 Gate 时的在线值隐式生成基线。artifact 链通过后，`v2_frontend_real.sh` 验证已部署真实 F1～F3，`v2_e2e_real.sh` 再对账 artifact、唯一 HOLDOUT ledger、Mongo 投影、API/Web、容器镜像、健康检查和治理 Gate 证据。
 
 详细信号、价格域、冻结和页面口径见 [CLX 大规模回测](./modules/clx-backtest.md)。
 
