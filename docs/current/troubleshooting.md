@@ -769,6 +769,42 @@ print(inspect.signature(resolve_stock_account))
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
 - 或优先使用 `powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -ChangedPath freshquant/rear/api_server.py -RunHealthChecks`
 
+## CLX 回测任务、冻结或 HOLDOUT 异常
+
+现象：
+
+- `/clx-backtest` 能打开，但 API 显示异常或 run 长时间停在 `QUEUED/RUNNING`
+- 冻结返回 `MANIFEST_NOT_READY` / `FREEZE_SOURCE_MISMATCH`
+- HOLDOUT 查询返回 `HOLDOUT_LOCKED` / `HOLDOUT_ALREADY_REVEALED`
+- projector 报 manifest、文件哈希或 immutable projection conflict
+
+先检查：
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/clx-backtest/health
+docker compose -f docker/compose.parallel.yaml ps fq_apiserver fq_clx_backtest_worker fq_mongodb
+docker logs --tail 200 fq_clx_backtest_worker
+docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90
+```
+
+再核对：
+
+- `freshquant_clx_backtest.workers.heartbeat_at` 是否新鲜
+- `jobs.status / lease_expires_at / stage / checkpoint` 是否推进
+- `FQ_CLX_BACKTEST_HOST_ROOT` 是否同时挂载到 API 的只读 `/opt/clx-backtest` 和 worker 的可写 `/opt/clx-backtest`
+- `runs/<run_id>/control/logs` 的首个失败 stage
+- `manifest.json / manifest.sha256`、上游 lineage 和实际 artifact SHA-256 是否一致
+
+处理口径：
+
+- `MANIFEST_NOT_READY`：先完成并投影 event、ranking 和 TRAIN/VALIDATION portfolio，再冻结。
+- `FREEZE_SOURCE_MISMATCH`：重新读取 run manifest，只使用服务端 `freeze_input` 的完整 VALIDATION 顺序、固定入选组合和哈希；页面当前 2～4 项对比选择不属于冻结材料。
+- `HOLDOUT_LOCKED`：冻结前属于预期保护；检查 ranking 阶段 HOLDOUT Parquet 打开数仍为 `0`。
+- `HOLDOUT_ALREADY_REVEALED`：检查 `freeze_records.reveal_count=1`、persistent ledger 和 access audit；不删除 ledger、freeze 或 manifest 重跑测试集。
+- immutable/hash conflict：保留原 artifact，从已验证的上游重新生成目标层；不直接编辑 Parquet、manifest 或 Mongo 派生事实。
+
+完整合同见 [CLX 大规模回测](./modules/clx-backtest.md)。
+
 ## ETF 前复权错误
 
 现象：

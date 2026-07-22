@@ -151,7 +151,8 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 
 | 变更路径 | 需要部署的模块 | 最低动作 |
 | --- | --- | --- |
-| `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
+| `freshquant/rear/**` | API Server / CLX 外部 worker | 重建 `fq_apiserver` 与 `fq_clx_backtest_worker` |
+| `freshquant/backtest/clx/**` / `morningglory/fqcopilot/**` | CLX 引擎、artifact 链、API 共用 rear image | 重建 `fq_apiserver` 与 `fq_clx_backtest_worker`；保留并校验既有 immutable artifact |
 | `freshquant/runtime_observability/**` | Runtime Observability API / ClickHouse / indexer | 重建 `fq_apiserver`，并确认 `fq_runtime_clickhouse`、`fq_runtime_indexer` 已恢复 |
 | `freshquant/order_management/**` | 订单管理、API、broker/ingest、XT 自动还款相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/position_management/**` | 仓位管理（宿主机实际由统一 `xt_account_sync.worker` 承担） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
@@ -204,6 +205,8 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/summary
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18123/ping
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/gantt/plates?provider=xgb
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/clx-backtest/health
+docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90
 ```
 
 ### Web UI
@@ -231,6 +234,7 @@ powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_de
 - `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`
 - 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`supervisor_config_checks`、`warnings`、`failures`、`passed`
 - 固定检查基础容器：`fq_mongodb`、`fq_redis`
+- 命中 `api` surface 时同时检查 `fq_apiserver` 与 `fq_clx_backtest_worker`；CLX worker 必须通过容器 healthcheck
 - 固定记录宿主机服务：`fqnext-supervisord`
 - 命中宿主机 deployment surface 时，`supervisor_config_checks` 还会校验 config repo root 与关键模块 import source 是否仍在 `canonical repo root`
 
@@ -245,6 +249,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 ## 部署后必须确认的事实
 
 - API 蓝图能返回，不是只监听端口。
+- CLX API 返回派生库健康，`fq_clx_backtest_worker` 心跳新鲜，API 与 worker 的 artifact 挂载指向同一宿主机根目录。
 - Web UI 页面不是空白页。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积。
 - 宿主机 deployment surface 修改后，`fqnext-supervisord` 保持 `Running`，且 `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 能返回目标 program 为 `RUNNING`。
