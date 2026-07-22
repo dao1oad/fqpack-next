@@ -41,13 +41,7 @@ private:
 
   // 将 S0008 信号重编码为 S0014（model_id 8 → 14，保留 occurrence 和 entrypoint）
   int reencode(int original_signal) {
-    int abs_val = std::abs(original_signal);
-    int occurrence = (abs_val % 1000) / 100;
-    int ep_abs = abs_val % 100;
-    auto ep = (original_signal > 0)
-                  ? static_cast<EntrypointType>(ep_abs)
-                  : static_cast<EntrypointType>(-ep_abs);
-    return encode_signal(14, occurrence, ep);
+    return reencode_signal_for_model(original_signal, 8, 14);
   }
 
   void calculate() {

@@ -7,6 +7,7 @@
 #include "s.h"
 #include "../indicator/indicator.h"
 #include "signal_utils.h"
+#include "signal_encoding.h"
 #include "chan_context.h"
 #include <cstdlib>
 
@@ -37,11 +38,18 @@ protected:
 
     virtual void calculate() = 0;
     // 信号编码: direction × (model_id × 1000 + occurrence × 100 + entrypoint)
+    // occurrence <= 0 关闭信号；occurrence > 99 封顶为 99。
     static int encode_signal(int model_id, int occurrence, EntrypointType signal)
     {
-        int abs_ep = std::abs(static_cast<int>(signal));
-        int value = model_id * 1000 + occurrence * 100 + abs_ep;
-        return (static_cast<int>(signal) > 0) ? value : -value;
+        return ClxSignalEncoding::encode(
+            model_id, occurrence, static_cast<int>(signal));
+    }
+
+    static int reencode_signal_for_model(
+        int original_signal, int source_model_id, int target_model_id)
+    {
+        return ClxSignalEncoding::reencode_for_model(
+            original_signal, source_model_id, target_model_id);
     }
 
     void initialize()
