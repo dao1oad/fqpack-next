@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 
 import pytest
 
+_original_instrument_general = sys.modules.get("freshquant.instrument.general")
+_original_util_code = sys.modules.get("freshquant.util.code")
+
 instrument_general_stub = types.ModuleType("freshquant.instrument.general")
 setattr(instrument_general_stub, "query_instrument_info", lambda symbol: None)
 sys.modules.setdefault("freshquant.instrument.general", instrument_general_stub)
@@ -33,10 +36,21 @@ setattr(
 )
 sys.modules.setdefault("freshquant.util.code", code_stub)
 
-from freshquant.order_management.read_service import (
-    OrderManagementReadService,
-    _parse_filter_datetime,
-)
+try:
+    from freshquant.order_management.read_service import (
+        OrderManagementReadService,
+        _parse_filter_datetime,
+    )
+finally:
+    if _original_instrument_general is None:
+        sys.modules.pop("freshquant.instrument.general", None)
+    else:
+        sys.modules["freshquant.instrument.general"] = _original_instrument_general
+
+    if _original_util_code is None:
+        sys.modules.pop("freshquant.util.code", None)
+    else:
+        sys.modules["freshquant.util.code"] = _original_util_code
 
 
 class InMemoryOrderManagementRepository:

@@ -89,6 +89,7 @@ from QUANTAXIS.QAData.data_fq import _QA_data_stock_to_fq
 from QUANTAXIS.QAFetch.QAQuery import QA_fetch_stock_day
 from QUANTAXIS.QAUtil import Parallelism
 from QUANTAXIS.QAFetch.QATdx import ping, get_ip_list_by_multi_process_ping, stock_ip_list
+from QUANTAXIS.QASU.index_compat import ensure_compatible_index as _ensure_compatible_index
 from multiprocessing import cpu_count
 
 
@@ -968,11 +969,12 @@ def QA_SU_save_single_index_day(code : str, client=DATABASE, ui_log=None):
 
     #__index_list = QA_fetch_get_stock_list('index')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
@@ -1061,11 +1063,12 @@ def QA_SU_save_index_day(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('index')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
@@ -1425,11 +1428,12 @@ def QA_SU_save_single_etf_day(code : str, client=DATABASE, ui_log=None):
 
     #__index_list = QA_fetch_get_stock_list('etf')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
@@ -1499,11 +1503,12 @@ def QA_SU_save_etf_day(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('etf')
     coll = client.index_day
-    coll.create_index(
+    _ensure_compatible_index(
+        coll,
         [('code',
           pymongo.ASCENDING),
          ('date_stamp',
-          pymongo.ASCENDING)]
+           pymongo.ASCENDING)]
     )
     err = []
 
