@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from freshquant.backtest.clx._file_lock import seal_tree_durable
 from freshquant.backtest.clx.combo_dsl import (
     ComboDefinition,
     DslValidationError,
@@ -644,14 +646,20 @@ def test_persistent_holdout_ledger_serializes_independent_worker_stores(
     second_ledger = PersistentHoldoutLedger(tmp_path / "holdout-control")
 
     claim = first_ledger.claim(
-        result.freeze_record, ranking_set_id=result.ranking_set_id
+        result.freeze_record,
+        ranking_set_id=result.ranking_set_id,
+        output_dir=tmp_path / "holdout",
     )
     state = first_ledger.state(result.freeze_record["freeze_id"])
     assert state is not None
     assert state["state"] == "CLAIMED"
     assert state["claim_id"] == claim.claim_id
     with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_CLAIMED"):
-        second_ledger.claim(result.freeze_record, ranking_set_id=result.ranking_set_id)
+        second_ledger.claim(
+            result.freeze_record,
+            ranking_set_id=result.ranking_set_id,
+            output_dir=tmp_path / "holdout",
+        )
     assert first_store.successful_holdout_reads == 0
     assert second_store.successful_holdout_reads == 0
 
@@ -666,6 +674,10 @@ def test_content_addressed_artifact_is_byte_identical_across_two_runs(
     )
     first = tmp_path / "first"
     second = tmp_path / "second"
+    stale = first.parent / f".{first.name}.staging-{os.getpid()}"
+    stale.mkdir()
+    (stale / "partial").write_text("interrupted", encoding="utf-8")
+    seal_tree_durable(stale)
     one = publish_ranking_artifact(result, first)
     two = publish_ranking_artifact(result, second)
     assert one == two

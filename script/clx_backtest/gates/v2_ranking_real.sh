@@ -9,6 +9,9 @@ snapshot_dir="${CLX_SNAPSHOT_DIR:-$runtime_root/snapshots/$snapshot_id}"
 signal_dir="${CLX_SIGNAL_DIR:-$runtime_root/events/$run_tag/facts}"
 event_dir="${CLX_EVENT_DIR:-$runtime_root/events/$run_tag/event-study}"
 ranking_dir="${CLX_RANKING_DIR:-$runtime_root/rankings/$run_tag}"
+state_dir="${CLX_CHAIN_STATE_DIR:-$runtime_root/events/$run_tag/full-chain}"
+event_preverification="$state_dir/event-preverification.json"
+event_chain_marker="$state_dir/event-study.passed"
 split_plan="${CLX_SPLIT_PLAN:-$runtime_root/config/split-plan-v1.json}"
 ranking_config="${CLX_RANKING_CONFIG:-$runtime_root/config/ranking-config-v1.json}"
 access_log="${CLX_RANKING_ACCESS_LOG:-$runtime_root/audit/ranking-$run_tag-event-access.jsonl}"
@@ -28,6 +31,8 @@ for path in \
   "$snapshot_dir/manifest.json" "$snapshot_dir/manifest.sha256" \
   "$signal_dir/manifest.json" "$signal_dir/manifest.sha256" \
   "$event_dir/manifest.json" "$event_dir/manifest.sha256" \
+  "$event_preverification" "$state_dir/event-preverification.sha256" \
+  "$event_chain_marker" "$state_dir/event-study.passed.sha256" \
   "$ranking_dir/manifest.json" "$ranking_dir/manifest.sha256" \
   "$ranking_dir/config/ranking_config.json" \
   "$ranking_dir/config/freeze_record.json" \
@@ -52,6 +57,7 @@ docker run --rm -i --network none --pids-limit 2048 \
   -v "$snapshot_dir:/data/snapshot:ro" \
   -v "$signal_dir:/data/signals:ro" \
   -v "$event_dir:/data/event:ro" \
+  -v "$state_dir:/data/state:ro" \
   -v "$ranking_dir:/data/ranking:ro" \
   -v "$split_plan:/data/config/split-plan.json:ro" \
   -v "$ranking_config:/data/config/ranking-config.json:ro" \
@@ -68,7 +74,7 @@ from pathlib import Path
 import polars as pl
 
 from freshquant.backtest.clx.combo_dsl import ComboDefinition, ModelRelations
-from freshquant.backtest.clx.event_study import verify_event_study
+from freshquant.backtest.clx.event_study import verify_event_preverification
 from freshquant.backtest.clx.model_registry import model_registry_sha256
 from freshquant.backtest.clx.ranking import (
     HOLDOUT_LOCKED,
@@ -113,7 +119,26 @@ snapshot, snapshot_sha = hashed_manifest(snapshot_root)
 signals, signal_sha = hashed_manifest(signal_root)
 event, event_sha = hashed_manifest(event_root)
 ranking, ranking_sha = hashed_manifest(ranking_root)
-event_verification = verify_event_study(event_root)
+proof_path = Path("/data/state/event-preverification.json")
+marker_path = Path("/data/state/event-study.passed")
+event_verification = verify_event_preverification(
+    event_root,
+    {
+        "schema_version": "clx-event-preverification-reference-v1",
+        "proof_path": str(proof_path),
+        "proof_sha256": "sha256:"
+        + Path("/data/state/event-preverification.sha256")
+        .read_text(encoding="ascii")
+        .split()[0]
+        .removeprefix("sha256:"),
+        "marker_path": str(marker_path),
+        "marker_sha256": "sha256:"
+        + Path("/data/state/event-study.passed.sha256")
+        .read_text(encoding="ascii")
+        .split()[0]
+        .removeprefix("sha256:"),
+    },
+)
 ranking_verification = verify_ranking_artifact(ranking_root)
 
 expected_snapshot = os.environ["CLX_EXPECTED_SNAPSHOT_ID"]
@@ -131,7 +156,7 @@ assert event["run_id"] == signals["run_id"]
 assert event["split_plan"] == split_plan
 assert event["state"] == "COMPLETE"
 assert event["summary"]["event_outcomes"] > 0
-assert event_verification["status"] == "verified"
+assert event_verification["status"] == "preverified"
 assert same_hash(event_verification["manifest_sha256"], event_sha)
 
 if os.environ["CLX_GATE_REQUIRE_REAL_SCALE"] == "1":
@@ -188,22 +213,50 @@ outcomes = {
     if meta.get("dataset") == "event_outcomes"
 }
 assert outcomes
-access_rows = [
-    json.loads(line)
-    for line in Path("/data/audit/ranking-event-access.jsonl")
-    .read_text(encoding="utf-8")
-    .splitlines()
-    if line.strip()
-]
-assert access_rows
-for row in access_rows:
+raw_access_lines = Path("/data/audit/ranking-event-access.jsonl").read_bytes().splitlines(
+    keepends=True
+)
+assert raw_access_lines and all(line.endswith(b"\n") for line in raw_access_lines)
+access_rows = [json.loads(line) for line in raw_access_lines]
+event_access_rows = []
+repair_rows = []
+byte_offset = 0
+for index, (raw_line, row) in enumerate(zip(raw_access_lines, access_rows, strict=True)):
+    assert row["schema_version"] == "clx-event-file-access-v1"
+    assert row["run_id"] == ranking["run_id"]
+    if row["operation"] == "REPAIR_UNTERMINATED_JSONL_TAIL":
+        repair_rows.append(row)
+        assert row["freeze_id"] is None
+        assert row["claim_id"] is None and row["attempt_no"] is None
+        assert row["purpose"] == "RECOVER_EXTERNAL_AUDIT"
+        assert row["decision"] == "ALLOW"
+        assert row["reason"] == "UNTERMINATED_JSONL_TAIL_TRUNCATED"
+        assert row["repair_sequence"] == len(repair_rows)
+        assert row["truncate_offset"] == byte_offset
+        assert row["complete_records_before_repair"] == index
+        assert isinstance(row["truncated_bytes"], int) and row["truncated_bytes"] > 0
+        digest = row["truncated_sha256"]
+        assert isinstance(digest, str) and len(digest) == 64
+        assert all(character in "0123456789abcdef" for character in digest)
+        assert index + 1 < len(access_rows)
+        recovered = access_rows[index + 1]
+        assert row["recovery_operation"] == recovered["operation"] == "OPEN_PARQUET"
+        assert recovered["run_id"] == row["run_id"]
+        assert recovered["claim_id"] is None and recovered["attempt_no"] is None
+        byte_offset += len(raw_line)
+        continue
+    event_access_rows.append(row)
     assert row["operation"] == "OPEN_PARQUET"
+    assert row["freeze_id"] is None
+    assert row["claim_id"] is None and row["attempt_no"] is None
     assert row["dataset"] == "event_outcomes"
     assert row["decision"] == "ALLOW"
     assert row["holdout"] is False
     assert row["path"] in outcomes
     minimum, _ = outcomes[row["path"]]
     assert minimum < holdout_start
+    byte_offset += len(raw_line)
+assert event_access_rows
 
 relations = ModelRelations()
 definition_frame = pl.read_parquet(
@@ -261,7 +314,8 @@ print(
             "freeze_id": freeze_id,
             "ranking_manifest_sha256": ranking_sha,
             "frozen_candidates": rank_frame.height,
-            "ranking_event_parquet_opens": len(access_rows),
+            "ranking_event_parquet_opens": len(event_access_rows),
+            "audit_tail_repairs": len(repair_rows),
             "ranking_holdout_parquet_opens": 0,
         },
         ensure_ascii=False,

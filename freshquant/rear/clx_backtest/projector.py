@@ -17,6 +17,10 @@ from freshquant.backtest.clx.model_registry import (
     ENTRYPOINT_SEMANTICS,
     get_model_registry,
 )
+from freshquant.backtest.clx.signal_dedup import (
+    DEDUP_KEY_COLUMNS,
+    deduplicate_actionable_rows,
+)
 
 from .artifacts import content_hash, read_hashed_manifest, sha256_file
 from .service import frozen_rank_digest
@@ -262,6 +266,28 @@ def _read_source_rows(
     signal_fact_ids: set[str],
 ) -> dict[str, dict[str, object]]:
     documents: dict[str, dict[str, object]] = {}
+    paths = _source_dataset_paths(root, manifest, dataset=dataset)
+    if not paths:
+        return documents
+    selected = (
+        pl.scan_parquet(paths)
+        .filter(pl.col("signal_fact_id").cast(pl.String).is_in(sorted(signal_fact_ids)))
+        .collect()
+    )
+    for row in _rows(selected):
+        identifier = str(row["signal_fact_id"])
+        if identifier in documents:
+            raise ProjectionError(f"duplicate {dataset} source fact: {identifier}")
+        documents[identifier] = row
+    return documents
+
+
+def _source_dataset_paths(
+    root: Path,
+    manifest: Mapping[str, object],
+    *,
+    dataset: str,
+) -> list[Path]:
     paths: list[Path] = []
     for meta in cast(Iterable[object], manifest.get("artifacts", [])):
         if not isinstance(meta, Mapping) or meta.get("dataset") != dataset:
@@ -277,19 +303,41 @@ def _read_source_rows(
         if rows != int(meta["rows"]):
             raise ProjectionError(f"artifact row count mismatch: {path}")
         paths.append(path)
+    return paths
+
+
+def _signal_sources_and_competitors(
+    root: Path,
+    manifest: Mapping[str, object],
+    signal_fact_ids: set[str],
+) -> tuple[dict[str, dict[str, object]], list[dict[str, object]]]:
+    paths = _source_dataset_paths(root, manifest, dataset="signal_revisions")
     if not paths:
-        return documents
-    selected = (
-        pl.scan_parquet(paths)
-        .filter(pl.col("signal_fact_id").cast(pl.String).is_in(sorted(signal_fact_ids)))
-        .collect()
-    )
+        return {}, []
+    source = pl.scan_parquet(paths)
+    selected = source.filter(
+        pl.col("signal_fact_id").cast(pl.String).is_in(sorted(signal_fact_ids))
+    ).collect()
+    documents: dict[str, dict[str, object]] = {}
     for row in _rows(selected):
         identifier = str(row["signal_fact_id"])
         if identifier in documents:
-            raise ProjectionError(f"duplicate {dataset} source fact: {identifier}")
+            raise ProjectionError(
+                f"duplicate signal_revisions source fact: {identifier}"
+            )
         documents[identifier] = row
-    return documents
+    if selected.is_empty():
+        return documents, []
+    missing_columns = sorted(set(DEDUP_KEY_COLUMNS) - set(selected.columns))
+    if missing_columns:
+        raise ProjectionError(
+            f"signal_revisions misses dedup columns: {missing_columns}"
+        )
+    keys = selected.select(list(DEDUP_KEY_COLUMNS)).unique()
+    competitors = source.join(
+        keys.lazy(), on=list(DEDUP_KEY_COLUMNS), how="inner"
+    ).collect()
+    return documents, list(_rows(competitors))
 
 
 def _concurrent_triggers(event: Mapping[str, object]) -> list[str]:
@@ -314,62 +362,71 @@ def _concurrent_triggers(event: Mapping[str, object]) -> list[str]:
 
 def _source_signal_facts(
     *,
-    event_root: Path,
-    event_manifest: Mapping[str, object],
     signal_root: Path,
     signal_manifest: Mapping[str, object],
     signal_fact_ids: set[str],
 ) -> dict[str, dict[str, object]]:
     if not signal_fact_ids:
         return {}
-    events = _read_source_rows(
-        event_root,
-        event_manifest,
-        dataset="event_outcomes",
-        signal_fact_ids=signal_fact_ids,
-    )
-    signals = _read_source_rows(
+    signals, competitors = _signal_sources_and_competitors(
         signal_root,
         signal_manifest,
-        dataset="signal_revisions",
-        signal_fact_ids=signal_fact_ids,
+        signal_fact_ids,
     )
-    missing_events = sorted(signal_fact_ids - set(events))
     missing_signals = sorted(signal_fact_ids - set(signals))
-    if missing_events or missing_signals:
+    if missing_signals:
         raise ProjectionError(
-            "source signal facts are missing: "
-            f"event={missing_events[:10]}, signal={missing_signals[:10]}"
+            f"source signal facts are missing: signal={missing_signals[:10]}"
         )
     facts: dict[str, dict[str, object]] = {}
     for identifier in sorted(signal_fact_ids):
-        event = events[identifier]
         signal = signals[identifier]
         required = {
             "signal_date",
+            "reveal_date",
             "expected_model_id",
             "occurrence",
             "primary_trigger_semantic",
             "code",
-            "reveal_date",
             "direction",
+            "concurrent_trigger_mask",
+            "synthetic_primary_mask",
+            "revision_no",
         }
-        missing = sorted(field for field in required if event.get(field) is None)
+        missing = sorted(field for field in required if signal.get(field) is None)
         if missing or signal.get("current_raw_signal") is None:
             raise ProjectionError(
                 f"source signal fact {identifier} misses fields: "
                 f"{missing + (['current_raw_signal'] if signal.get('current_raw_signal') is None else [])}"
             )
+        if signal.get("actionable") is not True or signal.get("event_kind") not in {
+            "ADD",
+            "REPLACE",
+        }:
+            raise ProjectionError(
+                f"source signal fact is not an actionable ADD/REPLACE: {identifier}"
+            )
+    winner_ids = {
+        str(row["signal_fact_id"])
+        for row in deduplicate_actionable_rows(competitors)[0]
+    }
+    losing_ids = sorted(signal_fact_ids - winner_ids)
+    if losing_ids:
+        raise ProjectionError(
+            "source signal facts lost event-study deduplication: " f"{losing_ids[:10]}"
+        )
+    for identifier in sorted(signal_fact_ids):
+        signal = signals[identifier]
         facts[identifier] = {
-            "event": event,
+            "event": signal,
             "projection": {
-                "signal_date": event["signal_date"],
-                "reveal_date": event["reveal_date"],
-                "direction": int(cast(Any, event["direction"])),
-                "model_id": int(cast(Any, event["expected_model_id"])),
-                "occurrence": int(cast(Any, event["occurrence"])),
-                "primary_trigger": str(event["primary_trigger_semantic"]),
-                "concurrent_triggers": _concurrent_triggers(event),
+                "signal_date": signal["signal_date"],
+                "reveal_date": signal["reveal_date"],
+                "direction": int(cast(Any, signal["direction"])),
+                "model_id": int(cast(Any, signal["expected_model_id"])),
+                "occurrence": int(cast(Any, signal["occurrence"])),
+                "primary_trigger": str(signal["primary_trigger_semantic"]),
+                "concurrent_triggers": _concurrent_triggers(signal),
                 "raw_signal": int(cast(Any, signal["current_raw_signal"])),
             },
         }
@@ -458,6 +515,52 @@ def _assert_portfolio_source_identity(
         raise ProjectionError("HOLDOUT portfolio source identity differs from reveal")
 
 
+def _assert_base_projection_lineage(
+    base_manifest: Mapping[str, object],
+    *,
+    event_manifest: Mapping[str, object],
+    event_manifest_sha256: str,
+    signal_manifest: Mapping[str, object],
+    signal_manifest_sha256: str,
+    ranking_manifest: Mapping[str, object],
+    ranking_manifest_sha256: str,
+) -> None:
+    lineage = base_manifest.get("lineage")
+    if not isinstance(lineage, Mapping):
+        raise ProjectionError("base run manifest has no artifact lineage")
+    expected = {
+        "event": (
+            event_manifest_sha256,
+            "event_set_id",
+            event_manifest.get("event_set_id"),
+        ),
+        "signal": (
+            signal_manifest_sha256,
+            "signal_set_id",
+            signal_manifest.get("signal_set_id"),
+        ),
+        "ranking": (
+            ranking_manifest_sha256,
+            "ranking_set_id",
+            ranking_manifest.get("ranking_set_id"),
+        ),
+    }
+    for kind, (digest, identity_field, identity) in expected.items():
+        recorded = lineage.get(kind)
+        if (
+            not isinstance(recorded, Mapping)
+            or not _same_sha256_reference(recorded.get("manifest_sha256"), digest)
+            or recorded.get(identity_field) != identity
+        ):
+            raise ProjectionError(
+                f"HOLDOUT {kind} source differs from base run projection"
+            )
+    recorded_ranking = lineage["ranking"]
+    assert isinstance(recorded_ranking, Mapping)
+    if recorded_ranking.get("freeze_id") != ranking_manifest.get("freeze_id"):
+        raise ProjectionError("HOLDOUT ranking freeze differs from base run projection")
+
+
 def _freeze_input(
     ranking_root: Path,
     *,
@@ -520,6 +623,9 @@ class ClxArtifactProjector:
         database: Any | None = None,
         *,
         verify_event: Callable[[str | Path], Mapping[str, object]] | None = None,
+        verify_event_preverification: (
+            Callable[[str | Path, Mapping[str, object]], Mapping[str, object]] | None
+        ) = None,
         verify_ranking: Callable[[str | Path], Mapping[str, object]] | None = None,
         verify_holdout: Callable[[str | Path], Mapping[str, object]] | None = None,
         verify_portfolio: Callable[[str | Path], Mapping[str, object]] | None = None,
@@ -534,6 +640,12 @@ class ClxArtifactProjector:
             from freshquant.backtest.clx.event_study import verify_event_study
 
             verify_event = verify_event_study
+        if verify_event_preverification is None:
+            from freshquant.backtest.clx.event_study import (
+                verify_event_preverification as verify_preverification,
+            )
+
+            verify_event_preverification = verify_preverification
         if verify_ranking is None:
             from freshquant.backtest.clx.ranking import verify_ranking_artifact
 
@@ -550,6 +662,7 @@ class ClxArtifactProjector:
             verify_portfolio = verify_portfolio_artifact
         self.db = database
         self._verify_event = verify_event
+        self._verify_event_preverification = verify_event_preverification
         self._verify_ranking = verify_ranking
         self._verify_holdout = verify_holdout
         self._verify_portfolio = verify_portfolio
@@ -562,9 +675,14 @@ class ClxArtifactProjector:
         event_dir: str | Path,
         ranking_dir: str | Path,
         portfolio_dirs: Mapping[str, str | Path],
+        event_preverification: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         run_id = str(run["_id"])
-        event_verification = dict(self._verify_event(event_dir))
+        event_verification = dict(
+            self._verify_event(event_dir)
+            if event_preverification is None
+            else self._verify_event_preverification(event_dir, event_preverification)
+        )
         ranking_verification = dict(self._verify_ranking(ranking_dir))
         event_manifest, event_sha = read_hashed_manifest(event_dir)
         signal_manifest, signal_sha = read_hashed_manifest(signal_dir)
@@ -620,8 +738,6 @@ class ClxArtifactProjector:
                 "verification": verification,
             }
         source_facts = _source_signal_facts(
-            event_root=Path(event_dir),
-            event_manifest=event_manifest,
             signal_root=Path(signal_dir),
             signal_manifest=signal_manifest,
             signal_fact_ids=source_signal_fact_ids,
@@ -727,9 +843,14 @@ class ClxArtifactProjector:
         holdout_dir: str | Path,
         portfolio_dir: str | Path,
         api_freeze_id: str,
+        event_preverification: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         run_id = str(run["_id"])
-        self._verify_event(event_dir)
+        event_verification = dict(
+            self._verify_event(event_dir)
+            if event_preverification is None
+            else self._verify_event_preverification(event_dir, event_preverification)
+        )
         self._verify_ranking(ranking_dir)
         holdout_verification = dict(self._verify_holdout(holdout_dir))
         portfolio_verification = dict(self._verify_portfolio(portfolio_dir))
@@ -746,6 +867,20 @@ class ClxArtifactProjector:
             ("HOLDOUT portfolio", portfolio_manifest),
         ):
             _assert_manifest_run_id(manifest, run_id, kind=kind)
+        current = self.db.manifests.find_one({"run_id": run_id})
+        if current is None:
+            raise ProjectionError(
+                "base run manifest is missing before HOLDOUT projection"
+            )
+        _assert_base_projection_lineage(
+            current,
+            event_manifest=event_manifest,
+            event_manifest_sha256=event_sha,
+            signal_manifest=signal_manifest,
+            signal_manifest_sha256=signal_sha,
+            ranking_manifest=ranking_manifest,
+            ranking_manifest_sha256=ranking_sha,
+        )
         _assert_portfolio_split(portfolio_manifest, "HOLDOUT")
         _assert_event_signal_identity(event_manifest, signal_manifest, signal_sha)
         _assert_portfolio_source_identity(
@@ -759,8 +894,6 @@ class ClxArtifactProjector:
         )
         source_ids = _decision_source_ids(Path(portfolio_dir), portfolio_manifest)
         source_facts = _source_signal_facts(
-            event_root=Path(event_dir),
-            event_manifest=event_manifest,
             signal_root=Path(signal_dir),
             signal_manifest=signal_manifest,
             signal_fact_ids=source_ids,
@@ -801,6 +934,7 @@ class ClxArtifactProjector:
             "source_facts": {
                 "event_manifest_sha256": event_sha,
                 "signal_manifest_sha256": signal_sha,
+                "event_verification": event_verification,
             },
             "projection_counts": dict(projection_counts),
             "projected_at": utc_now(),
@@ -809,11 +943,6 @@ class ClxArtifactProjector:
             {key: value for key, value in attachment.items() if key != "projected_at"}
         )
         attachment["projection_sha256"] = attachment_hash
-        current = self.db.manifests.find_one({"run_id": run_id})
-        if current is None:
-            raise ProjectionError(
-                "base run manifest is missing before HOLDOUT projection"
-            )
         existing = current.get("holdout")
         if isinstance(existing, Mapping):
             if existing.get("projection_sha256") != attachment_hash:

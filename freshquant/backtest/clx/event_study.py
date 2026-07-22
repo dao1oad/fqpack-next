@@ -15,6 +15,8 @@ import math
 import os
 import re
 import shutil
+import stat
+import uuid
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -23,11 +25,27 @@ from typing import Any, Iterable, Mapping, Sequence, TypeGuard
 import numpy as np
 import polars as pl
 
-from ._file_lock import fsync_directory, lock_exclusive, unlock
+from ._file_lock import (
+    fsync_directory,
+    lock_exclusive,
+    seal_tree_durable,
+    tree_is_sealed,
+    unlock,
+)
 from .model_registry import canonical_json_bytes
+from .signal_dedup import (
+    ACTIONABLE_EVENT_KINDS,
+    DEDUP_RULE,
+    deduplicate_actionable_rows,
+)
 from .snapshot import QUALITY_EXCLUDED_MATCHING
 
 EVENT_STUDY_SCHEMA_VERSION = "clx-event-study-v2"
+EVENT_PREVERIFICATION_SCHEMA_VERSION = "clx-event-preverification-v1"
+EVENT_PREVERIFICATION_MARKER_SCHEMA_VERSION = "clx-event-preverification-marker-v1"
+EVENT_PREVERIFICATION_REFERENCE_SCHEMA_VERSION = (
+    "clx-event-preverification-reference-v1"
+)
 DIRECTION_ADJUSTED_RETURN_CONTRACT = "direction * (raw_exit_close / raw_entry_open - 1)"
 DIRECTION_ADJUSTED_EXCURSION_CONTRACT = (
     "positive: max(high_return), min(low_return); "
@@ -35,11 +53,6 @@ DIRECTION_ADJUSTED_EXCURSION_CONTRACT = (
 )
 HORIZONS = (1, 3, 5, 10, 20)
 SPLIT_NAMES = ("TRAIN", "VALIDATION", "HOLDOUT")
-ACTIONABLE_EVENT_KINDS = ("ADD", "REPLACE")
-DEDUP_RULE = (
-    "same(code,reveal_date,expected_model_id,direction): latest signal_date, "
-    "then greatest revision_no, REPLACE before ADD, signal_fact_id ascending"
-)
 CORPORATE_ACTION_NOT_FULLY_LEDGERED = 1 << 24
 EVENT_ENTRY_CENSORED = 1 << 25
 EVENT_OUTCOME_CENSORED = 1 << 26
@@ -203,6 +216,173 @@ def _atomic_write_bytes(path: Path, value: bytes) -> None:
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def _sha256_reference(value: object) -> str:
+    digest = str(value).removeprefix("sha256:")
+    if len(digest) != 64 or any(
+        character not in "0123456789abcdef" for character in digest
+    ):
+        raise EventStudyError("SHA-256 reference is malformed")
+    return "sha256:" + digest
+
+
+def _canonical_nonsymlink_path(
+    value: str | Path, *, kind: str, must_exist: bool = False
+) -> Path:
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    candidate = Path(os.path.abspath(candidate))
+    current = Path(candidate.anchor)
+    for component in candidate.parts[1:]:
+        current /= component
+        try:
+            metadata = os.lstat(current)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(metadata.st_mode):
+            raise EventStudyError(f"{kind} contains a symlink component: {current}")
+    if must_exist and not candidate.exists():
+        raise EventStudyError(f"{kind} is missing: {candidate}")
+    return candidate
+
+
+def _preverification_sidecar(path: Path) -> Path:
+    if path.suffix == ".json":
+        return path.with_suffix(".sha256")
+    return path.with_name(path.name + ".sha256")
+
+
+def _publish_readonly(path: Path, value: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path = _canonical_nonsymlink_path(path, kind="preverification publication")
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+            fchmod = getattr(os, "fchmod", None)
+            if fchmod is not None:
+                fchmod(stream.fileno(), 0o444)
+                os.fsync(stream.fileno())
+        posix_publication = getattr(os, "fchmod", None) is not None
+        try:
+            os.link(temporary, path)
+            if not posix_publication:
+                temporary.unlink()
+                path.chmod(0o444)
+        except FileExistsError:
+            metadata = os.lstat(path)
+            if (
+                stat.S_ISLNK(metadata.st_mode)
+                or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_mode & 0o222
+                or path.read_bytes() != value
+            ):
+                raise EventStudyError(
+                    f"preverification publication differs from existing file: {path}"
+                )
+        _fsync_directory(path.parent)
+    finally:
+        if temporary.exists() and os.name == "nt":
+            temporary.chmod(0o644)
+        temporary.unlink(missing_ok=True)
+        _fsync_directory(path.parent)
+
+
+def _publish_readonly_with_sidecar(path: Path, value: bytes) -> str:
+    digest = _sha256_bytes(value)
+    _publish_readonly(path, value)
+    _publish_readonly(
+        _preverification_sidecar(path),
+        f"{digest}  {path.name}\n".encode("ascii"),
+    )
+    return "sha256:" + digest
+
+
+def _temporary_event_entry(name: str) -> bool:
+    return any(token in name for token in (".tmp-", ".staging-", ".bootstrap-"))
+
+
+def _event_tree_lstat_entries(root: Path) -> list[dict[str, object]]:
+    root = _canonical_nonsymlink_path(root, kind="event artifact root", must_exist=True)
+    if root.is_symlink() or not root.is_dir():
+        raise EventStudyError(f"event artifact root is not a regular directory: {root}")
+    entries: list[dict[str, object]] = []
+
+    def append_entry(path: Path, relative: str, metadata: os.stat_result) -> None:
+        mode = metadata.st_mode
+        if stat.S_ISLNK(mode):
+            raise EventStudyError(f"event artifact tree contains a symlink: {path}")
+        if stat.S_ISDIR(mode):
+            kind = "directory"
+        elif stat.S_ISREG(mode):
+            kind = "file"
+        else:
+            raise EventStudyError(
+                f"event artifact tree contains a special file: {path}"
+            )
+        entries.append(
+            {
+                "path": relative,
+                "type": kind,
+                "mode": stat.S_IMODE(mode),
+                "size": metadata.st_size,
+                "mtime_ns": metadata.st_mtime_ns,
+                "ctime_ns": metadata.st_ctime_ns,
+                "device": metadata.st_dev,
+                "inode": metadata.st_ino,
+            }
+        )
+
+    def visit(directory: Path, relative: str) -> None:
+        append_entry(directory, relative, os.lstat(directory))
+        with os.scandir(directory) as stream:
+            children = sorted(stream, key=lambda item: item.name)
+        for child in children:
+            if _temporary_event_entry(child.name):
+                raise EventStudyError(
+                    f"event artifact tree contains a temporary entry: {child.path}"
+                )
+            path = Path(child.path)
+            child_relative = (
+                child.name if relative == "." else f"{relative}/{child.name}"
+            )
+            metadata = child.stat(follow_symlinks=False)
+            if stat.S_ISDIR(metadata.st_mode):
+                visit(path, child_relative)
+            else:
+                append_entry(path, child_relative, metadata)
+
+    visit(root, ".")
+    return entries
+
+
+def _assert_registered_event_parquet(
+    entries: Sequence[Mapping[str, object]], manifest: Mapping[str, object]
+) -> None:
+    raw_artifacts = manifest.get("artifacts")
+    if not isinstance(raw_artifacts, list):
+        raise EventStudyError("event manifest artifact registry is invalid")
+    registered = {
+        str(item["path"])
+        for item in raw_artifacts
+        if isinstance(item, Mapping) and str(item.get("path", "")).endswith(".parquet")
+    }
+    actual = {
+        str(item["path"])
+        for item in entries
+        if item.get("type") == "file" and str(item.get("path", "")).endswith(".parquet")
+    }
+    if actual != registered:
+        raise EventStudyError(
+            "event artifact Parquet registry differs from the manifest: "
+            f"missing={sorted(registered - actual)[:10]}, "
+            f"extra={sorted(actual - registered)[:10]}"
+        )
 
 
 def _with_content_hash(value: Mapping[str, Any], field: str) -> dict[str, Any]:
@@ -415,43 +595,10 @@ def _deduplicate_actionable(
     missing = _REQUIRED_SIGNAL_COLUMNS - set(signals.columns)
     if missing:
         raise EventStudyError(f"signal facts miss columns: {sorted(missing)}")
-    rows = [
-        row
-        for row in signals.iter_rows(named=True)
-        if row["event_kind"] in ACTIONABLE_EVENT_KINDS and bool(row["actionable"])
-    ]
+    rows = list(signals.iter_rows(named=True))
     remove_count = signals.filter(pl.col("event_kind") == "REMOVE").height
-    rows.sort(
-        key=lambda row: (
-            row["code"],
-            row["reveal_date"],
-            int(row["expected_model_id"]),
-            int(row["direction"]),
-            -row["signal_date"].toordinal(),
-            -int(row["revision_no"]),
-            0 if row["event_kind"] == "REPLACE" else 1,
-            str(row["signal_fact_id"]),
-        )
-    )
-    winners: list[dict[str, Any]] = []
-    current_key: tuple[Any, ...] | None = None
-    current_group_size = 0
-    for row in rows:
-        key = (
-            row["code"],
-            row["reveal_date"],
-            int(row["expected_model_id"]),
-            int(row["direction"]),
-        )
-        if key != current_key:
-            winners.append(dict(row))
-            current_key = key
-            current_group_size = 1
-            winners[-1]["dedup_group_size"] = current_group_size
-        else:
-            current_group_size += 1
-            winners[-1]["dedup_group_size"] = current_group_size
-    return winners, len(rows) - len(winners), remove_count
+    winners, duplicate_count = deduplicate_actionable_rows(rows)
+    return winners, duplicate_count, remove_count
 
 
 def _finite_positive(value: object) -> TypeGuard[int | float]:
@@ -1348,6 +1495,63 @@ def build_event_metrics_from_artifacts(
     )
 
 
+def _selection_outcome_paths(
+    root: Path,
+    artifacts: Sequence[Mapping[str, Any]],
+    split_plan: SplitPlan,
+    requested_splits: Sequence[str],
+) -> list[Path]:
+    requested = set(requested_splits)
+    windows = {window.split_id: window for window in split_plan.windows}
+    holdout_start = windows["HOLDOUT"].start_date
+    selected: list[Path] = []
+    for meta in artifacts:
+        minimum_raw = meta.get("min_reveal_date")
+        maximum_raw = meta.get("max_reveal_date")
+        if not isinstance(minimum_raw, str) or not isinstance(maximum_raw, str):
+            raise EventStudyError(
+                "event outcome artifact has no selection-safe reveal-date bounds"
+            )
+        minimum = date.fromisoformat(minimum_raw)
+        maximum = date.fromisoformat(maximum_raw)
+        if minimum < holdout_start <= maximum:
+            raise EventStudyError(
+                "event outcome artifact straddles the HOLDOUT selection boundary"
+            )
+        partition = meta.get("partition")
+        split_id = (
+            str(partition.get("split_id"))
+            if isinstance(partition, Mapping) and partition.get("split_id") is not None
+            else None
+        )
+        if split_id is not None:
+            if split_id not in requested:
+                continue
+            window = windows.get(split_id)
+            if (
+                window is None
+                or minimum < window.start_date
+                or maximum > window.end_date
+            ):
+                raise EventStudyError(
+                    "event outcome partition differs from its split date bounds"
+                )
+        else:
+            if minimum >= holdout_start:
+                continue
+            if not any(
+                current_split in requested
+                and maximum >= window.start_date
+                and minimum <= window.end_date
+                for current_split, window in windows.items()
+            ):
+                continue
+        selected.append(root / str(meta["path"]))
+    if not selected:
+        raise EventStudyError("no pre-HOLDOUT event paths are eligible for aggregation")
+    return selected
+
+
 _SIGNAL_BUCKET_PATTERN = re.compile(r"(?:^|/)code_bucket=(\d+)(?:/|$)")
 
 
@@ -1857,7 +2061,12 @@ def build_event_study(
             [item for checkpoint in checkpoints for item in checkpoint["artifacts"]],
             key=lambda item: (item["dataset"], item["path"]),
         )
-        outcome_paths = [output_root / str(item["path"]) for item in outcome_artifacts]
+        outcome_paths = _selection_outcome_paths(
+            output_root,
+            outcome_artifacts,
+            split_plan,
+            ("TRAIN", "VALIDATION"),
+        )
         metrics = build_event_metrics_from_artifacts(
             outcome_paths,
             calendar,
@@ -1973,8 +2182,138 @@ def build_event_study(
     return verify_event_study(output_root)
 
 
-def verify_event_study(output_dir: str | Path) -> dict[str, Any]:
-    root = Path(output_dir).resolve()
+def _preverification_json_bytes(value: object) -> bytes:
+    return (
+        json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    ).encode("utf-8")
+
+
+def _preverification_marker(
+    proof: Mapping[str, object], proof_sha256: str
+) -> dict[str, object]:
+    return {
+        "schema_version": EVENT_PREVERIFICATION_MARKER_SCHEMA_VERSION,
+        "state": "COMPLETE",
+        "run_id": proof["run_id"],
+        "event_set_id": proof["event_set_id"],
+        "event_manifest_sha256": proof["event_manifest_sha256"],
+        "proof_sha256": proof_sha256,
+        "tree_lstat_sha256": proof["tree_lstat_sha256"],
+        "verifier_module_sha256": proof["verifier_module_sha256"],
+        "engine_image_id": proof["engine_image_id"],
+        "source_commit": proof["source_commit"],
+        "run_contract_sha256": proof["run_contract_sha256"],
+    }
+
+
+def _preverification_reference(
+    proof_path: Path,
+    proof_sha256: str,
+    marker_path: Path,
+    marker_sha256: str,
+) -> dict[str, object]:
+    return {
+        "schema_version": EVENT_PREVERIFICATION_REFERENCE_SCHEMA_VERSION,
+        "proof_path": str(
+            _canonical_nonsymlink_path(
+                proof_path, kind="event preverification proof", must_exist=True
+            )
+        ),
+        "proof_sha256": proof_sha256,
+        "marker_path": str(
+            _canonical_nonsymlink_path(
+                marker_path, kind="event preverification marker", must_exist=True
+            )
+        ),
+        "marker_sha256": marker_sha256,
+    }
+
+
+def _verify_event_outcome_date_contract(
+    frame: pl.DataFrame,
+    meta: Mapping[str, object],
+    split_plan: SplitPlan,
+) -> None:
+    """Recompute the date bounds that downstream readers use for path pruning."""
+
+    if frame.is_empty():
+        raise EventStudyError("event outcome artifact is empty")
+    minimum = frame["reveal_date"].min()
+    maximum = frame["reveal_date"].max()
+    if not isinstance(minimum, date) or not isinstance(maximum, date):
+        raise EventStudyError("event outcome reveal-date bounds are invalid")
+    if (
+        meta.get("min_reveal_date") != minimum.isoformat()
+        or meta.get("max_reveal_date") != maximum.isoformat()
+    ):
+        raise EventStudyError(
+            "event outcome manifest reveal-date bounds differ from artifact"
+        )
+
+    allowed_statuses = {
+        "TRAIN": {SPLIT_ELIGIBLE, SPLIT_PURGED},
+        "VALIDATION": {
+            SPLIT_ELIGIBLE,
+            SPLIT_PURGED,
+            SPLIT_EMBARGOED,
+            SPLIT_PURGED_AND_EMBARGOED,
+        },
+        "HOLDOUT": {SPLIT_ELIGIBLE, SPLIT_EMBARGOED},
+        "OUTSIDE": {SPLIT_OUTSIDE},
+    }
+    assignments = frame.select(
+        ["reveal_date", "split_id", "split_boundary_status"]
+    ).unique()
+    for reveal_date, split_id, boundary_status in assignments.iter_rows():
+        expected_split = next(
+            (
+                window.split_id
+                for window in split_plan.windows
+                if window.start_date <= reveal_date <= window.end_date
+            ),
+            "OUTSIDE",
+        )
+        if split_id != expected_split:
+            raise EventStudyError("event outcome split_id differs from the split plan")
+        if boundary_status not in allowed_statuses[expected_split]:
+            raise EventStudyError(
+                "event outcome boundary status is incompatible with split_id"
+            )
+
+
+def verify_event_study(
+    output_dir: str | Path,
+    *,
+    proof_output: str | Path | None = None,
+    chain_marker_output: str | Path | None = None,
+    engine_image_id: str | None = None,
+    source_commit: str | None = None,
+    run_contract_sha256: str | None = None,
+) -> dict[str, Any]:
+    root = _canonical_nonsymlink_path(
+        output_dir, kind="event artifact root", must_exist=True
+    )
+    publish_preverification = (
+        proof_output is not None or chain_marker_output is not None
+    )
+    if publish_preverification and (
+        proof_output is None or chain_marker_output is None
+    ):
+        raise EventStudyError(
+            "proof_output and chain_marker_output must be provided together"
+        )
+    if publish_preverification:
+        if not isinstance(engine_image_id, str) or not engine_image_id:
+            raise EventStudyError("event preverification requires engine_image_id")
+        if not isinstance(source_commit, str) or not re.fullmatch(
+            r"[0-9a-f]{40}", source_commit
+        ):
+            raise EventStudyError("event preverification source_commit is malformed")
+        normalized_contract_sha = _sha256_reference(run_contract_sha256)
+        before_verification = _event_tree_lstat_entries(root)
+    else:
+        normalized_contract_sha = None
+        before_verification = None
     manifest, manifest_sha = _read_hashed_manifest(root, kind="event")
     if (
         manifest.get("state") != "COMPLETE"
@@ -1997,6 +2336,10 @@ def verify_event_study(output_dir: str | Path) -> dict[str, Any]:
         != DIRECTION_ADJUSTED_EXCURSION_CONTRACT
     ):
         raise EventStudyError("event manifest directional outcome contract is invalid")
+    try:
+        split_plan = SplitPlan.from_dict(manifest["split_plan"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EventStudyError("event manifest split plan is invalid") from exc
     counts = {"event_outcomes": 0, "event_metrics": 0}
     paths: set[str] = set()
     partitions: set[tuple[int, int]] = set()
@@ -2016,6 +2359,7 @@ def verify_event_study(output_dir: str | Path) -> dict[str, Any]:
         dataset = str(meta["dataset"])
         counts[dataset] = counts.get(dataset, 0) + frame.height
         if dataset == "event_outcomes":
+            _verify_event_outcome_date_contract(frame, meta, split_plan)
             if (
                 frame.select(pl.struct(["run_id", "signal_fact_id"]).n_unique()).item()
                 != frame.height
@@ -2064,7 +2408,7 @@ def verify_event_study(output_dir: str | Path) -> dict[str, Any]:
         raise EventStudyError("event outcome manifest count mismatch")
     if counts["event_metrics"] != manifest["metric_rows"]:
         raise EventStudyError("event metric manifest count mismatch")
-    return {
+    result = {
         "status": "verified",
         "run_id": manifest["run_id"],
         "event_set_id": manifest["event_set_id"],
@@ -2075,6 +2419,306 @@ def verify_event_study(output_dir: str | Path) -> dict[str, Any]:
             "metrics_materialized"
         ],
     }
+    if not publish_preverification:
+        return result
+
+    assert proof_output is not None and chain_marker_output is not None
+    assert before_verification is not None
+    after_verification = _event_tree_lstat_entries(root)
+    if before_verification != after_verification:
+        raise EventStudyError("event artifact tree changed during deep verification")
+    _assert_registered_event_parquet(after_verification, manifest)
+    if not tree_is_sealed(root):
+        seal_tree_durable(root)
+    if not tree_is_sealed(root):
+        raise EventStudyError("event artifact tree did not become immutable")
+    sealed_entries = _event_tree_lstat_entries(root)
+    _assert_registered_event_parquet(sealed_entries, manifest)
+    tree_lstat_sha256 = "sha256:" + _sha256_bytes(canonical_json_bytes(sealed_entries))
+    identity = manifest["identity"]
+    assert isinstance(identity, Mapping)
+    proof = {
+        "schema_version": EVENT_PREVERIFICATION_SCHEMA_VERSION,
+        "state": "COMPLETE",
+        "verification_method": "verify_event_study",
+        "run_id": manifest["run_id"],
+        "event_set_id": manifest["event_set_id"],
+        "event_manifest_sha256": _sha256_reference(manifest_sha),
+        "signal_set_id": identity["signal_set_id"],
+        "signal_manifest_sha256": _sha256_reference(identity["signal_manifest_sha256"]),
+        "verification_result": result,
+        "tree_entries": sealed_entries,
+        "tree_lstat_sha256": tree_lstat_sha256,
+        "verifier_module_sha256": "sha256:" + _sha256_file(Path(__file__).resolve()),
+        "engine_image_id": engine_image_id,
+        "source_commit": source_commit,
+        "run_contract_sha256": normalized_contract_sha,
+    }
+    proof_path = _canonical_nonsymlink_path(
+        proof_output, kind="event preverification proof"
+    )
+    marker_path = _canonical_nonsymlink_path(
+        chain_marker_output, kind="event preverification marker"
+    )
+    if root == proof_path or root in proof_path.parents:
+        raise EventStudyError("event preverification proof must be outside event tree")
+    if root == marker_path or root in marker_path.parents:
+        raise EventStudyError("event preverification marker must be outside event tree")
+    proof_sha256 = _publish_readonly_with_sidecar(
+        proof_path, _preverification_json_bytes(proof)
+    )
+    marker = _preverification_marker(proof, proof_sha256)
+    marker_sha256 = _publish_readonly_with_sidecar(
+        marker_path, _preverification_json_bytes(marker)
+    )
+    result["event_preverification"] = _preverification_reference(
+        proof_path, proof_sha256, marker_path, marker_sha256
+    )
+    return result
+
+
+def _read_preverification_payload(
+    path: Path, *, expected_sha256: object | None = None
+) -> tuple[bytes, str]:
+    if path.is_symlink() or not path.is_file():
+        raise EventStudyError(f"preverification file is missing or a symlink: {path}")
+    if path.stat().st_mode & 0o222:
+        raise EventStudyError(f"preverification file is not read-only: {path}")
+    payload = path.read_bytes()
+    digest = "sha256:" + _sha256_bytes(payload)
+    if expected_sha256 is not None and digest != _sha256_reference(expected_sha256):
+        raise EventStudyError(f"preverification reference digest mismatch: {path}")
+    sidecar = _preverification_sidecar(path)
+    if sidecar.is_symlink() or not sidecar.is_file():
+        raise EventStudyError(
+            f"preverification sidecar is missing or a symlink: {sidecar}"
+        )
+    if sidecar.stat().st_mode & 0o222:
+        raise EventStudyError(f"preverification sidecar is not read-only: {sidecar}")
+    parts = sidecar.read_text(encoding="ascii").strip().split()
+    if (
+        len(parts) != 2
+        or parts[1] != path.name
+        or parts[0] != digest.removeprefix("sha256:")
+    ):
+        raise EventStudyError(f"preverification sidecar mismatch: {sidecar}")
+    return payload, digest
+
+
+def _decode_preverification_object(payload: bytes, *, kind: str) -> dict[str, object]:
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EventStudyError(f"{kind} is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise EventStudyError(f"{kind} is not a JSON object")
+    return value
+
+
+def _validate_preverification_proof(
+    root: Path,
+    proof: Mapping[str, object],
+    *,
+    expected_engine_image_id: str | None = None,
+    expected_source_commit: str | None = None,
+    expected_run_contract_sha256: str | None = None,
+) -> tuple[dict[str, Any], list[Mapping[str, object]]]:
+    if (
+        proof.get("schema_version") != EVENT_PREVERIFICATION_SCHEMA_VERSION
+        or proof.get("state") != "COMPLETE"
+        or proof.get("verification_method") != "verify_event_study"
+    ):
+        raise EventStudyError("event preverification proof state/schema is invalid")
+    current_verifier_sha = "sha256:" + _sha256_file(Path(__file__).resolve())
+    if proof.get("verifier_module_sha256") != current_verifier_sha:
+        raise EventStudyError("event preverification verifier module differs")
+    engine_image_id = proof.get("engine_image_id")
+    source_commit = proof.get("source_commit")
+    run_contract_sha256 = _sha256_reference(proof.get("run_contract_sha256"))
+    if not isinstance(engine_image_id, str) or not engine_image_id:
+        raise EventStudyError("event preverification engine image is invalid")
+    if not isinstance(source_commit, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", source_commit
+    ):
+        raise EventStudyError("event preverification source commit is invalid")
+    if (
+        expected_engine_image_id is not None
+        and engine_image_id != expected_engine_image_id
+    ):
+        raise EventStudyError("event preverification engine image differs")
+    if expected_source_commit is not None and source_commit != expected_source_commit:
+        raise EventStudyError("event preverification source commit differs")
+    if (
+        expected_run_contract_sha256 is not None
+        and run_contract_sha256 != _sha256_reference(expected_run_contract_sha256)
+    ):
+        raise EventStudyError("event preverification run contract differs")
+
+    manifest, manifest_sha = _read_hashed_manifest(root, kind="event")
+    identity = manifest.get("identity")
+    if not isinstance(identity, Mapping):
+        raise EventStudyError("event manifest identity is invalid")
+    expected_identity = {
+        "run_id": manifest.get("run_id"),
+        "event_set_id": manifest.get("event_set_id"),
+        "event_manifest_sha256": _sha256_reference(manifest_sha),
+        "signal_set_id": identity.get("signal_set_id"),
+        "signal_manifest_sha256": _sha256_reference(
+            identity.get("signal_manifest_sha256")
+        ),
+    }
+    if any(proof.get(key) != value for key, value in expected_identity.items()):
+        raise EventStudyError("event preverification identity differs from manifest")
+    verification = proof.get("verification_result")
+    if not isinstance(verification, Mapping):
+        raise EventStudyError("event preverification result is missing")
+    for key in ("run_id", "event_set_id", "manifest_sha256"):
+        expected = expected_identity[
+            "event_manifest_sha256" if key == "manifest_sha256" else key
+        ]
+        actual = verification.get(key)
+        if key == "manifest_sha256":
+            actual = _sha256_reference(actual)
+        if actual != expected:
+            raise EventStudyError("event preverification result identity differs")
+    if verification.get("status") != "verified":
+        raise EventStudyError("event preverification result status is invalid")
+
+    raw_entries = proof.get("tree_entries")
+    if not isinstance(raw_entries, list) or not all(
+        isinstance(item, Mapping) for item in raw_entries
+    ):
+        raise EventStudyError("event preverification tree registry is invalid")
+    tree_entries = list(raw_entries)
+    expected_tree_sha = "sha256:" + _sha256_bytes(canonical_json_bytes(tree_entries))
+    if proof.get("tree_lstat_sha256") != expected_tree_sha:
+        raise EventStudyError("event preverification tree registry hash differs")
+    if not tree_is_sealed(root):
+        raise EventStudyError("event artifact tree is not immutable")
+    current_entries = _event_tree_lstat_entries(root)
+    if current_entries != tree_entries:
+        raise EventStudyError("event artifact tree differs from preverification proof")
+    _assert_registered_event_parquet(current_entries, manifest)
+    return manifest, tree_entries
+
+
+def verify_event_preverification(
+    output_dir: str | Path,
+    reference: Mapping[str, object],
+    *,
+    expected_engine_image_id: str | None = None,
+    expected_source_commit: str | None = None,
+    expected_run_contract_sha256: str | None = None,
+) -> dict[str, object]:
+    if (
+        reference.get("schema_version")
+        != EVENT_PREVERIFICATION_REFERENCE_SCHEMA_VERSION
+    ):
+        raise EventStudyError("event preverification reference schema is invalid")
+    root = _canonical_nonsymlink_path(
+        output_dir, kind="event artifact root", must_exist=True
+    )
+    proof_path = _canonical_nonsymlink_path(
+        str(reference.get("proof_path", "")),
+        kind="event preverification proof",
+        must_exist=True,
+    )
+    marker_path = _canonical_nonsymlink_path(
+        str(reference.get("marker_path", "")),
+        kind="event preverification marker",
+        must_exist=True,
+    )
+    for path in (proof_path, marker_path):
+        if root == path or root in path.parents:
+            raise EventStudyError(
+                "event preverification metadata must be outside event tree"
+            )
+    proof_payload, proof_sha256 = _read_preverification_payload(
+        proof_path, expected_sha256=reference.get("proof_sha256")
+    )
+    marker_payload, marker_sha256 = _read_preverification_payload(
+        marker_path, expected_sha256=reference.get("marker_sha256")
+    )
+    proof = _decode_preverification_object(
+        proof_payload, kind="event preverification proof"
+    )
+    marker = _decode_preverification_object(
+        marker_payload, kind="event preverification marker"
+    )
+    manifest, tree_entries = _validate_preverification_proof(
+        root,
+        proof,
+        expected_engine_image_id=expected_engine_image_id,
+        expected_source_commit=expected_source_commit,
+        expected_run_contract_sha256=expected_run_contract_sha256,
+    )
+    if marker != _preverification_marker(proof, proof_sha256):
+        raise EventStudyError("event preverification marker differs from proof")
+    return {
+        "status": "preverified",
+        "run_id": manifest["run_id"],
+        "event_set_id": manifest["event_set_id"],
+        "manifest_sha256": proof["event_manifest_sha256"],
+        "proof_sha256": proof_sha256,
+        "marker_sha256": marker_sha256,
+        "tree_lstat_sha256": proof["tree_lstat_sha256"],
+        "tree_entries": len(tree_entries),
+        "verifier_module_sha256": proof["verifier_module_sha256"],
+        "engine_image_id": proof["engine_image_id"],
+        "source_commit": proof["source_commit"],
+        "run_contract_sha256": proof["run_contract_sha256"],
+    }
+
+
+def recover_event_preverification_publication(
+    output_dir: str | Path,
+    proof_path: str | Path,
+    marker_path: str | Path,
+    *,
+    expected_engine_image_id: str,
+    expected_source_commit: str,
+    expected_run_contract_sha256: str,
+) -> dict[str, object]:
+    root = _canonical_nonsymlink_path(
+        output_dir, kind="event artifact root", must_exist=True
+    )
+    proof = _canonical_nonsymlink_path(
+        proof_path, kind="event preverification proof", must_exist=True
+    )
+    marker = _canonical_nonsymlink_path(
+        marker_path, kind="event preverification marker"
+    )
+    if proof.is_symlink() or not proof.is_file():
+        raise EventStudyError("event preverification proof is missing during recovery")
+    if proof.stat().st_mode & 0o222:
+        raise EventStudyError("event preverification proof is not read-only")
+    proof_payload = proof.read_bytes()
+    proof_sha256 = "sha256:" + _sha256_bytes(proof_payload)
+    proof_document = _decode_preverification_object(
+        proof_payload, kind="event preverification proof"
+    )
+    _validate_preverification_proof(
+        root,
+        proof_document,
+        expected_engine_image_id=expected_engine_image_id,
+        expected_source_commit=expected_source_commit,
+        expected_run_contract_sha256=expected_run_contract_sha256,
+    )
+    _publish_readonly_with_sidecar(proof, proof_payload)
+    marker_payload = _preverification_json_bytes(
+        _preverification_marker(proof_document, proof_sha256)
+    )
+    marker_sha256 = _publish_readonly_with_sidecar(marker, marker_payload)
+    reference = _preverification_reference(proof, proof_sha256, marker, marker_sha256)
+    result = verify_event_preverification(
+        root,
+        reference,
+        expected_engine_image_id=expected_engine_image_id,
+        expected_source_commit=expected_source_commit,
+        expected_run_contract_sha256=expected_run_contract_sha256,
+    )
+    result["event_preverification"] = reference
+    return result
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -2090,13 +2734,41 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--max-buckets", type=int)
     verify = subparsers.add_parser("verify")
     verify.add_argument("--output-dir", required=True)
+    verify.add_argument("--proof-output")
+    verify.add_argument("--chain-marker-output")
+    verify.add_argument("--engine-image-id")
+    verify.add_argument("--source-commit")
+    verify.add_argument("--run-contract-sha256")
+    preverification = subparsers.add_parser("verify-preverification")
+    preverification.add_argument("--output-dir", required=True)
+    preverification.add_argument("--proof", required=True)
+    preverification.add_argument("--chain-marker", required=True)
+    preverification.add_argument("--engine-image-id", required=True)
+    preverification.add_argument("--source-commit", required=True)
+    preverification.add_argument("--run-contract-sha256", required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "verify":
-        result = verify_event_study(args.output_dir)
+        result = verify_event_study(
+            args.output_dir,
+            proof_output=args.proof_output,
+            chain_marker_output=args.chain_marker_output,
+            engine_image_id=args.engine_image_id,
+            source_commit=args.source_commit,
+            run_contract_sha256=args.run_contract_sha256,
+        )
+    elif args.command == "verify-preverification":
+        result = recover_event_preverification_publication(
+            args.output_dir,
+            args.proof,
+            args.chain_marker,
+            expected_engine_image_id=args.engine_image_id,
+            expected_source_commit=args.source_commit,
+            expected_run_contract_sha256=args.run_contract_sha256,
+        )
     else:
         plan = SplitPlan.from_dict(
             json.loads(Path(args.split_plan).read_text(encoding="utf-8"))

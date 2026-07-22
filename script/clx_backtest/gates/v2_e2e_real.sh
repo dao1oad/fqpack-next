@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+export PYTHONOPTIMIZE=0
 
 repo_root="${CLX_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 
@@ -11,6 +12,7 @@ for name in \
   CLX_REAL_RUN_ID CLX_ARTIFACT_RUN_ID CLX_SNAPSHOT_ID \
   CLX_SNAPSHOT_DIR CLX_SIGNAL_DIR CLX_EVENT_DIR CLX_RANKING_DIR \
   CLX_HOLDOUT_DIR CLX_PORTFOLIO_ROOT CLX_HOLDOUT_LEDGER_DIR \
+  CLX_HOLDOUT_ACCESS_LOG CLX_EXPECTED_HOLDOUT_OUTPUT_DIR \
   CLX_MONGO_URI CLX_MONGO_DATABASE CLX_WORKER_ID \
   CLX_API_BASE_URL CLX_WEB_BASE_URL \
   CLX_API_CONTAINER CLX_WORKER_CONTAINER CLX_WEB_CONTAINER CLX_MONGO_CONTAINER \
@@ -44,7 +46,8 @@ done
 for path in \
   "$CLX_FRONTEND_EVIDENCE" "$CLX_CAUSAL_GATE_RESULT" \
   "$CLX_RANKING_GATE_RESULT" "$CLX_PORTFOLIO_GATE_RESULT" \
-  "$CLX_FRONTEND_GATE_RESULT" "$CLX_GOVERNANCE_EVENTS"; do
+  "$CLX_FRONTEND_GATE_RESULT" "$CLX_GOVERNANCE_EVENTS" \
+  "$CLX_HOLDOUT_ACCESS_LOG"; do
   require_file "$path"
 done
 
@@ -138,6 +141,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from pathlib import Path
 
 
@@ -174,6 +178,19 @@ portfolios = {
     split: hashed_manifest(str(Path(os.environ["CLX_PORTFOLIO_ROOT"]) / split))
     for split in ("TRAIN", "VALIDATION", "HOLDOUT")
 }
+holdout_access_log = Path(os.environ["CLX_HOLDOUT_ACCESS_LOG"])
+assert stat.S_IMODE(holdout_access_log.stat().st_mode) == 0o444
+holdout_access_log_sha256 = digest(holdout_access_log)
+holdout_access_raw_lines = holdout_access_log.read_bytes().splitlines(keepends=True)
+assert holdout_access_raw_lines and all(
+    line.endswith(b"\n") for line in holdout_access_raw_lines
+)
+holdout_access_rows = [json.loads(line) for line in holdout_access_raw_lines]
+holdout_access_repairs = [
+    row
+    for row in holdout_access_rows
+    if row.get("operation") == "REPAIR_UNTERMINATED_JSONL_TAIL"
+]
 
 artifact_run_id = os.environ["CLX_ARTIFACT_RUN_ID"]
 assert snapshot["snapshot_id"] == os.environ["CLX_SNAPSHOT_ID"]
@@ -222,6 +239,11 @@ matching_ledgers = [
 assert len(matching_ledgers) == 1
 assert matching_ledgers[0]["state"] == "COMPLETE"
 assert matching_ledgers[0]["reveal_id"] == holdout["reveal_id"]
+assert matching_ledgers[0].get("output_dir") == os.environ[
+    "CLX_EXPECTED_HOLDOUT_OUTPUT_DIR"
+]
+ledger = matching_ledgers[0]
+assert ledger.get("output_dir") == os.environ["CLX_EXPECTED_HOLDOUT_OUTPUT_DIR"]
 
 health = json.loads(os.environ["HEALTH_JSON"])
 assert health["passed"] is True and not health["failures"]
@@ -317,6 +339,28 @@ assert portfolio_gate["run_id"] == artifact_run_id
 assert portfolio_gate["ranking_set_id"] == ranking["ranking_set_id"]
 assert portfolio_gate["freeze_id"] == ranking["freeze_id"]
 assert portfolio_gate["reveal_id"] == holdout["reveal_id"]
+assert portfolio_gate["logical_reveals"] == 1
+assert portfolio_gate["logical_reveal_attempts"] >= 1
+assert portfolio_gate["external_holdout_parquet_opens"] >= portfolio_gate[
+    "holdout_parquet_opens"
+]
+assert portfolio_gate["authorized_resume_count"] == matching_ledgers[0].get(
+    "resume_count"
+)
+assert portfolio_gate["holdout_access_log_sha256"] == holdout_access_log_sha256
+assert portfolio_gate["audit_tail_repairs"] == len(holdout_access_repairs)
+assert portfolio_gate["audit_tail_repaired_bytes"] == sum(
+    row["truncated_bytes"] for row in holdout_access_repairs
+)
+assert portfolio_gate["logical_reveal_attempts"] == sum(
+    row.get("operation") == "REVEAL_HOLDOUT"
+    and row.get("decision") == "ALLOW"
+    for row in holdout_access_rows
+)
+assert portfolio_gate["external_holdout_parquet_opens"] == sum(
+    row.get("operation") == "OPEN_PARQUET" and row.get("holdout") is True
+    for row in holdout_access_rows
+)
 
 frontend = load(os.environ["CLX_FRONTEND_EVIDENCE"])
 assert frontend == frontend_gate
@@ -355,6 +399,14 @@ evidence = {
     },
     "exactly_once": {
         "holdout_reads": holdout["successful_holdout_reads"],
+        "logical_reveal_attempts": portfolio_gate["logical_reveal_attempts"],
+        "external_holdout_parquet_opens": portfolio_gate[
+            "external_holdout_parquet_opens"
+        ],
+        "authorized_resume_count": portfolio_gate["authorized_resume_count"],
+        "audit_tail_repairs": portfolio_gate["audit_tail_repairs"],
+        "audit_tail_repaired_bytes": portfolio_gate["audit_tail_repaired_bytes"],
+        "holdout_access_log_sha256": holdout_access_log_sha256,
         "freeze_records": mongo["freeze_records"],
         "holdout_jobs": len(mongo["holdout_jobs"]),
         "reveal_count": freeze["reveal_count"],

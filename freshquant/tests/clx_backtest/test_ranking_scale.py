@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import multiprocessing as mp
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -10,7 +13,9 @@ from typing import Any
 import polars as pl
 import pytest
 
+import freshquant.backtest.clx.ranking as ranking_module
 import freshquant.backtest.clx.ranking_io as ranking_io
+from freshquant.backtest.clx._file_lock import seal_tree_durable
 from freshquant.backtest.clx.combo_dsl import ModelRelations, make_combo
 from freshquant.backtest.clx.event_study import (
     DIRECTION_ADJUSTED_EXCURSION_CONTRACT,
@@ -151,6 +156,44 @@ def _reveal_worker(
         queue.put((label, "ok", result["reveal_id"], ""))
 
 
+def _resume_reveal_worker(
+    label: str,
+    event_dir: str,
+    calendar_path: str,
+    ranking_dir: str,
+    output_dir: str,
+    ledger_dir: str,
+    access_log: str,
+    queue,
+) -> None:
+    """Run an authorized resume with a scheduling pause after its claim."""
+
+    original_resume = PersistentHoldoutLedger.resume_claimed
+
+    def delayed_resume(self, *args, **kwargs):
+        claim = original_resume(self, *args, **kwargs)
+        # This makes the pre-execution-lock implementation overlap both
+        # physical reads; the fixed implementation holds the lock throughout.
+        time.sleep(0.25)
+        return claim
+
+    setattr(PersistentHoldoutLedger, "resume_claimed", delayed_resume)
+    try:
+        result = reveal_ranking_holdout(
+            event_dir,
+            pl.read_parquet(calendar_path),
+            ranking_dir,
+            output_dir,
+            ledger_dir,
+            access_log=access_log,
+            resume_claimed=True,
+        )
+    except BaseException as exc:
+        queue.put((label, "error", type(exc).__name__, str(exc)))
+    else:
+        queue.put((label, "ok", result["reveal_id"], ""))
+
+
 def _published_holdout_artifact(root: Path) -> Path:
     calendar = _calendar()
     event_dir = root / "events"
@@ -168,6 +211,22 @@ def _published_holdout_artifact(root: Path) -> Path:
     return holdout_dir
 
 
+def _external_open_event(
+    store: EventArtifactOutcomeStore, *, sequence: int, path: str = "fixture.parquet"
+) -> dict[str, object]:
+    return {
+        "schema_version": ranking_io.EVENT_ACCESS_SCHEMA_VERSION,
+        **store._audit_identity(),
+        "sequence": sequence,
+        "operation": "OPEN_PARQUET",
+        "purpose": "TEST_AUDIT",
+        "dataset": "event_outcomes",
+        "path": path,
+        "holdout": False,
+        "decision": "ALLOW",
+    }
+
+
 def _rewrite_holdout_manifest(root: Path, manifest: dict[str, Any]) -> None:
     manifest_path = root / "manifest.json"
     sidecar_path = root / "manifest.sha256"
@@ -181,6 +240,8 @@ def _rewrite_holdout_manifest(root: Path, manifest: dict[str, Any]) -> None:
         hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "  manifest.json\n",
         encoding="ascii",
     )
+    manifest_path.chmod(0o444)
+    sidecar_path.chmod(0o444)
 
 
 def _rewrite_holdout_json_dataset(
@@ -203,6 +264,7 @@ def _rewrite_holdout_json_dataset(
     meta["rows"] = len(document)
     meta["file_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     meta["logical_sha256"] = _content_id(document)
+    path.chmod(0o444)
 
 
 def test_ranking_store_rejects_previous_event_outcome_semantics(tmp_path: Path) -> None:
@@ -429,6 +491,7 @@ def test_artifact_loader_roundtrip_and_holdout_physical_isolation(
     claim = ledger.claim(
         loaded.freeze_record,
         ranking_set_id=loaded.ranking_set_id,
+        output_dir=tmp_path / "holdout",
     )
     revealed = reveal_holdout(loaded, reveal_store, calendar)
     assert reveal_store.holdout_file_reads == 1
@@ -439,13 +502,19 @@ def test_artifact_loader_roundtrip_and_holdout_physical_isolation(
         row["frozen_rank"] for row in loaded.rankings
     ]
     holdout_dir = tmp_path / "holdout"
+    stale = holdout_dir.parent / f".{holdout_dir.name}.staging-{os.getpid()}"
+    stale.mkdir()
+    (stale / "partial").write_text("interrupted", encoding="utf-8")
+    seal_tree_durable(stale)
     holdout = publish_holdout_artifact(
         revealed,
         loaded,
         holdout_dir,
         ranking_manifest_sha256=published["manifest_sha256"],
     )
-    ledger.complete(claim, reveal_id=revealed.reveal_id)
+    ledger.complete(
+        claim, reveal_id=revealed.reveal_id, output_dir=tmp_path / "holdout"
+    )
     assert verify_holdout_artifact(holdout_dir) == holdout
     holdout_manifest = json.loads(
         (holdout_dir / "manifest.json").read_text(encoding="utf-8")
@@ -469,6 +538,7 @@ def test_artifact_loader_roundtrip_and_holdout_physical_isolation(
         PersistentHoldoutLedger(tmp_path / "ledger").claim(
             loaded.freeze_record,
             ranking_set_id=loaded.ranking_set_id,
+            output_dir=tmp_path / "holdout",
         )
     assert second_store.holdout_file_reads == 0
     assert second_opens == []
@@ -550,10 +620,16 @@ def test_claimed_crash_fails_closed_before_any_holdout_open(tmp_path: Path) -> N
         source_identity=store.source_identity,
     )
     ledger = PersistentHoldoutLedger(tmp_path / "crash-ledger")
-    claim = ledger.claim(result.freeze_record, ranking_set_id=result.ranking_set_id)
+    claim = ledger.claim(
+        result.freeze_record,
+        ranking_set_id=result.ranking_set_id,
+        output_dir=tmp_path / "holdout",
+    )
     state = ledger.state(result.freeze_record["freeze_id"])
     assert state is not None
     assert state["claim_id"] == claim.claim_id
+    assert state["resume_count"] == 0
+    assert state["resume_audit"] == []
 
     opens: list[dict[str, object]] = []
     restarted = EventArtifactOutcomeStore(
@@ -564,12 +640,402 @@ def test_claimed_crash_fails_closed_before_any_holdout_open(tmp_path: Path) -> N
         PersistentHoldoutLedger(tmp_path / "crash-ledger").claim(
             result.freeze_record,
             ranking_set_id=result.ranking_set_id,
+            output_dir=tmp_path / "holdout",
         )
     assert restarted.holdout_file_reads == 0
     assert opens == []
 
 
-def test_publish_failure_leaves_claimed_ledger_and_retry_reads_no_holdout(
+def test_claimed_resume_requires_exact_identity_and_rejects_complete(
+    tmp_path: Path,
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    store = EventArtifactOutcomeStore(event_dir, plan)
+    result = discover_and_freeze(
+        store,
+        calendar,
+        plan,
+        _config(),
+        source_identity=store.source_identity,
+    )
+    ledger = PersistentHoldoutLedger(tmp_path / "ledger")
+    claim = ledger.claim(
+        result.freeze_record,
+        ranking_set_id=result.ranking_set_id,
+        output_dir=tmp_path / "holdout",
+    )
+
+    with pytest.raises(RankingError, match="output differs"):
+        ledger.complete(
+            claim,
+            reveal_id="sha256:" + "a" * 64,
+            output_dir=tmp_path / "other-holdout",
+        )
+    with pytest.raises(RankingError, match="output differs"):
+        ledger.reconcile_complete(
+            freeze_id=result.freeze_record["freeze_id"],
+            ranking_set_id=result.ranking_set_id,
+            reveal_id="sha256:" + "a" * 64,
+            output_dir=tmp_path / "other-holdout",
+        )
+    state = ledger.state(result.freeze_record["freeze_id"])
+    assert state is not None and state["resume_count"] == 0
+
+    with pytest.raises(RankingError, match="ranking identity differs"):
+        ledger.resume_claimed(
+            result.freeze_record,
+            ranking_set_id="sha256:" + "e" * 64,
+            claim_id=claim.claim_id,
+            output_dir=tmp_path / "holdout",
+        )
+    with pytest.raises(RankingError, match="claim identity differs"):
+        ledger.resume_claimed(
+            result.freeze_record,
+            ranking_set_id=result.ranking_set_id,
+            claim_id="sha256:" + "f" * 64,
+            output_dir=tmp_path / "holdout",
+        )
+
+    changed_freeze = dict(result.freeze_record)
+    changed_freeze["run_id"] = "different-run"
+    changed_payload = dict(changed_freeze)
+    changed_payload.pop("freeze_id")
+    changed_freeze["freeze_id"] = _content_id(changed_payload)
+    changed_claim_id = _content_id(
+        {
+            "ledger_schema_version": "clx-holdout-ledger-v1",
+            "freeze_id": changed_freeze["freeze_id"],
+            "ranking_set_id": result.ranking_set_id,
+            "state": "CLAIMED",
+        }
+    )
+    with pytest.raises(RankingError, match="existing CLAIMED claim"):
+        ledger.resume_claimed(
+            changed_freeze,
+            ranking_set_id=result.ranking_set_id,
+            claim_id=changed_claim_id,
+            output_dir=tmp_path / "holdout",
+        )
+
+    ledger.complete(
+        claim,
+        reveal_id="sha256:" + "a" * 64,
+        output_dir=tmp_path / "holdout",
+    )
+    with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_COMPLETE"):
+        ledger.resume_claimed(
+            result.freeze_record,
+            ranking_set_id=result.ranking_set_id,
+            claim_id=claim.claim_id,
+            output_dir=tmp_path / "holdout",
+        )
+
+
+def test_persistent_ledger_flushes_claim_and_state_transitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    store = EventArtifactOutcomeStore(event_dir, plan)
+    result = discover_and_freeze(
+        store,
+        calendar,
+        plan,
+        _config(),
+        source_identity=store.source_identity,
+    )
+    synced: list[Path] = []
+    monkeypatch.setattr(
+        ranking_module,
+        "fsync_directory",
+        lambda path: synced.append(Path(path).resolve()),
+    )
+
+    ledger = PersistentHoldoutLedger(tmp_path / "durable-ledger")
+    claim = ledger.claim(
+        result.freeze_record,
+        ranking_set_id=result.ranking_set_id,
+        output_dir=tmp_path / "holdout",
+    )
+    claim_dir = claim.state_path.parent.resolve()
+    assert claim.attempt_no == 0
+    assert ledger.root in synced
+    assert claim_dir in synced
+
+    synced.clear()
+    resumed = ledger.resume_claimed(
+        result.freeze_record,
+        ranking_set_id=result.ranking_set_id,
+        claim_id=claim.claim_id,
+        output_dir=tmp_path / "holdout",
+    )
+    assert resumed.attempt_no == 1
+    assert synced == [claim_dir]
+
+    synced.clear()
+    with pytest.raises(RankingError, match="claim attempt is stale"):
+        ledger.complete(
+            claim,
+            reveal_id="sha256:" + "a" * 64,
+            output_dir=tmp_path / "holdout",
+        )
+    assert synced == []
+    ledger.complete(
+        resumed,
+        reveal_id="sha256:" + "a" * 64,
+        output_dir=tmp_path / "holdout",
+    )
+    assert synced == [claim_dir]
+
+
+def test_persistent_ledger_recovers_only_the_empty_pre_state_claim_window(
+    tmp_path: Path,
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    store = EventArtifactOutcomeStore(event_dir, plan)
+    result = discover_and_freeze(
+        store,
+        calendar,
+        plan,
+        _config(),
+        source_identity=store.source_identity,
+    )
+    ledger = PersistentHoldoutLedger(tmp_path / "empty-claim-ledger")
+    claim_dir = ledger.root / result.freeze_record["freeze_id"].removeprefix("sha256:")
+    claim_dir.mkdir()
+    stale_temp = claim_dir / (".state.json.tmp-123-" + "a" * 32)
+    stale_temp.write_text("partial", encoding="utf-8")
+
+    claim = ledger.claim(
+        result.freeze_record,
+        ranking_set_id=result.ranking_set_id,
+        output_dir=tmp_path / "holdout",
+    )
+    assert claim.attempt_no == 0
+    state = ledger.state(result.freeze_record["freeze_id"])
+    assert state is not None
+    assert state["claim_id"] == claim.claim_id
+    assert state["resume_count"] == 0
+    assert not stale_temp.exists()
+
+    changed = dict(result.freeze_record)
+    changed["run_id"] = "different-run"
+    changed_payload = dict(changed)
+    changed_payload.pop("freeze_id")
+    changed["freeze_id"] = _content_id(changed_payload)
+    corrupt_dir = ledger.root / changed["freeze_id"].removeprefix("sha256:")
+    corrupt_dir.mkdir()
+    (corrupt_dir / "unexpected").write_text("conflict", encoding="utf-8")
+    with pytest.raises(HoldoutAlreadyRevealedError, match="CLAIMED_CORRUPT_STATE"):
+        ledger.claim(
+            changed,
+            ranking_set_id=result.ranking_set_id,
+            output_dir=tmp_path / "holdout",
+        )
+
+
+def test_external_access_audit_writes_all_bytes_and_syncs_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    access_log = tmp_path / "audit/access.jsonl"
+    store = EventArtifactOutcomeStore(event_dir, plan, access_log=access_log)
+    real_write = ranking_io.os.write
+    writes = 0
+
+    def partial_write(descriptor: int, payload) -> int:
+        nonlocal writes
+        writes += 1
+        chunk = max(1, len(payload) // 2)
+        return real_write(descriptor, payload[:chunk])
+
+    synced: list[Path] = []
+    monkeypatch.setattr(ranking_io.os, "write", partial_write)
+    monkeypatch.setattr(
+        ranking_io,
+        "fsync_directory",
+        lambda path: synced.append(Path(path).resolve()),
+    )
+    event = _external_open_event(store, sequence=1, path="x" * 100)
+
+    store._append_external_audit(event)
+
+    assert writes > 1
+    assert json.loads(access_log.read_text(encoding="utf-8")) == event
+    assert synced == [access_log.parent.resolve()]
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        b'{"operation":\n',
+        b'{"operation":"OPEN_PARQUET"}\n',
+    ],
+)
+def test_external_access_audit_rejects_terminated_invalid_records(
+    tmp_path: Path, existing: bytes
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    access_log = tmp_path / "audit/access.jsonl"
+    access_log.parent.mkdir(parents=True)
+    access_log.write_bytes(existing)
+    store = EventArtifactOutcomeStore(event_dir, plan, access_log=access_log)
+
+    with pytest.raises(RankingError, match="external event access audit"):
+        store._append_external_audit(_external_open_event(store, sequence=1))
+
+    assert access_log.read_bytes() == existing
+
+
+def test_external_access_audit_rejects_invalid_complete_repair_history(
+    tmp_path: Path,
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    access_log = tmp_path / "audit/access.jsonl"
+    access_log.parent.mkdir(parents=True)
+    store = EventArtifactOutcomeStore(event_dir, plan, access_log=access_log)
+    recovered = _external_open_event(store, sequence=1)
+    repair = {
+        "schema_version": ranking_io.EVENT_ACCESS_SCHEMA_VERSION,
+        **store._audit_identity(),
+        "operation": ranking_io.EVENT_ACCESS_REPAIR_OPERATION,
+        "purpose": "RECOVER_EXTERNAL_AUDIT",
+        "decision": "ALLOW",
+        "reason": "UNTERMINATED_JSONL_TAIL_TRUNCATED",
+        "repair_sequence": 1,
+        "truncate_offset": 1,
+        "truncated_bytes": 10,
+        "truncated_sha256": "a" * 64,
+        "complete_records_before_repair": 0,
+        "recovery_operation": "OPEN_PARQUET",
+    }
+    existing = b"".join(
+        (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+        for row in (repair, recovered)
+    )
+    access_log.write_bytes(existing)
+
+    with pytest.raises(RankingError, match="repair history is invalid"):
+        store._append_external_audit(_external_open_event(store, sequence=2))
+
+    assert access_log.read_bytes() == existing
+
+
+def test_external_access_audit_serializes_concurrent_short_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    access_log = tmp_path / "audit/access.jsonl"
+    store = EventArtifactOutcomeStore(event_dir, plan, access_log=access_log)
+    real_write = ranking_io.os.write
+    writes = 0
+
+    def short_write(descriptor: int, payload) -> int:
+        nonlocal writes
+        writes += 1
+        return real_write(descriptor, payload[: min(7, len(payload))])
+
+    monkeypatch.setattr(ranking_io.os, "write", short_write)
+    events = [
+        _external_open_event(store, sequence=index, path=f"fixture-{index}.parquet")
+        for index in range(1, 25)
+    ]
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(store._append_external_audit, events))
+
+    rows = [
+        json.loads(line) for line in access_log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert writes > len(events)
+    assert len(rows) == len(events)
+    assert {row["sequence"] for row in rows} == set(range(1, len(events) + 1))
+
+
+def test_partial_external_audit_write_is_repaired_by_authorized_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    loaded = load_ranking_result(ranking_dir)
+    output_dir = tmp_path / "holdout"
+    ledger_dir = tmp_path / "ledger"
+    access_log = tmp_path / "access.jsonl"
+    real_write = ranking_io.os.write
+    writes = 0
+
+    def fail_after_partial_write(descriptor: int, payload) -> int:
+        nonlocal writes
+        if writes == 0:
+            writes += 1
+            chunk = max(1, len(payload) // 2)
+            return real_write(descriptor, payload[:chunk])
+        raise OSError("fixture interrupted external audit write")
+
+    monkeypatch.setattr(ranking_io.os, "write", fail_after_partial_write)
+    with pytest.raises(OSError, match="interrupted external audit write"):
+        reveal_ranking_holdout(
+            event_dir,
+            calendar,
+            ranking_dir,
+            output_dir,
+            ledger_dir,
+            access_log=access_log,
+        )
+
+    partial_tail = access_log.read_bytes()
+    assert partial_tail and not partial_tail.endswith(b"\n")
+    state = PersistentHoldoutLedger(ledger_dir).state(loaded.freeze_record["freeze_id"])
+    assert state is not None and state["state"] == "CLAIMED"
+    assert state["resume_count"] == 0
+
+    monkeypatch.setattr(ranking_io.os, "write", real_write)
+    resumed = reveal_ranking_holdout(
+        event_dir,
+        calendar,
+        ranking_dir,
+        output_dir,
+        ledger_dir,
+        access_log=access_log,
+        resume_claimed=True,
+    )
+
+    assert verify_holdout_artifact(output_dir) == resumed
+    raw_lines = access_log.read_bytes().splitlines(keepends=True)
+    assert raw_lines and all(line.endswith(b"\n") for line in raw_lines)
+    rows = [json.loads(line) for line in raw_lines]
+    repair = rows[0]
+    assert repair["operation"] == ranking_io.EVENT_ACCESS_REPAIR_OPERATION
+    assert repair["attempt_no"] == 1
+    assert repair["repair_sequence"] == 1
+    assert repair["truncate_offset"] == 0
+    assert repair["complete_records_before_repair"] == 0
+    assert repair["truncated_bytes"] == len(partial_tail)
+    assert repair["truncated_sha256"] == hashlib.sha256(partial_tail).hexdigest()
+    assert repair["recovery_operation"] == rows[1]["operation"] == "REVEAL_HOLDOUT"
+    assert rows[1]["attempt_no"] == 1
+    state = PersistentHoldoutLedger(ledger_dir).state(loaded.freeze_record["freeze_id"])
+    assert state is not None and state["state"] == "COMPLETE"
+    assert state["resume_count"] == 1
+
+
+def test_publish_failure_defaults_fail_closed_then_explicit_same_claim_resumes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calendar = _calendar()
@@ -600,8 +1066,15 @@ def test_publish_failure_leaves_claimed_ledger_and_retry_reads_no_holdout(
     ledger = PersistentHoldoutLedger(ledger_dir)
     state = ledger.state(loaded.freeze_record["freeze_id"])
     assert state is not None and state["state"] == "CLAIMED"
+    assert state["resume_count"] == 0
+    assert state["resume_audit"] == []
     assert not output_dir.exists()
     before = access_log.read_text(encoding="utf-8")
+    frozen_ranking = {
+        path.relative_to(ranking_dir): path.read_bytes()
+        for path in ranking_dir.rglob("*")
+        if path.is_file()
+    }
 
     monkeypatch.setattr(ranking_io, "publish_holdout_artifact", original_publish)
     with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_CLAIMED"):
@@ -614,6 +1087,142 @@ def test_publish_failure_leaves_claimed_ledger_and_retry_reads_no_holdout(
             access_log=access_log,
         )
     assert access_log.read_text(encoding="utf-8") == before
+
+    resumed = reveal_ranking_holdout(
+        event_dir,
+        calendar,
+        ranking_dir,
+        output_dir,
+        ledger_dir,
+        access_log=access_log,
+        resume_claimed=True,
+    )
+    assert verify_holdout_artifact(output_dir) == resumed
+    assert frozen_ranking == {
+        path.relative_to(ranking_dir): path.read_bytes()
+        for path in ranking_dir.rglob("*")
+        if path.is_file()
+    }
+    access = [
+        json.loads(line) for line in access_log.read_text(encoding="utf-8").splitlines()
+    ]
+    logical_reveals = [
+        item
+        for item in access
+        if item.get("operation") == "REVEAL_HOLDOUT" and item.get("decision") == "ALLOW"
+    ]
+    holdout_opens = [
+        item
+        for item in access
+        if item.get("operation") == "OPEN_PARQUET" and item.get("holdout") is True
+    ]
+    assert len(logical_reveals) == 2
+    assert len(holdout_opens) == 2
+    assert {item["attempt_no"] for item in logical_reveals} == {0, 1}
+    assert {item["attempt_no"] for item in holdout_opens} == {0, 1}
+    assert {item["run_id"] for item in access} == {loaded.run_id}
+    assert {item["freeze_id"] for item in access} == {loaded.freeze_record["freeze_id"]}
+    assert len({item["claim_id"] for item in access}) == 1
+    state = ledger.state(loaded.freeze_record["freeze_id"])
+    assert state is not None
+    assert state["state"] == "COMPLETE"
+    assert state["resume_count"] == 1
+    assert state["resume_audit"] == [
+        {
+            "action": "RESUME_CLAIMED",
+            "claim_id": state["claim_id"],
+            "freeze_id": loaded.freeze_record["freeze_id"],
+            "ranking_set_id": loaded.ranking_set_id,
+            "resume_count": 1,
+        }
+    ]
+
+
+def test_resume_flag_keeps_clean_first_reveal_as_the_initial_claim(
+    tmp_path: Path,
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    loaded = load_ranking_result(ranking_dir)
+    ledger_dir = tmp_path / "ledger"
+
+    published = reveal_ranking_holdout(
+        event_dir,
+        calendar,
+        ranking_dir,
+        tmp_path / "holdout",
+        ledger_dir,
+        resume_claimed=True,
+    )
+
+    assert published["status"] == "verified"
+    state = PersistentHoldoutLedger(ledger_dir).state(loaded.freeze_record["freeze_id"])
+    assert state is not None
+    assert state["state"] == "COMPLETE"
+    assert state["resume_count"] == 0
+    assert state["resume_audit"] == []
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_resume"),
+    [([], False), (["--resume-claimed"], True)],
+)
+def test_reveal_cli_enables_claimed_resume_only_with_explicit_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extra_args: list[str],
+    expected_resume: bool,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: dict[str, object] = {}
+    calendar = pl.DataFrame(
+        {"trade_date": [date(2024, 1, 2)], "session_no": [1]},
+        schema={"trade_date": pl.Date, "session_no": pl.UInt32},
+    )
+
+    monkeypatch.setattr(ranking_io, "_read_calendar", lambda _path: calendar)
+
+    def fake_reveal(
+        event_dir,
+        received_calendar,
+        ranking_dir,
+        output_dir,
+        ledger_dir,
+        *,
+        access_log=None,
+        resume_claimed=False,
+    ):
+        observed.update(
+            {
+                "calendar": received_calendar,
+                "resume_claimed": resume_claimed,
+            }
+        )
+        return {"status": "verified"}
+
+    monkeypatch.setattr(ranking_io, "reveal_ranking_holdout", fake_reveal)
+    arguments = [
+        "reveal",
+        "--event-dir",
+        str(tmp_path / "events"),
+        "--calendar",
+        str(tmp_path / "calendar.parquet"),
+        "--ranking-dir",
+        str(tmp_path / "ranking"),
+        "--output-dir",
+        str(tmp_path / "holdout"),
+        "--ledger-dir",
+        str(tmp_path / "ledger"),
+        *extra_args,
+    ]
+
+    assert ranking_io.main(arguments) == 0
+    assert observed["calendar"] is calendar
+    assert observed["resume_claimed"] is expected_resume
+    assert json.loads(capsys.readouterr().out) == {"status": "verified"}
 
 
 def test_published_artifact_reconciles_claim_after_completion_interruption(
@@ -630,7 +1239,7 @@ def test_published_artifact_reconciles_claim_after_completion_interruption(
     access_log = tmp_path / "access.jsonl"
     original_complete = PersistentHoldoutLedger.complete
 
-    def fail_complete(self, claim, *, reveal_id):
+    def fail_complete(self, claim, *, reveal_id, output_dir=None):
         raise RuntimeError("fixture ledger completion interruption")
 
     monkeypatch.setattr(PersistentHoldoutLedger, "complete", fail_complete)
@@ -651,6 +1260,26 @@ def test_published_artifact_reconciles_claim_after_completion_interruption(
     before = access_log.read_text(encoding="utf-8")
 
     monkeypatch.setattr(PersistentHoldoutLedger, "complete", original_complete)
+    other_output = tmp_path / "holdout-other"
+    other_access_log = tmp_path / "other-access.jsonl"
+    with pytest.raises(RankingError, match="output differs"):
+        reveal_ranking_holdout(
+            event_dir,
+            calendar,
+            ranking_dir,
+            other_output,
+            ledger_dir,
+            access_log=other_access_log,
+            resume_claimed=True,
+        )
+    assert not other_output.exists()
+    assert not other_access_log.exists()
+    state = ledger.state(loaded.freeze_record["freeze_id"])
+    assert state is not None
+    assert state["state"] == "CLAIMED"
+    assert state["resume_count"] == 0
+    assert access_log.read_text(encoding="utf-8") == before
+
     resumed = reveal_ranking_holdout(
         event_dir,
         calendar,
@@ -820,3 +1449,84 @@ def test_two_processes_share_one_claim_and_loser_opens_zero_event_files(
     assert not loser_log.exists() or loser_log.read_text(encoding="utf-8") == ""
     winner_artifact = tmp_path / f"holdout-{winners[0][0]}"
     assert verify_holdout_artifact(winner_artifact)["reveal_id"] == winners[0][2]
+
+
+def test_two_resume_processes_with_different_outputs_share_one_execution(
+    tmp_path: Path,
+) -> None:
+    calendar = _calendar()
+    calendar_path = tmp_path / "calendar.parquet"
+    calendar.write_parquet(calendar_path)
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    loaded = load_ranking_result(ranking_dir)
+    ledger_dir = tmp_path / "shared-ledger"
+    ledger = PersistentHoldoutLedger(ledger_dir)
+    ledger.claim(
+        loaded.freeze_record,
+        ranking_set_id=loaded.ranking_set_id,
+        output_dir=tmp_path / "resume-holdout-one",
+    )
+
+    context = mp.get_context("spawn")
+    queue = context.Queue()
+    processes = []
+    labels = ("one", "two")
+    for label in labels:
+        process = context.Process(
+            target=_resume_reveal_worker,
+            args=(
+                label,
+                str(event_dir),
+                str(calendar_path),
+                str(ranking_dir),
+                str(tmp_path / f"resume-holdout-{label}"),
+                str(ledger_dir),
+                str(tmp_path / f"resume-access-{label}.jsonl"),
+                queue,
+            ),
+        )
+        process.start()
+        processes.append(process)
+    for process in processes:
+        process.join(30)
+        assert process.exitcode == 0
+    outcomes = [queue.get(timeout=2) for _ in processes]
+    winners = [item for item in outcomes if item[1] == "ok"]
+    losers = [item for item in outcomes if item[1] == "error"]
+    assert len(winners) == len(losers) == 1
+    assert losers[0][2] == "RankingError"
+    assert "output differs" in losers[0][3]
+
+    holdout_opens = 0
+    reveal_allows = 0
+    for label in labels:
+        access_log = tmp_path / f"resume-access-{label}.jsonl"
+        if not access_log.exists():
+            continue
+        for raw_line in access_log.read_text(encoding="utf-8").splitlines():
+            event = json.loads(raw_line)
+            if (
+                event.get("operation") == "OPEN_PARQUET"
+                and event.get("holdout") is True
+                and event.get("decision") == "ALLOW"
+            ):
+                holdout_opens += 1
+            if (
+                event.get("operation") == "REVEAL_HOLDOUT"
+                and event.get("decision") == "ALLOW"
+            ):
+                reveal_allows += 1
+    assert holdout_opens == 1
+    assert reveal_allows == 1
+    winner_artifact = tmp_path / f"resume-holdout-{winners[0][0]}"
+    assert verify_holdout_artifact(winner_artifact)["reveal_id"] == winners[0][2]
+    loser_artifact = tmp_path / f"resume-holdout-{losers[0][0]}"
+    assert not loser_artifact.exists()
+    state = ledger.state(loaded.freeze_record["freeze_id"])
+    assert state is not None
+    assert state["state"] == "COMPLETE"
+    assert state["resume_count"] == 1
+    assert len(state["resume_audit"]) == 1

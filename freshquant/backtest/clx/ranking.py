@@ -12,16 +12,27 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
+import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Protocol, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Protocol, Sequence
 
 import numpy as np
 import polars as pl
 
+from ._file_lock import (
+    fsync_directory,
+    lock_exclusive,
+    make_tree_removable,
+    seal_tree_durable,
+    tree_is_sealed,
+    unlock,
+)
 from .combo_dsl import ComboDefinition, EventIndex, ModelRelations, make_combo
 from .event_study import HORIZONS, SPLIT_ELIGIBLE, SPLIT_NAMES, SplitPlan
 from .model_registry import canonical_json_bytes, model_registry_sha256
@@ -29,6 +40,18 @@ from .model_registry import canonical_json_bytes, model_registry_sha256
 RANKING_SCHEMA_VERSION = "clx-combination-ranking-v1"
 HOLDOUT_LOCKED = "LOCKED"
 HOLDOUT_REVEALED = "REVEALED"
+
+
+def _canonical_output_dir(output_dir: str | Path) -> str:
+    """Return the stable filesystem identity persisted for a HOLDOUT run."""
+
+    try:
+        resolved = Path(output_dir).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise RankingError("HOLDOUT output directory is not canonicalizable") from exc
+    if not resolved.is_absolute():
+        raise RankingError("HOLDOUT output directory must be absolute")
+    return os.path.normcase(os.path.normpath(str(resolved)))
 
 
 class RankingError(RuntimeError):
@@ -50,6 +73,8 @@ class HoldoutRevealClaim:
     freeze_id: str
     ranking_set_id: str
     claim_id: str
+    attempt_no: int
+    output_dir: str
     state_path: Path
 
 
@@ -57,16 +82,18 @@ class PersistentHoldoutLedger:
     """Same-filesystem, cross-process one-time HOLDOUT gate.
 
     ``mkdir`` is the serialization point.  A crash after winning the claim
-    leaves the freeze CLAIMED and therefore fails closed; operational recovery
-    must inspect that state rather than silently reading HOLDOUT a second time.
-    This local-filesystem implementation is suitable for the single-VM V2
-    runner.  A distributed runner must provide the same contract with a unique
+    leaves the freeze CLAIMED and therefore fails closed by default.  An
+    operator may explicitly resume only that same content-addressed claim; the
+    ledger records every such attempt before HOLDOUT is opened again.  This
+    local-filesystem implementation is suitable for the single-VM V2 runner. A
+    distributed runner must provide the same contract with a unique
     transactional control-plane key.
     """
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        fsync_directory(self.root.parent)
 
     @staticmethod
     def _digest(identifier: str) -> str:
@@ -80,62 +107,282 @@ class PersistentHoldoutLedger:
             raise RankingError("persistent HOLDOUT id has an invalid digest")
         return digest
 
-    def claim(
-        self, freeze_record: Mapping[str, Any], *, ranking_set_id: str
-    ) -> HoldoutRevealClaim:
+    @staticmethod
+    def _claim_payload(
+        freeze_record: Mapping[str, Any], *, ranking_set_id: str
+    ) -> tuple[str, dict[str, Any]]:
         freeze_id = freeze_record.get("freeze_id")
         payload = dict(freeze_record)
         payload.pop("freeze_id", None)
         if not isinstance(freeze_id, str) or freeze_id != _content_id(payload):
             raise RankingError("persistent HOLDOUT claim has an invalid freeze")
-        digest = self._digest(freeze_id)
-        claim_dir = self.root / digest
-        try:
-            claim_dir.mkdir()
-        except FileExistsError as exc:
-            state_path = claim_dir / "state.json"
-            state = "CLAIMED"
-            if state_path.is_file():
-                try:
-                    state = str(
-                        json.loads(state_path.read_text(encoding="utf-8")).get(
-                            "state", state
-                        )
-                    )
-                except (OSError, json.JSONDecodeError):
-                    state = "CLAIMED_CORRUPT_STATE"
-            raise HoldoutAlreadyRevealedError(
-                f"HOLDOUT_REVEAL_ALREADY_{state}"
-            ) from exc
+        if payload.get("ranking_set_id") != ranking_set_id:
+            raise RankingError(
+                "persistent HOLDOUT ranking identity differs from freeze"
+            )
         claim_payload = {
             "ledger_schema_version": "clx-holdout-ledger-v1",
             "freeze_id": freeze_id,
             "ranking_set_id": ranking_set_id,
             "state": "CLAIMED",
         }
+        return freeze_id, claim_payload
+
+    @contextmanager
+    def _state_lock(self, freeze_id: str) -> Iterator[None]:
+        lock_path = self.root / f".{self._digest(freeze_id)}.lock"
+        descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            lock_exclusive(descriptor, blocking=True)
+            yield
+        finally:
+            unlock(descriptor)
+            os.close(descriptor)
+
+    @contextmanager
+    def execution_lock(self, freeze_id: str) -> Iterator[None]:
+        """Serialize the complete physical HOLDOUT execution for a freeze.
+
+        The state lock only protects a single ledger transition.  This
+        separate lock spans claim/resume, the physical HOLDOUT read, artifact
+        publication, and ledger completion, including callers that choose
+        different output directories.
+        """
+
+        lock_path = self.root / f".{self._digest(freeze_id)}.execution.lock"
+        descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            lock_exclusive(descriptor, blocking=True)
+            yield
+        finally:
+            unlock(descriptor)
+            os.close(descriptor)
+
+    @staticmethod
+    def _read_state(state_path: Path) -> dict[str, Any]:
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RankingError("persistent HOLDOUT claim state is unreadable") from exc
+        if not isinstance(state, dict):
+            raise RankingError("persistent HOLDOUT claim state is unreadable")
+        return state
+
+    @staticmethod
+    def _validate_resume_audit(
+        state: Mapping[str, Any],
+        *,
+        freeze_id: str,
+        ranking_set_id: str,
+        claim_id: str,
+    ) -> int:
+        resume_count = state.get("resume_count", 0)
+        resume_audit = state.get("resume_audit", [])
+        if (
+            not isinstance(resume_count, int)
+            or isinstance(resume_count, bool)
+            or resume_count < 0
+            or not isinstance(resume_audit, list)
+            or resume_count != len(resume_audit)
+        ):
+            raise RankingError("persistent HOLDOUT resume audit is invalid")
+        expected_audit = [
+            {
+                "action": "RESUME_CLAIMED",
+                "claim_id": claim_id,
+                "freeze_id": freeze_id,
+                "ranking_set_id": ranking_set_id,
+                "resume_count": sequence,
+            }
+            for sequence in range(1, resume_count + 1)
+        ]
+        if resume_audit != expected_audit:
+            raise RankingError("persistent HOLDOUT resume audit is invalid")
+        return resume_count
+
+    def claim(
+        self,
+        freeze_record: Mapping[str, Any],
+        *,
+        ranking_set_id: str,
+        output_dir: str | Path,
+    ) -> HoldoutRevealClaim:
+        canonical_output = _canonical_output_dir(output_dir)
+        freeze_id, claim_payload = self._claim_payload(
+            freeze_record, ranking_set_id=ranking_set_id
+        )
+        digest = self._digest(freeze_id)
+        claim_dir = self.root / digest
+        try:
+            claim_dir.mkdir()
+            fsync_directory(self.root)
+        except FileExistsError:
+            pass
         claim_id = _content_id(claim_payload)
         state_path = claim_dir / "state.json"
-        _write_json(state_path, {**claim_payload, "claim_id": claim_id})
+        with self._state_lock(freeze_id):
+            if state_path.is_file():
+                state = "CLAIMED"
+                try:
+                    state = str(self._read_state(state_path).get("state", state))
+                except RankingError:
+                    state = "CLAIMED_CORRUPT_STATE"
+                raise HoldoutAlreadyRevealedError(f"HOLDOUT_REVEAL_ALREADY_{state}")
+            if claim_dir.is_dir() and not claim_dir.is_symlink():
+                entries = list(claim_dir.iterdir())
+                stale_initial_temps = [
+                    entry
+                    for entry in entries
+                    if re.fullmatch(
+                        r"\.state\.json\.tmp-[0-9]+-[0-9a-f]{32}", entry.name
+                    )
+                    and entry.is_file()
+                    and not entry.is_symlink()
+                ]
+                if stale_initial_temps and len(stale_initial_temps) == len(entries):
+                    for entry in stale_initial_temps:
+                        entry.unlink()
+                    fsync_directory(claim_dir)
+            if (
+                not claim_dir.is_dir()
+                or claim_dir.is_symlink()
+                or any(claim_dir.iterdir())
+            ):
+                raise HoldoutAlreadyRevealedError(
+                    "HOLDOUT_REVEAL_ALREADY_CLAIMED_CORRUPT_STATE"
+                )
+            # A durable empty directory can only be the crash window before
+            # initial state publication. No caller can open HOLDOUT until this
+            # method returns, so completing the deterministic attempt 0 is safe.
+            _write_json(
+                state_path,
+                {
+                    **claim_payload,
+                    "claim_id": claim_id,
+                    "output_dir": canonical_output,
+                    "resume_count": 0,
+                    "resume_audit": [],
+                },
+            )
         return HoldoutRevealClaim(
             freeze_id=freeze_id,
             ranking_set_id=ranking_set_id,
             claim_id=claim_id,
+            attempt_no=0,
+            output_dir=canonical_output,
             state_path=state_path,
         )
 
-    def complete(self, claim: HoldoutRevealClaim, *, reveal_id: str) -> None:
-        self._digest(reveal_id)
-        try:
-            state = json.loads(claim.state_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RankingError("persistent HOLDOUT claim state is unreadable") from exc
+    def resume_claimed(
+        self,
+        freeze_record: Mapping[str, Any],
+        *,
+        ranking_set_id: str,
+        claim_id: str,
+        output_dir: str | Path,
+    ) -> HoldoutRevealClaim:
+        """Atomically record an explicit retry of the same CLAIMED identity."""
+
+        canonical_output = _canonical_output_dir(output_dir)
+        freeze_id, claim_payload = self._claim_payload(
+            freeze_record, ranking_set_id=ranking_set_id
+        )
+        expected_claim_id = _content_id(claim_payload)
+        if claim_id != expected_claim_id:
+            raise RankingError(
+                "persistent HOLDOUT claim identity differs from frozen ranking"
+            )
+        state_path = self.root / self._digest(freeze_id) / "state.json"
+        if not state_path.is_file():
+            raise RankingError(
+                "persistent HOLDOUT resume requires an existing CLAIMED claim"
+            )
+        with self._state_lock(freeze_id):
+            state = self._read_state(state_path)
+            if (
+                state.get("freeze_id") != freeze_id
+                or state.get("ranking_set_id") != ranking_set_id
+                or state.get("claim_id") != expected_claim_id
+                or state.get("output_dir") != canonical_output
+            ):
+                raise RankingError(
+                    "persistent HOLDOUT resume identity or output differs from CLAIMED claim"
+                )
+            if state.get("state") == "COMPLETE":
+                raise HoldoutAlreadyRevealedError("HOLDOUT_REVEAL_ALREADY_COMPLETE")
+            if state.get("state") != "CLAIMED":
+                raise RankingError("persistent HOLDOUT resume requires a CLAIMED state")
+            resume_count = self._validate_resume_audit(
+                state,
+                freeze_id=freeze_id,
+                ranking_set_id=ranking_set_id,
+                claim_id=expected_claim_id,
+            )
+            resume_audit = state.get("resume_audit", [])
+            next_count = resume_count + 1
+            _write_json(
+                state_path,
+                {
+                    **state,
+                    "resume_count": next_count,
+                    "resume_audit": [
+                        *resume_audit,
+                        {
+                            "action": "RESUME_CLAIMED",
+                            "claim_id": expected_claim_id,
+                            "freeze_id": freeze_id,
+                            "ranking_set_id": ranking_set_id,
+                            "resume_count": next_count,
+                        },
+                    ],
+                },
+            )
+        return HoldoutRevealClaim(
+            freeze_id=freeze_id,
+            ranking_set_id=ranking_set_id,
+            claim_id=expected_claim_id,
+            attempt_no=next_count,
+            output_dir=canonical_output,
+            state_path=state_path,
+        )
+
+    def _complete_unlocked(
+        self,
+        claim: HoldoutRevealClaim,
+        *,
+        reveal_id: str,
+        output_dir: str | Path | None = None,
+    ) -> None:
+        canonical_claim_output = _canonical_output_dir(claim.output_dir)
+        canonical_output = (
+            canonical_claim_output
+            if output_dir is None
+            else _canonical_output_dir(output_dir)
+        )
+        if (
+            canonical_claim_output != claim.output_dir
+            or canonical_output != claim.output_dir
+        ):
+            raise RankingError(
+                "persistent HOLDOUT completion output differs from claim"
+            )
+        state = self._read_state(claim.state_path)
         if (
             state.get("state") != "CLAIMED"
             or state.get("freeze_id") != claim.freeze_id
             or state.get("ranking_set_id") != claim.ranking_set_id
             or state.get("claim_id") != claim.claim_id
+            or state.get("output_dir") != canonical_output
         ):
             raise RankingError("persistent HOLDOUT claim state changed unexpectedly")
+        resume_count = self._validate_resume_audit(
+            state,
+            freeze_id=claim.freeze_id,
+            ranking_set_id=claim.ranking_set_id,
+            claim_id=claim.claim_id,
+        )
+        if claim.attempt_no != resume_count:
+            raise RankingError("persistent HOLDOUT claim attempt is stale")
         _write_json(
             claim.state_path,
             {
@@ -145,12 +392,35 @@ class PersistentHoldoutLedger:
             },
         )
 
+    def complete(
+        self,
+        claim: HoldoutRevealClaim,
+        *,
+        reveal_id: str,
+        output_dir: str | Path | None = None,
+    ) -> None:
+        self._digest(reveal_id)
+        canonical_output = (
+            claim.output_dir
+            if output_dir is None
+            else _canonical_output_dir(output_dir)
+        )
+        if canonical_output != claim.output_dir:
+            raise RankingError(
+                "persistent HOLDOUT completion output differs from claim"
+            )
+        with self._state_lock(claim.freeze_id):
+            self._complete_unlocked(
+                claim, reveal_id=reveal_id, output_dir=canonical_output
+            )
+
     def reconcile_complete(
         self,
         *,
         freeze_id: str,
         ranking_set_id: str,
         reveal_id: str,
+        output_dir: str | Path,
     ) -> None:
         """Finish a CLAIMED ledger from an already verified reveal artifact.
 
@@ -162,40 +432,61 @@ class PersistentHoldoutLedger:
 
         self._digest(freeze_id)
         self._digest(reveal_id)
+        canonical_output = _canonical_output_dir(output_dir)
         state_path = self.root / self._digest(freeze_id) / "state.json"
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RankingError("persistent HOLDOUT claim state is unreadable") from exc
-        if (
-            state.get("freeze_id") != freeze_id
-            or state.get("ranking_set_id") != ranking_set_id
-        ):
-            raise RankingError(
-                "persistent HOLDOUT artifact identity differs from claim"
+        with self._state_lock(freeze_id):
+            state = self._read_state(state_path)
+            if (
+                state.get("freeze_id") != freeze_id
+                or state.get("ranking_set_id") != ranking_set_id
+                or state.get("output_dir") != canonical_output
+            ):
+                raise RankingError(
+                    "persistent HOLDOUT artifact identity or output differs from claim"
+                )
+            claim_payload = {
+                "ledger_schema_version": "clx-holdout-ledger-v1",
+                "freeze_id": freeze_id,
+                "ranking_set_id": ranking_set_id,
+                "state": "CLAIMED",
+            }
+            claim_id = _content_id(claim_payload)
+            if state.get("claim_id") != claim_id:
+                raise RankingError(
+                    "persistent HOLDOUT claim state changed unexpectedly"
+                )
+            if state.get("state") == "COMPLETE":
+                self._validate_resume_audit(
+                    state,
+                    freeze_id=freeze_id,
+                    ranking_set_id=ranking_set_id,
+                    claim_id=claim_id,
+                )
+                if state.get("reveal_id") != reveal_id:
+                    raise RankingError(
+                        "persistent HOLDOUT reveal differs from artifact"
+                    )
+                return
+            if state.get("state") != "CLAIMED" or state.get("claim_id") != claim_id:
+                raise RankingError(
+                    "persistent HOLDOUT claim state changed unexpectedly"
+                )
+            self._complete_unlocked(
+                HoldoutRevealClaim(
+                    freeze_id=freeze_id,
+                    ranking_set_id=ranking_set_id,
+                    claim_id=claim_id,
+                    attempt_no=self._validate_resume_audit(
+                        state,
+                        freeze_id=freeze_id,
+                        ranking_set_id=ranking_set_id,
+                        claim_id=claim_id,
+                    ),
+                    output_dir=canonical_output,
+                    state_path=state_path,
+                ),
+                reveal_id=reveal_id,
             )
-        if state.get("state") == "COMPLETE":
-            if state.get("reveal_id") != reveal_id:
-                raise RankingError("persistent HOLDOUT reveal differs from artifact")
-            return
-        claim_payload = {
-            "ledger_schema_version": "clx-holdout-ledger-v1",
-            "freeze_id": freeze_id,
-            "ranking_set_id": ranking_set_id,
-            "state": "CLAIMED",
-        }
-        claim_id = _content_id(claim_payload)
-        if state.get("state") != "CLAIMED" or state.get("claim_id") != claim_id:
-            raise RankingError("persistent HOLDOUT claim state changed unexpectedly")
-        self.complete(
-            HoldoutRevealClaim(
-                freeze_id=freeze_id,
-                ranking_set_id=ranking_set_id,
-                claim_id=claim_id,
-                state_path=state_path,
-            ),
-            reveal_id=reveal_id,
-        )
 
     def state(self, freeze_id: str) -> dict[str, Any] | None:
         state_path = self.root / self._digest(freeze_id) / "state.json"
@@ -265,12 +556,24 @@ def _calendar_logical_sha256(calendar: pl.DataFrame) -> str:
 
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
-    temporary.write_text(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex}")
+    payload = (
+        json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    ).encode("utf-8")
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
     )
-    os.replace(temporary, path)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1855,6 +2158,7 @@ def publish_ranking_artifact(
         raise RankingError(f"ranking output already exists: {output}")
     staging = output.parent / f".{output.name}.staging-{os.getpid()}"
     if staging.exists():
+        make_tree_removable(staging)
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
     try:
@@ -1923,11 +2227,11 @@ def publish_ranking_artifact(
             _sha256_file(staging / "manifest.json") + "  manifest.json\n",
             encoding="ascii",
         )
+        seal_tree_durable(staging)
         os.replace(staging, output)
-        for published_file in output.rglob("*"):
-            if published_file.is_file():
-                published_file.chmod(0o444)
+        fsync_directory(output.parent)
     except BaseException:
+        make_tree_removable(staging)
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return verify_ranking_artifact(output)
@@ -1939,6 +2243,8 @@ def verify_ranking_artifact(output_dir: str | Path) -> dict[str, Any]:
     sidecar = root / "manifest.sha256"
     if not manifest_path.is_file() or not sidecar.is_file():
         raise RankingError("ranking manifest or sidecar is missing")
+    if not tree_is_sealed(root):
+        raise RankingError("ranking artifact tree is not immutable")
     parts = sidecar.read_text(encoding="ascii").strip().split()
     if (
         len(parts) != 2

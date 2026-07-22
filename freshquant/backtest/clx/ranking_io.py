@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import shutil
+import uuid
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -14,7 +16,14 @@ from typing import Any, Callable, Iterator, Mapping, Sequence
 
 import polars as pl
 
-from ._file_lock import lock_exclusive, unlock
+from ._file_lock import (
+    fsync_directory,
+    lock_exclusive,
+    make_tree_removable,
+    seal_tree_durable,
+    tree_is_sealed,
+    unlock,
+)
 from .combo_dsl import ComboDefinition, ModelRelations
 from .event_study import (
     DIRECTION_ADJUSTED_EXCURSION_CONTRACT,
@@ -31,6 +40,7 @@ from .ranking import (
     HoldoutAlreadyRevealedError,
     HoldoutLockedError,
     HoldoutReveal,
+    HoldoutRevealClaim,
     PersistentHoldoutLedger,
     RankingConfig,
     RankingError,
@@ -52,6 +62,7 @@ from .ranking import (
 )
 
 EVENT_ACCESS_SCHEMA_VERSION = "clx-event-file-access-v1"
+EVENT_ACCESS_REPAIR_OPERATION = "REPAIR_UNTERMINATED_JSONL_TAIL"
 HOLDOUT_ARTIFACT_SCHEMA_VERSION = "clx-holdout-reveal-v1"
 
 
@@ -64,6 +75,183 @@ def _require_sha256_content_id(value: object, *, field: str) -> str:
     ):
         raise RankingError(f"{field} is not a SHA-256 content id")
     return value
+
+
+def _is_int(value: object, *, minimum: int = 0) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= minimum
+
+
+def _validate_external_audit_event(
+    event: Mapping[str, Any], *, expected_run_id: str
+) -> dict[str, Any]:
+    """Validate one durable JSONL record before trusting or appending to it."""
+
+    value = dict(event)
+    operation = value.get("operation")
+    common = {
+        "schema_version",
+        "run_id",
+        "freeze_id",
+        "claim_id",
+        "attempt_no",
+        "operation",
+    }
+    if operation == "OPEN_PARQUET":
+        expected_keys = common | {
+            "sequence",
+            "purpose",
+            "dataset",
+            "path",
+            "holdout",
+            "decision",
+        }
+    elif operation == "REVEAL_HOLDOUT":
+        expected_keys = common | {
+            "sequence",
+            "split_id",
+            "holdout",
+            "purpose",
+            "decision",
+            "reason",
+        }
+    elif operation == EVENT_ACCESS_REPAIR_OPERATION:
+        expected_keys = common | {
+            "purpose",
+            "decision",
+            "reason",
+            "repair_sequence",
+            "truncate_offset",
+            "truncated_bytes",
+            "truncated_sha256",
+            "complete_records_before_repair",
+            "recovery_operation",
+        }
+    else:
+        raise RankingError("external event access audit operation is invalid")
+    if set(value) != expected_keys:
+        raise RankingError("external event access audit record violates its contract")
+    if (
+        value.get("schema_version") != EVENT_ACCESS_SCHEMA_VERSION
+        or value.get("run_id") != expected_run_id
+    ):
+        raise RankingError("external event access audit identity is invalid")
+
+    freeze_id = value.get("freeze_id")
+    claim_id = value.get("claim_id")
+    attempt_no = value.get("attempt_no")
+    if freeze_id is not None and (not isinstance(freeze_id, str) or not freeze_id):
+        raise RankingError("external event access audit identity is invalid")
+    if (claim_id is None) != (attempt_no is None):
+        raise RankingError("external event access audit claim is invalid")
+    if claim_id is not None:
+        _require_sha256_content_id(claim_id, field="external audit claim_id")
+        if not _is_int(attempt_no):
+            raise RankingError("external event access audit attempt is invalid")
+        if operation != "REVEAL_HOLDOUT" or value.get("decision") != "DENY":
+            _require_sha256_content_id(freeze_id, field="external audit freeze_id")
+
+    if operation == "OPEN_PARQUET":
+        if (
+            not _is_int(value.get("sequence"), minimum=1)
+            or not isinstance(value.get("purpose"), str)
+            or not value["purpose"]
+            or value.get("dataset") != "event_outcomes"
+            or not isinstance(value.get("path"), str)
+            or not value["path"]
+            or not isinstance(value.get("holdout"), bool)
+            or value.get("decision") != "ALLOW"
+        ):
+            raise RankingError("external event access audit OPEN_PARQUET is invalid")
+    elif operation == "REVEAL_HOLDOUT":
+        decision = value.get("decision")
+        reason = value.get("reason")
+        valid_decision = (
+            decision == "ALLOW" and reason == "FROZEN_RULES_ONE_TIME_REVEAL"
+        ) or (
+            decision == "DENY"
+            and reason
+            in {
+                "HOLDOUT_LOCKED_FREEZE_REQUIRED_OR_MISMATCH",
+                "HOLDOUT_ALREADY_REVEALED",
+            }
+        )
+        if (
+            not _is_int(value.get("sequence"), minimum=1)
+            or value.get("split_id") != "HOLDOUT"
+            or value.get("holdout") is not True
+            or not isinstance(value.get("purpose"), str)
+            or not value["purpose"]
+            or not valid_decision
+        ):
+            raise RankingError("external event access audit REVEAL_HOLDOUT is invalid")
+    else:
+        digest = value.get("truncated_sha256")
+        if (
+            value.get("purpose") != "RECOVER_EXTERNAL_AUDIT"
+            or value.get("decision") != "ALLOW"
+            or value.get("reason") != "UNTERMINATED_JSONL_TAIL_TRUNCATED"
+            or not _is_int(value.get("repair_sequence"), minimum=1)
+            or not _is_int(value.get("truncate_offset"))
+            or not _is_int(value.get("truncated_bytes"), minimum=1)
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            or not _is_int(value.get("complete_records_before_repair"))
+            or value.get("recovery_operation") not in {"OPEN_PARQUET", "REVEAL_HOLDOUT"}
+            or (claim_id is not None and not _is_int(attempt_no, minimum=1))
+        ):
+            raise RankingError("external event access audit repair is invalid")
+    return value
+
+
+def _decode_external_audit_prefix(
+    payload: bytes, *, expected_run_id: str
+) -> list[dict[str, Any]]:
+    if payload and not payload.endswith(b"\n"):
+        raise RankingError("external event access audit prefix is not terminated")
+    rows: list[dict[str, Any]] = []
+    for raw_line in payload.split(b"\n")[:-1]:
+        if not raw_line:
+            raise RankingError("external event access audit contains an empty record")
+        try:
+            decoded = json.loads(raw_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RankingError("external event access audit JSON is invalid") from exc
+        if not isinstance(decoded, Mapping):
+            raise RankingError("external event access audit record is not an object")
+        rows.append(
+            _validate_external_audit_event(decoded, expected_run_id=expected_run_id)
+        )
+    raw_lines = payload.splitlines(keepends=True)
+    byte_offset = 0
+    repair_sequence = 0
+    for index, (raw_line, row) in enumerate(zip(raw_lines, rows, strict=True)):
+        if row["operation"] == EVENT_ACCESS_REPAIR_OPERATION:
+            repair_sequence += 1
+            if (
+                row["repair_sequence"] != repair_sequence
+                or row["truncate_offset"] != byte_offset
+                or row["complete_records_before_repair"] != index
+                or index + 1 >= len(rows)
+            ):
+                raise RankingError(
+                    "external event access audit repair history is invalid"
+                )
+            recovered = rows[index + 1]
+            if row["recovery_operation"] != recovered["operation"] or any(
+                row[field] != recovered[field]
+                for field in (
+                    "run_id",
+                    "freeze_id",
+                    "claim_id",
+                    "attempt_no",
+                )
+            ):
+                raise RankingError(
+                    "external event access audit repair recovery is invalid"
+                )
+        byte_offset += len(raw_line)
+    return rows
 
 
 def _manifest_sidecar(root: Path, *, kind: str) -> tuple[dict[str, Any], str]:
@@ -165,6 +353,7 @@ class EventArtifactOutcomeStore:
         self._file_audit: list[dict[str, Any]] = []
         self._reveal_audit: list[dict[str, Any]] = []
         self._freeze_record: dict[str, Any] | None = None
+        self._reveal_claim: HoldoutRevealClaim | None = None
         self._reveal_count = 0
         self._cache: dict[str, pl.DataFrame] = {}
 
@@ -211,9 +400,127 @@ class EventArtifactOutcomeStore:
     def holdout_file_reads(self) -> int:
         return sum(bool(item["holdout"]) for item in self._file_audit)
 
+    @staticmethod
+    def _write_all(descriptor: int, payload: bytes) -> None:
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("external HOLDOUT audit write made no progress")
+            remaining = remaining[written:]
+
+    @staticmethod
+    def _jsonl_record(event: Mapping[str, Any]) -> bytes:
+        return (json.dumps(event, sort_keys=True) + "\n").encode("utf-8")
+
+    def _append_external_audit(self, event: Mapping[str, Any]) -> None:
+        if self._access_log is None:
+            return
+        event = _validate_external_audit_event(event, expected_run_id=self._run_id)
+        self._access_log.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self._access_log.with_name(f".{self._access_log.name}.lock")
+        lock_descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        temporary: Path | None = None
+        locked = False
+        try:
+            lock_exclusive(lock_descriptor, blocking=True)
+            locked = True
+            existing = (
+                self._access_log.read_bytes() if self._access_log.exists() else b""
+            )
+            tail_start = len(existing)
+            if existing and not existing.endswith(b"\n"):
+                tail_start = existing.rfind(b"\n") + 1
+            complete = existing[:tail_start]
+            unterminated_tail = existing[tail_start:]
+            rows = _decode_external_audit_prefix(complete, expected_run_id=self._run_id)
+
+            if unterminated_tail:
+                identity = self._audit_identity()
+                if identity["claim_id"] is not None and not _is_int(
+                    identity["attempt_no"], minimum=1
+                ):
+                    raise RankingError(
+                        "external HOLDOUT audit tail repair requires a resumed claim"
+                    )
+                repair = {
+                    "schema_version": EVENT_ACCESS_SCHEMA_VERSION,
+                    **identity,
+                    "operation": EVENT_ACCESS_REPAIR_OPERATION,
+                    "purpose": "RECOVER_EXTERNAL_AUDIT",
+                    "decision": "ALLOW",
+                    "reason": "UNTERMINATED_JSONL_TAIL_TRUNCATED",
+                    "repair_sequence": 1
+                    + sum(
+                        row.get("operation") == EVENT_ACCESS_REPAIR_OPERATION
+                        for row in rows
+                    ),
+                    "truncate_offset": tail_start,
+                    "truncated_bytes": len(unterminated_tail),
+                    "truncated_sha256": hashlib.sha256(unterminated_tail).hexdigest(),
+                    "complete_records_before_repair": len(rows),
+                    "recovery_operation": event["operation"],
+                }
+                repair = _validate_external_audit_event(
+                    repair, expected_run_id=self._run_id
+                )
+                corrected = (
+                    complete + self._jsonl_record(repair) + self._jsonl_record(event)
+                )
+                temporary = self._access_log.with_name(
+                    f".{self._access_log.name}.repair-{os.getpid()}-{uuid.uuid4().hex}"
+                )
+                descriptor = os.open(
+                    temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+                )
+                try:
+                    self._write_all(descriptor, corrected)
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+                os.replace(temporary, self._access_log)
+                temporary = None
+                fsync_directory(self._access_log.parent)
+                return
+
+            descriptor = os.open(
+                self._access_log,
+                os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+                0o600,
+            )
+            try:
+                self._write_all(descriptor, self._jsonl_record(event))
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            fsync_directory(self._access_log.parent)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            try:
+                if locked:
+                    unlock(lock_descriptor)
+            finally:
+                os.close(lock_descriptor)
+
+    def _audit_identity(self) -> dict[str, Any]:
+        freeze_id = (
+            self._freeze_record.get("freeze_id")
+            if self._freeze_record is not None
+            else None
+        )
+        claim = self._reveal_claim
+        return {
+            "run_id": self._run_id,
+            "freeze_id": freeze_id,
+            "claim_id": claim.claim_id if claim is not None else None,
+            "attempt_no": claim.attempt_no if claim is not None else None,
+        }
+
     def _record_file(self, meta: Mapping[str, Any], *, purpose: str) -> None:
         event = {
             "schema_version": EVENT_ACCESS_SCHEMA_VERSION,
+            **self._audit_identity(),
             "sequence": len(self._file_audit) + 1,
             "operation": "OPEN_PARQUET",
             "purpose": purpose,
@@ -223,21 +530,7 @@ class EventArtifactOutcomeStore:
             "decision": "ALLOW",
         }
         self._file_audit.append(event)
-        if self._access_log is not None:
-            self._access_log.parent.mkdir(parents=True, exist_ok=True)
-            descriptor = os.open(
-                self._access_log,
-                os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-                0o600,
-            )
-            try:
-                os.write(
-                    descriptor,
-                    (json.dumps(event, sort_keys=True) + "\n").encode("utf-8"),
-                )
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+        self._append_external_audit(event)
         if self._probe is not None:
             self._probe(dict(event))
 
@@ -308,44 +601,68 @@ class EventArtifactOutcomeStore:
             raise RankingError("outcome store already has a different freeze")
         self._freeze_record = dict(record)
 
+    def install_reveal_claim(self, claim: HoldoutRevealClaim) -> None:
+        if self._freeze_record is None:
+            raise RankingError("reveal claim requires an installed ranking freeze")
+        if (
+            claim.freeze_id != self._freeze_record.get("freeze_id")
+            or claim.ranking_set_id != self._freeze_record.get("ranking_set_id")
+            or claim.attempt_no < 0
+        ):
+            raise RankingError("reveal claim identity differs from ranking freeze")
+        if self._reveal_claim is not None and self._reveal_claim != claim:
+            raise RankingError("outcome store already has a different reveal claim")
+        self._reveal_claim = claim
+
+    def _record_reveal(
+        self,
+        *,
+        purpose: str,
+        decision: str,
+        reason: str,
+        freeze_id: str | None,
+    ) -> None:
+        event = {
+            "schema_version": EVENT_ACCESS_SCHEMA_VERSION,
+            **self._audit_identity(),
+            "sequence": len(self._reveal_audit) + 1,
+            "operation": "REVEAL_HOLDOUT",
+            "split_id": "HOLDOUT",
+            "holdout": True,
+            "purpose": purpose,
+            "decision": decision,
+            "reason": reason,
+            "freeze_id": freeze_id,
+        }
+        self._reveal_audit.append(event)
+        self._append_external_audit(event)
+
     def reveal_holdout(
         self, freeze_id: str | None, *, purpose: str = "FINAL_REVEAL"
     ) -> pl.DataFrame:
         expected = self._freeze_record and self._freeze_record.get("freeze_id")
         if expected is None or freeze_id != expected:
-            self._reveal_audit.append(
-                {
-                    "sequence": len(self._reveal_audit) + 1,
-                    "split_id": "HOLDOUT",
-                    "purpose": purpose,
-                    "decision": "DENY",
-                    "reason": "HOLDOUT_LOCKED_FREEZE_REQUIRED_OR_MISMATCH",
-                    "freeze_id": freeze_id,
-                }
+            self._record_reveal(
+                purpose=purpose,
+                decision="DENY",
+                reason="HOLDOUT_LOCKED_FREEZE_REQUIRED_OR_MISMATCH",
+                freeze_id=freeze_id,
             )
             raise HoldoutLockedError("HOLDOUT_LOCKED: freeze_id mismatch")
         if self._reveal_count:
-            self._reveal_audit.append(
-                {
-                    "sequence": len(self._reveal_audit) + 1,
-                    "split_id": "HOLDOUT",
-                    "purpose": purpose,
-                    "decision": "DENY",
-                    "reason": "HOLDOUT_ALREADY_REVEALED",
-                    "freeze_id": freeze_id,
-                }
+            self._record_reveal(
+                purpose=purpose,
+                decision="DENY",
+                reason="HOLDOUT_ALREADY_REVEALED",
+                freeze_id=freeze_id,
             )
             raise HoldoutAlreadyRevealedError("HOLDOUT_ALREADY_REVEALED")
         self._reveal_count = 1
-        self._reveal_audit.append(
-            {
-                "sequence": len(self._reveal_audit) + 1,
-                "split_id": "HOLDOUT",
-                "purpose": purpose,
-                "decision": "ALLOW",
-                "reason": "FROZEN_RULES_ONE_TIME_REVEAL",
-                "freeze_id": freeze_id,
-            }
+        self._record_reveal(
+            purpose=purpose,
+            decision="ALLOW",
+            reason="FROZEN_RULES_ONE_TIME_REVEAL",
+            freeze_id=freeze_id,
         )
         return pl.concat(
             [
@@ -625,6 +942,7 @@ def publish_holdout_artifact(
             raise RankingError("existing HOLDOUT artifact belongs to another reveal")
         return verified
     staging = output.parent / f".{output.name}.staging-{os.getpid()}"
+    make_tree_removable(staging)
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
     try:
@@ -683,11 +1001,11 @@ def publish_holdout_artifact(
             _sha256_file(staging / "manifest.json") + "  manifest.json\n",
             encoding="ascii",
         )
+        seal_tree_durable(staging)
         os.replace(staging, output)
-        for path in output.rglob("*"):
-            if path.is_file():
-                path.chmod(0o444)
+        fsync_directory(output.parent)
     except BaseException:
+        make_tree_removable(staging)
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return verify_holdout_artifact(output)
@@ -696,6 +1014,8 @@ def publish_holdout_artifact(
 def verify_holdout_artifact(output_dir: str | Path) -> dict[str, Any]:
     root = Path(output_dir).resolve()
     manifest, manifest_sha = _manifest_sidecar(root, kind="HOLDOUT")
+    if not tree_is_sealed(root):
+        raise RankingError("HOLDOUT artifact tree is not immutable")
     if (
         manifest.get("state") != "COMPLETE"
         or manifest.get("holdout_state") != HOLDOUT_REVEALED
@@ -841,6 +1161,39 @@ def verify_holdout_artifact(output_dir: str | Path) -> dict[str, Any]:
     }
 
 
+def _load_frozen_ranking_for_holdout(
+    ranking_dir: str | Path, *, calendar_logical_sha256: str
+) -> tuple[dict[str, Any], RankingResult]:
+    """Load and verify the immutable ranking identity used by HOLDOUT."""
+
+    ranking_verification = verify_ranking_artifact(ranking_dir)
+    result = load_ranking_result(ranking_dir)
+    if result.calendar_logical_sha256 != calendar_logical_sha256:
+        raise RankingError("HOLDOUT calendar differs from frozen ranking calendar")
+    return ranking_verification, result
+
+
+def _read_holdout_execution_identity(
+    ranking_dir: str | Path, *, calendar_logical_sha256: str
+) -> str:
+    """Read the content-addressed freeze identity before taking its lock."""
+
+    freeze_path = Path(ranking_dir).resolve() / "config/freeze_record.json"
+    try:
+        freeze_record = json.loads(freeze_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RankingError("frozen ranking identity is unreadable") from exc
+    if not isinstance(freeze_record, dict):
+        raise RankingError("frozen ranking identity is unreadable")
+    freeze_payload = dict(freeze_record)
+    freeze_id = freeze_payload.pop("freeze_id", None)
+    if not isinstance(freeze_id, str) or freeze_id != _content_id(freeze_payload):
+        raise RankingError("frozen ranking has no valid freeze identity")
+    if freeze_payload.get("calendar_logical_sha256") != calendar_logical_sha256:
+        raise RankingError("HOLDOUT calendar differs from frozen ranking calendar")
+    return freeze_id
+
+
 def reveal_ranking_holdout(
     event_dir: str | Path,
     calendar: pl.DataFrame,
@@ -849,76 +1202,107 @@ def reveal_ranking_holdout(
     ledger_dir: str | Path,
     *,
     access_log: str | Path | None = None,
+    resume_claimed: bool = False,
 ) -> dict[str, Any]:
     output = Path(output_dir).resolve()
     calendar_logical_sha256 = _calendar_logical_sha256(calendar)
     ledger = PersistentHoldoutLedger(ledger_dir)
     with _artifact_lock(output):
-        if output.exists():
-            verified = verify_holdout_artifact(output)
-            ranking_verification = verify_ranking_artifact(ranking_dir)
-            result = load_ranking_result(ranking_dir)
-            if result.calendar_logical_sha256 != calendar_logical_sha256:
+        # Read only the content-addressed identity before locking; the complete
+        # ranking artifact is verified and loaded after acquiring that lock.
+        freeze_id = _read_holdout_execution_identity(
+            ranking_dir, calendar_logical_sha256=calendar_logical_sha256
+        )
+        with ledger.execution_lock(freeze_id):
+            ranking_verification, result = _load_frozen_ranking_for_holdout(
+                ranking_dir, calendar_logical_sha256=calendar_logical_sha256
+            )
+            if result.freeze_record.get("freeze_id") != freeze_id:
                 raise RankingError(
-                    "HOLDOUT calendar differs from frozen ranking calendar"
+                    "frozen ranking changed while acquiring HOLDOUT execution lock"
                 )
-            catalog = EventArtifactOutcomeStore(
+            if output.exists():
+                verified = verify_holdout_artifact(output)
+                catalog = EventArtifactOutcomeStore(
+                    event_dir, result.split_plan, access_log=access_log
+                )
+                if (
+                    catalog.source_identity != result.source_identity
+                    or verified["run_id"] != result.run_id
+                    or verified["ranking_set_id"] != result.ranking_set_id
+                    or verified["freeze_id"] != result.freeze_record["freeze_id"]
+                    or verified["ranking_manifest_sha256"]
+                    != ranking_verification["manifest_sha256"]
+                ):
+                    raise RankingError(
+                        "HOLDOUT artifact identity differs from frozen ranking"
+                    )
+                # The artifact rename is atomic but the persistent ledger lives
+                # in a different directory. Reconcile a stop after rename and
+                # before ledger completion without opening HOLDOUT again.
+                if ledger.state(verified["freeze_id"]) is None:
+                    raise RankingError(
+                        "persistent HOLDOUT claim is missing for published artifact"
+                    )
+                ledger.reconcile_complete(
+                    freeze_id=verified["freeze_id"],
+                    ranking_set_id=verified["ranking_set_id"],
+                    reveal_id=verified["reveal_id"],
+                    output_dir=output,
+                )
+                return verified
+            store = EventArtifactOutcomeStore(
                 event_dir, result.split_plan, access_log=access_log
             )
-            if (
-                catalog.source_identity != result.source_identity
-                or verified["run_id"] != result.run_id
-                or verified["ranking_set_id"] != result.ranking_set_id
-                or verified["freeze_id"] != result.freeze_record["freeze_id"]
-                or verified["ranking_manifest_sha256"]
-                != ranking_verification["manifest_sha256"]
-            ):
+            if store.source_identity != result.source_identity:
                 raise RankingError(
-                    "HOLDOUT artifact identity differs from frozen ranking"
+                    "ranking artifact and event artifact identities differ"
                 )
-            # The artifact rename is atomic but the persistent ledger lives in
-            # a different directory.  Reconcile a stop after rename and before
-            # ledger completion from the verified immutable artifact, without
-            # performing a second HOLDOUT read.
-            if ledger.state(verified["freeze_id"]) is None:
-                raise RankingError(
-                    "persistent HOLDOUT claim is missing for published artifact"
+            store.install_freeze(result.freeze_record)
+            # Claim before the one physical read. The execution lock remains
+            # held until publication and COMPLETE, including explicit resume.
+            if resume_claimed:
+                claimed_state = ledger.state(freeze_id)
+                if claimed_state is None:
+                    claim = ledger.claim(
+                        result.freeze_record,
+                        ranking_set_id=result.ranking_set_id,
+                        output_dir=output,
+                    )
+                else:
+                    claim_id = claimed_state.get("claim_id")
+                    if not isinstance(claim_id, str):
+                        raise RankingError(
+                            "persistent HOLDOUT resume claim identity is unreadable"
+                        )
+                    claim = ledger.resume_claimed(
+                        result.freeze_record,
+                        ranking_set_id=result.ranking_set_id,
+                        claim_id=claim_id,
+                        output_dir=output,
+                    )
+            else:
+                claim = ledger.claim(
+                    result.freeze_record,
+                    ranking_set_id=result.ranking_set_id,
+                    output_dir=output,
                 )
-            ledger.reconcile_complete(
-                freeze_id=verified["freeze_id"],
-                ranking_set_id=verified["ranking_set_id"],
-                reveal_id=verified["reveal_id"],
+            store.install_reveal_claim(claim)
+            reveal = reveal_holdout(
+                result,
+                store,
+                calendar,
             )
+            if store.holdout_file_reads < 1:
+                raise RankingError("HOLDOUT reveal opened no HOLDOUT event parquet")
+            verified = publish_holdout_artifact(
+                reveal,
+                result,
+                output,
+                ranking_manifest_sha256=ranking_verification["manifest_sha256"],
+            )
+            ledger.complete(claim, reveal_id=reveal.reveal_id, output_dir=output)
             return verified
-        ranking_verification = verify_ranking_artifact(ranking_dir)
-        result = load_ranking_result(ranking_dir)
-        if result.calendar_logical_sha256 != calendar_logical_sha256:
-            raise RankingError("HOLDOUT calendar differs from frozen ranking calendar")
-        store = EventArtifactOutcomeStore(
-            event_dir, result.split_plan, access_log=access_log
-        )
-        if store.source_identity != result.source_identity:
-            raise RankingError("ranking artifact and event artifact identities differ")
-        store.install_freeze(result.freeze_record)
-        # Claim before the one physical read.  Publication precedes COMPLETE so
-        # COMPLETE always means a verified artifact exists; a pre-publication
-        # stop remains CLAIMED and therefore fails closed.
-        claim = ledger.claim(result.freeze_record, ranking_set_id=result.ranking_set_id)
-        reveal = reveal_holdout(
-            result,
-            store,
-            calendar,
-        )
-        if store.holdout_file_reads < 1:
-            raise RankingError("HOLDOUT reveal opened no HOLDOUT event parquet")
-        verified = publish_holdout_artifact(
-            reveal,
-            result,
-            output,
-            ranking_manifest_sha256=ranking_verification["manifest_sha256"],
-        )
-        ledger.complete(claim, reveal_id=reveal.reveal_id)
-        return verified
 
 
 def _read_calendar(path: str | Path) -> pl.DataFrame:
@@ -945,6 +1329,7 @@ def _parser() -> argparse.ArgumentParser:
     reveal.add_argument("--output-dir", required=True)
     reveal.add_argument("--ledger-dir", required=True)
     reveal.add_argument("--access-log")
+    reveal.add_argument("--resume-claimed", action="store_true")
     verify = commands.add_parser("verify")
     verify.add_argument("--ranking-dir")
     verify.add_argument("--holdout-dir")
@@ -976,6 +1361,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.output_dir,
             args.ledger_dir,
             access_log=args.access_log,
+            resume_claimed=args.resume_claimed,
         )
     else:
         if bool(args.ranking_dir) == bool(args.holdout_dir):

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+import stat
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -26,9 +28,12 @@ from freshquant.backtest.clx.event_study import (
     SplitPlan,
     SplitWindow,
     _read_hashed_manifest,
+    _verify_event_outcome_date_contract,
     build_event_metrics_frame,
     build_event_outcomes_frame,
     build_event_study,
+    recover_event_preverification_publication,
+    verify_event_preverification,
     verify_event_study,
 )
 
@@ -372,8 +377,20 @@ def _file_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _artifact_calendar() -> pl.DataFrame:
+    days = [
+        date(year, 1, 1) + timedelta(days=index)
+        for year in (2022, 2023, 2024)
+        for index in range(50)
+    ]
+    return pl.DataFrame(
+        {"trade_date": days, "session_no": list(range(1, 151))},
+        schema={"trade_date": pl.Date, "session_no": pl.UInt32},
+    )
+
+
 def _write_inputs(tmp_path: Path) -> tuple[Path, Path, SplitPlan]:
-    calendar = _calendar()
+    calendar = _artifact_calendar()
     bars = _bars(calendar)
     signals = _signals(calendar)
     snapshot = tmp_path / "snapshot"
@@ -469,6 +486,283 @@ def test_artifact_build_verify_and_manifest_hash_compatibility(tmp_path: Path) -
     assert recorded == payload["manifest_sha256"]
 
 
+def test_verify_recomputes_outcome_bounds_before_pre_holdout_path_pruning(
+    tmp_path: Path,
+) -> None:
+    snapshot, signal_root, plan = _write_inputs(tmp_path)
+    output = tmp_path / "events"
+    build_event_study(snapshot, signal_root, output, plan, bootstrap_replicates=5)
+
+    manifest_path = output / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    holdout_start = plan.windows[2].start_date
+    outcome = next(
+        item
+        for item in manifest["artifacts"]
+        if item["dataset"] == "event_outcomes"
+        and date.fromisoformat(item["min_reveal_date"]) >= holdout_start
+    )
+    actual_minimum = outcome["min_reveal_date"]
+    outcome["min_reveal_date"] = "2023-01-01"
+    outcome["max_reveal_date"] = "2023-12-31"
+
+    bucket = int(outcome["partition"]["code_bucket"])
+    checkpoint_path = (
+        output / "code_buckets" / f"code_bucket={bucket:03d}" / "checkpoint.json"
+    )
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    checkpoint.pop("checkpoint_sha256")
+    checkpoint_outcome = next(
+        item for item in checkpoint["artifacts"] if item["path"] == outcome["path"]
+    )
+    checkpoint_outcome["min_reveal_date"] = outcome["min_reveal_date"]
+    checkpoint_outcome["max_reveal_date"] = outcome["max_reveal_date"]
+    checkpoint["checkpoint_sha256"] = hashlib.sha256(
+        json.dumps(checkpoint, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    checkpoint_path.write_text(
+        json.dumps(checkpoint, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (output / "manifest.sha256").write_text(
+        _file_sha(manifest_path) + "  manifest.json\n", encoding="ascii"
+    )
+
+    assert actual_minimum.startswith("2024-")
+    with pytest.raises(EventStudyError, match="reveal-date bounds differ"):
+        verify_event_study(output)
+
+
+@pytest.mark.parametrize(
+    ("split_id", "boundary_status", "message"),
+    [
+        ("VALIDATION", SPLIT_ELIGIBLE, "split_id differs"),
+        ("HOLDOUT", SPLIT_PURGED, "boundary status is incompatible"),
+    ],
+)
+def test_event_outcome_date_contract_rejects_split_assignment_drift(
+    split_id: str, boundary_status: str, message: str
+) -> None:
+    plan = SplitPlan(
+        (
+            SplitWindow("TRAIN", date(2022, 1, 1), date(2022, 12, 31)),
+            SplitWindow("VALIDATION", date(2023, 1, 1), date(2023, 12, 31)),
+            SplitWindow("HOLDOUT", date(2024, 1, 1), date(2024, 12, 31)),
+        )
+    )
+    frame = pl.DataFrame(
+        {
+            "reveal_date": [date(2024, 1, 26)],
+            "split_id": [split_id],
+            "split_boundary_status": [boundary_status],
+        },
+        schema={
+            "reveal_date": pl.Date,
+            "split_id": pl.String,
+            "split_boundary_status": pl.String,
+        },
+    )
+    meta = {
+        "min_reveal_date": "2024-01-26",
+        "max_reveal_date": "2024-01-26",
+    }
+
+    with pytest.raises(EventStudyError, match=message):
+        _verify_event_outcome_date_contract(frame, meta, plan)
+
+
+def test_selection_metric_aggregation_never_scans_holdout_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot, signal_root, plan = _write_inputs(tmp_path)
+    scanned_event_sets: list[list[str]] = []
+    original_scan = pl.scan_parquet
+
+    def audit_scan(source, *args, **kwargs):
+        values = list(source) if isinstance(source, (list, tuple)) else [source]
+        paths = [str(value) for value in values]
+        if any("event_outcomes" in path for path in paths):
+            scanned_event_sets.append(paths)
+        return original_scan(source, *args, **kwargs)
+
+    monkeypatch.setattr(pl, "scan_parquet", audit_scan)
+    output = tmp_path / "events"
+    build_event_study(snapshot, signal_root, output, plan, bootstrap_replicates=5)
+
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    holdout_start = plan.windows[2].start_date
+    holdout_paths = {
+        item["path"]
+        for item in manifest["artifacts"]
+        if item["dataset"] == "event_outcomes"
+        and date.fromisoformat(item["min_reveal_date"]) >= holdout_start
+    }
+    assert holdout_paths
+    assert scanned_event_sets
+    assert all(
+        not any(path.endswith(relative) for relative in holdout_paths)
+        for paths in scanned_event_sets
+        for path in paths
+    )
+
+
+def _build_event_preverification(
+    tmp_path: Path,
+) -> tuple[Path, dict[str, object], Path, Path]:
+    snapshot, signal_root, plan = _write_inputs(tmp_path)
+    output = tmp_path / "events"
+    build_event_study(snapshot, signal_root, output, plan, bootstrap_replicates=5)
+    proof = tmp_path / "state/event-preverification.json"
+    marker = tmp_path / "state/event-study.passed"
+    result = verify_event_study(
+        output,
+        proof_output=proof,
+        chain_marker_output=marker,
+        engine_image_id="sha256:test-image",
+        source_commit="e" * 40,
+        run_contract_sha256="f" * 64,
+    )
+    reference = result["event_preverification"]
+    assert isinstance(reference, dict)
+    return output, reference, proof, marker
+
+
+def test_deep_verification_publishes_sealed_event_proof(tmp_path: Path) -> None:
+    output, reference, proof_path, marker_path = _build_event_preverification(tmp_path)
+
+    proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert proof["run_id"] == manifest["run_id"]
+    assert proof["event_set_id"] == manifest["event_set_id"]
+    assert proof["signal_set_id"] == manifest["identity"]["signal_set_id"]
+    assert proof["verification_result"]["event_outcomes"] == 7
+    assert proof["tree_entries"]
+    assert all(
+        stat.S_IMODE(path.stat().st_mode) == 0o444
+        for path in (
+            proof_path,
+            proof_path.with_suffix(".sha256"),
+            marker_path,
+            marker_path.with_name(marker_path.name + ".sha256"),
+        )
+    )
+    assert verify_event_preverification(output, reference)["status"] == "preverified"
+    repeated = verify_event_study(
+        output,
+        proof_output=proof_path,
+        chain_marker_output=marker_path,
+        engine_image_id="sha256:test-image",
+        source_commit="e" * 40,
+        run_contract_sha256="f" * 64,
+    )
+    assert repeated["event_preverification"] == reference
+
+
+def test_preverification_path_only_publication_recovers_without_deep_verify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output, _, proof_path, marker_path = _build_event_preverification(tmp_path)
+    for path in (
+        proof_path.with_suffix(".sha256"),
+        marker_path,
+        marker_path.with_name(marker_path.name + ".sha256"),
+    ):
+        path.chmod(0o644)
+        path.unlink()
+
+    monkeypatch.setattr(
+        pl,
+        "read_parquet",
+        lambda *args, **kwargs: pytest.fail("recovery reopened event Parquet"),
+    )
+    recovered = recover_event_preverification_publication(
+        output,
+        proof_path,
+        marker_path,
+        expected_engine_image_id="sha256:test-image",
+        expected_source_commit="e" * 40,
+        expected_run_contract_sha256="f" * 64,
+    )
+
+    assert recovered["status"] == "preverified"
+    assert proof_path.with_suffix(".sha256").is_file()
+    assert marker_path.is_file()
+    assert marker_path.with_name(marker_path.name + ".sha256").is_file()
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "bad_sidecar",
+        "marker_symlink",
+        "tree_lstat_drift",
+        "extra_parquet",
+        "wrong_manifest_sha",
+        "wrong_event_identity",
+    ],
+)
+def test_preverification_rejects_metadata_and_tree_drift(
+    tmp_path: Path, corruption: str
+) -> None:
+    output, reference, proof_path, marker_path = _build_event_preverification(tmp_path)
+    if corruption == "bad_sidecar":
+        sidecar = proof_path.with_suffix(".sha256")
+        sidecar.chmod(0o644)
+        sidecar.write_text(
+            "0" * 64 + "  event-preverification.json\n", encoding="ascii"
+        )
+        sidecar.chmod(0o444)
+    elif corruption == "marker_symlink":
+        marker_path.chmod(0o644)
+        marker_path.unlink()
+        try:
+            marker_path.symlink_to(proof_path)
+        except OSError:
+            pytest.skip("symlink creation is unavailable")
+    elif corruption == "tree_lstat_drift":
+        lock_path = output / ".build.lock"
+        lock_path.chmod(0o644)
+        os.utime(
+            lock_path,
+            ns=(lock_path.stat().st_atime_ns, lock_path.stat().st_mtime_ns + 1_000_000),
+        )
+        lock_path.chmod(0o444)
+    elif corruption == "extra_parquet":
+        extra = output / "extra.parquet"
+        output.chmod(0o755)
+        extra.write_bytes(b"not parquet")
+        extra.chmod(0o444)
+        if os.name != "nt":
+            output.chmod(0o555)
+    else:
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
+        key = (
+            "event_manifest_sha256"
+            if corruption == "wrong_manifest_sha"
+            else "event_set_id"
+        )
+        proof[key] = "sha256:" + "0" * 64
+        payload = (
+            json.dumps(proof, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        ).encode("utf-8")
+        proof_path.chmod(0o644)
+        proof_path.write_bytes(payload)
+        proof_path.chmod(0o444)
+        digest = hashlib.sha256(payload).hexdigest()
+        sidecar = proof_path.with_suffix(".sha256")
+        sidecar.chmod(0o644)
+        sidecar.write_text(f"{digest}  {proof_path.name}\n", encoding="ascii")
+        sidecar.chmod(0o444)
+        reference["proof_sha256"] = "sha256:" + digest
+
+    with pytest.raises(EventStudyError):
+        verify_event_preverification(output, reference)
+
+
 @pytest.mark.parametrize(
     "corruption", ["previous_schema", "missing_excursion_contract"]
 )
@@ -549,7 +843,7 @@ def test_bucket_resume_is_value_equivalent_and_manifest_deterministic(
         fresh_root / "manifest.json"
     ).read_bytes()
 
-    calendar = _calendar()
+    calendar = _artifact_calendar()
     legacy_outcomes, _ = build_event_outcomes_frame(
         _signals(calendar),
         _bars(calendar),

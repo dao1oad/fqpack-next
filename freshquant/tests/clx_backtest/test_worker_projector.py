@@ -19,6 +19,7 @@ from pymongo import MongoClient
 from freshquant.rear.clx_backtest.projector import (
     ClxArtifactProjector,
     ProjectionError,
+    _source_signal_facts,
     _validate_decision_source_events,
 )
 from freshquant.rear.clx_backtest.routes import create_clx_backtest_blueprint
@@ -79,6 +80,157 @@ def _manifest(root: Path, document: dict) -> str:
     return "sha256:" + digest
 
 
+class _VerifierOnlyDatabase:
+    name = DERIVED_DATABASE_NAME
+
+
+@pytest.mark.parametrize("method_name", ["project_backtest", "project_holdout"])
+@pytest.mark.parametrize("use_preverification", [False, True])
+def test_projector_preserves_deep_default_and_explicit_preverification(
+    method_name: str, use_preverification: bool
+) -> None:
+    class VerificationComplete(RuntimeError):
+        pass
+
+    deep_calls: list[Path] = []
+    preverification_calls: list[tuple[Path, Mapping[str, object]]] = []
+
+    def verify_event(path):
+        deep_calls.append(Path(path))
+        return {"status": "verified"}
+
+    def verify_preverification(path, reference):
+        preverification_calls.append((Path(path), reference))
+        return {"status": "preverified"}
+
+    def stop_after_event(_):
+        raise VerificationComplete
+
+    projector = ClxArtifactProjector(
+        _VerifierOnlyDatabase(),
+        verify_event=verify_event,
+        verify_event_preverification=verify_preverification,
+        verify_ranking=stop_after_event,
+        verify_holdout=lambda _: {"status": "verified"},
+        verify_portfolio=lambda _: {"status": "verified"},
+    )
+    reference = {"schema_version": "clx-event-preverification-reference-v1"}
+    common = {
+        "signal_dir": "signal",
+        "event_dir": "event",
+        "ranking_dir": "ranking",
+        "event_preverification": reference if use_preverification else None,
+    }
+    kwargs = (
+        {**common, "portfolio_dirs": {}}
+        if method_name == "project_backtest"
+        else {
+            **common,
+            "holdout_dir": "holdout",
+            "portfolio_dir": "portfolio",
+            "api_freeze_id": "freeze",
+        }
+    )
+
+    with pytest.raises(VerificationComplete):
+        getattr(projector, method_name)({"_id": "run"}, **kwargs)
+
+    assert len(deep_calls) == (0 if use_preverification else 1)
+    assert len(preverification_calls) == (1 if use_preverification else 0)
+
+
+@pytest.mark.parametrize("method_name", ["project_backtest", "project_holdout"])
+def test_controller_preverification_never_opens_or_hashes_event_outcomes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method_name: str
+) -> None:
+    from freshquant.backtest.clx import event_study as event_module
+    from freshquant.rear.clx_backtest import artifacts as artifact_module
+    from freshquant.rear.clx_backtest import projector as projector_module
+    from freshquant.tests.clx_backtest import test_event_study as event_fixture
+
+    output, reference, _, _ = event_fixture._build_event_preverification(tmp_path)
+
+    def is_event_outcome(value: object) -> bool:
+        values = value if isinstance(value, (list, tuple)) else [value]
+        return any(
+            "event_outcomes" in str(item) and str(item).endswith(".parquet")
+            for item in values
+        )
+
+    original_open = Path.open
+    original_read = pl.read_parquet
+    original_scan = pl.scan_parquet
+    original_event_hash = event_module._sha256_file
+    original_artifact_hash = artifact_module.sha256_file
+
+    def guarded_open(path, *args, **kwargs):
+        if is_event_outcome(path):
+            pytest.fail(f"controller opened event outcome bytes: {path}")
+        return original_open(path, *args, **kwargs)
+
+    def guarded_read(path, *args, **kwargs):
+        if is_event_outcome(path):
+            pytest.fail(f"controller read event outcome parquet: {path}")
+        return original_read(path, *args, **kwargs)
+
+    def guarded_scan(path, *args, **kwargs):
+        if is_event_outcome(path):
+            pytest.fail(f"controller scanned event outcome parquet: {path}")
+        return original_scan(path, *args, **kwargs)
+
+    def guarded_event_hash(path):
+        if is_event_outcome(path):
+            pytest.fail(f"controller hashed event outcome bytes: {path}")
+        return original_event_hash(Path(path))
+
+    def guarded_artifact_hash(path):
+        if is_event_outcome(path):
+            pytest.fail(f"controller hashed event outcome bytes: {path}")
+        return original_artifact_hash(path)
+
+    monkeypatch.setattr(Path, "open", guarded_open)
+    monkeypatch.setattr(pl, "read_parquet", guarded_read)
+    monkeypatch.setattr(pl, "scan_parquet", guarded_scan)
+    monkeypatch.setattr(event_module, "_sha256_file", guarded_event_hash)
+    monkeypatch.setattr(artifact_module, "sha256_file", guarded_artifact_hash)
+    monkeypatch.setattr(projector_module, "sha256_file", guarded_artifact_hash)
+
+    class VerificationComplete(RuntimeError):
+        pass
+
+    def reject_deep_verification(_):
+        pytest.fail("controller invoked deep event verification")
+
+    def stop_after_event(_):
+        raise VerificationComplete
+
+    projector = ClxArtifactProjector(
+        _VerifierOnlyDatabase(),
+        verify_event=reject_deep_verification,
+        verify_ranking=stop_after_event,
+        verify_holdout=lambda _: {"status": "verified"},
+        verify_portfolio=lambda _: {"status": "verified"},
+    )
+    common = {
+        "signal_dir": "signal",
+        "event_dir": output,
+        "ranking_dir": "ranking",
+        "event_preverification": reference,
+    }
+    kwargs = (
+        {**common, "portfolio_dirs": {}}
+        if method_name == "project_backtest"
+        else {
+            **common,
+            "holdout_dir": "holdout",
+            "portfolio_dir": "portfolio",
+            "api_freeze_id": "freeze",
+        }
+    )
+    with pytest.raises(VerificationComplete):
+        getattr(projector, method_name)({"_id": "run"}, **kwargs)
+
+
 def _signal_fixture(root: Path, artifact_run_id: str) -> tuple[str, str]:
     signal_set_id = "signal-fixture"
     revisions = pl.DataFrame(
@@ -90,6 +242,15 @@ def _signal_fixture(root: Path, artifact_run_id: str) -> tuple[str, str]:
                 "signal_date": "2023-01-01",
                 "reveal_date": "2023-01-02",
                 "current_raw_signal": 21312,
+                "revision_no": 1,
+                "direction": 1,
+                "occurrence": 1,
+                "primary_trigger_semantic": "ENGULFING",
+                "direction_base_trigger_mask": 4,
+                "synthetic_primary_mask": 0,
+                "concurrent_trigger_mask": 70,
+                "actionable": True,
+                "event_kind": "ADD",
             },
             {
                 "signal_fact_id": "SFH",
@@ -98,6 +259,15 @@ def _signal_fixture(root: Path, artifact_run_id: str) -> tuple[str, str]:
                 "signal_date": "2022-12-31",
                 "reveal_date": "2023-01-01",
                 "current_raw_signal": -8107,
+                "revision_no": 1,
+                "direction": -1,
+                "occurrence": 1,
+                "primary_trigger_semantic": "MACD_CROSS",
+                "direction_base_trigger_mask": 64,
+                "synthetic_primary_mask": 0,
+                "concurrent_trigger_mask": 64,
+                "actionable": True,
+                "event_kind": "REPLACE",
             },
         ]
     )
@@ -117,6 +287,145 @@ def _signal_fixture(root: Path, artifact_run_id: str) -> tuple[str, str]:
         },
     )
     return signal_set_id, digest
+
+
+@pytest.mark.parametrize(
+    ("row", "requested", "message"),
+    [
+        (
+            {
+                "signal_fact_id": "SF1",
+                "code": "000001",
+                "expected_model_id": 2,
+                "signal_date": "2023-01-01",
+                "reveal_date": "2023-01-02",
+                "current_raw_signal": 21312,
+                "revision_no": 1,
+                "direction": 1,
+                "occurrence": 1,
+                "primary_trigger_semantic": "ENGULFING",
+                "concurrent_trigger_mask": 4,
+                "synthetic_primary_mask": 0,
+                "actionable": False,
+                "event_kind": "ADD",
+            },
+            {"SF1"},
+            "not an actionable ADD/REPLACE",
+        ),
+        (
+            {
+                "signal_fact_id": "SF1",
+                "code": "000001",
+                "expected_model_id": 2,
+                "signal_date": "2023-01-01",
+                "reveal_date": "2023-01-02",
+                "current_raw_signal": 21312,
+                "revision_no": 1,
+                "direction": 1,
+                "occurrence": 1,
+                "primary_trigger_semantic": "ENGULFING",
+                "concurrent_trigger_mask": 4,
+                "synthetic_primary_mask": 0,
+                "actionable": True,
+                "event_kind": "REMOVE",
+            },
+            {"SF1"},
+            "not an actionable ADD/REPLACE",
+        ),
+        (
+            {
+                "signal_fact_id": "SF1",
+                "code": "000001",
+                "expected_model_id": 2,
+                "signal_date": "2023-01-01",
+                "reveal_date": "2023-01-02",
+                "current_raw_signal": 21312,
+                "revision_no": 1,
+                "direction": 1,
+                "occurrence": 1,
+                "primary_trigger_semantic": "ENGULFING",
+                "concurrent_trigger_mask": 4,
+                "synthetic_primary_mask": 0,
+                "actionable": True,
+                "event_kind": "ADD",
+            },
+            {"MISSING"},
+            "source signal facts are missing",
+        ),
+    ],
+)
+def test_source_signal_facts_fail_closed(
+    tmp_path: Path, row: dict[str, object], requested: set[str], message: str
+) -> None:
+    root = tmp_path / "signal"
+    meta = _file_meta(
+        root,
+        "code_buckets/code_bucket=001/signal_revisions/"
+        "reveal_year=2023/part-00000.parquet",
+        "signal_revisions",
+        pl.DataFrame([row]),
+    )
+    manifest = {"state": "COMPLETE", "artifacts": [meta]}
+    with pytest.raises(ProjectionError, match=message):
+        _source_signal_facts(
+            signal_root=root,
+            signal_manifest=manifest,
+            signal_fact_ids=requested,
+        )
+
+
+def test_source_signal_facts_accept_only_event_study_dedup_winner(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "signal"
+    common = {
+        "code": "000001",
+        "expected_model_id": 2,
+        "reveal_date": "2023-01-03",
+        "current_raw_signal": 21312,
+        "direction": 1,
+        "occurrence": 1,
+        "primary_trigger_semantic": "ENGULFING",
+        "concurrent_trigger_mask": 4,
+        "synthetic_primary_mask": 0,
+        "actionable": True,
+    }
+    rows = [
+        {
+            **common,
+            "signal_fact_id": "WINNER",
+            "signal_date": "2023-01-02",
+            "revision_no": 2,
+            "event_kind": "REPLACE",
+        },
+        {
+            **common,
+            "signal_fact_id": "LOSER",
+            "signal_date": "2023-01-01",
+            "revision_no": 99,
+            "event_kind": "REPLACE",
+        },
+    ]
+    meta = _file_meta(
+        root,
+        "code_buckets/code_bucket=001/signal_revisions/"
+        "reveal_year=2023/part-00000.parquet",
+        "signal_revisions",
+        pl.DataFrame(rows),
+    )
+    manifest = {"state": "COMPLETE", "artifacts": [meta]}
+    winner = _source_signal_facts(
+        signal_root=root,
+        signal_manifest=manifest,
+        signal_fact_ids={"WINNER"},
+    )
+    assert set(winner) == {"WINNER"}
+    with pytest.raises(ProjectionError, match="lost event-study deduplication"):
+        _source_signal_facts(
+            signal_root=root,
+            signal_manifest=manifest,
+            signal_fact_ids={"LOSER"},
+        )
 
 
 def _event_fixture(
@@ -733,6 +1042,9 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
         signal_set_id=signal_set_id,
         signal_manifest_sha256=signal_manifest_sha256,
     )
+    # Mongo projection is a consumer of sealed signal/ranking/portfolio facts.
+    # It must not reopen event_outcomes, especially after HOLDOUT publication.
+    next(event_dir.glob("**/event_outcomes/**/*.parquet")).unlink()
     ranking_manifest_sha256 = _ranking_fixture(ranking_dir, artifact_run_id, combo_id)
     portfolio_source_identity: dict[str, object] = {
         "event_set_id": "event-fixture",
@@ -765,10 +1077,16 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
         }
     )
     run = database.runs.find_one({"_id": run_id})
+    event_verifications: list[Path] = []
+
+    def verify_event(path):
+        event_verifications.append(Path(path))
+        return {"status": "verified"}
+
     accept = lambda _: {"status": "verified"}
     projector = ClxArtifactProjector(
         database,
-        verify_event=accept,
+        verify_event=verify_event,
         verify_ranking=accept,
         verify_holdout=accept,
         verify_portfolio=accept,
@@ -961,6 +1279,7 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
             "reveal_manifest_sha256": holdout_manifest_sha256,
         },
     )
+    event_verifications_before_holdout = len(event_verifications)
     first_holdout = projector.project_holdout(
         run,
         signal_dir=signal_dir,
@@ -979,6 +1298,7 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
         portfolio_dir=holdout_portfolio,
         api_freeze_id=api_freeze_id,
     )
+    assert len(event_verifications) == event_verifications_before_holdout + 2
     assert (
         first_holdout["holdout"]["projected_at"]
         == second_holdout["holdout"]["projected_at"]
@@ -1295,7 +1615,7 @@ def test_terminal_holdout_identity_mismatch_remains_locked(
 
     worker_store = MongoWorkerStore(database, lease_seconds=10)
     assert (
-        worker_store._reconcile_holdout_terminal(record, terminal_job=terminal_job)
+        worker_store.reconcile_holdout_terminal(record, terminal_job=terminal_job)
         is False
     )
     current = database.freeze_records.find_one({"_id": record["_id"]})
@@ -1336,7 +1656,7 @@ def test_terminal_holdout_rejects_noncanonical_projection_hash(mongo_database):
     }
 
     worker_store = MongoWorkerStore(database, lease_seconds=10)
-    assert worker_store._reconcile_holdout_terminal(record, terminal_job=terminal_job)
+    assert worker_store.reconcile_holdout_terminal(record, terminal_job=terminal_job)
     current = database.freeze_records.find_one({"_id": record["_id"]})
     assert current["state"] == "REVEAL_FAILED"
     assert current["reveal_count"] == 0

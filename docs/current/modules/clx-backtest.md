@@ -160,6 +160,8 @@ TRAIN 用于生成和筛选候选；VALIDATION 用固定评分权重、样本门
 
 ## HOLDOUT 冻结边界
 
+Ledger 输出绑定合同：初始 claim 持久化 canonical `output_dir`（不进入 `claim_id`）；`resume / complete / reconcile` 必须精确匹配该目录，否则在 `resume_count` 递增或物理读取前 fail-closed。artifact A 发布后切换到不同 output B 不会产生第二次 HOLDOUT 读取或第二份 artifact。
+
 HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 
 1. event artifact 按日期边界分区并记录每次 Parquet 打开审计。
@@ -167,8 +169,9 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 3. projector 在 run manifest 的 `freeze_input` 发布完整冻结顺序、固定入选组合、ranking config、split hash 和 rank digest。
 4. API 递归规范化 JSON 中的整数/整数浮点表示后，只接受与服务端整份 `freeze_input` 完全一致的冻结材料；页面上的 2～4 项同屏比较与正式入选的 VALIDATION 正向前 20（或不足 20 时的全部正向组合）相互解耦。
 5. API 确认揭示时只原子预留一个 worker job，并把 freeze 置为 `REVEALING / reveal_count=0`；此时查询和导出继续封存。`HOLDOUT_REVEAL_QUEUED` 由该预留的幂等投影产生，投影失败时保留 reconciliation marker，不留下“已入队但无审计”的永久窗口。
-6. worker 取得 persistent holdout ledger 的唯一 claim，完成 HOLDOUT 指标与组合结果生成后先原子发布并校验 immutable HOLDOUT artifact，再把 ledger 置为 `COMPLETE`；若进程停在 artifact rename 与 ledger 完成之间，重启只从已验证 artifact 对账 ledger，不再次打开 HOLDOUT。Mongo 投影及 manifest attachment 成功后，worker 先幂等写入终态审计，再发布 `REVEALED / reveal_count=1`；哈希、job/run/freeze 身份或审计写入任一失败都保持查询锁定，失败记录为 `REVEAL_FAILED / reveal_count=0`。
-7. 揭示只给冻结组合附加 HOLDOUT 指标和组合结果，保持 `frozen_rank` 原值，也不重新搜索。
+6. worker 取得 persistent holdout ledger 的唯一 claim，完成 HOLDOUT 指标与组合结果生成后先原子发布并校验 immutable HOLDOUT artifact，再把 ledger 置为 `COMPLETE`。同一 `freeze_id` 还持有独立的跨进程 execution lock，从 output 检查、claim/resume 一直覆盖物理读取、artifact 校验/发布和 ledger `COMPLETE`；锁由进程退出自动释放。相同 output 的后继只校验并对账已有 artifact，不再次读取；不同 output 的后继在首个执行成功后于物理读取前 fail-closed，不发布第二份 HOLDOUT artifact。若进程停在 HOLDOUT 读取后、artifact 发布前，普通 API 和未带恢复参数的 CLI 重试继续 fail-closed；正式不可变同-run链显式传入 `--resume-claimed`，干净首跑仍创建唯一初始 claim，已有状态时则只恢复同一 `CLAIMED` 的 `freeze_id / ranking_set_id / claim_id`，不会创建第二个 claim 或改变 frozen ranking。ledger 在重新打开 HOLDOUT 前以 `write + file fsync + atomic replace + directory fsync` 持久化确定性的 `resume_count / resume_audit`，claim 目录也在首次读取前持久化；`COMPLETE` 或任一身份不一致都拒绝恢复。每次逻辑揭示授权和 Parquet 打开同时追加到 run-scoped 外部日志，并绑定 `run_id / freeze_id / claim_id / attempt_no`；追加在独占文件锁内完成。若上次写入只留下未终止尾段，下一次已授权恢复会在锁内严格校验全部完整记录，以原子替换仅移除该尾段并同时写入绑定尾段 SHA-256、字节数、偏移和恢复 attempt 的 `REPAIR_UNTERMINATED_JSONL_TAIL` 审计事实；任何已终止的非法 JSON 或非法合同记录继续 fail-closed。成功 artifact 发布后日志固定为 `0444`，V2 Gate 将 repair、历次物理打开与 canonical resume audit 对账并披露实际恢复次数。若进程停在 artifact rename 与 ledger 完成之间，重启仍只从已验证 artifact 对账 ledger，不再次打开 HOLDOUT。Mongo 投影及 manifest attachment 成功后，worker 先幂等写入终态审计，再发布 `REVEALED / reveal_count=1`；哈希、job/run/freeze 身份或审计写入任一失败都保持查询锁定，失败记录为 `REVEAL_FAILED / reveal_count=0`。
+7. HOLDOUT 组合撮合在冻结顺序和 ranking reveal artifact 均已校验后，才读取 event outcomes 生成派生决策与资金曲线。portfolio manifest 把 `run_id / event_set_id / event manifest SHA-256 / ranking_set_id / ranking manifest SHA-256 / freeze_id / reveal_id / reveal manifest SHA-256 / claim_id / attempt_no` 固定为显式授权身份，并登记本次实际使用的 event source `path + file_sha256` 有序集合、数量和内容摘要；verifier 与 V2 portfolio Gate 分别核对内部身份和上游 manifest/reveal audit。已完成 portfolio 的 resume 只校验 sealed artifact，不再次扫描 event outcomes。
+8. portfolio 中保留的 `successful_holdout_reads` 是兼容字段，含义与新字段 `upstream_reveal_successful_reads` 相同，只证明上游 ranking reveal 的成功逻辑读取数为 `1`，不代表 portfolio 自身读取次数，也不表示整个生命周期只物理打开一次。portfolio scan 属于冻结后的授权派生读取，不参与候选生成、排序或 frozen top set 选择；揭示只给冻结组合附加 HOLDOUT 指标和组合结果，保持 `frozen_rank` 原值，也不重新搜索。
 
 `HOLDOUT_LOCKED`、`HOLDOUT_REVEAL_IN_PROGRESS`、`HOLDOUT_REVEAL_FAILED`、`HOLDOUT_ALREADY_REVEALED` 和冻结材料哈希不一致都是合同保护结果；删除页面状态或重发请求仍会命中相同保护。
 
@@ -183,7 +186,11 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 - `portfolios/<run_tag>/<split>` 或 `runs/<run_id>/portfolios/<split>`
 - `exports/<run_id>`
 
-每一层都携带上游 manifest SHA-256、配置哈希和内容身份。projector 先校验 artifact，再幂等写入派生库 `freshquant_clx_backtest`；传入的 signal/event/ranking/portfolio/HOLDOUT manifest 必须属于 caller run，portfolio 目录映射键必须与 manifest `split_id` 相同。同一 `_id` 若内容不同会报冲突，不覆盖既有研究事实。组合 decision 的 `source_signal_fact_ids` 只记录 canonical DSL 实际命中的当日 anchor 与历史因果成员；不产生 source fact 的纯因子或纯否定布尔命中不生成 portfolio decision。projector 要求成员属于同一标的且不晚于 decision，并要求至少一个当日同方向 anchor。`combo_signals` 会按这些 ID 回连 event/signal artifact；源事实缺失或身份不一致时整次投影失败，不发布残缺下钻记录。
+全量因果信号由 `finalize_full_signal_facts.sh` 先把 facts 树固定为只读，再深度校验并交叉绑定 verify 输出、manifest 与 run contract 的 run、snapshot、engine、source commit、config、signal identity 和计数。在 `CLX_EVIDENCE_ROOT` 排他发布 `v2-causal-signal-<run_id>-<signal_sha256>.json` 及同名 `.json.sha256`，并发布确定性的 `.runner/finalized` 身份 marker。文件名同时绑定 run 身份和内容寻址的 `signal_set_id`；三类文件都执行内容 `fsync`、原子 hard-link、权限 `0444` 和 parent-directory `fsync`。同一名称重跑只接受逐字节完全一致的内容，任一已有文件内容不同都会停止链路，不覆盖或改写既有证据。
+
+event artifact 完成后只执行一次逐文件深度校验：除文件哈希、行数、schema 和逻辑哈希外，还会从实际 `reveal_date` 列重新计算 `min_reveal_date / max_reveal_date`，并校验每行 `split_id / split_boundary_status` 与 split plan 兼容，避免下游路径裁剪信任错误边界。校验通过后整棵 event 树封为只读，并在树外排他发布绑定 run、signal、event manifest、engine image、source commit、run contract、verifier bytes 和完整 lstat 清单的 proof、marker 及 sidecar。恢复、ranking Gate 和 Mongo projector 只验证这组封存证明、manifest 与当前 lstat，不再次打开或哈希 `event_outcomes` Parquet；普通独立 verifier 未传 proof 时仍执行完整深验。
+
+每一层都携带上游 manifest SHA-256、配置哈希和内容身份。projector 先校验 artifact，再幂等写入派生库 `freshquant_clx_backtest`；传入的 signal/event/ranking/portfolio/HOLDOUT manifest 必须属于 caller run，portfolio 目录映射键必须与 manifest `split_id` 相同。同一 `_id` 若内容不同会报冲突，不覆盖既有研究事实。组合 decision 的 `source_signal_fact_ids` 只记录 canonical DSL 实际命中的当日 anchor 与历史因果成员；不产生 source fact 的纯因子或纯否定布尔命中不生成 portfolio decision。projector 要求成员属于同一标的且不晚于 decision，并要求至少一个当日同方向 anchor。`combo_signals` 按这些 ID 回连 sealed signal revision artifact，并以 event preverification、event/signal manifest 血缘和统一 winner 规则证明来源；源事实缺失、输给同组 revision winner 或身份不一致时整次投影失败，不发布残缺下钻记录。
 
 核心集合：
 
@@ -267,7 +274,8 @@ docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.re
 - 已有 `reveal_count=1` 后重复请求会返回 `HOLDOUT_ALREADY_REVEALED`
 - `REVEALING / reveal_count=0` 表示 worker 尚在生成或投影，HOLDOUT 查询仍返回 `HOLDOUT_LOCKED`
 - `REVEAL_FAILED / reveal_count=0` 表示本次唯一 claim 需要运维检查；保留 ledger、失败 job、日志和 artifact 证据
-- 查看 `freeze_records`、holdout ledger、event access audit 和 holdout manifest；不删除 ledger 或重建 freeze 来重跑测试集
+- 查看 `freeze_records`、holdout ledger、event access audit 和 holdout manifest；若 ledger 为 `CLAIMED` 且 artifact 尚未发布，只由原正式不可变同-run链通过 `--resume-claimed` 恢复，核对三项身份及 `resume_count / resume_audit`
+- 不删除 ledger、不重建 freeze，也不更换 ranking 或输出目录来重跑测试集；已有 verified artifact 时沿用 reconcile 路径
 
 ### Artifact 校验失败
 

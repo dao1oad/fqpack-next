@@ -12,6 +12,7 @@ from typing import Any
 import polars as pl
 import pytest
 
+import freshquant.backtest.clx.portfolio.pipeline as portfolio_pipeline
 from freshquant.backtest.clx.combo_dsl import ComboDefinition, EventIndex, make_combo
 from freshquant.backtest.clx.event_study import SplitPlan, SplitWindow
 from freshquant.backtest.clx.model_registry import (
@@ -568,7 +569,9 @@ def test_portfolio_rejects_a_historical_only_trace_without_decision_anchor() -> 
         )
 
 
-def test_artifact_resume_double_run_and_holdout_gate(tmp_path: Path) -> None:
+def test_artifact_resume_double_run_and_holdout_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     inputs = _build_inputs(tmp_path / "inputs")
     locked_holdout = (
         inputs["events"] / "event_outcomes/split_id=HOLDOUT/part-00000.parquet"
@@ -689,18 +692,26 @@ def test_artifact_resume_double_run_and_holdout_gate(tmp_path: Path) -> None:
         rankings=revealed_rankings,
         access_audit=(
             {
+                "operation": "REVEAL_HOLDOUT",
+                "run_id": ranking_result.run_id,
                 "split_id": "HOLDOUT",
                 "purpose": "FINAL_REVEAL",
                 "decision": "ALLOW",
                 "reason": "FROZEN_RULES_ONE_TIME_REVEAL",
                 "freeze_id": ranking_result.freeze_record["freeze_id"],
+                "claim_id": "sha256:" + "c" * 64,
+                "attempt_no": 0,
             },
             {
                 "operation": "OPEN_PARQUET",
+                "run_id": ranking_result.run_id,
                 "purpose": "LOAD_HOLDOUT",
                 "dataset": "event_outcomes",
                 "holdout": True,
                 "decision": "ALLOW",
+                "freeze_id": ranking_result.freeze_record["freeze_id"],
+                "claim_id": "sha256:" + "c" * 64,
+                "attempt_no": 0,
             },
         ),
     )
@@ -714,11 +725,47 @@ def test_artifact_resume_double_run_and_holdout_gate(tmp_path: Path) -> None:
         reveal_dir,
         ranking_manifest_sha256=ranking_sha,
     )
+    invalid_claim_reveal = tmp_path / "holdout-reveal-invalid-claim"
+    shutil.copytree(reveal_dir, invalid_claim_reveal)
+    _make_tree_writable(invalid_claim_reveal)
+    invalid_audit_path = invalid_claim_reveal / "audit/event_access.json"
+    invalid_audit = json.loads(invalid_audit_path.read_text(encoding="utf-8"))
+    invalid_audit[0]["claim_id"] = "sha256:" + "C" * 64
+    invalid_audit_path.write_text(
+        json.dumps(invalid_audit, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    invalid_reveal_manifest = json.loads(
+        (invalid_claim_reveal / "manifest.json").read_text(encoding="utf-8")
+    )
+    invalid_audit_meta = next(
+        item
+        for item in invalid_reveal_manifest["artifacts"]
+        if item["dataset"] == "event_access_audit"
+    )
+    invalid_audit_meta["file_sha256"] = hashlib.sha256(
+        invalid_audit_path.read_bytes()
+    ).hexdigest()
+    invalid_audit_meta["logical_sha256"] = _content_id(invalid_audit)
+    _publish_manifest(invalid_claim_reveal, invalid_reveal_manifest)
+    portfolio_pipeline._seal_tree(invalid_claim_reveal)
+    with pytest.raises(PortfolioArtifactError, match="authorization identity"):
+        build_portfolio_artifact(
+            inputs["snapshot"],
+            inputs["events"],
+            inputs["ranking"],
+            tmp_path / "holdout-invalid-claim",
+            inputs["config"],
+            split_id="HOLDOUT",
+            reveal_dir=invalid_claim_reveal,
+        )
+
+    holdout_output = tmp_path / "holdout-portfolio"
     holdout = build_portfolio_artifact(
         inputs["snapshot"],
         inputs["events"],
         inputs["ranking"],
-        tmp_path / "holdout-portfolio",
+        holdout_output,
         inputs["config"],
         split_id="HOLDOUT",
         reveal_dir=reveal_dir,
@@ -726,6 +773,133 @@ def test_artifact_resume_double_run_and_holdout_gate(tmp_path: Path) -> None:
     assert holdout["status"] == "verified"
     assert holdout["holdout_state"] == "REVEALED"
     assert holdout["successful_holdout_reads"] == 1
+    assert holdout["upstream_reveal_successful_reads"] == 1
+
+    portfolio_manifest = json.loads(
+        (holdout_output / "manifest.json").read_text(encoding="utf-8")
+    )
+    event_manifest = json.loads(
+        (inputs["events"] / "manifest.json").read_text(encoding="utf-8")
+    )
+    event_manifest_sha = hashlib.sha256(
+        (inputs["events"] / "manifest.json").read_bytes()
+    ).hexdigest()
+    reveal_manifest_sha = hashlib.sha256(
+        (reveal_dir / "manifest.json").read_bytes()
+    ).hexdigest()
+    expected_sources = sorted(
+        [
+            {
+                "path": item["path"],
+                "file_sha256": item["file_sha256"],
+            }
+            for item in event_manifest["artifacts"]
+            if item["dataset"] == "event_outcomes"
+        ],
+        key=lambda item: item["path"],
+    )
+    access = portfolio_manifest["holdout_access"]
+    assert access["successful_holdout_reads"] == 1
+    assert access["upstream_reveal_successful_reads"] == 1
+    assert access["authorization"] == {
+        "run_id": ranking_result.run_id,
+        "event_set_id": event_manifest["event_set_id"],
+        "event_manifest_sha256": event_manifest_sha,
+        "ranking_set_id": ranking_result.ranking_set_id,
+        "ranking_manifest_sha256": ranking_sha,
+        "freeze_id": ranking_result.freeze_record["freeze_id"],
+        "reveal_id": reveal.reveal_id,
+        "reveal_manifest_sha256": reveal_manifest_sha,
+        "claim_id": "sha256:" + "c" * 64,
+        "attempt_no": 0,
+    }
+    assert access["event_source_registry"] == {
+        "source_count": len(expected_sources),
+        "source_digest": _content_id(expected_sources),
+        "sources": expected_sources,
+    }
+    assert holdout["holdout_event_source_count"] == len(expected_sources)
+    assert holdout["holdout_event_source_digest"] == _content_id(expected_sources)
+
+    def tampered_holdout_portfolio(name: str, mutate: Any) -> Path:
+        target = tmp_path / name
+        shutil.copytree(holdout_output, target)
+        _make_tree_writable(target)
+        tampered_manifest = json.loads(
+            (target / "manifest.json").read_text(encoding="utf-8")
+        )
+        tampered_build = json.loads(
+            (target / "build_config.json").read_text(encoding="utf-8")
+        )
+        mutate(tampered_manifest, tampered_build)
+        portfolio_set_id = _content_id(tampered_build["identity"])
+        tampered_build["portfolio_set_id"] = portfolio_set_id
+        tampered_manifest["portfolio_set_id"] = portfolio_set_id
+        (target / "build_config.json").write_text(
+            json.dumps(tampered_build, ensure_ascii=False, sort_keys=True, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+        _publish_manifest(target, tampered_manifest)
+        return target
+
+    tampered_authorization = tampered_holdout_portfolio(
+        "holdout-tampered-authorization",
+        lambda manifest, build: (
+            manifest["holdout_access"]["authorization"].update(
+                {"event_set_id": "different-event"}
+            ),
+            build["identity"]["holdout_authorization"].update(
+                {"event_set_id": "different-event"}
+            ),
+        ),
+    )
+    with pytest.raises(PortfolioArtifactError, match="authorization identity"):
+        verify_portfolio_artifact(tampered_authorization)
+
+    tampered_claim = tampered_holdout_portfolio(
+        "holdout-tampered-claim",
+        lambda manifest, build: (
+            manifest["holdout_access"]["authorization"].update(
+                {"claim_id": "sha256:" + "C" * 64}
+            ),
+            build["identity"]["holdout_authorization"].update(
+                {"claim_id": "sha256:" + "C" * 64}
+            ),
+        ),
+    )
+    with pytest.raises(PortfolioArtifactError, match="claim/attempt"):
+        verify_portfolio_artifact(tampered_claim)
+
+    tampered_registry = tampered_holdout_portfolio(
+        "holdout-tampered-registry",
+        lambda manifest, build: (
+            manifest["holdout_access"]["event_source_registry"].update(
+                {"source_count": len(expected_sources) + 1}
+            ),
+            build["identity"]["holdout_event_source_registry"].update(
+                {"source_count": len(expected_sources) + 1}
+            ),
+        ),
+    )
+    with pytest.raises(PortfolioArtifactError, match="registry digest"):
+        verify_portfolio_artifact(tampered_registry)
+
+    def fail_event_scan(*_args, **_kwargs):
+        raise AssertionError("complete portfolio resume scanned event outcomes")
+
+    monkeypatch.setattr(portfolio_pipeline, "_load_event_context", fail_event_scan)
+    resumed_holdout = build_portfolio_artifact(
+        inputs["snapshot"],
+        inputs["events"],
+        inputs["ranking"],
+        holdout_output,
+        inputs["config"],
+        split_id="HOLDOUT",
+        reveal_dir=reveal_dir,
+        resume=True,
+    )
+    assert resumed_holdout == holdout
 
 
 def test_source_manifest_chain_and_physical_hashes_are_enforced(

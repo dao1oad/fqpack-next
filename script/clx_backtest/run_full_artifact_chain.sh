@@ -19,6 +19,12 @@ ledger_dir="${CLX_HOLDOUT_LEDGER_DIR:-$runtime_root/holdout-ledger}"
 portfolio_root="${CLX_PORTFOLIO_ROOT:-$runtime_root/portfolios/$run_tag}"
 audit_dir="${CLX_AUDIT_DIR:-$runtime_root/audit}"
 state_dir="${CLX_CHAIN_STATE_DIR:-$run_root/full-chain}"
+identity_verifier="${CLX_RUN_IDENTITY_VERIFIER:-$run_root/verify-run-identity.py}"
+run_contract="${CLX_RUN_CONTRACT:-$run_root/run-contract.json}"
+event_preverification="$state_dir/event-preverification.json"
+event_preverification_sidecar="$state_dir/event-preverification.sha256"
+event_chain_marker="$state_dir/event-study.passed"
+event_chain_marker_sidecar="$state_dir/event-study.passed.sha256"
 split_plan="${CLX_SPLIT_PLAN:-$runtime_root/config/split-plan-v1.json}"
 ranking_config="${CLX_RANKING_CONFIG:-$runtime_root/config/ranking-config-v1.json}"
 portfolio_config="${CLX_PORTFOLIO_CONFIG:-$runtime_root/config/portfolio-config-v1.json}"
@@ -34,6 +40,20 @@ portfolio_gate_script="$repo_root/script/clx_backtest/gates/v2_portfolio_real.sh
 
 require_file() {
   [[ -f "$1" ]] || { echo "required CLX chain input is missing: $1" >&2; exit 1; }
+}
+
+require_readonly_file() {
+  require_file "$1"
+  [[ ! -L "$1" && "$(stat -c '%a' "$1")" == "444" ]] || {
+    echo "required CLX chain proof is not an immutable regular file: $1" >&2
+    exit 1
+  }
+}
+
+verify_run_identity() {
+  local phase="$1"
+  require_file "$identity_verifier"
+  python3 "$identity_verifier" "artifact-chain-$phase"
 }
 
 to_runtime_path() {
@@ -60,6 +80,7 @@ mark() {
 run_python() {
   local stage="$1" cpus="$2" memory="$3" name
   shift 3
+  verify_run_identity "before-$stage"
   name="clx-v2-${run_tag}-${stage}"
   name="$(printf '%s' "$name" | tr -c '[:alnum:]_.-' '-')"
   if docker container inspect "$name" >/dev/null 2>&1; then
@@ -72,10 +93,12 @@ run_python() {
     -e PYTHONPATH=/workspace -e "POLARS_MAX_THREADS=$polars_threads" \
     -v "$repo_root:/workspace:ro" -v "$runtime_root:/runtime" \
     -w /workspace --entrypoint python "$image" "$@"
+  verify_run_identity "after-$stage"
 }
 
 run_v2_gate() {
   local item="$1" gate="$2" direct_script="$3"
+  verify_run_identity "before-$gate"
   case "$gate_runner" in
     direct)
       bash "$direct_script"
@@ -84,6 +107,7 @@ run_v2_gate() {
       (cd "$repo_root" && python3 tools/governance.py run --item "$item" --gate "$gate")
       ;;
   esac
+  verify_run_identity "after-$gate"
 }
 
 case "$gate_runner" in
@@ -111,14 +135,32 @@ flock -n 9 || { echo "another CLX full artifact chain is active" >&2; exit 75; }
 exec > >(tee -a "$state_dir/chain.log") 2>&1
 
 echo "CLX full artifact chain started at $(timestamp) (gate runner: $gate_runner)"
+verify_run_identity "start"
 require_file "$run_root/.runner/finalized"
 require_file "$signal_dir/manifest.json"
 require_file "$signal_dir/manifest.sha256"
+require_file "$run_contract"
+require_file "${run_contract%.json}.sha256"
 require_file "$split_plan"
 require_file "$ranking_config"
 require_file "$portfolio_config"
 require_file "$calendar_path"
 docker image inspect "$image" >/dev/null
+image_source_commit="$(docker image inspect "$image" --format '{{ index .Config.Labels "org.freshquant.clx.source-commit" }}')"
+[[ "$image_source_commit" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "immutable engine image source commit is missing or malformed" >&2
+  exit 1
+}
+run_contract_sha256="$(awk 'NR == 1 {print $1}' "${run_contract%.json}.sha256")"
+run_contract_sha256="${run_contract_sha256#sha256:}"
+[[ "$run_contract_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+  echo "run contract SHA-256 sidecar is malformed" >&2
+  exit 1
+}
+[[ "$(sha256sum "$run_contract" | awk '{print $1}')" == "$run_contract_sha256" ]] || {
+  echo "run contract SHA-256 sidecar mismatch" >&2
+  exit 1
+}
 
 export CLX_REPO_ROOT="$repo_root"
 export CLX_RUNTIME_ROOT="$runtime_root"
@@ -137,6 +179,7 @@ export CLX_RANKING_CONFIG="$ranking_config"
 export CLX_PORTFOLIO_CONFIG="$portfolio_config"
 export CLX_RANKING_ACCESS_LOG="$ranking_access_log"
 export CLX_HOLDOUT_ACCESS_LOG="$holdout_access_log"
+export CLX_CHAIN_STATE_DIR="$state_dir"
 export CLX_ENGINE_IMAGE_ID="$image"
 export CLX_EXPECTED_ENGINE_SHA256
 export CLX_EXPECTED_ONLINE_ENGINE_SHA256
@@ -145,8 +188,13 @@ export CLX_EXPECTED_ONLINE_ENGINE_SHA256
 run_v2_gate WI-004 v2-causal-signal-real "$causal_gate_script"
 mark v2-causal-signal.passed
 if docker container inspect "$signal_container" >/dev/null 2>&1; then
-  docker stop -t 30 "$signal_container" >/dev/null || true
+  docker stop -t 30 "$signal_container" >/dev/null
+  [[ "$(docker inspect "$signal_container" --format '{{.State.Running}}')" == "false" ]] || {
+    echo "signal container is still running after stop: $signal_container" >&2
+    exit 1
+  }
 fi
+verify_run_identity "signal-stopped"
 
 snapshot_c="$(to_runtime_path "$snapshot_dir")"
 signal_c="$(to_runtime_path "$signal_dir")"
@@ -161,17 +209,47 @@ portfolio_config_c="$(to_runtime_path "$portfolio_config")"
 calendar_c="$(to_runtime_path "$calendar_path")"
 ranking_access_c="$(to_runtime_path "$ranking_access_log")"
 holdout_access_c="$(to_runtime_path "$holdout_access_log")"
+state_c="$(to_runtime_path "$state_dir")"
+event_preverification_c="$state_c/event-preverification.json"
+event_chain_marker_c="$state_c/event-study.passed"
+export CLX_EXPECTED_HOLDOUT_OUTPUT_DIR="$holdout_c"
 
 # 2. Materialize and deeply verify the event artifact. Always call the
 # idempotent builder so an existing artifact is checked against current input
 # identities and semantic build config, not only against its own hashes.
-run_python event-study 6 18g -m freshquant.backtest.clx.event_study build \
-  --snapshot-dir "$snapshot_c" --signal-dir "$signal_c" \
-  --output-dir "$event_c" --split-plan "$split_plan_c" \
-  --bootstrap-replicates 1000 --resume
-run_python event-study-verify 4 12g -m freshquant.backtest.clx.event_study verify \
-  --output-dir "$event_c"
-mark event-study.passed
+event_preverification_exists=0
+for path in \
+  "$event_preverification" "$event_preverification_sidecar" \
+  "$event_chain_marker" "$event_chain_marker_sidecar"; do
+  if [[ -e "$path" || -L "$path" ]]; then
+    event_preverification_exists=1
+  fi
+done
+if [[ "$event_preverification_exists" == "1" ]]; then
+  require_file "$event_preverification"
+  run_python event-preverification 2 4g \
+    -m freshquant.backtest.clx.event_study verify-preverification \
+    --output-dir "$event_c" --proof "$event_preverification_c" \
+    --chain-marker "$event_chain_marker_c" --engine-image-id "$image" \
+    --source-commit "$image_source_commit" \
+    --run-contract-sha256 "$run_contract_sha256"
+else
+  run_python event-study 6 18g -m freshquant.backtest.clx.event_study build \
+    --snapshot-dir "$snapshot_c" --signal-dir "$signal_c" \
+    --output-dir "$event_c" --split-plan "$split_plan_c" \
+    --bootstrap-replicates 1000 --resume
+  run_python event-study-verify 4 12g \
+    -m freshquant.backtest.clx.event_study verify \
+    --output-dir "$event_c" --proof-output "$event_preverification_c" \
+    --chain-marker-output "$event_chain_marker_c" --engine-image-id "$image" \
+    --source-commit "$image_source_commit" \
+    --run-contract-sha256 "$run_contract_sha256"
+fi
+for path in \
+  "$event_preverification" "$event_preverification_sidecar" \
+  "$event_chain_marker" "$event_chain_marker_sidecar"; do
+  require_readonly_file "$path"
+done
 
 # 3. Freeze TRAIN/VALIDATION ranking, verify it, then run V2 immediately.
 run_python ranking 12 28g -m freshquant.backtest.clx.ranking build \
@@ -186,11 +264,19 @@ mark ranking-v2.passed
 # 4. Only the frozen and V2-verified ranking may perform the unique reveal.
 # The reveal command is deliberately always invoked: with an existing artifact
 # it verifies identities and reconciles CLAIMED -> COMPLETE without a second
-# HOLDOUT read, closing a crash after atomic artifact publication.
+# HOLDOUT read. The explicit resume flag lets this same immutable run recover a
+# pre-publication CLAIMED attempt; a clean run still creates its initial claim.
 run_python holdout-reveal 12 28g -m freshquant.backtest.clx.ranking reveal \
   --event-dir "$event_c" --calendar "$calendar_c" \
   --ranking-dir "$ranking_c" --output-dir "$holdout_c" \
-  --ledger-dir "$ledger_c" --access-log "$holdout_access_c"
+  --ledger-dir "$ledger_c" --access-log "$holdout_access_c" \
+  --resume-claimed
+require_file "$holdout_access_log"
+chmod 0444 "$holdout_access_log"
+[[ "$(stat -c '%a' "$holdout_access_log")" == "444" ]] || {
+  echo "HOLDOUT access audit is not immutable: $holdout_access_log" >&2
+  exit 1
+}
 run_python holdout-verify 8 20g -m freshquant.backtest.clx.ranking verify \
   --holdout-dir "$holdout_c"
 mark holdout-reveal.passed

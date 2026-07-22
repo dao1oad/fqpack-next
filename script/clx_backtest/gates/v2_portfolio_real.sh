@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+export PYTHONOPTIMIZE=0
 
 repo_root="${CLX_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 runtime_root="${CLX_RUNTIME_ROOT:-/opt/fqpack/runtime/clx-backtest}"
@@ -11,6 +12,8 @@ ranking_dir="${CLX_RANKING_DIR:-$runtime_root/rankings/$run_tag}"
 holdout_dir="${CLX_HOLDOUT_DIR:-$runtime_root/holdout/$run_tag}"
 portfolio_root="${CLX_PORTFOLIO_ROOT:-$runtime_root/portfolios/$run_tag}"
 ledger_dir="${CLX_HOLDOUT_LEDGER_DIR:-$runtime_root/holdout-ledger}"
+holdout_access_log="${CLX_HOLDOUT_ACCESS_LOG:-$runtime_root/audit/holdout-$run_tag-event-access.jsonl}"
+expected_holdout_output="${CLX_EXPECTED_HOLDOUT_OUTPUT_DIR:-/runtime/holdout/$run_tag}"
 portfolio_config="${CLX_PORTFOLIO_CONFIG:-$runtime_root/config/portfolio-config-v1.json}"
 : "${CLX_ENGINE_IMAGE_ID:?CLX_ENGINE_IMAGE_ID must name the verified immutable engine image}"
 image="$CLX_ENGINE_IMAGE_ID"
@@ -29,6 +32,7 @@ for path in \
   "$holdout_dir/manifest.json" "$holdout_dir/manifest.sha256" \
   "$holdout_dir/holdout/rankings.json" \
   "$holdout_dir/audit/event_access.json" \
+  "$holdout_access_log" \
   "$portfolio_config"; do
   require_file "$path"
 done
@@ -44,13 +48,15 @@ docker image inspect "$image" >/dev/null
 docker run --rm -i --network none --pids-limit 2048 \
   --cpus "$gate_cpus" --memory "$gate_memory" --memory-swap "$gate_memory" \
   --user "$(id -u):$(id -g)" \
-  -e PYTHONPATH=/workspace -e "POLARS_MAX_THREADS=$polars_threads" \
+  -e PYTHONPATH=/workspace -e PYTHONOPTIMIZE=0 -e "POLARS_MAX_THREADS=$polars_threads" \
   -e CLX_EXPECTED_SNAPSHOT_ID="$snapshot_id" \
+  -e CLX_EXPECTED_HOLDOUT_OUTPUT_DIR="$expected_holdout_output" \
   -v "$repo_root:/workspace:ro" \
   -v "$snapshot_dir:/data/snapshot:ro" \
   -v "$event_dir:/data/event:ro" \
   -v "$ranking_dir:/data/ranking:ro" \
   -v "$holdout_dir:/data/holdout:ro" \
+  -v "$holdout_access_log:/data/audit/holdout-event-access.jsonl:ro" \
   -v "$portfolio_root:/data/portfolios:ro" \
   -v "$ledger_dir:/data/ledger:ro" \
   -v "$portfolio_config:/data/config/portfolio-config.json:ro" \
@@ -60,6 +66,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
+from collections import Counter
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -94,12 +103,51 @@ def same_hash(reference: object, digest: str) -> bool:
     return isinstance(reference, str) and reference.removeprefix("sha256:") == digest
 
 
+def event_bounds(meta: dict) -> tuple[date, date, bool]:
+    if isinstance(meta.get("min_reveal_date"), str):
+        return (
+            date.fromisoformat(meta["min_reveal_date"]),
+            date.fromisoformat(meta["max_reveal_date"]),
+            True,
+        )
+    year = int(meta["partition"]["reveal_year"])
+    return date(year, 1, 1), date(year, 12, 31), False
+
+
+def holdout_event_source_registry(event_manifest: dict) -> dict:
+    windows = {
+        item["split_id"]: item for item in event_manifest["split_plan"]["windows"]
+    }
+    context_start = date.fromisoformat(windows["TRAIN"]["start_date"])
+    context_end = date.fromisoformat(windows["HOLDOUT"]["end_date"])
+    sources = []
+    for meta in event_manifest["artifacts"]:
+        if meta.get("dataset") != "event_outcomes":
+            continue
+        minimum, maximum, exact = event_bounds(meta)
+        if maximum < context_start or minimum > context_end:
+            continue
+        assert not (exact and minimum <= context_end < maximum)
+        sources.append(
+            {"path": str(meta["path"]), "file_sha256": str(meta["file_sha256"])}
+        )
+    sources.sort(key=lambda item: item["path"])
+    assert sources and len({item["path"] for item in sources}) == len(sources)
+    return {
+        "source_count": len(sources),
+        "source_digest": _content_id(sources),
+        "sources": sources,
+    }
+
+
 snapshot_root = Path("/data/snapshot")
 event_root = Path("/data/event")
 ranking_root = Path("/data/ranking")
 holdout_root = Path("/data/holdout")
 portfolios_root = Path("/data/portfolios")
 ledger_root = Path("/data/ledger")
+external_access_log = Path("/data/audit/holdout-event-access.jsonl")
+assert stat.S_IMODE(external_access_log.stat().st_mode) == 0o444
 contract = load_json(Path("/data/config/portfolio-config.json"))
 
 snapshot, snapshot_sha = hashed_manifest(snapshot_root)
@@ -120,6 +168,20 @@ assert same_hash(holdout["ranking_manifest_sha256"], ranking_sha)
 assert holdout["successful_holdout_reads"] == 1
 assert holdout_verification["status"] == "verified"
 assert same_hash(holdout_verification["manifest_sha256"], holdout_sha)
+upstream_reveal_audit = load_json(holdout_root / "audit/event_access.json")
+upstream_reveal_allows = [
+    row
+    for row in upstream_reveal_audit
+    if row.get("operation") == "REVEAL_HOLDOUT"
+    and row.get("split_id") == "HOLDOUT"
+    and row.get("purpose") == "FINAL_REVEAL"
+    and row.get("decision") == "ALLOW"
+    and row.get("reason") == "FROZEN_RULES_ONE_TIME_REVEAL"
+    and row.get("freeze_id") == holdout["freeze_id"]
+]
+assert len(upstream_reveal_allows) == 1
+upstream_reveal_allow = upstream_reveal_allows[0]
+expected_holdout_event_sources = holdout_event_source_registry(event)
 
 rank_rows = list(
     pl.read_parquet(ranking_root / "rankings/combo_rankings.parquet")
@@ -227,13 +289,41 @@ for split in SPLITS:
     if split == "HOLDOUT":
         assert access["state"] == "REVEALED"
         assert access["successful_holdout_reads"] == 1
+        assert access["upstream_reveal_successful_reads"] == 1
         assert access["reveal_id"] == holdout["reveal_id"]
         assert source["reveal_id"] == holdout["reveal_id"]
         assert same_hash(source["reveal_manifest_sha256"], holdout_sha)
+        authorization = access["authorization"]
+        assert authorization == identity["holdout_authorization"]
+        assert authorization == {
+            "run_id": ranking["run_id"],
+            "event_set_id": event["event_set_id"],
+            "event_manifest_sha256": event_sha,
+            "ranking_set_id": ranking["ranking_set_id"],
+            "ranking_manifest_sha256": ranking_sha,
+            "freeze_id": ranking["freeze_id"],
+            "reveal_id": holdout["reveal_id"],
+            "reveal_manifest_sha256": holdout_sha,
+            "claim_id": upstream_reveal_allow["claim_id"],
+            "attempt_no": upstream_reveal_allow["attempt_no"],
+        }
+        source_registry = access["event_source_registry"]
+        assert source_registry == identity["holdout_event_source_registry"]
+        assert source_registry == expected_holdout_event_sources
+        assert verification["upstream_reveal_successful_reads"] == 1
+        assert verification["holdout_event_source_count"] == source_registry[
+            "source_count"
+        ]
+        assert verification["holdout_event_source_digest"] == source_registry[
+            "source_digest"
+        ]
     else:
         assert access["state"] == "NOT_ACCESSED"
         assert access["successful_holdout_reads"] == 0
+        assert access["upstream_reveal_successful_reads"] == 0
         assert access["reveal_id"] is None
+        assert access["authorization"] is None
+        assert access["event_source_registry"] is None
         assert source["reveal_id"] is None
         assert source["reveal_manifest_sha256"] is None
 
@@ -315,6 +405,7 @@ ledger = matching[0]
 assert ledger["ledger_schema_version"] == "clx-holdout-ledger-v1"
 assert ledger["state"] == "COMPLETE"
 assert ledger["reveal_id"] == holdout["reveal_id"]
+assert ledger.get("output_dir") == os.environ["CLX_EXPECTED_HOLDOUT_OUTPUT_DIR"]
 claim_payload = {
     "ledger_schema_version": ledger["ledger_schema_version"],
     "freeze_id": ledger["freeze_id"],
@@ -322,11 +413,142 @@ claim_payload = {
     "state": "CLAIMED",
 }
 assert ledger["claim_id"] == _content_id(claim_payload)
+resume_count = ledger.get("resume_count")
+resume_audit = ledger.get("resume_audit")
+assert isinstance(resume_count, int) and not isinstance(resume_count, bool)
+assert resume_count >= 0 and isinstance(resume_audit, list)
+assert resume_audit == [
+    {
+        "action": "RESUME_CLAIMED",
+        "claim_id": ledger["claim_id"],
+        "freeze_id": ledger["freeze_id"],
+        "ranking_set_id": ledger["ranking_set_id"],
+        "resume_count": sequence,
+    }
+    for sequence in range(1, resume_count + 1)
+]
+assert logical_reveals[0].get("claim_id") == ledger["claim_id"]
+assert logical_reveals[0].get("attempt_no") == resume_count
+assert all(row.get("attempt_no") == resume_count for row in holdout_opens)
 assert sum(
     state.get("state") == "COMPLETE"
     and state.get("ranking_set_id") == ranking["ranking_set_id"]
     for state in ledger_states
 ) == 1
+
+raw_external_lines = external_access_log.read_bytes().splitlines(keepends=True)
+assert raw_external_lines and all(line.endswith(b"\n") for line in raw_external_lines)
+external_access = [json.loads(line) for line in raw_external_lines]
+assert all(row.get("run_id") == ranking["run_id"] for row in external_access)
+assert all(
+    row.get("schema_version") == "clx-event-file-access-v1"
+    for row in external_access
+)
+assert all(row.get("freeze_id") == ranking["freeze_id"] for row in external_access)
+assert all(row.get("claim_id") == ledger["claim_id"] for row in external_access)
+assert all(
+    isinstance(row.get("attempt_no"), int)
+    and not isinstance(row.get("attempt_no"), bool)
+    and 0 <= row["attempt_no"] <= resume_count
+    for row in external_access
+)
+repair_rows = []
+byte_offset = 0
+for index, (raw_line, row) in enumerate(
+    zip(raw_external_lines, external_access, strict=True)
+):
+    if row.get("operation") == "REPAIR_UNTERMINATED_JSONL_TAIL":
+        repair_rows.append(row)
+        assert row.get("purpose") == "RECOVER_EXTERNAL_AUDIT"
+        assert row.get("decision") == "ALLOW"
+        assert row.get("reason") == "UNTERMINATED_JSONL_TAIL_TRUNCATED"
+        assert row.get("repair_sequence") == len(repair_rows)
+        assert row.get("truncate_offset") == byte_offset
+        assert row.get("complete_records_before_repair") == index
+        assert isinstance(row.get("truncated_bytes"), int)
+        assert not isinstance(row.get("truncated_bytes"), bool)
+        assert row["truncated_bytes"] > 0
+        digest = row.get("truncated_sha256")
+        assert isinstance(digest, str) and len(digest) == 64
+        assert all(character in "0123456789abcdef" for character in digest)
+        assert isinstance(row.get("attempt_no"), int)
+        assert not isinstance(row.get("attempt_no"), bool)
+        assert 1 <= row["attempt_no"] <= resume_count
+        assert index + 1 < len(external_access)
+        recovered = external_access[index + 1]
+        assert row.get("recovery_operation") == recovered.get("operation")
+        assert recovered.get("operation") in {"REVEAL_HOLDOUT", "OPEN_PARQUET"}
+        assert recovered.get("run_id") == row.get("run_id")
+        assert recovered.get("freeze_id") == row.get("freeze_id")
+        assert recovered.get("claim_id") == row.get("claim_id")
+        assert recovered.get("attempt_no") == row.get("attempt_no")
+    byte_offset += len(raw_line)
+assert len({row["attempt_no"] for row in repair_rows}) == len(repair_rows)
+logical_reveal_attempts = [
+    row
+    for row in external_access
+    if row.get("operation") == "REVEAL_HOLDOUT"
+    and row.get("purpose") == "FINAL_REVEAL"
+    and row.get("decision") == "ALLOW"
+    and row.get("reason") == "FROZEN_RULES_ONE_TIME_REVEAL"
+]
+assert logical_reveal_attempts
+assert len(logical_reveal_attempts) <= resume_count + 1
+assert any(row["attempt_no"] == resume_count for row in logical_reveal_attempts)
+assert len({row["attempt_no"] for row in logical_reveal_attempts}) == len(
+    logical_reveal_attempts
+)
+final_logical_reveals = [
+    row for row in logical_reveal_attempts if row["attempt_no"] == resume_count
+]
+assert len(final_logical_reveals) == 1
+assert final_logical_reveals[0] == logical_reveals[0]
+external_holdout_opens = [
+    row
+    for row in external_access
+    if row.get("operation") == "OPEN_PARQUET" and row.get("holdout") is True
+]
+assert external_holdout_opens
+assert len(external_holdout_opens) >= len(holdout_opens)
+assert len(external_holdout_opens) <= len(logical_reveal_attempts) * len(
+    holdout_opens
+)
+assert all(
+    row["attempt_no"] in {item["attempt_no"] for item in logical_reveal_attempts}
+    for row in external_holdout_opens
+)
+final_external_holdout_opens = [
+    row for row in external_holdout_opens if row["attempt_no"] == resume_count
+]
+
+
+def canonical_rows(rows):
+    return Counter(
+        json.dumps(row, ensure_ascii=False, sort_keys=True) for row in rows
+    )
+
+
+assert canonical_rows(final_external_holdout_opens) == canonical_rows(holdout_opens)
+final_open_shapes = {
+    (row.get("path"), row.get("purpose"), row.get("dataset"), row.get("decision"))
+    for row in holdout_opens
+}
+for attempt in {row["attempt_no"] for row in logical_reveal_attempts}:
+    attempt_opens = [
+        row for row in external_holdout_opens if row["attempt_no"] == attempt
+    ]
+    assert len(attempt_opens) <= len(holdout_opens)
+    assert all(
+        (
+            row.get("path"),
+            row.get("purpose"),
+            row.get("dataset"),
+            row.get("decision"),
+        )
+        in final_open_shapes
+        for row in attempt_opens
+    )
+holdout_access_log_sha256 = hashlib.sha256(external_access_log.read_bytes()).hexdigest()
 
 print(
     json.dumps(
@@ -344,6 +566,23 @@ print(
             },
             "logical_reveals": 1,
             "holdout_parquet_opens": len(holdout_opens),
+            "logical_reveal_attempts": len(logical_reveal_attempts),
+            "external_holdout_parquet_opens": len(external_holdout_opens),
+            "authorized_resume_count": resume_count,
+            "audit_tail_repairs": len(repair_rows),
+            "audit_tail_repaired_bytes": sum(
+                row["truncated_bytes"] for row in repair_rows
+            ),
+            "holdout_access_log_sha256": holdout_access_log_sha256,
+            "holdout_portfolio_event_source_count": expected_holdout_event_sources[
+                "source_count"
+            ],
+            "holdout_portfolio_event_source_digest": expected_holdout_event_sources[
+                "source_digest"
+            ],
+            "holdout_portfolio_reveal_attempt_no": upstream_reveal_allow[
+                "attempt_no"
+            ],
             "reconciliation_rows": reconciliation_rows,
             "max_reconciliation_error": str(max_reconciliation_error),
             "order_rows": order_rows,

@@ -470,12 +470,13 @@ def verify_holdout_proof(
     ranking_manifest: Mapping[str, Any],
     ranking_manifest_sha256: str,
     selected_combo_ids: Sequence[str],
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
     root = Path(reveal_dir).resolve()
     verify_holdout_artifact(root)
     manifest, manifest_sha = _read_hashed_manifest(root, "HOLDOUT reveal")
     expected = {
         "holdout_state": "REVEALED",
+        "run_id": ranking_manifest.get("run_id"),
         "ranking_set_id": ranking_manifest.get("ranking_set_id"),
         "freeze_id": ranking_manifest.get("freeze_id"),
         "ranking_manifest_sha256": ranking_manifest_sha256,
@@ -499,7 +500,63 @@ def verify_holdout_proof(
         selected_combo_ids
     ):
         raise PortfolioArtifactError("HOLDOUT reveal changed frozen portfolio order")
-    return manifest, manifest_sha
+    audit_meta = next(
+        (
+            item
+            for item in manifest.get("artifacts", [])
+            if item.get("dataset") == "event_access_audit"
+        ),
+        None,
+    )
+    if not isinstance(audit_meta, Mapping):
+        raise PortfolioArtifactError("HOLDOUT reveal proof has no access audit")
+    audit_path = _verified_source_path(root, audit_meta, "HOLDOUT reveal audit")
+    try:
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PortfolioArtifactError(
+            "HOLDOUT reveal access audit is unreadable"
+        ) from exc
+    reveal_allows = [
+        row
+        for row in audit
+        if isinstance(row, Mapping)
+        and row.get("operation") == "REVEAL_HOLDOUT"
+        and row.get("split_id") == "HOLDOUT"
+        and row.get("purpose") == "FINAL_REVEAL"
+        and row.get("decision") == "ALLOW"
+        and row.get("reason") == "FROZEN_RULES_ONE_TIME_REVEAL"
+        and row.get("freeze_id") == manifest.get("freeze_id")
+    ]
+    if len(reveal_allows) != 1:
+        raise PortfolioArtifactError(
+            "HOLDOUT reveal access audit has no unique authorization"
+        )
+    reveal_access = reveal_allows[0]
+    claim_id = reveal_access.get("claim_id")
+    attempt_no = reveal_access.get("attempt_no")
+    if (
+        reveal_access.get("run_id") != manifest.get("run_id")
+        or not isinstance(claim_id, str)
+        or not claim_id.startswith("sha256:")
+        or len(claim_id) != 71
+        or any(
+            character not in "0123456789abcdef"
+            for character in claim_id.removeprefix("sha256:")
+        )
+        or not isinstance(attempt_no, int)
+        or isinstance(attempt_no, bool)
+        or attempt_no < 0
+    ):
+        raise PortfolioArtifactError("HOLDOUT reveal authorization identity is invalid")
+    return (
+        manifest,
+        manifest_sha,
+        {
+            "claim_id": claim_id,
+            "attempt_no": attempt_no,
+        },
+    )
 
 
 def _artifact_date_bounds(
@@ -516,7 +573,9 @@ def _artifact_date_bounds(
     raise PortfolioArtifactError("event artifact has no auditable reveal-date bounds")
 
 
-def _event_paths(root: Path, manifest: Mapping[str, Any], split_id: str) -> list[Path]:
+def _event_source_metas(
+    manifest: Mapping[str, Any], split_id: str
+) -> list[Mapping[str, Any]]:
     windows = manifest.get("split_plan", {}).get("windows", [])
     by_split = {str(item.get("split_id")): item for item in windows}
     if set(by_split) != set(_ALLOWED_SPLITS):
@@ -529,7 +588,7 @@ def _event_paths(root: Path, manifest: Mapping[str, Any], split_id: str) -> list
         "VALIDATION": holdout_start,
         "HOLDOUT": None,
     }[split_id]
-    paths: list[Path] = []
+    metas: list[Mapping[str, Any]] = []
     for meta in manifest.get("artifacts", []):
         if meta.get("dataset") != "event_outcomes":
             continue
@@ -553,14 +612,51 @@ def _event_paths(root: Path, manifest: Mapping[str, Any], split_id: str) -> list
             raise PortfolioArtifactError(
                 "year-partitioned event artifact may straddle the split boundary"
             )
-        paths.append(_verified_source_path(root, meta, "event outcome"))
-    if not paths:
+        metas.append(meta)
+    if not metas:
         raise PortfolioArtifactError("event outcome artifacts are missing")
-    return sorted(paths)
+    return sorted(metas, key=lambda item: str(item.get("path", "")))
+
+
+def _event_source_registry(
+    metas: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    sources: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for meta in metas:
+        path = meta.get("path")
+        file_sha256 = meta.get("file_sha256", meta.get("sha256"))
+        if (
+            not isinstance(path, str)
+            or not path
+            or path in seen
+            or not isinstance(file_sha256, str)
+            or not file_sha256
+        ):
+            raise PortfolioArtifactError("event outcome source registry is invalid")
+        seen.add(path)
+        sources.append({"path": path, "file_sha256": file_sha256})
+    sources.sort(key=lambda item: item["path"])
+    return {
+        "source_count": len(sources),
+        "source_digest": _content_id(sources),
+        "sources": sources,
+    }
+
+
+def _event_paths(root: Path, manifest: Mapping[str, Any], split_id: str) -> list[Path]:
+    return [
+        _verified_source_path(root, meta, "event outcome")
+        for meta in _event_source_metas(manifest, split_id)
+    ]
 
 
 def _load_event_context(
-    event_root: Path, manifest: Mapping[str, Any], split_id: str
+    event_root: Path,
+    manifest: Mapping[str, Any],
+    split_id: str,
+    *,
+    expected_source_registry: Mapping[str, Any] | None = None,
 ) -> pl.DataFrame:
     context = {
         "TRAIN": ["TRAIN"],
@@ -583,8 +679,20 @@ def _load_event_context(
         "split_id",
         "split_boundary_status",
     ]
+    source_metas = _event_source_metas(manifest, split_id)
+    source_registry = _event_source_registry(source_metas)
+    if expected_source_registry is not None and source_registry != dict(
+        expected_source_registry
+    ):
+        raise PortfolioArtifactError(
+            "event outcome source registry changed before portfolio scan"
+        )
+    paths = [
+        _verified_source_path(event_root, meta, "event outcome")
+        for meta in source_metas
+    ]
     frame = (
-        pl.scan_parquet(_event_paths(event_root, manifest, split_id))
+        pl.scan_parquet(paths)
         .filter(pl.col("split_id").is_in(context))
         .select(required)
         .collect(engine="streaming")
@@ -1333,12 +1441,13 @@ def build_portfolio_artifact(
 
     reveal_manifest: dict[str, Any] | None = None
     reveal_manifest_sha: str | None = None
+    reveal_access: dict[str, Any] | None = None
     if split_id == "HOLDOUT":
         if reveal_dir is None:
             raise PortfolioArtifactError(
                 "HOLDOUT requires the unique ranking reveal artifact"
             )
-        reveal_manifest, reveal_manifest_sha = verify_holdout_proof(
+        reveal_manifest, reveal_manifest_sha, reveal_access = verify_holdout_proof(
             reveal_dir,
             ranking_manifest=ranking_manifest,
             ranking_manifest_sha256=ranking_manifest_sha,
@@ -1360,6 +1469,24 @@ def build_portfolio_artifact(
         "portfolio_config_sha256": contract.file_sha256,
         "model_registry_sha256": model_registry_sha256(),
     }
+    holdout_authorization: dict[str, Any] | None = None
+    holdout_event_source_registry: dict[str, Any] | None = None
+    if reveal_manifest is not None and reveal_access is not None:
+        holdout_authorization = {
+            "run_id": event_manifest["run_id"],
+            "event_set_id": event_manifest["event_set_id"],
+            "event_manifest_sha256": event_manifest_sha,
+            "ranking_set_id": ranking_manifest["ranking_set_id"],
+            "ranking_manifest_sha256": ranking_manifest_sha,
+            "freeze_id": ranking_manifest["freeze_id"],
+            "reveal_id": reveal_manifest["reveal_id"],
+            "reveal_manifest_sha256": reveal_manifest_sha,
+            "claim_id": reveal_access["claim_id"],
+            "attempt_no": reveal_access["attempt_no"],
+        }
+        holdout_event_source_registry = _event_source_registry(
+            _event_source_metas(event_manifest, split_id)
+        )
     portfolio_configs = {
         frozen.definition.combo_id: PortfolioConfig(
             run_id=str(event_manifest["run_id"]),
@@ -1382,7 +1509,7 @@ def build_portfolio_artifact(
         }
         for frozen in selected
     ]
-    identity = {
+    identity: dict[str, Any] = {
         "schema_version": PORTFOLIO_SCHEMA_VERSION,
         "split_id": split_id,
         "source_identity": source_identity,
@@ -1394,6 +1521,9 @@ def build_portfolio_artifact(
         "execution_price_domain": "RAW",
         "negative_signal_priority": "EXIT_AND_SAME_DAY_BUY_VETO",
     }
+    if split_id == "HOLDOUT":
+        identity["holdout_authorization"] = holdout_authorization
+        identity["holdout_event_source_registry"] = holdout_event_source_registry
     portfolio_set_id = _content_id(identity)
     build_config = {
         "schema_version": PORTFOLIO_SCHEMA_VERSION,
@@ -1450,7 +1580,12 @@ def build_portfolio_artifact(
             sessions = tuple(session_frame["trade_date"].to_list())
             if not sessions:
                 raise PortfolioArtifactError("portfolio split has no market sessions")
-            events = _load_event_context(event_root, event_manifest, split_id)
+            events = _load_event_context(
+                event_root,
+                event_manifest,
+                split_id,
+                expected_source_registry=holdout_event_source_registry,
+            )
             all_decisions = build_frozen_combo_decisions(
                 events, calendar, selected, split_id
             )
@@ -1550,7 +1685,14 @@ def build_portfolio_artifact(
                     if reveal_manifest is not None
                     else 0
                 ),
+                "upstream_reveal_successful_reads": (
+                    reveal_manifest["successful_holdout_reads"]
+                    if reveal_manifest is not None
+                    else 0
+                ),
                 "reveal_id": source_identity["reveal_id"],
+                "authorization": holdout_authorization,
+                "event_source_registry": holdout_event_source_registry,
             },
             "frozen_order": selected_ids,
             "source_frozen_ranks": [frozen.source_frozen_rank for frozen in selected],
@@ -1630,15 +1772,111 @@ def verify_portfolio_artifact(output_dir: str | Path) -> dict[str, Any]:
     ):
         raise PortfolioArtifactError("portfolio source identity mismatch")
     holdout = manifest.get("holdout_access", {})
+    if not isinstance(holdout, Mapping):
+        raise PortfolioArtifactError("portfolio HOLDOUT access contract is invalid")
+    upstream_reveal_reads = holdout.get("upstream_reveal_successful_reads")
     if split_id == "HOLDOUT":
         if (
             holdout.get("state") != "REVEALED"
             or holdout.get("successful_holdout_reads") != 1
+            or upstream_reveal_reads != 1
             or not holdout.get("reveal_id")
         ):
             raise PortfolioArtifactError("HOLDOUT portfolio has no unique reveal proof")
-    elif holdout.get("successful_holdout_reads") != 0:
-        raise PortfolioArtifactError("non-HOLDOUT portfolio reports a HOLDOUT read")
+        authorization = holdout.get("authorization")
+        expected_authorization = identity.get("holdout_authorization")
+        if (
+            not isinstance(authorization, Mapping)
+            or authorization != expected_authorization
+            or authorization.get("run_id") != manifest.get("run_id")
+            or authorization.get("event_set_id") != source_identity.get("event_set_id")
+            or authorization.get("event_manifest_sha256")
+            != source_identity.get("event_manifest_sha256")
+            or authorization.get("ranking_set_id")
+            != source_identity.get("ranking_set_id")
+            or authorization.get("ranking_manifest_sha256")
+            != source_identity.get("ranking_manifest_sha256")
+            or authorization.get("freeze_id") != source_identity.get("freeze_id")
+            or authorization.get("reveal_id") != source_identity.get("reveal_id")
+            or authorization.get("reveal_manifest_sha256")
+            != source_identity.get("reveal_manifest_sha256")
+        ):
+            raise PortfolioArtifactError(
+                "HOLDOUT portfolio authorization identity mismatch"
+            )
+        claim_id = authorization.get("claim_id")
+        attempt_no = authorization.get("attempt_no")
+        if (
+            not isinstance(claim_id, str)
+            or not claim_id.startswith("sha256:")
+            or len(claim_id) != 71
+            or any(
+                character not in "0123456789abcdef"
+                for character in claim_id.removeprefix("sha256:")
+            )
+            or not isinstance(attempt_no, int)
+            or isinstance(attempt_no, bool)
+            or attempt_no < 0
+        ):
+            raise PortfolioArtifactError(
+                "HOLDOUT portfolio authorization claim/attempt is invalid"
+            )
+        registry = holdout.get("event_source_registry")
+        if not isinstance(registry, Mapping) or registry != identity.get(
+            "holdout_event_source_registry"
+        ):
+            raise PortfolioArtifactError(
+                "HOLDOUT portfolio event source registry mismatch"
+            )
+        sources = registry.get("sources")
+        if not isinstance(sources, list) or not sources:
+            raise PortfolioArtifactError(
+                "HOLDOUT portfolio event source registry is empty"
+            )
+        canonical_sources: list[dict[str, str]] = []
+        seen_source_paths: set[str] = set()
+        for item in sources:
+            if not isinstance(item, Mapping):
+                raise PortfolioArtifactError(
+                    "HOLDOUT portfolio event source registry is invalid"
+                )
+            path = item.get("path")
+            file_sha256 = item.get("file_sha256")
+            if (
+                not isinstance(path, str)
+                or not path
+                or path in seen_source_paths
+                or not isinstance(file_sha256, str)
+                or not file_sha256
+            ):
+                raise PortfolioArtifactError(
+                    "HOLDOUT portfolio event source registry is invalid"
+                )
+            seen_source_paths.add(path)
+            canonical_sources.append({"path": path, "file_sha256": file_sha256})
+        canonical_sources.sort(key=lambda item: item["path"])
+        if (
+            sources != canonical_sources
+            or registry.get("source_count") != len(canonical_sources)
+            or registry.get("source_digest") != _content_id(canonical_sources)
+        ):
+            raise PortfolioArtifactError(
+                "HOLDOUT portfolio event source registry digest mismatch"
+            )
+    else:
+        if holdout.get("successful_holdout_reads") != 0 or upstream_reveal_reads != 0:
+            raise PortfolioArtifactError(
+                "non-HOLDOUT portfolio reports an upstream HOLDOUT reveal"
+            )
+        if (
+            holdout.get("authorization") is not None
+            or holdout.get("event_source_registry") is not None
+            or identity.get("holdout_authorization") is not None
+            or identity.get("holdout_event_source_registry") is not None
+        ):
+            raise PortfolioArtifactError(
+                "non-HOLDOUT portfolio carries HOLDOUT authorization"
+            )
     if holdout.get("reveal_id") != source_identity.get("reveal_id"):
         raise PortfolioArtifactError("portfolio reveal identity mismatch")
 
@@ -1758,6 +1996,17 @@ def verify_portfolio_artifact(output_dir: str | Path) -> dict[str, Any]:
         "combo_count": manifest["combo_count"],
         "holdout_state": holdout.get("state"),
         "successful_holdout_reads": holdout.get("successful_holdout_reads"),
+        "upstream_reveal_successful_reads": upstream_reveal_reads,
+        "holdout_event_source_count": (
+            holdout.get("event_source_registry", {}).get("source_count")
+            if split_id == "HOLDOUT"
+            else 0
+        ),
+        "holdout_event_source_digest": (
+            holdout.get("event_source_registry", {}).get("source_digest")
+            if split_id == "HOLDOUT"
+            else None
+        ),
         **{f"{dataset}_rows": rows for dataset, rows in sorted(dataset_rows.items())},
     }
 

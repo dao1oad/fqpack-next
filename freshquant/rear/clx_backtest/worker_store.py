@@ -84,7 +84,7 @@ class MongoWorkerStore:
         for record in self.db.freeze_records.find(
             {"state": "REVEALING", "reveal_count": 0}
         ).limit(remaining):
-            if self._reconcile_holdout_terminal(record):
+            if self.reconcile_holdout_terminal(record):
                 reconciled += 1
         return reconciled
 
@@ -183,7 +183,7 @@ class MongoWorkerStore:
             return None
         return attachment
 
-    def _reconcile_holdout_terminal(
+    def reconcile_holdout_terminal(
         self,
         record: Mapping[str, object],
         *,
@@ -774,7 +774,7 @@ class MongoWorkerStore:
                 }
             )
             if isinstance(record, Mapping):
-                self._reconcile_holdout_terminal(record, terminal_job=terminal_job)
+                self.reconcile_holdout_terminal(record, terminal_job=terminal_job)
         self.emit_progress(
             terminal_job,
             f"JOB_{status}",
