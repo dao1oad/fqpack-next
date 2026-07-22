@@ -11,6 +11,11 @@ ENGINE_SCRIPTS = (
     REPO_ROOT / "script/clx_backtest/run_full_artifact_chain.sh",
 )
 ENGINE_UNIT_GATE = REPO_ROOT / "script/clx_backtest/gates/engine_unit_fixture.sh"
+ISOLATED_NATIVE_BUILD_GATES = (
+    REPO_ROOT / "script/clx_backtest/gates/trigger_mask_fixture.sh",
+    REPO_ROOT / "script/clx_backtest/gates/prefix_performance_fixture.sh",
+    REPO_ROOT / "script/clx_backtest/gates/signal_facts_real_sample.sh",
+)
 
 
 def test_formal_chain_scripts_require_an_operator_selected_engine_image() -> None:
@@ -74,3 +79,19 @@ def test_engine_unit_gate_runs_only_the_signal_and_engine_unit_boundary() -> Non
     ]
     assert "python -m pytest -q freshquant/tests/clx_backtest\n" not in source
     assert "test_trigger_masks.py" not in source
+
+
+def test_every_isolated_native_source_build_pins_pybind11() -> None:
+    discovered = {
+        path
+        for path in (REPO_ROOT / "script/clx_backtest/gates").glob("*.sh")
+        if "setup.py build_ext --inplace" in path.read_text(encoding="utf-8")
+    }
+    assert discovered == set(ISOLATED_NATIVE_BUILD_GATES)
+
+    for script in ISOLATED_NATIVE_BUILD_GATES:
+        source = script.read_text(encoding="utf-8")
+        assert source.count("pybind11==3.0.2") == 1, script
+        assert source.index("pybind11==3.0.2") < source.index(
+            "setup.py build_ext --inplace"
+        )

@@ -223,6 +223,7 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 - 默认 worker 限额为 `4 CPU / 12G`；可用 `FQ_CLX_WORKER_CPUS / FQ_CLX_WORKER_MEM` 覆盖。
 - `/api/clx-backtest/health` 检查派生 Mongo 和 API 控制面。
 - `engine_unit_fixture.sh` 只运行 `test_signal.py + test_engine.py`，验证信号编解码和 engine adapter 单元边界；trigger mask、隔离 native build、因果事实与性能分别由对应 Gate 验证，不把整个 `freshquant/tests/clx_backtest` 目录混入该 Gate。
+- `trigger_mask_fixture.sh`、`prefix_performance_fixture.sh` 与 `signal_facts_real_sample.sh` 在隔离的 `python:3.12-bookworm` 中从源码构建 native 模块，并固定安装包含 `pybind11==3.0.2` 的构建依赖；`setup.py` 同时声明 Cython 与 pybind11 extension，Gate 不依赖基础镜像偶然预装的包。
 - 正式 artifact/V2 脚本要求显式传入不可变 `CLX_ENGINE_IMAGE_ID`；causal/full-chain 还要求 `CLX_EXPECTED_ENGINE_SHA256` 和启动前冻结的 `CLX_EXPECTED_ONLINE_ENGINE_SHA256`。在线模块基线必须同时记录在不可变 `run-contract.json` 的 `engine.online_module_sha256`，Gate 核对环境 pin、run contract 与实际在线模块，任一缺失或不一致时立即失败。
 - 真实交付门禁为 `v2_causal_signal_real.sh`、`v2_ranking_real.sh`、`v2_portfolio_real.sh`、`v2_frontend_real.sh` 和 `v2_e2e_real.sh`；后两者只读取已经揭示并完成投影的真实 run，不触发第二次 HOLDOUT 揭示。
 - worker 容器 healthcheck 使用：
