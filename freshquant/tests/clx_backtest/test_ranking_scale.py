@@ -551,7 +551,9 @@ def test_claimed_crash_fails_closed_before_any_holdout_open(tmp_path: Path) -> N
     )
     ledger = PersistentHoldoutLedger(tmp_path / "crash-ledger")
     claim = ledger.claim(result.freeze_record, ranking_set_id=result.ranking_set_id)
-    assert ledger.state(result.freeze_record["freeze_id"])["claim_id"] == claim.claim_id
+    state = ledger.state(result.freeze_record["freeze_id"])
+    assert state is not None
+    assert state["claim_id"] == claim.claim_id
 
     opens: list[dict[str, object]] = []
     restarted = EventArtifactOutcomeStore(

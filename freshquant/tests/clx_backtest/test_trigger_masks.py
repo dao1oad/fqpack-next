@@ -147,7 +147,11 @@ def test_s0002_legacy_entrypoint3_keeps_engulfing_base_predicate_clear() -> None
 
     bars = fixture["ohlcv"]
     result = FqCopilotClxEngine().calculate_all(
-        bars["high"], bars["low"], bars["open"], bars["close"], bars["volume"],
+        bars["high"],
+        bars["low"],
+        bars["open"],
+        bars["close"],
+        bars["volume"],
         options=ClxEngineOptions(**fixture["options"]),
     )
     for bar_index in s0002_entrypoint3:
@@ -190,9 +194,7 @@ def test_native_detailed_rejects_length_or_vector_mismatch(
 def test_native_detailed_accepts_zero_length_vectors() -> None:
     fqcopilot = _detailed_native()
 
-    detailed = fqcopilot.fq_clxs_all_detailed(
-        0, [], [], [], [], [], 1560, 0, 0
-    )
+    detailed = fqcopilot.fq_clxs_all_detailed(0, [], [], [], [], [], 1560, 0, 0)
 
     assert detailed == {
         "signals_by_model": [[] for _ in range(18)],

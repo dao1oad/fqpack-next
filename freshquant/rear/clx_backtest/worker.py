@@ -145,7 +145,7 @@ class ClxBacktestWorker:
             existing = job.get("resolved_lineage")
             if not isinstance(existing, Mapping):
                 layout = resolve_pipeline_layout(run, self.root)
-                lineage = {
+                resolved_lineage: dict[str, object] = {
                     "root": layout.root,
                     "run_root": layout.run_root,
                     "snapshot_dir": layout.snapshot_dir,
@@ -158,15 +158,21 @@ class ClxBacktestWorker:
                     "portfolio_config_path": layout.portfolio_config_path,
                     "portfolio_dirs": layout.portfolio_dirs,
                 }
-                self.store.persist_resolved_lineage(job, lineage)
-                job = {**dict(job), "resolved_lineage": lineage}
+                self.store.persist_resolved_lineage(job, resolved_lineage)
+                job = {**dict(job), "resolved_lineage": resolved_lineage}
             lineage = BacktestPipelineRunner(execute, root=self.root).run(run, job)
+            portfolio_dirs = lineage.get("portfolio_dirs")
+            if not isinstance(portfolio_dirs, Mapping):
+                raise RuntimeError("BACKTEST lineage has no portfolio directories")
             projection = self.projector.project_backtest(
                 run,
                 signal_dir=str(lineage["signal_dir"]),
                 event_dir=str(lineage["event_dir"]),
                 ranking_dir=str(lineage["ranking_dir"]),
-                portfolio_dirs=dict(lineage["portfolio_dirs"]),
+                portfolio_dirs={
+                    str(split_id): str(path)
+                    for split_id, path in portfolio_dirs.items()
+                },
             )
             return {"resolved_lineage": lineage, "projection": projection}
         if kind == "HOLDOUT":

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -67,11 +67,13 @@ def test_real_fqcopilot_batch_matches_golden_and_each_single_model() -> None:
         )
         assert tuple(int(value) for value in single) == result.for_model(model_id)
 
-        occurrences = [
-            result.decoded_at(model_id, bar_index).occurrence
-            for bar_index, value in enumerate(result.for_model(model_id))
-            if value
-        ]
+        occurrences = []
+        for bar_index, value in enumerate(result.for_model(model_id)):
+            if not value:
+                continue
+            decoded = result.decoded_at(model_id, bar_index)
+            assert decoded is not None
+            occurrences.append(decoded.occurrence)
         observed_max_occurrence.append(max(occurrences, default=0))
 
     assert observed_max_occurrence == fixture["expected_max_occurrence_by_model"]
@@ -114,7 +116,7 @@ def test_non_scalar_or_non_finite_input_is_rejected(bad_value: object) -> None:
     engine = FqCopilotClxEngine(backend)
 
     with pytest.raises(ClxEngineInputError, match="finite number"):
-        engine.calculate_all([bad_value], [1], [1], [1], [1])
+        engine.calculate_all(cast(Any, [bad_value]), [1], [1], [1], [1])
     assert backend.calls == 0
 
 
@@ -184,7 +186,7 @@ def test_batch_rejects_signal_that_cannot_belong_to_its_model_row() -> None:
         {"trend_opt": True},
     ],
 )
-def test_options_require_nonnegative_integers(options: dict[str, object]) -> None:
+def test_options_require_nonnegative_integers(options: dict[str, Any]) -> None:
     with pytest.raises(ClxEngineInputError):
         ClxEngineOptions(**options)
 
@@ -217,7 +219,7 @@ def test_native_integer_detailed_output_uses_vector_fast_path(
 ) -> None:
     import freshquant.backtest.clx.engine as engine_module
 
-    output = {
+    output: dict[str, Any] = {
         "signals_by_model": [[0] * 2 for _ in range(18)],
         "buy_base_trigger_masks": [2, 0],
         "sell_base_trigger_masks": [0, 2],

@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
-import resource
+import sys
 import time
 from datetime import date, timedelta
 
 import polars as pl
+
+if sys.platform == "win32":
+    _resource = None
+else:
+    import resource as _resource
 
 from freshquant.backtest.clx.event_study import SplitPlan, SplitWindow
 from freshquant.backtest.clx.ranking import (
@@ -18,7 +23,10 @@ from freshquant.backtest.clx.ranking import (
 
 
 def main() -> None:
-    days = []
+    if _resource is None:
+        raise RuntimeError("ranking scale probe requires a POSIX resource module")
+
+    days: list[date] = []
     for year in (2022, 2023, 2024):
         start = date(year, 1, 1)
         days.extend(start + timedelta(days=index) for index in range(160))
@@ -104,7 +112,7 @@ def main() -> None:
         },
     )
     elapsed = time.perf_counter() - started
-    rss_kib = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    rss_kib = int(_resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss)
     scale = result.search_audit["evaluation_scale"]
     assert scale["context_rows"] == 18_000
     assert scale["anchor_keys"] == 6_000

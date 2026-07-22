@@ -20,6 +20,7 @@ from freshquant.backtest.clx.model_registry import (
     canonical_json_bytes,
     get_model_registry,
 )
+from freshquant.backtest.clx.signal import decode_signal
 from freshquant.backtest.clx.signal_facts import (
     SignalBuildSpec,
     SignalFactsError,
@@ -33,7 +34,6 @@ from freshquant.backtest.clx.signal_facts import (
     code_bucket,
     verify_signal_facts,
 )
-from freshquant.backtest.clx.signal import decode_signal
 
 RUN_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 SECOND_RUN_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"

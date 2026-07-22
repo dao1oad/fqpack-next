@@ -59,6 +59,12 @@ def _config(run: Mapping[str, object]) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _integer(value: object, *, field: str) -> int:
+    if not isinstance(value, (str, bytes, bytearray, int, float)):
+        raise ArtifactContractError(f"run config {field} must be an integer")
+    return int(value)
+
+
 def _control_document(path: Path, value: object) -> None:
     if path.exists():
         current = json.loads(path.read_text(encoding="utf-8"))
@@ -81,8 +87,12 @@ def _split_plan(config: Mapping[str, object]) -> dict[str, object]:
         windows.append({"split_id": name.upper(), "start_date": start, "end_date": end})
     return {
         "windows": windows,
-        "purge_sessions": int(config.get("purge_sessions", 20)),
-        "embargo_sessions": int(config.get("embargo_sessions", 20)),
+        "purge_sessions": _integer(
+            config.get("purge_sessions", 20), field="purge_sessions"
+        ),
+        "embargo_sessions": _integer(
+            config.get("embargo_sessions", 20), field="embargo_sessions"
+        ),
     }
 
 
@@ -90,7 +100,10 @@ def _portfolio_config(config: Mapping[str, object]) -> dict[str, object]:
     supplied = config.get("portfolio_config")
     if isinstance(supplied, Mapping):
         return dict(supplied)
-    max_holdings = int(config.get("max_positions", config.get("max_holdings", 10)))
+    max_holdings = _integer(
+        config.get("max_positions", config.get("max_holdings", 10)),
+        field="max_positions",
+    )
     return {
         "initial_cash_cny": str(config.get("initial_cash", 10_000_000)),
         "target_weight": str(config.get("target_weight", "0.10")),
@@ -104,7 +117,9 @@ def _portfolio_config(config: Mapping[str, object]) -> dict[str, object]:
         "selection": {
             "split": "VALIDATION",
             "direction": 1,
-            "frozen_rank_top_n": int(config.get("frozen_rank_top_n", 20)),
+            "frozen_rank_top_n": _integer(
+                config.get("frozen_rank_top_n", 20), field="frozen_rank_top_n"
+            ),
         },
         "price_domain": "RAW",
         "fee_schedule": "DEFAULT_FEE_SCHEDULE",
@@ -282,7 +297,12 @@ class BacktestPipelineRunner:
             "--split-plan",
             layout.split_plan_path,
             "--bootstrap-replicates",
-            str(int(_config(run).get("bootstrap_replicates", 1000))),
+            str(
+                _integer(
+                    _config(run).get("bootstrap_replicates", 1000),
+                    field="bootstrap_replicates",
+                )
+            ),
         ]
         if event_dir.exists():
             command.append("--resume")
@@ -479,27 +499,27 @@ class ExportRunner:
         file_format = str(job["format"])
         row_count = 0
         if file_format == "json":
-            with temporary.open("w", encoding="utf-8") as stream:
-                stream.write("[\n")
+            with temporary.open("w", encoding="utf-8") as json_stream:
+                json_stream.write("[\n")
                 for row in rows:
                     if row_count:
-                        stream.write(",\n")
-                    stream.write(
+                        json_stream.write(",\n")
+                    json_stream.write(
                         json.dumps(row, ensure_ascii=False, sort_keys=True, default=str)
                     )
                     row_count += 1
-                stream.write("\n]\n")
+                json_stream.write("\n]\n")
             content_type = "application/json"
         elif file_format == "csv":
             fields = sorted(first) if first is not None else []
-            with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
-                writer = csv.DictWriter(
-                    stream, fieldnames=fields, extrasaction="ignore"
+            with temporary.open("w", encoding="utf-8-sig", newline="") as csv_stream:
+                csv_writer = csv.DictWriter(
+                    csv_stream, fieldnames=fields, extrasaction="ignore"
                 )
                 if fields:
-                    writer.writeheader()
+                    csv_writer.writeheader()
                     for row in rows:
-                        writer.writerow(row)
+                        csv_writer.writerow(row)
                         row_count += 1
             content_type = "text/csv"
         elif file_format == "parquet":
@@ -507,7 +527,7 @@ class ExportRunner:
                 pq.write_table(pa.table({}), temporary, compression="zstd")
             else:
                 batch: list[dict[str, object]] = []
-                writer: pq.ParquetWriter | None = None
+                parquet_writer: pq.ParquetWriter | None = None
                 try:
                     for row in rows:
                         batch.append(row)
@@ -515,32 +535,34 @@ class ExportRunner:
                         if len(batch) < 1000:
                             continue
                         table = pa.Table.from_pylist(
-                            batch, schema=writer.schema if writer else None
+                            batch,
+                            schema=(parquet_writer.schema if parquet_writer else None),
                         )
-                        if writer is None:
-                            writer = pq.ParquetWriter(
+                        if parquet_writer is None:
+                            parquet_writer = pq.ParquetWriter(
                                 temporary, table.schema, compression="zstd"
                             )
-                        writer.write_table(table)
+                        parquet_writer.write_table(table)
                         batch.clear()
                     if batch:
                         table = pa.Table.from_pylist(
-                            batch, schema=writer.schema if writer else None
+                            batch,
+                            schema=(parquet_writer.schema if parquet_writer else None),
                         )
-                        if writer is None:
-                            writer = pq.ParquetWriter(
+                        if parquet_writer is None:
+                            parquet_writer = pq.ParquetWriter(
                                 temporary, table.schema, compression="zstd"
                             )
-                        writer.write_table(table)
+                        parquet_writer.write_table(table)
                 finally:
-                    if writer is not None:
-                        writer.close()
+                    if parquet_writer is not None:
+                        parquet_writer.close()
             content_type = "application/vnd.apache.parquet"
         else:
             raise ArtifactContractError(f"unsupported export format: {file_format}")
-        with temporary.open("rb+") as stream:
-            stream.flush()
-            os.fsync(stream.fileno())
+        with temporary.open("rb+") as binary_stream:
+            binary_stream.flush()
+            os.fsync(binary_stream.fileno())
         os.replace(temporary, destination)
         destination.chmod(0o444)
         return {

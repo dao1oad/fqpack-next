@@ -10,7 +10,7 @@ import shutil
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 import polars as pl
 
@@ -487,10 +487,10 @@ def load_ranking_result(output_dir: str | Path) -> RankingResult:
     metric_by_key: dict[tuple[str, str], CandidateMetric] = {}
     for row in metric_rows.iter_rows(named=True):
         combo_id = str(row["combo_id"])
-        candidate = candidates_by_id.get(combo_id)
-        if candidate is None:
+        metric_candidate = candidates_by_id.get(combo_id)
+        if metric_candidate is None:
             raise RankingError(f"metric references unknown combo: {combo_id}")
-        metric = _metric_from_row(row, candidate)
+        metric = _metric_from_row(row, metric_candidate)
         key = (combo_id, metric.split_id)
         if key in metric_by_key:
             raise RankingError(f"duplicate metric row: {key}")
@@ -498,12 +498,12 @@ def load_ranking_result(output_dir: str | Path) -> RankingResult:
     metrics: list[CandidateMetric] = []
     for combo_id in order:
         for split_id in ("TRAIN", "VALIDATION"):
-            metric = metric_by_key.get((combo_id, split_id))
-            if metric is None:
+            frozen_metric = metric_by_key.get((combo_id, split_id))
+            if frozen_metric is None:
                 raise RankingError(
                     f"frozen ranking misses metric: {combo_id}/{split_id}"
                 )
-            metrics.append(metric)
+            metrics.append(frozen_metric)
     if len(metric_by_key) != len(metrics):
         raise RankingError("ranking artifact contains unexpected metric rows")
 
@@ -549,7 +549,7 @@ def load_ranking_result(output_dir: str | Path) -> RankingResult:
 
 
 @contextlib.contextmanager
-def _artifact_lock(output: Path) -> Iterable[None]:
+def _artifact_lock(output: Path) -> Iterator[None]:
     lock = output.parent / f".{output.name}.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)

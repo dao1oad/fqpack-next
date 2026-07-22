@@ -160,13 +160,17 @@ PATH_RULES: tuple[PathRule, ...] = (
         label="clx-backtest-engine",
         prefix="freshquant/backtest/clx/",
         surfaces=("api",),
-        notes=("CLX engine changes require rebuilding the shared rear image and restarting its external worker.",),
+        notes=(
+            "CLX engine changes require rebuilding the shared rear image and restarting its external worker.",
+        ),
     ),
     PrefixRule(
         label="clx-native-engine",
         prefix="morningglory/fqcopilot/",
         surfaces=("api",),
-        notes=("CLX native engine changes require rebuilding the shared rear image and restarting its external worker.",),
+        notes=(
+            "CLX native engine changes require rebuilding the shared rear image and restarting its external worker.",
+        ),
     ),
     PrefixRule(
         label="freshquant-rear",

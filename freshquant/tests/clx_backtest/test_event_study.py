@@ -5,6 +5,7 @@ import json
 import math
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
@@ -383,7 +384,7 @@ def _write_inputs(tmp_path: Path) -> tuple[Path, Path, SplitPlan]:
     calendar_path = snapshot / "calendar/part-00000.parquet"
     calendar_path.parent.mkdir(parents=True)
     calendar.write_parquet(calendar_path)
-    bar_metas = []
+    bar_metas: list[dict[str, Any]] = []
     for code, frame in bars.partition_by("code", as_dict=True).items():
         if isinstance(code, tuple):
             code = code[0]

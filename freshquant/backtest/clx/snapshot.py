@@ -17,7 +17,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, SupportsFloat, SupportsIndex
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -378,6 +378,8 @@ def _source_state(
 def _finite_number(value: object) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
+    if not isinstance(value, (str, bytes, bytearray, SupportsFloat, SupportsIndex)):
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -497,15 +499,28 @@ def _build_code_frame(
             raise SnapshotError(f"calendar has no session for {code}/{trade_date}")
 
         quality_mask = 0
-        raw_prices = {field: _finite_number(doc.get(field)) for field in _PRICE_FIELDS}
+        raw_open = _finite_number(doc.get("open"))
+        raw_high = _finite_number(doc.get("high"))
+        raw_low = _finite_number(doc.get("low"))
+        raw_close = _finite_number(doc.get("close"))
+        raw_prices = {
+            "open": raw_open,
+            "high": raw_high,
+            "low": raw_low,
+            "close": raw_close,
+        }
         valid_price_shape = not any(
             value is None or value <= 0 for value in raw_prices.values()
         )
         if valid_price_shape:
+            assert raw_open is not None
+            assert raw_high is not None
+            assert raw_low is not None
+            assert raw_close is not None
             valid_price_shape = bool(
-                raw_prices["high"] >= max(raw_prices["open"], raw_prices["close"])
-                and raw_prices["low"] <= min(raw_prices["open"], raw_prices["close"])
-                and raw_prices["high"] >= raw_prices["low"]
+                raw_high >= max(raw_open, raw_close)
+                and raw_low <= min(raw_open, raw_close)
+                and raw_high >= raw_low
             )
         if not valid_price_shape:
             quality_mask |= (
@@ -576,11 +591,11 @@ def _build_code_frame(
 
         qfq_prices = {
             f"qfq_{field}": (
-                raw_prices[field] * adj_factor
-                if raw_prices[field] is not None and adj_factor is not None
+                raw_price * adj_factor
+                if raw_price is not None and adj_factor is not None
                 else None
             )
-            for field in _PRICE_FIELDS
+            for field, raw_price in raw_prices.items()
         }
         rows.append(
             {
@@ -779,8 +794,7 @@ def create_snapshot(database: Any, output_dir: str | Path, spec: SnapshotSpec) -
             or existing_manifest["spec"]["as_of"] != spec.as_of
             or existing_manifest["spec"].get("quiet_window_confirmed", False)
             != spec.quiet_window_confirmed
-            or tuple(existing_manifest["spec"].get("requested_codes", ()))
-            != spec.codes
+            or tuple(existing_manifest["spec"].get("requested_codes", ())) != spec.codes
         ):
             raise SnapshotError(f"existing snapshot has a different spec: {output}")
         if existing["status"] != "verified":

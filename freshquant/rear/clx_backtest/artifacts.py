@@ -16,7 +16,10 @@ class ArtifactContractError(RuntimeError):
 
 
 def artifact_root(value: str | Path | None = None) -> Path:
-    configured = value or os.getenv("CLX_BACKTEST_ARTIFACT_ROOT", DEFAULT_ARTIFACT_ROOT)
+    if value:
+        configured: str | Path = value
+    else:
+        configured = os.getenv("CLX_BACKTEST_ARTIFACT_ROOT") or DEFAULT_ARTIFACT_ROOT
     return Path(configured).expanduser().resolve()
 
 

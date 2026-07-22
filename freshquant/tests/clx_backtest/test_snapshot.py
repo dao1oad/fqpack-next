@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import pytest
 
@@ -191,7 +192,7 @@ def test_rebuild_requires_equal_neighbor_factors() -> None:
 
 
 def test_snapshot_id_identity_changes_when_bar_content_changes_at_same_count() -> None:
-    common = {
+    common: dict[str, Any] = {
         "spec": {
             "start_date": "2020-01-01",
             "as_of": "2020-01-02",

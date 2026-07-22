@@ -24,7 +24,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from .engine import ClxBatchResult, ClxEngineOptions, FqCopilotClxEngine, MODEL_COUNT
+from .engine import MODEL_COUNT, ClxBatchResult, ClxEngineOptions, FqCopilotClxEngine
 from .signal import decode_signal
 
 RESEARCH_BASELINE = ClxEngineOptions(wave_opt=1560, stretch_opt=0, trend_opt=0)
@@ -500,7 +500,7 @@ def _serialise_occurrence(items: Sequence[Mapping[str, Any]]) -> list[dict[str, 
 def _audit_full_histories(
     *, engine: FqCopilotClxEngine, histories: Mapping[str, Any]
 ) -> dict[str, Any]:
-    merged = [
+    merged: list[dict[str, Any]] = [
         {
             "model_id": m,
             "events": 0,
@@ -850,8 +850,8 @@ def run_real_sample_audit(
         raise ValueError("window_bars must exceed warmup_bars")
     warnings.filterwarnings("ignore")
     engine = FqCopilotClxEngine()
-    import QUANTAXIS as QA
     import fqcopilot
+    import QUANTAXIS as QA
 
     histories: dict[str, Any] = {}
     for code in dict.fromkeys(sample.code for sample in samples):

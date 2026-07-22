@@ -18,8 +18,8 @@ from .signal import (
     ClxSignal,
     ClxSignalProtocolError,
     decode_legacy_single_digit_signal,
-    decode_signal,
     decode_self_describing_signal,
+    decode_signal,
     encode_signal,
 )
 

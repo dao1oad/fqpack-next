@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 import numpy as np
 import polars as pl
@@ -485,6 +485,26 @@ class HoldoutReveal:
     access_audit: tuple[dict[str, Any], ...]
 
 
+class OutcomeStore(Protocol):
+    """Structural access boundary shared by in-memory and artifact stores."""
+
+    @property
+    def access_audit(self) -> tuple[dict[str, Any], ...]: ...
+
+    @property
+    def successful_holdout_reads(self) -> int: ...
+
+    def train(self) -> pl.DataFrame: ...
+
+    def validation_context(self) -> pl.DataFrame: ...
+
+    def install_freeze(self, record: Mapping[str, Any]) -> None: ...
+
+    def reveal_holdout(
+        self, freeze_id: str | None, *, purpose: str = "FINAL_REVEAL"
+    ) -> pl.DataFrame: ...
+
+
 class SplitOutcomeStore:
     """Access boundary that makes the locked HOLDOUT state observable/auditable."""
 
@@ -754,12 +774,12 @@ def generate_single_model_candidates(
                 observed_terms.update((entrypoint,) for entrypoint in ids)
                 if config.max_trigger_terms >= 2:
                     observed_terms.update(combinations(ids, 2))
-            for ids in sorted(observed_terms):
+            for trigger_ids in sorted(observed_terms):
                 trigger = {
                     "op": "trigger_mask",
                     "source": source,
                     "mode": "all",
-                    "ids": list(ids),
+                    "ids": list(trigger_ids),
                     "model": model,
                     "direction": direction,
                 }
@@ -831,7 +851,7 @@ def generate_multi_model_candidates(
                     anchor_expr = _event_local_vote_expr(anchor)
                     prior_expr = _event_local_vote_expr(prior)
                     for lookback in config.resonance_lookbacks:
-                        temporal_prior = (
+                        temporal_prior: dict[str, Any] = (
                             {"op": "same_day", "expr": prior_expr}
                             if lookback == 0
                             else {
@@ -1123,12 +1143,12 @@ def _apply_bh_fdr(metrics: Sequence[CandidateMetric]) -> None:
                 (metric.split_id, metric.horizon, metric.candidate.candidate_family), []
             ).append(metric)
     for family in families.values():
-        adjusted = benjamini_hochberg(
-            [
-                (item.candidate.definition.combo_id, float(item.p_value))
-                for item in family
-            ]
-        )
+        p_values: list[tuple[str, float]] = []
+        for item in family:
+            p_value = item.p_value
+            assert p_value is not None
+            p_values.append((item.candidate.definition.combo_id, p_value))
+        adjusted = benjamini_hochberg(p_values)
         for item in family:
             item.fdr_q_value = adjusted[item.candidate.definition.combo_id]
 
@@ -1318,7 +1338,7 @@ def _run_id(frame: pl.DataFrame) -> str:
 
 
 def discover_and_freeze(
-    store: SplitOutcomeStore,
+    store: OutcomeStore,
     calendar: pl.DataFrame,
     split_plan: SplitPlan,
     config: RankingConfig,
@@ -1584,7 +1604,7 @@ def discover_and_freeze(
 
 def reveal_holdout(
     result: RankingResult,
-    store: SplitOutcomeStore,
+    store: OutcomeStore,
     calendar: pl.DataFrame,
     *,
     relations: ModelRelations | None = None,

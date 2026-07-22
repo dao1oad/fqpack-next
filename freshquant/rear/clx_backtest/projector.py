@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import polars as pl
 from pymongo import UpdateOne
@@ -63,7 +63,7 @@ def _read_frame(root: Path, meta: Mapping[str, object]) -> pl.DataFrame:
     ).removeprefix("sha256:"):
         raise ProjectionError(f"artifact hash mismatch: {path}")
     frame = pl.read_parquet(path)
-    if frame.height != int(meta["rows"]):
+    if frame.height != int(cast(Any, meta["rows"])):
         raise ProjectionError(f"artifact row count mismatch: {path}")
     return frame
 
@@ -79,7 +79,7 @@ def _read_json_rows(root: Path, meta: Mapping[str, object]) -> list[dict[str, ob
         isinstance(item, Mapping) for item in decoded
     ):
         raise ProjectionError(f"JSON artifact is not an object list: {path}")
-    if len(decoded) != int(meta["rows"]):
+    if len(decoded) != int(cast(Any, meta["rows"])):
         raise ProjectionError(f"artifact row count mismatch: {path}")
     return [copy.deepcopy(dict(item)) for item in decoded]
 
@@ -241,7 +241,7 @@ def _validate_decision_source_events(
 
 def _decision_source_ids(root: Path, manifest: Mapping[str, object]) -> set[str]:
     identifiers: set[str] = set()
-    for meta in manifest.get("artifacts", []):
+    for meta in cast(Iterable[object], manifest.get("artifacts", [])):
         if not isinstance(meta, Mapping) or meta.get("dataset") != "decisions":
             continue
         for row in _rows(_read_frame(root, meta)):
@@ -263,7 +263,7 @@ def _read_source_rows(
 ) -> dict[str, dict[str, object]]:
     documents: dict[str, dict[str, object]] = {}
     paths: list[Path] = []
-    for meta in manifest.get("artifacts", []):
+    for meta in cast(Iterable[object], manifest.get("artifacts", [])):
         if not isinstance(meta, Mapping) or meta.get("dataset") != dataset:
             continue
         path = _artifact_path(root, meta["path"])
@@ -294,8 +294,8 @@ def _read_source_rows(
 
 def _concurrent_triggers(event: Mapping[str, object]) -> list[str]:
     try:
-        completed_mask = int(event["concurrent_trigger_mask"])
-        synthetic_mask = int(event["synthetic_primary_mask"])
+        completed_mask = int(cast(Any, event["concurrent_trigger_mask"]))
+        synthetic_mask = int(cast(Any, event["synthetic_primary_mask"]))
     except (KeyError, TypeError, ValueError) as exc:
         raise ProjectionError("event source fact has invalid trigger masks") from exc
     primary = str(event.get("primary_trigger_semantic", ""))
@@ -365,12 +365,12 @@ def _source_signal_facts(
             "projection": {
                 "signal_date": event["signal_date"],
                 "reveal_date": event["reveal_date"],
-                "direction": int(event["direction"]),
-                "model_id": int(event["expected_model_id"]),
-                "occurrence": int(event["occurrence"]),
+                "direction": int(cast(Any, event["direction"])),
+                "model_id": int(cast(Any, event["expected_model_id"])),
+                "occurrence": int(cast(Any, event["occurrence"])),
                 "primary_trigger": str(event["primary_trigger_semantic"]),
                 "concurrent_triggers": _concurrent_triggers(event),
-                "raw_signal": int(signal["current_raw_signal"]),
+                "raw_signal": int(cast(Any, signal["current_raw_signal"])),
             },
         }
     return facts
@@ -863,7 +863,12 @@ class ClxArtifactProjector:
         *,
         ranking_config: Mapping[str, object],
     ) -> dict[str, int]:
-        metas = {str(item["dataset"]): item for item in manifest.get("artifacts", [])}
+        metas = {
+            str(item["dataset"]): item
+            for item in cast(
+                Iterable[Mapping[str, object]], manifest.get("artifacts", [])
+            )
+        }
         required = {"combo_definitions", "combo_metrics", "combo_rankings"}
         if not required.issubset(metas):
             raise ProjectionError("ranking manifest misses projected datasets")
@@ -924,7 +929,9 @@ class ClxArtifactProjector:
         meta = next(
             (
                 item
-                for item in manifest.get("artifacts", [])
+                for item in cast(
+                    Iterable[Mapping[str, object]], manifest.get("artifacts", [])
+                )
                 if item.get("dataset") == "holdout_metrics"
             ),
             None,
@@ -983,7 +990,9 @@ class ClxArtifactProjector:
         meta = next(
             (
                 item
-                for item in manifest.get("artifacts", [])
+                for item in cast(
+                    Iterable[Mapping[str, object]], manifest.get("artifacts", [])
+                )
                 if item.get("dataset") == "event_access_audit"
             ),
             None,
@@ -1030,7 +1039,7 @@ class ClxArtifactProjector:
         by_prefix: list[tuple[str, dict[str, object]]] = []
         counts: dict[str, int] = defaultdict(int)
         pending: dict[str, list[dict[str, object]]] = defaultdict(list)
-        for relative in manifest.get("checkpoint_paths", []):
+        for relative in cast(Iterable[object], manifest.get("checkpoint_paths", [])):
             checkpoint_path = _artifact_path(root, f"{relative}/checkpoint.json")
             checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
             combo_id = str(checkpoint["combo_id"])
@@ -1086,7 +1095,7 @@ class ClxArtifactProjector:
                 }
                 pending["audit_findings"].append(finding)
                 counts["audit_findings"] += 1
-        for meta in manifest.get("artifacts", []):
+        for meta in cast(Iterable[object], manifest.get("artifacts", [])):
             if not isinstance(meta, Mapping):
                 continue
             dataset = str(meta.get("dataset"))
@@ -1231,7 +1240,12 @@ class ClxArtifactProjector:
             ).sort("frozen_rank", 1)
         )
         expected = [str(item["combo_id"]) for item in validation]
-        actual = [str(value) for value in holdout_manifest.get("frozen_order", [])]
+        actual = [
+            str(value)
+            for value in cast(
+                Iterable[object], holdout_manifest.get("frozen_order", [])
+            )
+        ]
         if expected != actual:
             raise ProjectionError("HOLDOUT frozen order differs from VALIDATION")
         if [int(item["frozen_rank"]) for item in validation] != list(
@@ -1289,7 +1303,7 @@ class ClxArtifactProjector:
             operations: list[UpdateOne] = []
             for identifier, stored in prepared.items():
                 current = existing.get(identifier)
-                digest = stored["projection_sha256"]
+                digest = cast(str, stored["projection_sha256"])
                 if current is not None:
                     current_digest = current.get("projection_sha256")
                     if current_digest is None:

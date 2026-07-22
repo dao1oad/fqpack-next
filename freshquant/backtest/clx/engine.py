@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from importlib import import_module
 from numbers import Integral
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 
-from .signal import ALL_TRIGGER_MASK, ClxSignal, MODEL_IDS, decode_signal
+from .signal import ALL_TRIGGER_MASK, MODEL_IDS, ClxSignal, decode_signal
 
 MODEL_COUNT = len(MODEL_IDS)
 
@@ -191,7 +191,7 @@ def _normalise_batch_output(raw_output: object, bar_count: int) -> ClxBatchResul
     if isinstance(raw_output, (str, bytes)):
         raise ClxEngineProtocolError("fq_clxs_all output must contain 18 model rows")
     try:
-        raw_rows = tuple(raw_output)  # type: ignore[arg-type]
+        raw_rows = tuple(cast(Iterable[object], raw_output))
     except TypeError as exc:
         raise ClxEngineProtocolError(
             "fq_clxs_all output must contain 18 model rows"
@@ -207,7 +207,7 @@ def _normalise_batch_output(raw_output: object, bar_count: int) -> ClxBatchResul
         if isinstance(raw_row, (str, bytes)):
             raise ClxEngineProtocolError(f"model {model_id} output is not a signal row")
         try:
-            values = tuple(raw_row)
+            values = tuple(cast(Iterable[object], raw_row))
         except TypeError as exc:
             raise ClxEngineProtocolError(
                 f"model {model_id} output is not a signal row"
@@ -224,7 +224,7 @@ def _normalise_batch_output(raw_output: object, bar_count: int) -> ClxBatchResul
                     f"model {model_id} bar {bar_index} signal must be an integer"
                 )
             try:
-                numeric = float(value)
+                numeric = float(cast(Any, value))
             except (TypeError, ValueError, OverflowError) as exc:
                 raise ClxEngineProtocolError(
                     f"model {model_id} bar {bar_index} signal must be an integer"
@@ -248,11 +248,9 @@ def _normalise_base_trigger_masks(
     if isinstance(raw_masks, (str, bytes)):
         raise ClxEngineProtocolError(f"{name} must contain one mask per bar")
     try:
-        values = tuple(raw_masks)  # type: ignore[arg-type]
+        values = tuple(cast(Iterable[object], raw_masks))
     except TypeError as exc:
-        raise ClxEngineProtocolError(
-            f"{name} must contain one mask per bar"
-        ) from exc
+        raise ClxEngineProtocolError(f"{name} must contain one mask per bar") from exc
     if len(values) != bar_count:
         raise ClxEngineProtocolError(
             f"{name} returned {len(values)} bars; expected {bar_count}"
@@ -265,7 +263,7 @@ def _normalise_base_trigger_masks(
                 f"{name} bar {bar_index} mask must be an integer"
             )
         try:
-            numeric = float(value)
+            numeric = float(cast(Any, value))
         except (TypeError, ValueError, OverflowError) as exc:
             raise ClxEngineProtocolError(
                 f"{name} bar {bar_index} mask must be an integer"
@@ -399,9 +397,7 @@ class FqCopilotClxEngine:
     def __init__(self, backend: Any | None = None) -> None:
         self._backend = backend if backend is not None else import_module("fqcopilot")
         has_batch = callable(getattr(self._backend, "fq_clxs_all", None))
-        has_detailed = callable(
-            getattr(self._backend, "fq_clxs_all_detailed", None)
-        )
+        has_detailed = callable(getattr(self._backend, "fq_clxs_all_detailed", None))
         if not has_batch and not has_detailed:
             raise ClxEngineProtocolError(
                 "fqcopilot backend has no callable CLX batch interface"

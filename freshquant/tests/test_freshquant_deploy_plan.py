@@ -78,10 +78,7 @@ def test_summary_render_includes_host_and_docker_sections() -> None:
     summary = module.render_summary(plan)
 
     assert "deployment_surfaces: api, web, order_management" in summary
-    assert (
-        "docker_services: fq_apiserver, fq_webui, fq_clx_backtest_worker"
-        in summary
-    )
+    assert "docker_services: fq_apiserver, fq_webui, fq_clx_backtest_worker" in summary
     assert "host_surfaces: order_management" in summary
 
 

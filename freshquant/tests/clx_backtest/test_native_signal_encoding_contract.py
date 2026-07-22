@@ -15,6 +15,7 @@ def test_native_signal_encoding_contract(tmp_path: Path) -> None:
     compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
     if compiler is None:
         pytest.skip("a C++14 compiler is required for the native encoding contract")
+    assert compiler is not None
 
     executable = tmp_path / "native_signal_encoding_contract"
     subprocess.run(

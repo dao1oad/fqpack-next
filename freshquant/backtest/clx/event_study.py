@@ -18,7 +18,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, TypeGuard
 
 import numpy as np
 import polars as pl
@@ -454,7 +454,7 @@ def _deduplicate_actionable(
     return winners, len(rows) - len(winners), remove_count
 
 
-def _finite_positive(value: Any) -> bool:
+def _finite_positive(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and math.isfinite(float(value)) and value > 0
 
 
@@ -495,11 +495,14 @@ def _path_status(
 
 def _adj_factor_jumps(path: Sequence[Mapping[str, Any]]) -> int:
     factors = [bar.get("adj_factor") for bar in path]
-    if any(not _finite_positive(value) for value in factors):
-        return 0
+    numeric_factors: list[float] = []
+    for value in factors:
+        if not _finite_positive(value):
+            return 0
+        numeric_factors.append(float(value))
     return sum(
-        not math.isclose(float(previous), float(current), rel_tol=1e-12, abs_tol=1e-15)
-        for previous, current in zip(factors, factors[1:])
+        not math.isclose(previous, current, rel_tol=1e-12, abs_tol=1e-15)
+        for previous, current in zip(numeric_factors, numeric_factors[1:])
     )
 
 
@@ -551,9 +554,13 @@ def build_event_outcomes_frame(
             if entry_trade_date is not None
             else ENTRY_NO_NEXT_SESSION
         )
-        raw_entry_open = (
-            float(entry_bar["raw_open"]) if entry_status == ENTRY_EXECUTABLE else None
-        )
+        if entry_status == ENTRY_EXECUTABLE:
+            assert entry_bar is not None
+            entry_open_value = entry_bar["raw_open"]
+            assert _finite_positive(entry_open_value)
+            raw_entry_open = float(entry_open_value)
+        else:
+            raw_entry_open = None
         quality_mask = int(fact["quality_mask"] or 0)
         if entry_status != ENTRY_EXECUTABLE:
             quality_mask |= EVENT_ENTRY_CENSORED
@@ -615,6 +622,7 @@ def build_event_outcomes_frame(
                 path = [bar_map.get((fact["code"], day)) for day in path_dates]
                 status = _path_status(path, exit_bar_missing=path[-1] is None)
                 if status == OUTCOME_OK:
+                    assert raw_entry_open is not None
                     concrete = [item for item in path if item is not None]
                     exit_close = float(concrete[-1]["raw_close"])
                     raw_return = exit_close / raw_entry_open - 1.0

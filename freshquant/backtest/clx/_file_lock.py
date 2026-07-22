@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import errno
 import os
+import sys
 import time
 from collections.abc import Callable
 
-
-if os.name == "nt":
-    import msvcrt
+if sys.platform == "win32":
+    import msvcrt as _file_lock
 else:
-    import fcntl
+    import fcntl as _file_lock
 
 
 _WINDOWS_RETRY_INTERVAL_SECONDS = 0.05
@@ -25,7 +25,7 @@ def fsync_directory(path: os.PathLike[str] | str) -> None:
     ``os.replace`` still provides the required atomic publication operation.
     """
 
-    if os.name == "nt":
+    if sys.platform == "win32":
         return
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
@@ -53,15 +53,15 @@ def lock_exclusive(descriptor: int, *, blocking: bool) -> None:
     the lock never changes artifact metadata stored in the file.
     """
 
-    if os.name != "nt":
-        flags = fcntl.LOCK_EX
+    if sys.platform != "win32":
+        flags = _file_lock.LOCK_EX
         if not blocking:
-            flags |= fcntl.LOCK_NB
-        fcntl.flock(descriptor, flags)
+            flags |= _file_lock.LOCK_NB
+        _file_lock.flock(descriptor, flags)
         return
 
     def acquire_once() -> None:
-        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        _file_lock.locking(descriptor, _file_lock.LK_NBLCK, 1)
 
     while True:
         try:
@@ -80,11 +80,11 @@ def lock_exclusive(descriptor: int, *, blocking: bool) -> None:
 def unlock(descriptor: int) -> None:
     """Release a lock acquired by :func:`lock_exclusive`."""
 
-    if os.name != "nt":
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
+    if sys.platform != "win32":
+        _file_lock.flock(descriptor, _file_lock.LOCK_UN)
         return
 
     def release() -> None:
-        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        _file_lock.locking(descriptor, _file_lock.LK_UNLCK, 1)
 
     _with_lock_byte_at_start(descriptor, release)
