@@ -150,7 +150,7 @@ async function installFixtureApi(page) {
     }
     if (path.includes('/holdout/reveal')) {
       if (request.postData()) return fulfill(route, { error: { code: 'INVALID_REQUEST', message: 'reveal body must be empty' } }, 400)
-      freezeRecord = { ...freezeRecord, state: 'REVEALED', reveal_count: 1, holdout_revealed_at: '2026-07-22T05:00:00Z' }
+      freezeRecord = { ...freezeRecord, state: 'REVEALING', reveal_count: 0, holdout_revealed_at: null }
       return fulfill(route, { data: { run_id: fixtureRun.runId, ...freezeRecord } })
     }
     if (path.endsWith('/exports')) {
@@ -206,7 +206,7 @@ test('F2实验运行和F3审计在桌面及窄屏均可用', async ({ page }) =>
   await page.getByText('我确认当前规则已冻结，理解 HOLDOUT 只有一次揭示机会。', { exact: true }).click()
   await page.getByTestId('reveal-phrase').fill('揭示HOLDOUT')
   await page.getByTestId('confirm-reveal').click()
-  await expect(page.getByText('已揭示（1/1）')).toBeVisible()
+  await expect(page.getByText('揭示处理中（0/1）')).toBeVisible()
   await expect(page.getByTestId('confirm-reveal')).toBeHidden()
 
   await page.setViewportSize({ width: 390, height: 844 })

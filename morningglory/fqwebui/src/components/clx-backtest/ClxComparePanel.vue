@@ -44,12 +44,12 @@
         <div class="clx-compare-controls__contract">
           <div><span>已选</span><b>{{ selectedComboIds.length }} / 4</b></div>
           <div><span>规则状态</span><b :class="selectedRun.frozen ? 'clx-negative' : 'clx-warning'">{{ selectedRun.frozen ? '已冻结' : '待冻结' }}</b></div>
-          <div><span>HOLDOUT</span><b :class="selectedRun.holdoutRevealed ? 'clx-warning' : 'clx-negative'">{{ selectedRun.holdoutRevealed ? '已揭示（1/1）' : '封存中（0/1）' }}</b></div>
+          <div><span>HOLDOUT</span><b :class="selectedRun.holdoutRevealed ? 'clx-warning' : 'clx-negative'">{{ holdoutStateText }}</b></div>
           <div><span>配置 SHA</span><b>{{ hashShort(selectedRun.configSha256) }}</b></div>
         </div>
         <div class="clx-compare-controls__actions">
           <el-button type="success" plain :disabled="selectedRun.frozen || !freezeReady" :loading="freezing" @click="confirmFreeze">冻结当前规则</el-button>
-          <el-button type="warning" plain :disabled="!selectedRun.frozen || selectedRun.holdoutRevealed || !activeFreezeId" @click="openReveal">一次性揭示 HOLDOUT</el-button>
+          <el-button type="warning" plain :disabled="!selectedRun.frozen || selectedRun.holdoutRevealed || holdoutRevealPending || holdoutRevealFailed || !activeFreezeId" @click="openReveal">一次性揭示 HOLDOUT</el-button>
           <span>{{ freezeReadinessText }}</span>
         </div>
       </section>
@@ -123,7 +123,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { clxBacktestApi, describeApiError } from "@/api/clxBacktestApi";
 import { buildFrozenRankDigest } from "@/utils/clxFreeze";
@@ -151,8 +151,15 @@ const revealAcknowledged = ref(false);
 const revealPhrase = ref("");
 const exportJobs = ref([]);
 const exportForm = reactive({ resource: "metrics", format: "csv" });
+const REVEAL_POLL_INTERVAL_MS = 1500;
+const REVEAL_POLL_MAX_ATTEMPTS = 80;
+let revealPollTimer;
 const runOptions = computed(() => runs.value.map((run) => ({ label: `${run.name} \xB7 ${run.runId}`, value: run.runId })));
 const selectedRun = computed(() => runs.value.find((run) => run.runId === selectedRunId.value) ?? null);
+const holdoutFreezeState = computed(() => String(selectedRun.value?.freeze?.state ?? "").toUpperCase());
+const holdoutRevealPending = computed(() => holdoutFreezeState.value === "REVEALING");
+const holdoutRevealFailed = computed(() => holdoutFreezeState.value === "REVEAL_FAILED");
+const holdoutStateText = computed(() => selectedRun.value?.holdoutRevealed ? "已揭示（1/1）" : holdoutRevealPending.value ? "揭示处理中（0/1）" : holdoutRevealFailed.value ? "揭示失败（0/1，待检查）" : "封存中（0/1）");
 const comboOptions = computed(() => rankings.value.map((row) => ({ label: `#${row.rank} ${row.name}`, value: row.comboId })));
 const compareSplitOptions = computed(() => [
   { label: "\u7814\u7A76\u96C6 TRAIN", value: "TRAIN" },
@@ -266,10 +273,43 @@ async function loadRunData() {
     if (index >= 0) runs.value[index] = fresh;
     activeFreezeId.value = fresh.freezeId ?? null;
     if (!fresh.holdoutRevealed && compareSplit.value === "HOLDOUT") compareSplit.value = "VALIDATION";
+    if (String(fresh.freeze?.state ?? "").toUpperCase() === "REVEALING") scheduleRevealPolling(runId);
+    else stopRevealPolling();
   } else activeFreezeId.value = selectedRun.value?.freezeId ?? null;
   const rejected = results.find((item) => item.status === "rejected");
   if (rejected) error.value = `\u90E8\u5206\u5BA1\u8BA1\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF1A${describeApiError(rejected.reason)}`;
   loading.value = false;
+}
+function stopRevealPolling() {
+  if (revealPollTimer !== undefined) window.clearTimeout(revealPollTimer);
+  revealPollTimer = undefined;
+}
+function scheduleRevealPolling(runId, attempt = 0) {
+  stopRevealPolling();
+  if (attempt >= REVEAL_POLL_MAX_ATTEMPTS || selectedRunId.value !== runId || !holdoutRevealPending.value) return;
+  revealPollTimer = window.setTimeout(async () => {
+    revealPollTimer = undefined;
+    if (selectedRunId.value !== runId) return;
+    try {
+      const fresh = await clxBacktestApi.getRun(runId);
+      const index = runs.value.findIndex((run) => run.runId === fresh.runId);
+      if (index >= 0) runs.value[index] = fresh;
+      if (selectedRunId.value !== runId) return;
+      const state = String(fresh.freeze?.state ?? "").toUpperCase();
+      if (state === "REVEALED" || state === "REVEAL_FAILED") {
+        await loadRunData();
+        if (state === "REVEALED") message.success("HOLDOUT artifact 已校验并开放查询。");
+        else message.error("HOLDOUT 揭示失败，请查看审计记录和 worker 日志。");
+        return;
+      }
+    } catch (reason) {
+      if (attempt + 1 >= REVEAL_POLL_MAX_ATTEMPTS) {
+        error.value = `HOLDOUT 状态自动刷新超时：${describeApiError(reason)}`;
+        return;
+      }
+    }
+    scheduleRevealPolling(runId, attempt + 1);
+  }, REVEAL_POLL_INTERVAL_MS);
 }
 async function runComparison() {
   if (!selectedRunId.value || selectedComboIds.value.length < 2) return;
@@ -354,11 +394,17 @@ async function revealHoldout() {
   if (!selectedRunId.value || !activeFreezeId.value || !canReveal.value) return;
   revealing.value = true;
   try {
-    await clxBacktestApi.revealHoldout(selectedRunId.value, activeFreezeId.value);
-    if (selectedRun.value) selectedRun.value.holdoutRevealed = true;
+    const reveal = await clxBacktestApi.revealHoldout(selectedRunId.value, activeFreezeId.value);
+    if (selectedRun.value) {
+      selectedRun.value.holdoutRevealed = Boolean(reveal.holdoutRevealed);
+      if (selectedRun.value.freeze) {
+        selectedRun.value.freeze.state = reveal.status;
+        selectedRun.value.freeze.revealCount = reveal.revealCount ?? 0;
+        selectedRun.value.freeze.holdoutRevealedAt = reveal.revealedAt ?? null;
+      }
+    }
     revealVisible.value = false;
-    compareSplit.value = "HOLDOUT";
-    message.warning("HOLDOUT \u5DF2\u5B8C\u6210\u552F\u4E00\u4E00\u6B21\u63ED\u793A\uFF0C\u64CD\u4F5C\u5DF2\u5199\u5165\u5BA1\u8BA1\u4E8B\u5B9E");
+    message.success("HOLDOUT \u63ED\u793A\u4EFB\u52A1\u5DF2\u5165\u961F\uFF1Bartifact \u6821\u9A8C\u548C Mongo \u6295\u5F71\u5B8C\u6210\u540E\u624D\u4F1A\u5F00\u653E\u67E5\u8BE2\u3002");
     await loadRunData();
   } catch (reason) {
     error.value = describeApiError(reason);
@@ -400,8 +446,12 @@ async function copyManifest() {
   await navigator.clipboard?.writeText(manifestJson.value);
   message.success("manifest JSON \u5DF2\u590D\u5236");
 }
-watch(selectedRunId, loadRunData);
+watch(selectedRunId, () => {
+  stopRevealPolling();
+  loadRunData();
+});
 onMounted(loadRuns);
+onUnmounted(stopRevealPolling);
 </script>
 
 <style scoped>

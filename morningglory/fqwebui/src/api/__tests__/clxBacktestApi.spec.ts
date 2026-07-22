@@ -69,7 +69,7 @@ describe('clxBacktestApi 合同适配', () => {
       .mockResolvedValueOnce({ data: { run: { run_id: 'run-1', status: 'QUEUED', config: {} }, job: { status: 'QUEUED' } } })
       .mockResolvedValueOnce({ data: { run_id: 'run-1', status: 'CANCEL_REQUESTED', config: {} } })
       .mockResolvedValueOnce({ data: { run_id: 'run-1', freeze_id: 'freeze-1', state: 'FROZEN', reveal_count: 0 } })
-      .mockResolvedValueOnce({ data: { run_id: 'run-1', freeze_id: 'freeze-1', state: 'REVEALED', reveal_count: 1 } })
+      .mockResolvedValueOnce({ data: { run_id: 'run-1', freeze_id: 'freeze-1', state: 'REVEALING', reveal_count: 0 } })
       .mockResolvedValueOnce({ data: { job_id: 'export-1', status: 'QUEUED', resource: 'metrics', format: 'csv', split_id: 'HOLDOUT' } })
     const freezeSpecification = {
       validation: { selectedComboIds: ['a'], rankOrder: ['a', 'b'] },
@@ -80,7 +80,8 @@ describe('clxBacktestApi 合同适配', () => {
     expect((await clxBacktestApi.startRun('run-1')).run.status).toBe('QUEUED')
     expect((await clxBacktestApi.cancelRun('run-1')).status).toBe('CANCEL_REQUESTED')
     expect((await clxBacktestApi.freezeRun('run-1', freezeSpecification)).holdoutRevealed).toBe(false)
-    expect((await clxBacktestApi.revealHoldout('run-1', 'freeze-1')).holdoutRevealed).toBe(true)
+    const reveal = await clxBacktestApi.revealHoldout('run-1', 'freeze-1')
+    expect(reveal).toMatchObject({ status: 'REVEALING', holdoutRevealed: false, revealCount: 0 })
     expect((await clxBacktestApi.createExport('run-1', { resource: 'metrics', format: 'csv', comboIds: ['a'], splitId: 'HOLDOUT' })).jobId).toBe('export-1')
     expect(httpMock.mock.calls.map(call => (call[0] as any).url)).toEqual([
       '/api/clx-backtest/runs/run-1/start',
@@ -104,5 +105,7 @@ describe('clxBacktestApi 合同适配', () => {
   it('将 HOLDOUT 锁定错误翻译为明确中文状态', () => {
     expect(describeApiError({ code: 'HOLDOUT_LOCKED' })).toContain('封存')
     expect(describeApiError({ code: 'HOLDOUT_ALREADY_REVEALED' })).toContain('已经完成过一次')
+    expect(describeApiError({ code: 'HOLDOUT_REVEAL_IN_PROGRESS' })).toContain('处理中')
+    expect(describeApiError({ code: 'HOLDOUT_REVEAL_FAILED' })).toContain('运维检查')
   })
 })

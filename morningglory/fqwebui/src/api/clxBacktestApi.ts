@@ -256,11 +256,18 @@ export function normalizeSignal(raw: any): SignalRecord {
   const item = record(raw)
   return {
     signalId: String(item.signal_id ?? item.signal_fact_id ?? item._id ?? ''),
+    decisionId: item.decision_id ? String(item.decision_id) : undefined,
     code: String(item.code ?? item.symbol ?? ''),
     name: item.name,
     signalDate: String(item.signal_date ?? ''),
     revealDate: String(item.reveal_date ?? ''),
     direction: String(item.direction ?? ''),
+    decisionRevealDate: item.decision_reveal_date
+      ? String(item.decision_reveal_date)
+      : undefined,
+    decisionDirection: item.decision_direction !== undefined
+      ? String(item.decision_direction)
+      : undefined,
     modelId: normalizeModelId(item.model_id ?? item.modelId),
     occurrence: Number(item.occurrence ?? 0),
     primaryTrigger: String(item.primary_trigger ?? item.trigger_key ?? item.entrypoint ?? ''),
@@ -547,7 +554,7 @@ export const clxBacktestApi = {
     }))
     return {
       freezeId: String(item.freeze_id ?? freezeId), runId: String(item.run_id ?? runId),
-      status: String(item.state ?? item.status ?? 'REVEALED'), configSha256: item.run_config_sha256,
+      status: String(item.state ?? item.status ?? 'REVEALING'), configSha256: item.run_config_sha256,
       frozenAt: item.created_at, holdoutRevealed: Boolean(item.holdout_revealed_at ?? item.reveal_count),
       revealedAt: item.holdout_revealed_at ?? null, revealCount: Number(item.reveal_count ?? 0),
     }
@@ -596,6 +603,8 @@ export function describeApiError(error: any): string {
   const known = record(error)
   if (known.code === 'HOLDOUT_LOCKED') return '锁定测试集仍处于封存状态，请先冻结研究规则后再执行一次揭示。'
   if (known.code === 'HOLDOUT_ALREADY_REVEALED') return '该冻结版本已经完成过一次锁定测试揭示。'
+  if (known.code === 'HOLDOUT_REVEAL_IN_PROGRESS') return '锁定测试揭示任务正在处理中，完成 artifact 校验与投影后自动开放。'
+  if (known.code === 'HOLDOUT_REVEAL_FAILED') return '锁定测试揭示任务失败，请保留 ledger 与 artifact 并进行运维检查。'
   if (known.code === 'INVALID_RUN_STATE') return `当前实验状态不允许此操作：${known.message ?? ''}`
   return String(known.message ?? '请求失败，请检查服务状态后重试。')
 }

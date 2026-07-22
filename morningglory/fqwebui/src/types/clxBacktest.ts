@@ -185,11 +185,14 @@ export interface TradeRecord {
 
 export interface SignalRecord {
   signalId: string
+  decisionId?: string
   code: string
   name?: string
   signalDate: string
   revealDate: string
   direction: string
+  decisionRevealDate?: string
+  decisionDirection?: string
   modelId: string
   occurrence: number
   primaryTrigger: string

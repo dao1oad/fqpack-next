@@ -33,7 +33,10 @@ describe('ClxComparePanel F3', () => {
     api.createExport.mockResolvedValue({ jobId: 'export-fixture', status: 'QUEUED', resource: 'metrics', format: 'csv', splitId: 'VALIDATION' })
     api.getExport.mockResolvedValue({ jobId: 'export-fixture', status: 'COMPLETE', resource: 'metrics', format: 'csv', splitId: 'VALIDATION' })
   })
-  afterEach(() => { document.body.innerHTML = '' })
+  afterEach(() => {
+    vi.useRealTimers()
+    document.body.innerHTML = ''
+  })
 
   it('展示最多4组合选择、冻结状态、质量偏差、manifest和导出', async () => {
     const wrapper = mountWithProviders(ClxComparePanel)
@@ -116,6 +119,41 @@ describe('ClxComparePanel F3', () => {
       splitConfigSha256: `sha256:${'1'.repeat(64)}`,
       frozenRankDigest,
     })
+    wrapper.unmount()
+  })
+
+  it('REVEALING 期间自动轮询，终态后刷新 HOLDOUT 数据', async () => {
+    vi.useFakeTimers()
+    const revealingRun = {
+      ...fixtureRun,
+      frozen: true,
+      freezeId: 'freeze-fixture',
+      holdoutRevealed: false,
+      freeze: {
+        freezeId: 'freeze-fixture', state: 'REVEALING', revealCount: 0,
+      },
+    }
+    const revealedRun = {
+      ...revealingRun,
+      holdoutRevealed: true,
+      freeze: {
+        ...revealingRun.freeze,
+        state: 'REVEALED', revealCount: 1, holdoutRevealedAt: '2026-07-22T05:10:00Z',
+      },
+    }
+    api.listRuns.mockResolvedValue({ items: [revealingRun], nextCursor: null })
+    api.getRun.mockResolvedValueOnce(revealingRun).mockResolvedValue(revealedRun)
+
+    const wrapper = mountWithProviders(ClxComparePanel)
+    await flushPromises()
+    expect(wrapper.text()).toContain('揭示处理中（0/1）')
+
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+
+    expect(api.getRun).toHaveBeenCalledTimes(3)
+    expect(api.getManifest).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('已揭示（1/1）')
     wrapper.unmount()
   })
 })
