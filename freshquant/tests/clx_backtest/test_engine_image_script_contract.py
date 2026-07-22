@@ -99,3 +99,11 @@ def test_every_isolated_native_source_build_pins_pybind11() -> None:
         assert source.index("FQCOPILOT_BUILD_TARGET=fqcopilot") < source.index(
             "setup.py build_ext --inplace"
         )
+
+
+def test_trigger_mask_source_build_pins_runtime_numpy() -> None:
+    source = ISOLATED_NATIVE_BUILD_GATES[0].read_text(encoding="utf-8")
+    assert source.count("numpy==2.2.6") == 1
+    assert source.index("numpy==2.2.6") < source.index(
+        "python setup.py build_ext --inplace"
+    )
