@@ -775,7 +775,7 @@ print(inspect.signature(resolve_stock_account))
 
 - `/clx-backtest` 能打开，但 API 显示异常或 run 长时间停在 `QUEUED/RUNNING`
 - 冻结返回 `MANIFEST_NOT_READY` / `FREEZE_SOURCE_MISMATCH`
-- HOLDOUT 查询返回 `HOLDOUT_LOCKED` / `HOLDOUT_ALREADY_REVEALED`
+- HOLDOUT 查询返回 `HOLDOUT_LOCKED`，或揭示请求返回 `HOLDOUT_REVEAL_IN_PROGRESS` / `HOLDOUT_REVEAL_FAILED` / `HOLDOUT_ALREADY_REVEALED`
 - projector 报 manifest、文件哈希或 immutable projection conflict
 
 先检查：
@@ -792,6 +792,7 @@ docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.re
 - `freshquant_clx_backtest.workers.heartbeat_at` 是否新鲜
 - `jobs.status / lease_expires_at / stage / checkpoint` 是否推进
 - `FQ_CLX_BACKTEST_HOST_ROOT` 是否同时挂载到 API 的只读 `/opt/clx-backtest` 和 worker 的可写 `/opt/clx-backtest`
+- 正式全量/Gate 环境是否显式设置当前 runner 的 `CLX_ENGINE_IMAGE_ID` 和 native module 的 `CLX_EXPECTED_ENGINE_SHA256`；不要使用旧 run 的 image 或 module digest
 - `runs/<run_id>/control/logs` 的首个失败 stage
 - `manifest.json / manifest.sha256`、上游 lineage 和实际 artifact SHA-256 是否一致
 
@@ -800,6 +801,9 @@ docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.re
 - `MANIFEST_NOT_READY`：先完成并投影 event、ranking 和 TRAIN/VALIDATION portfolio，再冻结。
 - `FREEZE_SOURCE_MISMATCH`：重新读取 run manifest，只使用服务端 `freeze_input` 的完整 VALIDATION 顺序、固定入选组合和哈希；页面当前 2～4 项对比选择不属于冻结材料。
 - `HOLDOUT_LOCKED`：冻结前属于预期保护；检查 ranking 阶段 HOLDOUT Parquet 打开数仍为 `0`。
+- `HOLDOUT_REVEAL_IN_PROGRESS`：检查对应 HOLDOUT job 的 lease、stage、checkpoint 与 worker 日志；`REVEALING / reveal_count=0` 期间查询继续封存。
+- `HOLDOUT_REVEAL_FAILED`：保留并核对 persistent ledger、失败 job、stage 日志、HOLDOUT artifact 和 manifest attachment；状态保持 `REVEAL_FAILED / reveal_count=0`。
+- ledger 为 `CLAIMED` 且 HOLDOUT artifact 已完整发布：重启同一 reveal 命令；运行器会先校验 immutable artifact，再对账为 `COMPLETE`，不会再次打开 HOLDOUT Parquet。artifact 尚未发布时保持 `CLAIMED` 并人工检查，不删除 claim 后重读。
 - `HOLDOUT_ALREADY_REVEALED`：检查 `freeze_records.reveal_count=1`、persistent ledger 和 access audit；不删除 ledger、freeze 或 manifest 重跑测试集。
 - immutable/hash conflict：保留原 artifact，从已验证的上游重新生成目标层；不直接编辑 Parquet、manifest 或 Mongo 派生事实。
 

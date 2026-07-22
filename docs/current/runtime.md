@@ -121,11 +121,15 @@
 
 run 的控制面是 Mongo `runs / jobs / workers / progress_events`。外部 worker 以 45 秒 lease 原子 claim 任务，执行期间持续写心跳和 stage checkpoint；API 进程不内联执行长回测。
 
-普通 BACKTEST 任务依次执行/验证 event、ranking、TRAIN/VALIDATION portfolio，并投影结果。HOLDOUT 任务只在 immutable freeze 已存在后执行，使用 persistent ledger claim 一次揭示，再生成 HOLDOUT ranking attachment 和 portfolio。
+普通 BACKTEST 任务依次执行/验证 event、ranking、TRAIN/VALIDATION portfolio，并投影结果。HOLDOUT 任务只在 immutable freeze 已存在后执行；API 先发布查询不可见的 `REVEALING`，worker 使用 persistent ledger claim 一次揭示，生成并校验 HOLDOUT ranking/portfolio、完成 Mongo 投影与 attachment 后，先写幂等终态审计，再发布查询可见的 `REVEALED`。job/freeze/run 身份、投影 SHA-256 或审计写入校验失败时保持不可见并记录为 `REVEAL_FAILED`。
 
 全量基线 artifact 链使用 `script/clx_backtest/run_full_artifact_chain.sh`，固定顺序是：
 
 `causal signal finalization -> event study -> ranking freeze -> V2 ranking gate -> unique HOLDOUT reveal -> TRAIN/VALIDATION/HOLDOUT portfolio -> V2 portfolio gate`
+
+Gate 执行器由 `CLX_GATE_RUNNER=direct|governance` 显式选择，默认 `direct`，直接运行仓库内三个 `script/clx_backtest/gates/v2_*_real.sh`，因此普通正式 checkout 不依赖仓库外的治理运行时。仅保留 `.governance` 状态和 `tools/governance.py` 的治理 VM 使用 `CLX_GATE_RUNNER=governance`；配置值非法或所选执行器缺文件时立即失败，不在两种模式间自动切换。
+
+全量脚本不带可回退的 engine pin：运行时必须显式注入不可变 `CLX_ENGINE_IMAGE_ID` 与 native `CLX_EXPECTED_ENGINE_SHA256`。artifact 链通过后，`v2_frontend_real.sh` 验证已部署真实 F1～F3，`v2_e2e_real.sh` 再对账 artifact、唯一 HOLDOUT ledger、Mongo 投影、API/Web、容器镜像、健康检查和治理 Gate 证据。
 
 详细信号、价格域、冻结和页面口径见 [CLX 大规模回测](./modules/clx-backtest.md)。
 

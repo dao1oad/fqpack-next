@@ -70,6 +70,7 @@ CLX 计算排除 `EXCLUDED_CLX` 行；撮合排除 `EXCLUDED_MATCHING` 行。当
 
 - 前复权 OHLC 只用于 CLX 结构识别，避免拆分、送转等造成图形断点。
 - 原始 OHLC 用于 T+1 开盘撮合、收益、涨跌停、现金和持仓账本，避免在真实成交价格与复权价格之间混用。
+- 事件 artifact 逐持有期统计 `adj_factor` 跳变并标记 `CORPORATE_ACTION_NOT_FULLY_LEDGERED`；组合账本保持固定 RAW 口径，不模拟分红、送转或拆并股导致的现金与持股数量变化，因此相关区间属于显式研究近似，不能解释为完整公司行动总收益。
 
 ## 信号编码与因果时钟
 
@@ -83,6 +84,8 @@ CLX 计算排除 `EXCLUDED_CLX` 行；撮合排除 `EXCLUDED_MATCHING` 行。当
 - `model_id`：`0..17`
 - `occurrence`：`1..99`
 - `primary_entrypoint`：`1..7`
+
+原生编码器对 `model_id < 0`、`occurrence <= 0` 或 `primary_entrypoint` 不在 `1..7` 的输入按无信号处理，对 `occurrence > 99` 统一饱和为 `99`，因此 `occurrence=99` 表示“第 99 次或更多”，不保证恰好是第 99 次。`S0013` 和 `S0014` 从 `S0008` 派生时，使用可信的源模型行 `model_id=8` 恢复完整 occurrence，不按原始标量的固定数字位截取。
 
 必须结合可信的 `expected_model_id` 行上下文解码。`occurrence >= 10` 后，单独看数字位数会与模型段重叠，因此原始标量不是自描述协议；单凭固定总位数不足以判断模型。
 
@@ -148,10 +151,12 @@ TRAIN 用于生成和筛选候选；VALIDATION 用固定评分权重、样本门
 
 系统同时产出两类结果：
 
-- 事件研究：样本数、可执行数、均值/中位收益、胜率、95% 区间、MFE、MAE、信号密度、年度正收益比例、最差年度、FDR q 值
+- 事件研究：样本数、可执行数、均值/中位收益、胜率、95% 区间、方向归一化 MFE/MAE、信号密度、年度正收益比例、最差年度、FDR q 值；负向信号把下跌低点记为有利波动、上涨高点记为不利波动
 - 组合撮合：资金曲线、总收益/年化收益、Sharpe、最大回撤、成交、费用、受阻原因、未完成退出和质量披露
 
 因此最终排行回答的是“某个 canonical 组合在固定统计口径下的表现”，并能继续下钻到单模型、主触发、并发触发、次数、原始信号、成交和资金曲线。事件均值与真实组合收益属于不同层级，不互相替代。
+
+事件 artifact 使用 `clx-event-study-v2`；verifier 同时锁定方向收益和正负向 MFE/MAE 语义，旧的多头 excursion 口径不会被恢复链静默复用。排行还把规范化交易日历的逻辑 SHA-256 写入 config、freeze 和 manifest；build resume 与 HOLDOUT reveal 在 claim 或物理读取前拒绝不同日历，避免用变化后的 session 序列恢复既有排行。
 
 ## HOLDOUT 冻结边界
 
@@ -161,10 +166,11 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 2. 搜索与 VALIDATION 排行期间，HOLDOUT Parquet 打开数必须为 `0`。
 3. projector 在 run manifest 的 `freeze_input` 发布完整冻结顺序、固定入选组合、ranking config、split hash 和 rank digest。
 4. API 递归规范化 JSON 中的整数/整数浮点表示后，只接受与服务端整份 `freeze_input` 完全一致的冻结材料；页面上的 2～4 项同屏比较与正式入选的 VALIDATION 正向前 20（或不足 20 时的全部正向组合）相互解耦。
-5. 成功冻结后，persistent holdout ledger 只允许一次 reveal claim。
-6. 揭示只给冻结组合附加 HOLDOUT 指标和组合结果，保持 `frozen_rank` 原值，也不重新搜索。
+5. API 确认揭示时只原子预留一个 worker job，并把 freeze 置为 `REVEALING / reveal_count=0`；此时查询和导出继续封存。`HOLDOUT_REVEAL_QUEUED` 由该预留的幂等投影产生，投影失败时保留 reconciliation marker，不留下“已入队但无审计”的永久窗口。
+6. worker 取得 persistent holdout ledger 的唯一 claim，完成 HOLDOUT 指标与组合结果生成后先原子发布并校验 immutable HOLDOUT artifact，再把 ledger 置为 `COMPLETE`；若进程停在 artifact rename 与 ledger 完成之间，重启只从已验证 artifact 对账 ledger，不再次打开 HOLDOUT。Mongo 投影及 manifest attachment 成功后，worker 先幂等写入终态审计，再发布 `REVEALED / reveal_count=1`；哈希、job/run/freeze 身份或审计写入任一失败都保持查询锁定，失败记录为 `REVEAL_FAILED / reveal_count=0`。
+7. 揭示只给冻结组合附加 HOLDOUT 指标和组合结果，保持 `frozen_rank` 原值，也不重新搜索。
 
-`HOLDOUT_LOCKED`、`HOLDOUT_ALREADY_REVEALED` 和冻结材料哈希不一致都是合同保护结果；删除页面状态或重发请求仍会命中相同保护。
+`HOLDOUT_LOCKED`、`HOLDOUT_REVEAL_IN_PROGRESS`、`HOLDOUT_REVEAL_FAILED`、`HOLDOUT_ALREADY_REVEALED` 和冻结材料哈希不一致都是合同保护结果；删除页面状态或重发请求仍会命中相同保护。
 
 ## Artifact 与 Mongo 投影
 
@@ -177,7 +183,7 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 - `portfolios/<run_tag>/<split>` 或 `runs/<run_id>/portfolios/<split>`
 - `exports/<run_id>`
 
-每一层都携带上游 manifest SHA-256、配置哈希和内容身份。projector 先校验 artifact，再幂等写入派生库 `freshquant_clx_backtest`；同一 `_id` 若内容不同会报冲突，不覆盖既有研究事实。`combo_signals` 会按 `source_signal_fact_id` 回连 event/signal artifact；源事实缺失或身份不一致时整次投影失败，不发布残缺下钻记录。
+每一层都携带上游 manifest SHA-256、配置哈希和内容身份。projector 先校验 artifact，再幂等写入派生库 `freshquant_clx_backtest`；传入的 signal/event/ranking/portfolio/HOLDOUT manifest 必须属于 caller run，portfolio 目录映射键必须与 manifest `split_id` 相同。同一 `_id` 若内容不同会报冲突，不覆盖既有研究事实。组合 decision 的 `source_signal_fact_ids` 只记录 canonical DSL 实际命中的当日 anchor 与历史因果成员；不产生 source fact 的纯因子或纯否定布尔命中不生成 portfolio decision。projector 要求成员属于同一标的且不晚于 decision，并要求至少一个当日同方向 anchor。`combo_signals` 会按这些 ID 回连 event/signal artifact；源事实缺失或身份不一致时整次投影失败，不发布残缺下钻记录。
 
 核心集合：
 
@@ -206,7 +212,7 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
   - 同屏比较 2～4 个组合；该选择只影响比较
   - 使用服务端 `freeze_input` 冻结正式规则
   - 显示数据质量、偏差披露、manifest 和可审计导出
-  - 明确确认后执行一次 HOLDOUT 揭示
+  - 明确确认后执行一次 HOLDOUT 揭示；`REVEALING` 期间有界自动轮询 run，进入 `REVEALED / REVEAL_FAILED` 后停止并刷新排名、manifest 和页面权限
 
 导出支持 `rankings / metrics / equity / trades / signals` 与 `CSV / JSON / Parquet`。
 
@@ -216,6 +222,8 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 - `fq_clx_backtest_worker` 对同一目录可写挂载，使用 Mongo lease、心跳和阶段 checkpoint 执行任务。
 - 默认 worker 限额为 `4 CPU / 12G`；可用 `FQ_CLX_WORKER_CPUS / FQ_CLX_WORKER_MEM` 覆盖。
 - `/api/clx-backtest/health` 检查派生 Mongo 和 API 控制面。
+- 正式 artifact/V2 脚本要求显式传入不可变 `CLX_ENGINE_IMAGE_ID`；causal/full-chain 还要求 `CLX_EXPECTED_ENGINE_SHA256`，两者缺失或与实际 image/native module 不符时立即失败。
+- 真实交付门禁为 `v2_causal_signal_real.sh`、`v2_ranking_real.sh`、`v2_portfolio_real.sh`、`v2_frontend_real.sh` 和 `v2_e2e_real.sh`；后两者只读取已经揭示并完成投影的真实 run，不触发第二次 HOLDOUT 揭示。
 - worker 容器 healthcheck 使用：
 
 ```powershell
@@ -255,6 +263,8 @@ docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.re
 
 - 冻结前返回 `HOLDOUT_LOCKED` 是预期边界
 - 已有 `reveal_count=1` 后重复请求会返回 `HOLDOUT_ALREADY_REVEALED`
+- `REVEALING / reveal_count=0` 表示 worker 尚在生成或投影，HOLDOUT 查询仍返回 `HOLDOUT_LOCKED`
+- `REVEAL_FAILED / reveal_count=0` 表示本次唯一 claim 需要运维检查；保留 ledger、失败 job、日志和 artifact 证据
 - 查看 `freeze_records`、holdout ledger、event access audit 和 holdout manifest；不删除 ledger 或重建 freeze 来重跑测试集
 
 ### Artifact 校验失败
