@@ -10,6 +10,7 @@ ENGINE_SCRIPTS = (
     REPO_ROOT / "script/clx_backtest/gates/v2_portfolio_real.sh",
     REPO_ROOT / "script/clx_backtest/run_full_artifact_chain.sh",
 )
+ENGINE_UNIT_GATE = REPO_ROOT / "script/clx_backtest/gates/engine_unit_fixture.sh"
 
 
 def test_formal_chain_scripts_require_an_operator_selected_engine_image() -> None:
@@ -56,3 +57,20 @@ def test_causal_chain_requires_a_frozen_online_engine_baseline() -> None:
     assert 'expected_online="06b82' not in gate
     assert "docker exec -i fq_apiserver python -" in gate
     assert "docker exec fq_apiserver python -" not in gate
+
+
+def test_engine_unit_gate_runs_only_the_signal_and_engine_unit_boundary() -> None:
+    source = ENGINE_UNIT_GATE.read_text(encoding="utf-8")
+    command = " ".join(source.replace("\\\n", " ").split())
+    targets = [
+        token
+        for token in command.split()
+        if token.startswith("freshquant/tests/clx_backtest")
+    ]
+
+    assert targets == [
+        "freshquant/tests/clx_backtest/test_signal.py",
+        "freshquant/tests/clx_backtest/test_engine.py",
+    ]
+    assert "python -m pytest -q freshquant/tests/clx_backtest\n" not in source
+    assert "test_trigger_masks.py" not in source

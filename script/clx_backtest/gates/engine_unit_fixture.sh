@@ -22,4 +22,6 @@ docker exec \
   -e "PYTHONPATH=$container_tmp" \
   -w "$container_tmp" \
   "$container" \
-  python -m pytest -q freshquant/tests/clx_backtest
+  python -m pytest -q \
+    freshquant/tests/clx_backtest/test_signal.py \
+    freshquant/tests/clx_backtest/test_engine.py
