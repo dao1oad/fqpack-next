@@ -17,6 +17,7 @@ expected_holdout_output="${CLX_EXPECTED_HOLDOUT_OUTPUT_DIR:-/runtime/holdout/$ru
 portfolio_config="${CLX_PORTFOLIO_CONFIG:-$runtime_root/config/portfolio-config-v1.json}"
 : "${CLX_ENGINE_IMAGE_ID:?CLX_ENGINE_IMAGE_ID must name the verified immutable engine image}"
 image="$CLX_ENGINE_IMAGE_ID"
+: "${CLX_EXPECTED_ENGINE_SHA256:?CLX_EXPECTED_ENGINE_SHA256 must name the verified native engine digest}"
 gate_cpus="${CLX_GATE_CPUS:-8}"
 gate_memory="${CLX_GATE_MEMORY:-20g}"
 polars_threads="${CLX_POLARS_MAX_THREADS:-8}"
@@ -48,7 +49,9 @@ docker image inspect "$image" >/dev/null
 docker run --rm -i --network none --pids-limit 2048 \
   --cpus "$gate_cpus" --memory "$gate_memory" --memory-swap "$gate_memory" \
   --user "$(id -u):$(id -g)" \
-  -e PYTHONPATH=/workspace -e PYTHONOPTIMIZE=0 -e "POLARS_MAX_THREADS=$polars_threads" \
+  -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
+  -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
+  -e PYTHONOPTIMIZE=0 -e "POLARS_MAX_THREADS=$polars_threads" \
   -e CLX_EXPECTED_SNAPSHOT_ID="$snapshot_id" \
   -e CLX_EXPECTED_HOLDOUT_OUTPUT_DIR="$expected_holdout_output" \
   -v "$repo_root:/workspace:ro" \
@@ -60,7 +63,9 @@ docker run --rm -i --network none --pids-limit 2048 \
   -v "$portfolio_root:/data/portfolios:ro" \
   -v "$ledger_dir:/data/ledger:ro" \
   -v "$portfolio_config:/data/config/portfolio-config.json:ro" \
-  -w /workspace --entrypoint python "$image" - <<'PY'
+  -w /opt/clx-src --entrypoint python "$image" \
+  -m freshquant.backtest.clx.run_verified_engine_python \
+  v2-portfolio-real - <<'PY'
 from __future__ import annotations
 
 import hashlib

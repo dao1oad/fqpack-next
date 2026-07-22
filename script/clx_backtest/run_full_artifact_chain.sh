@@ -90,9 +90,12 @@ run_python() {
     --user "$(id -u):$(id -g)" \
     --cpus "$cpus" --memory "$memory" --memory-swap "$memory" \
     --pids-limit 4096 \
-    -e PYTHONPATH=/workspace -e "POLARS_MAX_THREADS=$polars_threads" \
+    -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
+    -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
+    -e "POLARS_MAX_THREADS=$polars_threads" \
     -v "$repo_root:/workspace:ro" -v "$runtime_root:/runtime" \
-    -w /workspace --entrypoint python "$image" "$@"
+    -w /opt/clx-src --entrypoint python "$image" \
+    -m freshquant.backtest.clx.run_verified_engine_python "$stage" "$@"
   verify_run_identity "after-$stage"
 }
 

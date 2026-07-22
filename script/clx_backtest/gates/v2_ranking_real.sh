@@ -17,6 +17,7 @@ ranking_config="${CLX_RANKING_CONFIG:-$runtime_root/config/ranking-config-v1.jso
 access_log="${CLX_RANKING_ACCESS_LOG:-$runtime_root/audit/ranking-$run_tag-event-access.jsonl}"
 : "${CLX_ENGINE_IMAGE_ID:?CLX_ENGINE_IMAGE_ID must name the verified immutable engine image}"
 image="$CLX_ENGINE_IMAGE_ID"
+: "${CLX_EXPECTED_ENGINE_SHA256:?CLX_EXPECTED_ENGINE_SHA256 must name the verified native engine digest}"
 require_real_scale="${CLX_GATE_REQUIRE_REAL_SCALE:-1}"
 expected_rows="${CLX_EXPECTED_SOURCE_ROWS:-16426284}"
 expected_codes="${CLX_EXPECTED_CODES:-5201}"
@@ -48,7 +49,9 @@ docker image inspect "$image" >/dev/null
 docker run --rm -i --network none --pids-limit 2048 \
   --cpus "$gate_cpus" --memory "$gate_memory" --memory-swap "$gate_memory" \
   --user "$(id -u):$(id -g)" \
-  -e PYTHONPATH=/workspace -e "POLARS_MAX_THREADS=$polars_threads" \
+  -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
+  -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
+  -e "POLARS_MAX_THREADS=$polars_threads" \
   -e CLX_EXPECTED_SNAPSHOT_ID="$snapshot_id" \
   -e CLX_GATE_REQUIRE_REAL_SCALE="$require_real_scale" \
   -e CLX_EXPECTED_SOURCE_ROWS="$expected_rows" \
@@ -62,7 +65,9 @@ docker run --rm -i --network none --pids-limit 2048 \
   -v "$split_plan:/data/config/split-plan.json:ro" \
   -v "$ranking_config:/data/config/ranking-config.json:ro" \
   -v "$access_log:/data/audit/ranking-event-access.jsonl:ro" \
-  -w /workspace --entrypoint python "$image" - <<'PY'
+  -w /opt/clx-src --entrypoint python "$image" \
+  -m freshquant.backtest.clx.run_verified_engine_python \
+  v2-ranking-real - <<'PY'
 from __future__ import annotations
 
 import hashlib

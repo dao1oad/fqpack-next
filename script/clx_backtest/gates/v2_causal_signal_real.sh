@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="${CLX_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 run_root="${CLX_FULL_RUN_ROOT:-/opt/fqpack/runtime/clx-backtest/events/full-9738aabd75ba}"
 facts="$run_root/facts"
 runner="$run_root/.runner"
@@ -26,8 +27,22 @@ observed_image=$(docker image inspect "$image" --format '{{.Id}}')
 [[ "$observed_image" == "$image" ]] || {
   echo "immutable engine image id mismatch: $observed_image" >&2; exit 1;
 }
-verify_one=$(docker run --rm --network none --entrypoint python   -v "$facts:/data/facts:ro" "$image"   -m freshquant.backtest.clx.signal_facts verify --output-dir /data/facts)
-verify_two=$(docker run --rm --network none --entrypoint python   -v "$facts:/data/facts:ro" "$image"   -m freshquant.backtest.clx.signal_facts verify --output-dir /data/facts)
+verify_one=$(docker run --rm --network none \
+  -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
+  -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
+  -v "$repo_root:/workspace:ro" -v "$facts:/data/facts:ro" \
+  -w /opt/clx-src --entrypoint python "$image" \
+  -m freshquant.backtest.clx.run_verified_engine_python \
+  v2-causal-signal-verify-1 \
+  -m freshquant.backtest.clx.signal_facts verify --output-dir /data/facts)
+verify_two=$(docker run --rm --network none \
+  -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
+  -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
+  -v "$repo_root:/workspace:ro" -v "$facts:/data/facts:ro" \
+  -w /opt/clx-src --entrypoint python "$image" \
+  -m freshquant.backtest.clx.run_verified_engine_python \
+  v2-causal-signal-verify-2 \
+  -m freshquant.backtest.clx.signal_facts verify --output-dir /data/facts)
 [[ "$verify_one" == "$verify_two" ]] || {
   echo "two deep verification runs differ" >&2; exit 1;
 }
