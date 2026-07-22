@@ -206,7 +206,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/sum
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18123/ping
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/gantt/plates?provider=xgb
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/clx-backtest/health
-docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90
+powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 exec -T fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90
 ```
 
 ### Web UI

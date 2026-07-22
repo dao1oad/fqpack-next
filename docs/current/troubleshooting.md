@@ -783,8 +783,8 @@ print(inspect.signature(resolve_stock_account))
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/clx-backtest/health
 docker compose -f docker/compose.parallel.yaml ps fq_apiserver fq_clx_backtest_worker fq_mongodb
-docker logs --tail 200 fq_clx_backtest_worker
-docker exec fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90
+powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 logs --tail 200 fq_clx_backtest_worker
+powershell -ExecutionPolicy Bypass -File script/docker_parallel_compose.ps1 exec -T fq_clx_backtest_worker /freshquant/.venv/bin/python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90
 ```
 
 再核对：
