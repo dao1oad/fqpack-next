@@ -89,16 +89,8 @@ from QUANTAXIS.QAData.data_fq import _QA_data_stock_to_fq
 from QUANTAXIS.QAFetch.QAQuery import QA_fetch_stock_day
 from QUANTAXIS.QAUtil import Parallelism
 from QUANTAXIS.QAFetch.QATdx import ping, get_ip_list_by_multi_process_ping, stock_ip_list
+from QUANTAXIS.QASU.index_compat import ensure_compatible_index as _ensure_compatible_index
 from multiprocessing import cpu_count
-
-
-def _ensure_compatible_index(collection, fields):
-    """Reuse an existing index with the same key pattern, regardless of options."""
-    normalized_fields = list(fields)
-    for spec in collection.index_information().values():
-        if list(spec.get("key") or []) == normalized_fields:
-            return
-    collection.create_index(normalized_fields)
 
 
 # ip=select_best_ip()

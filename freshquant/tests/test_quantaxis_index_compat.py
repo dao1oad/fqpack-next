@@ -7,15 +7,15 @@ _SOURCE_PATH = (
     / "QUANTAXIS"
     / "QUANTAXIS"
     / "QASU"
-    / "save_tdx.py"
+    / "index_compat.py"
 )
 _SPEC = importlib.util.spec_from_file_location(
-    "freshquant_vendor_save_tdx", _SOURCE_PATH
+    "freshquant_vendor_index_compat", _SOURCE_PATH
 )
 assert _SPEC is not None and _SPEC.loader is not None
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
-_ensure_compatible_index = _MODULE._ensure_compatible_index
+_ensure_compatible_index = _MODULE.ensure_compatible_index
 
 
 class _FakeCollection:
