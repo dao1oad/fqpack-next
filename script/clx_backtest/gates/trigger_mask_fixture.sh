@@ -104,7 +104,8 @@ docker run --rm \
     python -m pip install --disable-pip-version-check -q \
       Cython==3.1.2 pybind11==3.0.2 setuptools==80.9.0 \
       wheel==0.45.1 pytest==8.4.1
-    if ! python setup.py build_ext --inplace > /work/native-build.log 2>&1; then
+    if ! FQCOPILOT_BUILD_TARGET=fqcopilot \
+      python setup.py build_ext --inplace > /work/native-build.log 2>&1; then
       tail -200 /work/native-build.log >&2
       exit 1
     fi

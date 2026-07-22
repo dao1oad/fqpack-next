@@ -40,7 +40,8 @@ docker run --rm \
   sh -ec '
     python -m pip install --disable-pip-version-check -q \
       Cython==3.1.2 pybind11==3.0.2 setuptools==80.9.0 wheel==0.45.1
-    python setup.py build_ext --inplace > /work/native-build.log 2>&1
+    FQCOPILOT_BUILD_TARGET=fqcopilot \
+      python setup.py build_ext --inplace > /work/native-build.log 2>&1
   '
 
 docker exec "$container" mkdir -p "$container_tmp/native-python" "$container_tmp/repo"

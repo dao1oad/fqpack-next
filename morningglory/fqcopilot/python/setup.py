@@ -8,6 +8,14 @@ from setuptools.command.build_ext import build_ext
 from setuptools.extension import Extension
 
 ROOT = Path(__file__).resolve().parent
+BUILD_TARGET = os.environ.get("FQCOPILOT_BUILD_TARGET", "all")
+VALID_BUILD_TARGETS = frozenset({"all", "fqcopilot", "fullcalc"})
+if BUILD_TARGET not in VALID_BUILD_TARGETS:
+    expected = ", ".join(sorted(VALID_BUILD_TARGETS))
+    raise ValueError(
+        f"FQCOPILOT_BUILD_TARGET must be one of {expected}; got {BUILD_TARGET!r}"
+    )
+
 DEFINE_MACROS = [
     ("_FORCE_SWELL_WHEN_9WAVE", "1"),
     ("_GAP_COUNT_AS_ONE_BAR", "1"),
@@ -79,49 +87,53 @@ def gather_cpp_files(directories, *, exclude_dirs=None):
     return cpp_files
 
 
-fqcopilot_cpp_files = gather_cpp_files(
-    [
-        "../cpp/chanlun",
-        "../cpp/common",
-        "../cpp/copilot",
-        "../cpp/indicator",
-    ]
-)
-fullcalc_cpp_files = [
-    os.path.relpath(ROOT / "../cpp/func_set.cpp", ROOT)
-] + gather_cpp_files(
-    [
-        "../fullcalc",
-        "../cpp/common",
-        "../cpp/copilot",
-        "../cpp/indicator",
-        "../cpp/chanlun",
-    ]
-)
-
-extensions = [
-    Extension(
+extensions = []
+if BUILD_TARGET in {"all", "fqcopilot"}:
+    fqcopilot_cpp_files = gather_cpp_files(
+        [
+            "../cpp/chanlun",
+            "../cpp/common",
+            "../cpp/copilot",
+            "../cpp/indicator",
+        ]
+    )
+    fqcopilot_extension = Extension(
         name="fqcopilot",
         sources=cython_files + fqcopilot_cpp_files,
         include_dirs=[str((ROOT / "../cpp").resolve())],
         language="c++",
         define_macros=DEFINE_MACROS,
-    ),
-    Pybind11Extension(
-        name="fullcalc",
-        sources=fullcalc_cpp_files,
-        include_dirs=[
-            str((ROOT / "../fullcalc").resolve()),
-            str((ROOT / "../cpp").resolve()),
-        ],
-        language="c++",
-        define_macros=DEFINE_MACROS + [("MAKE_X64", "1")],
-        cxx_std=17,
-    ),
-]
+    )
+    extensions.extend(cythonize([fqcopilot_extension]))
+
+if BUILD_TARGET in {"all", "fullcalc"}:
+    fullcalc_cpp_files = [
+        os.path.relpath(ROOT / "../cpp/func_set.cpp", ROOT)
+    ] + gather_cpp_files(
+        [
+            "../fullcalc",
+            "../cpp/common",
+            "../cpp/copilot",
+            "../cpp/indicator",
+            "../cpp/chanlun",
+        ]
+    )
+    extensions.append(
+        Pybind11Extension(
+            name="fullcalc",
+            sources=fullcalc_cpp_files,
+            include_dirs=[
+                str((ROOT / "../fullcalc").resolve()),
+                str((ROOT / "../cpp").resolve()),
+            ],
+            language="c++",
+            define_macros=DEFINE_MACROS + [("MAKE_X64", "1")],
+            cxx_std=17,
+        )
+    )
 
 setup(
-    ext_modules=cythonize([extensions[0]]) + [extensions[1]],
+    ext_modules=extensions,
     cmdclass={"build_ext": build_ext_subclass},
     install_requires=INSTALL_REQUIRES,
 )

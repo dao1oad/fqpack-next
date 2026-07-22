@@ -92,6 +92,10 @@ def test_every_isolated_native_source_build_pins_pybind11() -> None:
     for script in ISOLATED_NATIVE_BUILD_GATES:
         source = script.read_text(encoding="utf-8")
         assert source.count("pybind11==3.0.2") == 1, script
+        assert source.count("FQCOPILOT_BUILD_TARGET=fqcopilot") == 1, script
         assert source.index("pybind11==3.0.2") < source.index(
+            "setup.py build_ext --inplace"
+        )
+        assert source.index("FQCOPILOT_BUILD_TARGET=fqcopilot") < source.index(
             "setup.py build_ext --inplace"
         )
