@@ -15,6 +15,21 @@ def _module(name: str, **attrs: object) -> types.ModuleType:
     return module
 
 
+_STUB_MODULE_NAMES = (
+    "freshquant.message",
+    "arrow",
+    "tzlocal",
+    "redis",
+    "freshquant.strategy.toolkit.threshold",
+    "freshquant.data.astock.holding",
+    "freshquant.pool.general",
+    "freshquant.position.stock",
+)
+_ORIGINAL_MODULES = {
+    name: sys.modules[name] for name in _STUB_MODULE_NAMES if name in sys.modules
+}
+
+
 sys.modules.setdefault("freshquant.message", types.ModuleType("freshquant.message"))
 sys.modules.setdefault(
     "arrow",
@@ -77,7 +92,11 @@ sys.modules.setdefault(
 
 from freshquant.strategy.guardian import StrategyGuardian
 
-sys.modules.pop("freshquant.message", None)
+for _module_name in _STUB_MODULE_NAMES:
+    if _module_name in _ORIGINAL_MODULES:
+        sys.modules[_module_name] = _ORIGINAL_MODULES[_module_name]
+    else:
+        sys.modules.pop(_module_name, None)
 
 
 class FailDb:
