@@ -4,10 +4,12 @@ from flask import Flask
 from gevent.pywsgi import WSGIServer
 
 
-def create_app():
+def create_app(config=None, clx_backtest_store=None):
     from importlib import import_module
 
     app = Flask(__name__)
+    if config:
+        app.config.update(config)
     app.register_blueprint(import_module("freshquant.rear.future.routes").future_bp)
     app.register_blueprint(import_module("freshquant.rear.stock.routes").stock_bp)
     app.register_blueprint(import_module("freshquant.rear.general.routes").general_bp)
@@ -28,6 +30,11 @@ def create_app():
     app.register_blueprint(import_module("freshquant.rear.tpsl.routes").tpsl_bp)
     app.register_blueprint(
         import_module("freshquant.rear.subject_management.routes").subject_management_bp
+    )
+    app.register_blueprint(
+        import_module("freshquant.rear.clx_backtest").create_clx_backtest_blueprint(
+            clx_backtest_store
+        )
     )
     return app
 
