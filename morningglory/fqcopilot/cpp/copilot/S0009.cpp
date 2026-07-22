@@ -144,7 +144,7 @@ private:
                 break;
               }
             }
-            
+
             // 从support_price_index到结尾查找值是1.0的索引位置
             int wave_end_index = -1;
             for (int x = support_price_index; x < length; x++) {
@@ -153,7 +153,7 @@ private:
                 break;
               }
             }
-            
+
             // 有了向上笔后就要开始找回踩笔
             if (wave_end_index >= 0 && reatched > 0) {
               for (int y = last_x + 1; y < length; y++) {
@@ -264,7 +264,7 @@ private:
                 break;
               }
             }
-            
+
             // 从resistance_price_index到结尾查找值是-1.0的索引位置
             int wave_end_index = -1;
             for (int x = resistance_price_index; x < length; x++) {
@@ -273,7 +273,7 @@ private:
                 break;
               }
             }
-            
+
             // 有了向下笔后就要开始找上拉笔
             if (wave_end_index >= 0 && reatched > 0) {
               for (int y = last_x + 1; y < length; y++) {

@@ -310,22 +310,22 @@ bool check_bi(std::vector<Bar> &raw_bars, std::vector<StdBar> &bars,
 }
 
 // 辅助函数：尝试合并非完备笔（小转大笔）
-bool try_merge_non_comprehensive_wave(std::vector<StdBar> &bi_vertices, 
+bool try_merge_non_comprehensive_wave(std::vector<StdBar> &bi_vertices,
                                       std::vector<Bar> &raw_bars,
                                       std::vector<float> &bi,
-                                      int direction, 
+                                      int direction,
                                       float bi_min_stick_count,
                                       ChanOptions &options) {
   if (options.merge_non_complehensive_wave != 1 || bi_vertices.size() <= 3) {
     return false;
   }
-  
+
   StdBar &f1 = bi_vertices.at(bi_vertices.size() - 4);
   StdBar &f2 = bi_vertices.at(bi_vertices.size() - 3);
   StdBar &f3 = bi_vertices.at(bi_vertices.size() - 2);
   StdBar &f4 = bi_vertices.at(bi_vertices.size() - 1);
   int gapCount = check_gap(raw_bars, f3, f4, direction);
-  
+
   bool can_merge = false;
   if (direction == -1) { // 向上笔
     can_merge = (f4.low_vertex_raw_pos - f3.high_vertex_raw_pos + gapCount < bi_min_stick_count - 1) &&
@@ -340,7 +340,7 @@ bool try_merge_non_comprehensive_wave(std::vector<StdBar> &bi_vertices,
       bi[f4.low_vertex_raw_pos] = 0.5;
     }
   }
-  
+
   if (can_merge) {
     bi_vertices.erase(bi_vertices.end() - 3, bi_vertices.end() - 1);
   }
@@ -383,7 +383,7 @@ std::vector<float> recognise_bi_from_precomputed(
                      options)) {
           // 合并小转大笔
           try_merge_non_comprehensive_wave(bi_vertices, raw_bars, bi, -1, bi_min_stick_count, options);
-          
+
           // 满足向上笔条件的，我们把这个笔顶信号值记录为0.5，他不一定是最终的笔顶。
           bi_vertices.push_back(std_bars.at(i));
           bi[std_bars.at(i).high_vertex_raw_pos] = 0.5;
@@ -394,7 +394,7 @@ std::vector<float> recognise_bi_from_precomputed(
               bi_vertices.at(bi_vertices.size() - 2).high_high) {
             // 检查前一笔是否为非完备笔，如果是则判断是否可以合并
             try_merge_non_comprehensive_wave(bi_vertices, raw_bars, bi, -1, bi_min_stick_count, options);
-            
+
             bi_vertices.push_back(std_bars.at(i));
             // 我们不把这种笔顶信号记录为0.5，因为他不是完整笔
             continue;
@@ -420,7 +420,7 @@ std::vector<float> recognise_bi_from_precomputed(
                      options)) {
           // 合并小转大笔
           try_merge_non_comprehensive_wave(bi_vertices, raw_bars, bi, 1, bi_min_stick_count, options);
-          
+
           // 满足向下笔条件的，我们把这个笔底信号值记录为-0.5，他不一定是最终的笔底。
           bi_vertices.push_back(std_bars.at(i));
           bi[std_bars.at(i).low_vertex_raw_pos] = -0.5;
@@ -431,7 +431,7 @@ std::vector<float> recognise_bi_from_precomputed(
               bi_vertices.at(bi_vertices.size() - 2).low_low) {
             // 检查前一笔是否为非完备笔，如果是则判断是否可以合并
             try_merge_non_comprehensive_wave(bi_vertices, raw_bars, bi, 1, bi_min_stick_count, options);
-            
+
             bi_vertices.push_back(std_bars.at(i));
             // 我们不把这种笔底信号记录为-0.5，因为他不是完整笔
             continue;

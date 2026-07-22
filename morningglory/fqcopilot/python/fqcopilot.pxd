@@ -1,9 +1,9 @@
 # distutils: language = c++
 # cython: language_level = 3
 
-from libcpp cimport bool
+from libcpp cimport bool, int
 from libcpp.vector cimport vector
-from libcpp cimport int
+
 
 cdef extern from "func_set.cpp":
     pass

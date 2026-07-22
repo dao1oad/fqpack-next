@@ -115,7 +115,7 @@ std::vector<int> Copilot::Calc(CalcType calcType)
     {
         return std::vector<int>();
     }
-    
+
     int switch_opt = 1;
     if (this->ExistParam(ParamType::PARAM_MODEL_OPT))
     {

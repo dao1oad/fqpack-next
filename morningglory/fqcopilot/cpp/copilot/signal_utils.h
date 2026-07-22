@@ -89,7 +89,7 @@ public:
         return {buy_masks, sell_masks};
     }
 
-    static EntrypointType is_buy_signal(int n, 
+    static EntrypointType is_buy_signal(int n,
                             const std::vector<float>& high,
                             const std::vector<float>& low,
                             const std::vector<float>& open,
@@ -103,18 +103,18 @@ public:
                             const float support_price = 0)
     {
         // 是不是pinbar产生信号
-        if (n >= 0 && is_pinbar(high[n], low[n], open[n], close[n]) == 1 && 
+        if (n >= 0 && is_pinbar(high[n], low[n], open[n], close[n]) == 1 &&
             (support_price == 0 || close[n] > support_price)) {
             return EntrypointType::ENTRYPOINT_BUY_OPEN_2;
         }
         // 是不是吞没反包产生信号
-        if (n >= 1 && is_engulfing(high[n - 1], low[n - 1], open[n - 1], close[n - 1], 
+        if (n >= 1 && is_engulfing(high[n - 1], low[n - 1], open[n - 1], close[n - 1],
                         high[n], low[n], open[n], close[n]) == 1 &&
             (support_price == 0 || close[n] > support_price)) {
             return EntrypointType::ENTRYPOINT_BUY_OPEN_3;
         }
         // 是不是强底分型
-        if (n >=0 && strong_factors[n] == 1 && 
+        if (n >=0 && strong_factors[n] == 1 &&
             (support_price == 0 || close[n] > support_price)) {
             return EntrypointType::ENTRYPOINT_BUY_OPEN_4;
         }
@@ -124,7 +124,7 @@ public:
             return EntrypointType::ENTRYPOINT_BUY_OPEN_5;
         }
         // 是不是量价齐升
-        if (n >= 1 && is_price_vol_rising(open[n - 1], close[n - 1], vol[n - 1], 
+        if (n >= 1 && is_price_vol_rising(open[n - 1], close[n - 1], vol[n - 1],
                                         open[n], close[n], vol[n]) == 1 &&
             (support_price == 0 || close[n] > support_price)) {
             return EntrypointType::ENTRYPOINT_BUY_OPEN_6;
@@ -151,18 +151,18 @@ public:
                              const float resistance_price = 0)
     {
         // 是不是pinbar产生信号
-        if (n >= 0 && is_pinbar(high[n], low[n], open[n], close[n]) == -1 && 
+        if (n >= 0 && is_pinbar(high[n], low[n], open[n], close[n]) == -1 &&
             (resistance_price == 0 || close[n] < resistance_price)) {
             return EntrypointType::ENTRYPOINT_SELL_OPEN_2;
         }
         // 是不是吞没反包产生信号
-        if (n >= 1 && is_engulfing(high[n - 1], low[n - 1], open[n - 1], close[n - 1], 
+        if (n >= 1 && is_engulfing(high[n - 1], low[n - 1], open[n - 1], close[n - 1],
                         high[n], low[n], open[n], close[n]) == -1 &&
             (resistance_price == 0 || close[n] < resistance_price)) {
             return EntrypointType::ENTRYPOINT_SELL_OPEN_3;
         }
         // 是不是强顶分型
-        if (n >= 0 && strong_factors[n] == -1 && 
+        if (n >= 0 && strong_factors[n] == -1 &&
             (resistance_price == 0 || close[n] < resistance_price)) {
             return EntrypointType::ENTRYPOINT_SELL_OPEN_4;
         }
@@ -172,7 +172,7 @@ public:
             return EntrypointType::ENTRYPOINT_SELL_OPEN_5;
         }
         // 是不是量价齐跌
-        if (n >= 1 && is_price_vol_rising(open[n - 1], close[n - 1], vol[n - 1], 
+        if (n >= 1 && is_price_vol_rising(open[n - 1], close[n - 1], vol[n - 1],
                                         open[n], close[n], vol[n]) == -1 &&
             (resistance_price == 0 || close[n] < resistance_price)) {
             return EntrypointType::ENTRYPOINT_SELL_OPEN_6;

@@ -208,16 +208,16 @@ std::vector<Bar> recognise_bars(int length, std::vector<float> &high, std::vecto
 
 void update_factor_high_low(std::vector<StdBar>& std_bars) {
     if (std_bars.empty()) return;
-    
+
     StdBar& last_bar = std_bars.back();
-    
+
     if (std_bars.size() == 1) {
         // 第一个std_bar的分型高和分型低都是自己的高和低
         last_bar.factor_high = last_bar.high;
         last_bar.factor_low = last_bar.low;
     } else {
         const StdBar& prev_bar = std_bars[std_bars.size() - 2];
-        
+
         if (last_bar.direction == 1) {
             // 方向向上的std_bar
             last_bar.factor_low = prev_bar.low;
@@ -264,7 +264,7 @@ std::vector<StdBar> recognise_std_bars(int length, std::vector<float> &high, std
             // 第一个柱的方向取决于条件
             float dir1 = (high[i] > high[i - 1]) ? -1.0f : 1.0f;
             float dir2 = -dir1; // 第二个柱的方向相反
-            
+
             // 创建第一个柱
             StdBar bar1;
             bar1.direction = dir1;
@@ -279,7 +279,7 @@ std::vector<StdBar> recognise_std_bars(int length, std::vector<float> &high, std
             bar1.pos = 0;
             std_bars.push_back(bar1);
             update_factor_high_low(std_bars);
-            
+
             // 创建第二个柱
             StdBar bar2;
             bar2.direction = dir2;
