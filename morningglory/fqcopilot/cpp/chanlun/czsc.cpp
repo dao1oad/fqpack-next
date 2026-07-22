@@ -237,6 +237,23 @@ std::vector<StdBar> recognise_std_bars(int length, std::vector<float> &high, std
     {
         return std_bars;
     }
+    if (length == 1)
+    {
+        StdBar bar;
+        bar.direction = 1;
+        bar.start = 0;
+        bar.end = 0;
+        bar.high_vertex_raw_pos = 0;
+        bar.low_vertex_raw_pos = 0;
+        bar.high = high[0];
+        bar.low = low[0];
+        bar.high_high = high[0];
+        bar.low_low = low[0];
+        bar.pos = 0;
+        std_bars.push_back(bar);
+        update_factor_high_low(std_bars);
+        return std_bars;
+    }
     std::vector<StdBar> factors;
     // 开始的时候，我们先找出原始K柱的初始方向
     for (int i = 1; i < length; i++)
@@ -469,6 +486,16 @@ std::vector<StdBar> recognise_std_bars(int length, std::vector<float> &high, std
 
 std::vector<float> recognise_swing(int length, std::vector<float> &high, std::vector<float> &low)
 {
+    if (length == 0 || is_expired())
+    {
+        return std::vector<float>(length, 0.0f);
+    }
+    const std::vector<StdBar> std_bars = recognise_std_bars(length, high, low);
+    return recognise_swing_from_std_bars(length, std_bars);
+}
+
+std::vector<float> recognise_swing_from_std_bars(int length, const std::vector<StdBar> &std_bars)
+{
     std::vector<float> swing(length, 0.0f);
     if (length == 0)
     {
@@ -478,8 +505,6 @@ std::vector<float> recognise_swing(int length, std::vector<float> &high, std::ve
     {
         return swing;
     }
-    // 获取标准化K线
-    std::vector<StdBar> std_bars = recognise_std_bars(length, high, low);
     if (std_bars.empty())
     {
         return swing;
@@ -1165,7 +1190,7 @@ std::vector<float> factor_confirm_sigs(int length, std::vector<StdBar> &std_bars
     {
         return sigs;
     }
-    for (size_t i = 0; i < std_bars.size() - 1; i++)
+    for (size_t i = 0; i + 1 < std_bars.size(); i++)
     {
         StdBar b = std_bars.at(i);
         if (b.factor == -1)

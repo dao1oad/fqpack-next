@@ -95,7 +95,7 @@ fullcalc_cpp_files = [
         "../cpp/common",
         "../cpp/copilot",
         "../cpp/indicator",
-        "../../fqchan04/cpp/chanlun",
+        "../cpp/chanlun",
     ]
 )
 
@@ -113,7 +113,6 @@ extensions = [
         include_dirs=[
             str((ROOT / "../fullcalc").resolve()),
             str((ROOT / "../cpp").resolve()),
-            str((ROOT / "../../fqchan04/cpp").resolve()),
         ],
         language="c++",
         define_macros=DEFINE_MACROS + [("MAKE_X64", "1")],

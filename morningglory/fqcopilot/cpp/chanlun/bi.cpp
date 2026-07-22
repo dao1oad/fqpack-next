@@ -347,8 +347,9 @@ bool try_merge_non_comprehensive_wave(std::vector<StdBar> &bi_vertices,
   return can_merge;
 }
 
-std::vector<float> recognise_bi(int length, std::vector<float> &high,
-                                std::vector<float> &low, ChanOptions &options) {
+std::vector<float> recognise_bi_from_precomputed(
+    int length, const std::vector<float> &close, ChanOptions &options,
+    std::vector<Bar> &raw_bars, std::vector<StdBar> &std_bars) {
   std::vector<float> bi(length, 0.0f);
   if (length == 0) {
     return bi;
@@ -364,9 +365,6 @@ std::vector<float> recognise_bi(int length, std::vector<float> &high,
   } else if (options.bi_mode == 6) {
     bi_min_stick_count = 5;
   }
-  std::vector<Bar> raw_bars = recognise_bars(length, high, low);
-
-  std::vector<StdBar> std_bars = recognise_std_bars(length, high, low);
   std::vector<StdBar> bi_vertices; // 记录笔的端点
   for (int i = 0; i < static_cast<int>(std_bars.size()); i++) {
     if (bi_vertices.size() == 0) {
@@ -499,6 +497,34 @@ std::vector<float> recognise_bi(int length, std::vector<float> &high,
       bi[bi_vertices.at(i).low_vertex_raw_pos] = -1;
     }
   }
+  // 笔端点分型确认信号：11/12（顶） -11/-12（底）
+  // 强分型判断：确认bar的第一根K线收盘价突破左bar极值
+  for (size_t i = 1; i + 1 < std_bars.size(); i++) {
+    StdBar &mid = std_bars.at(i);
+    if (mid.factor == 0) continue;
+
+    int confirm_pos = std_bars.at(i + 1).start;
+    if (bi[confirm_pos] != 0) continue;
+
+    int vertex_pos = (mid.factor == 1)
+        ? mid.high_vertex_raw_pos : mid.low_vertex_raw_pos;
+    float sig = bi[vertex_pos];
+
+    bool strong = false;
+    if (!close.empty() && confirm_pos >= 0 && confirm_pos < static_cast<int>(close.size())) {
+      StdBar &left = std_bars.at(i - 1);
+      if (mid.factor == 1) {
+        strong = (close[confirm_pos] < left.low_low);
+      } else {
+        strong = (close[confirm_pos] > left.high_high);
+      }
+    }
+    if (mid.factor == 1 && (sig == 1 || sig == 0.5)) {
+      bi[confirm_pos] = strong ? 12 : 11;
+    } else if (mid.factor == -1 && (sig == -1 || sig == -0.5)) {
+      bi[confirm_pos] = strong ? -12 : -11;
+    }
+  }
   // 把第一个非0的笔信号设置为-3，表示此信号序列是笔信号
   for (int i = 0; i < length; i++) {
     if (bi[i] == 0) {
@@ -507,4 +533,17 @@ std::vector<float> recognise_bi(int length, std::vector<float> &high,
     }
   }
   return bi;
+}
+
+std::vector<float> recognise_bi(int length, std::vector<float> &high,
+                                std::vector<float> &low,
+                                const std::vector<float> &close,
+                                ChanOptions &options) {
+  if (length == 0 || is_expired()) {
+    return std::vector<float>(length, 0.0f);
+  }
+  std::vector<Bar> raw_bars = recognise_bars(length, high, low);
+  std::vector<StdBar> std_bars = recognise_std_bars(length, high, low);
+  return recognise_bi_from_precomputed(
+      length, close, options, raw_bars, std_bars);
 }
