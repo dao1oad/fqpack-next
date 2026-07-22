@@ -27,7 +27,12 @@ from ._file_lock import fsync_directory, lock_exclusive, unlock
 from .model_registry import canonical_json_bytes
 from .snapshot import QUALITY_EXCLUDED_MATCHING
 
-EVENT_STUDY_SCHEMA_VERSION = "clx-event-study-v1"
+EVENT_STUDY_SCHEMA_VERSION = "clx-event-study-v2"
+DIRECTION_ADJUSTED_RETURN_CONTRACT = "direction * (raw_exit_close / raw_entry_open - 1)"
+DIRECTION_ADJUSTED_EXCURSION_CONTRACT = (
+    "positive: max(high_return), min(low_return); "
+    "negative: -min(low_return), -max(high_return)"
+)
 HORIZONS = (1, 3, 5, 10, 20)
 SPLIT_NAMES = ("TRAIN", "VALIDATION", "HOLDOUT")
 ACTIONABLE_EVENT_KINDS = ("ADD", "REPLACE")
@@ -619,16 +624,24 @@ def build_event_outcomes_frame(
                     row[f"{prefix}_direction_adjusted_return"] = (
                         int(fact["direction"]) * raw_return
                     )
-                    row[f"{prefix}_mfe"] = (
+                    high_return = (
                         max(float(item["raw_high"]) for item in concrete)
                         / raw_entry_open
                         - 1.0
                     )
-                    row[f"{prefix}_mae"] = (
+                    low_return = (
                         min(float(item["raw_low"]) for item in concrete)
                         / raw_entry_open
                         - 1.0
                     )
+                    if int(fact["direction"]) > 0:
+                        mfe, mae = high_return, low_return
+                    else:
+                        # Match direction_adjusted_return = direction * raw_return:
+                        # a falling low is favorable and a rising high is adverse.
+                        mfe, mae = -low_return, -high_return
+                    row[f"{prefix}_mfe"] = mfe
+                    row[f"{prefix}_mae"] = mae
                     row[f"{prefix}_adj_factor_jump_count"] = jump_count
                     if jump_count:
                         row[f"{prefix}_corporate_action_status"] = (
@@ -1723,6 +1736,8 @@ def build_event_study(
         "horizons": list(HORIZONS),
         "entry_clock": "reveal_date next snapshot session raw_open",
         "return_price_domain": "RAW",
+        "direction_adjusted_return": DIRECTION_ADJUSTED_RETURN_CONTRACT,
+        "direction_adjusted_excursions": DIRECTION_ADJUSTED_EXCURSION_CONTRACT,
         "dedup_rule": DEDUP_RULE,
         "split_plan": split_plan.to_dict(),
         "bootstrap_block": "reveal_date",
@@ -1901,6 +1916,12 @@ def build_event_study(
                 "entry": "next market session raw_open",
                 "horizons": list(HORIZONS),
                 "missing_bar_policy": "CENSOR_WITHOUT_ROLL_OR_FILL",
+                "direction_adjusted_return": identity_payload[
+                    "direction_adjusted_return"
+                ],
+                "direction_adjusted_excursions": identity_payload[
+                    "direction_adjusted_excursions"
+                ],
             },
             "corporate_action_disclosure": {
                 "return_domain": "RAW",
@@ -1947,8 +1968,27 @@ def build_event_study(
 def verify_event_study(output_dir: str | Path) -> dict[str, Any]:
     root = Path(output_dir).resolve()
     manifest, manifest_sha = _read_hashed_manifest(root, kind="event")
-    if manifest.get("state") != "COMPLETE":
-        raise EventStudyError("event manifest state is not COMPLETE")
+    if (
+        manifest.get("state") != "COMPLETE"
+        or manifest.get("schema_version") != EVENT_STUDY_SCHEMA_VERSION
+    ):
+        raise EventStudyError("event manifest state/schema is invalid")
+    identity = manifest.get("identity")
+    event_clock = manifest.get("event_clock")
+    if (
+        not isinstance(identity, Mapping)
+        or not isinstance(event_clock, Mapping)
+        or identity.get("schema_version") != EVENT_STUDY_SCHEMA_VERSION
+        or identity.get("direction_adjusted_return")
+        != DIRECTION_ADJUSTED_RETURN_CONTRACT
+        or identity.get("direction_adjusted_excursions")
+        != DIRECTION_ADJUSTED_EXCURSION_CONTRACT
+        or event_clock.get("direction_adjusted_return")
+        != DIRECTION_ADJUSTED_RETURN_CONTRACT
+        or event_clock.get("direction_adjusted_excursions")
+        != DIRECTION_ADJUSTED_EXCURSION_CONTRACT
+    ):
+        raise EventStudyError("event manifest directional outcome contract is invalid")
     counts = {"event_outcomes": 0, "event_metrics": 0}
     paths: set[str] = set()
     partitions: set[tuple[int, int]] = set()

@@ -370,6 +370,127 @@ def test_within_and_sequence_are_strictly_backward_from_reveal_session() -> None
     assert not index.matches(reverse, "000001", anchor)
 
 
+def test_match_trace_presence_matches_boolean_dsl_evaluation() -> None:
+    calendar = _calendar()
+    days = calendar["trade_date"].to_list()
+    events = pl.DataFrame(
+        [
+            _event(
+                "prior",
+                calendar,
+                1,
+                "TRAIN",
+                code="000001",
+                model_id=8,
+            ),
+            _event(
+                "anchor",
+                calendar,
+                3,
+                "TRAIN",
+                code="000001",
+                model_id=16,
+            ),
+        ]
+    )
+    factor_registry = {"fixture_factor": {"as_of": True, "lineage": "fixture-v1"}}
+    index = EventIndex(
+        events,
+        calendar,
+        factor_provider=lambda code, session, name: 10.0,
+    )
+
+    prior = {"op": "signal", "model": "S0008", "direction": 1}
+    anchor = {"op": "signal", "model": "S0016", "direction": 1}
+    missing = {"op": "signal", "model": "S0007", "direction": 1}
+
+    def combo(where: dict[str, object]) -> ComboDefinition:
+        return ComboDefinition.from_value(
+            {"target_direction": 1, "where": where},
+            factor_registry=factor_registry,
+        )
+
+    factor_node = {
+        "op": "factor",
+        "name": "fixture_factor",
+        "comparison": "gte",
+        "value": 10,
+    }
+    factor = combo(factor_node)
+    pure_negative = combo({"op": "not", "expr": missing})
+    not_exists = combo({"op": "not_exists", "expr": missing, "sessions": 3})
+    count = {
+        "op": "count",
+        "expr": {"op": "or", "args": [prior, anchor]},
+        "min": 2,
+        "max": 2,
+        "distinct": "independence_root",
+        "sessions": 3,
+    }
+    sequence = {
+        "op": "sequence",
+        "args": [prior, anchor],
+        "max_gap_sessions": 3,
+        "anchor_last": True,
+    }
+    definitions = [
+        combo(anchor),
+        combo(
+            {
+                "op": "trigger_mask",
+                "source": "direction_base",
+                "mode": "all",
+                "ids": [6],
+                "model": "S0016",
+                "direction": 1,
+            }
+        ),
+        factor,
+        combo({"op": "and", "args": [anchor, factor_node]}),
+        combo({"op": "or", "args": [missing, anchor]}),
+        pure_negative,
+        combo({"op": "same_day", "expr": anchor}),
+        combo({"op": "within", "expr": prior, "sessions": 3}),
+        not_exists,
+        combo(count),
+        combo(sequence),
+        combo(
+            {
+                "op": "and",
+                "args": [
+                    anchor,
+                    {"op": "within", "expr": prior, "sessions": 3},
+                    count,
+                ],
+            }
+        ),
+        combo({"op": "and", "args": [sequence, count]}),
+        combo(
+            {
+                "op": "factor",
+                "name": "fixture_factor",
+                "comparison": "lt",
+                "value": 10,
+            }
+        ),
+    ]
+
+    for definition in definitions:
+        for day in days[:7]:
+            assert index.matches(definition, "000001", day) is (
+                index.match_trace(definition, "000001", day) is not None
+            )
+
+    decision_day = days[3]
+    assert index.match_trace(factor, "000001", decision_day) == ()
+    assert index.match_trace(pure_negative, "000001", decision_day) == ()
+    assert index.match_trace(not_exists, "000001", decision_day) == ()
+    assert {
+        row["signal_fact_id"]
+        for row in index.match_trace(combo(sequence), "000001", decision_day) or ()
+    } == {"prior", "anchor"}
+
+
 def test_independence_root_count_and_multi_model_generator_do_not_double_vote() -> None:
     calendar = _calendar()
     outcomes = _outcomes(calendar)
@@ -522,23 +643,16 @@ def test_persistent_holdout_ledger_serializes_independent_worker_stores(
     first_ledger = PersistentHoldoutLedger(tmp_path / "holdout-control")
     second_ledger = PersistentHoldoutLedger(tmp_path / "holdout-control")
 
-    revealed = reveal_holdout(
-        result,
-        first_store,
-        calendar,
-        persistent_ledger=first_ledger,
+    claim = first_ledger.claim(
+        result.freeze_record, ranking_set_id=result.ranking_set_id
     )
     state = first_ledger.state(result.freeze_record["freeze_id"])
     assert state is not None
-    assert state["state"] == "COMPLETE"
-    assert state["reveal_id"] == revealed.reveal_id
-    with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_COMPLETE"):
-        reveal_holdout(
-            result,
-            second_store,
-            calendar,
-            persistent_ledger=second_ledger,
-        )
+    assert state["state"] == "CLAIMED"
+    assert state["claim_id"] == claim.claim_id
+    with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_CLAIMED"):
+        second_ledger.claim(result.freeze_record, ranking_set_id=result.ranking_set_id)
+    assert first_store.successful_holdout_reads == 0
     assert second_store.successful_holdout_reads == 0
 
 

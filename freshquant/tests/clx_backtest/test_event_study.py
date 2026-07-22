@@ -14,13 +14,14 @@ from freshquant.backtest.clx.event_study import (
     CORPORATE_ACTION_NOT_FULLY_LEDGERED,
     DEDUP_RULE,
     ENTRY_MISSING_BAR,
-    HoldoutAccess,
-    HoldoutAccessError,
     OUTCOME_MISSING_EXIT_BAR,
     OUTCOME_OK,
     SPLIT_ELIGIBLE,
     SPLIT_EMBARGOED,
     SPLIT_PURGED,
+    EventStudyError,
+    HoldoutAccess,
+    HoldoutAccessError,
     SplitPlan,
     SplitWindow,
     _read_hashed_manifest,
@@ -204,6 +205,23 @@ def test_manual_raw_outcome_clock_dedup_and_corporate_action_disclosure() -> Non
     assert row["h3_adj_factor_jump_count"] == 1
     assert row["h3_corporate_action_status"] == "CORPORATE_ACTION_NOT_FULLY_LEDGERED"
     assert row["quality_mask"] & CORPORATE_ACTION_NOT_FULLY_LEDGERED
+
+
+def test_negative_direction_excursions_are_direction_adjusted() -> None:
+    calendar = _calendar()
+    signal = pl.DataFrame(
+        [_signal("sell", calendar, 2, direction=-1)], infer_schema_length=None
+    )
+    outcomes, _ = build_event_outcomes_frame(
+        signal, _bars(calendar), calendar, _plan(calendar), run_id="run"
+    )
+
+    row = outcomes.row(0, named=True)
+    assert math.isclose(row["h3_direction_adjusted_return"], -(106.0 / 103.0 - 1.0))
+    assert math.isclose(row["h3_mfe"], -(102.0 / 103.0 - 1.0))
+    assert math.isclose(row["h3_mae"], -(107.0 / 103.0 - 1.0))
+    assert row["h3_mfe"] >= 0.0
+    assert row["h3_mae"] <= 0.0
 
 
 def test_missing_entry_and_fixed_exit_are_censored_without_rolling_or_fill() -> None:
@@ -448,6 +466,33 @@ def test_artifact_build_verify_and_manifest_hash_compatibility(tmp_path: Path) -
     manifest, recorded = _read_hashed_manifest(legacy, kind="snapshot")
     assert manifest["snapshot_id"] == "legacy"
     assert recorded == payload["manifest_sha256"]
+
+
+@pytest.mark.parametrize(
+    "corruption", ["previous_schema", "missing_excursion_contract"]
+)
+def test_verify_rejects_event_artifacts_without_directional_excursion_contract(
+    tmp_path: Path, corruption: str
+) -> None:
+    snapshot, signal_root, plan = _write_inputs(tmp_path)
+    output = tmp_path / "events"
+    build_event_study(snapshot, signal_root, output, plan, bootstrap_replicates=5)
+    manifest_path = output / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if corruption == "previous_schema":
+        manifest["schema_version"] = "clx-event-study-v1"
+    else:
+        manifest["event_clock"].pop("direction_adjusted_excursions")
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (output / "manifest.sha256").write_text(
+        _file_sha(manifest_path) + "  manifest.json\n", encoding="ascii"
+    )
+
+    with pytest.raises(EventStudyError, match="state/schema|directional outcome"):
+        verify_event_study(output)
 
 
 def _artifact_frame(root: Path, dataset: str) -> pl.DataFrame:

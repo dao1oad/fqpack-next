@@ -5,12 +5,17 @@ import json
 import multiprocessing as mp
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
 
+import freshquant.backtest.clx.ranking_io as ranking_io
 from freshquant.backtest.clx.combo_dsl import ModelRelations, make_combo
 from freshquant.backtest.clx.event_study import (
+    DIRECTION_ADJUSTED_EXCURSION_CONTRACT,
+    DIRECTION_ADJUSTED_RETURN_CONTRACT,
+    EVENT_STUDY_SCHEMA_VERSION,
     SplitPlan,
     SplitWindow,
     _write_parquet_artifact,
@@ -20,7 +25,9 @@ from freshquant.backtest.clx.ranking import (
     HoldoutAlreadyRevealedError,
     LegacyCandidateEvaluator,
     PersistentHoldoutLedger,
+    RankingError,
     SplitOutcomeStore,
+    _content_id,
     discover_and_freeze,
     publish_ranking_artifact,
     reveal_holdout,
@@ -87,11 +94,19 @@ def _event_artifact(
         artifacts.append(meta)
     manifest = {
         "manifest_version": 1,
-        "schema_version": "clx-event-study-v1",
+        "schema_version": EVENT_STUDY_SCHEMA_VERSION,
         "state": "COMPLETE",
         "run_id": outcomes["run_id"][0],
         "event_set_id": "sha256:" + "a" * 64,
         "split_plan": plan.to_dict(),
+        "identity": {
+            "direction_adjusted_return": DIRECTION_ADJUSTED_RETURN_CONTRACT,
+            "direction_adjusted_excursions": DIRECTION_ADJUSTED_EXCURSION_CONTRACT,
+        },
+        "event_clock": {
+            "direction_adjusted_return": DIRECTION_ADJUSTED_RETURN_CONTRACT,
+            "direction_adjusted_excursions": DIRECTION_ADJUSTED_EXCURSION_CONTRACT,
+        },
         "artifacts": artifacts,
     }
     root.mkdir(parents=True, exist_ok=True)
@@ -134,6 +149,80 @@ def _reveal_worker(
         queue.put((label, "error", type(exc).__name__, str(exc)))
     else:
         queue.put((label, "ok", result["reveal_id"], ""))
+
+
+def _published_holdout_artifact(root: Path) -> Path:
+    calendar = _calendar()
+    event_dir = root / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = root / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    holdout_dir = root / "holdout"
+    reveal_ranking_holdout(
+        event_dir,
+        calendar,
+        ranking_dir,
+        holdout_dir,
+        root / "ledger",
+    )
+    return holdout_dir
+
+
+def _rewrite_holdout_manifest(root: Path, manifest: dict[str, Any]) -> None:
+    manifest_path = root / "manifest.json"
+    sidecar_path = root / "manifest.sha256"
+    manifest_path.chmod(0o644)
+    sidecar_path.chmod(0o644)
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    sidecar_path.write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "  manifest.json\n",
+        encoding="ascii",
+    )
+
+
+def _rewrite_holdout_json_dataset(
+    root: Path,
+    manifest: dict[str, Any],
+    dataset: str,
+    document: list[dict[str, Any]],
+) -> None:
+    meta = next(
+        item
+        for item in manifest["artifacts"]
+        if isinstance(item, dict) and item.get("dataset") == dataset
+    )
+    path = root / str(meta["path"])
+    path.chmod(0o644)
+    path.write_text(
+        json.dumps(document, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    meta["rows"] = len(document)
+    meta["file_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    meta["logical_sha256"] = _content_id(document)
+
+
+def test_ranking_store_rejects_previous_event_outcome_semantics(tmp_path: Path) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    manifest_path = event_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = "clx-event-study-v1"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (event_dir / "manifest.sha256").write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "  manifest.json\n",
+        encoding="ascii",
+    )
+
+    with pytest.raises(RankingError, match="schema/outcome contract"):
+        EventArtifactOutcomeStore(event_dir, plan)
 
 
 def test_bitmap_pipeline_is_exactly_equivalent_to_legacy_fixture() -> None:
@@ -337,12 +426,11 @@ def test_artifact_loader_roundtrip_and_holdout_physical_isolation(
     )
     reveal_store.install_freeze(loaded.freeze_record)
     ledger = PersistentHoldoutLedger(tmp_path / "ledger")
-    revealed = reveal_holdout(
-        loaded,
-        reveal_store,
-        calendar,
-        persistent_ledger=ledger,
+    claim = ledger.claim(
+        loaded.freeze_record,
+        ranking_set_id=loaded.ranking_set_id,
     )
+    revealed = reveal_holdout(loaded, reveal_store, calendar)
     assert reveal_store.holdout_file_reads == 1
     assert [row["combo_id"] for row in revealed.rankings] == [
         row["combo_id"] for row in loaded.rankings
@@ -357,6 +445,7 @@ def test_artifact_loader_roundtrip_and_holdout_physical_isolation(
         holdout_dir,
         ranking_manifest_sha256=published["manifest_sha256"],
     )
+    ledger.complete(claim, reveal_id=revealed.reveal_id)
     assert verify_holdout_artifact(holdout_dir) == holdout
     holdout_manifest = json.loads(
         (holdout_dir / "manifest.json").read_text(encoding="utf-8")
@@ -377,14 +466,75 @@ def test_artifact_loader_roundtrip_and_holdout_physical_isolation(
     )
     second_store.install_freeze(loaded.freeze_record)
     with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_COMPLETE"):
-        reveal_holdout(
-            loaded,
-            second_store,
-            calendar,
-            persistent_ledger=PersistentHoldoutLedger(tmp_path / "ledger"),
+        PersistentHoldoutLedger(tmp_path / "ledger").claim(
+            loaded.freeze_record,
+            ranking_set_id=loaded.ranking_set_id,
         )
     assert second_store.holdout_file_reads == 0
     assert second_opens == []
+
+
+def test_holdout_verifier_recomputes_reveal_content_id(tmp_path: Path) -> None:
+    holdout_dir = _published_holdout_artifact(tmp_path)
+    manifest = json.loads((holdout_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["reveal_id"] = "sha256:" + "f" * 64
+    _rewrite_holdout_manifest(holdout_dir, manifest)
+
+    with pytest.raises(RankingError, match="reveal content id mismatch"):
+        verify_holdout_artifact(holdout_dir)
+
+
+def test_holdout_verifier_requires_unique_physical_read_proof(tmp_path: Path) -> None:
+    holdout_dir = _published_holdout_artifact(tmp_path)
+    manifest = json.loads((holdout_dir / "manifest.json").read_text(encoding="utf-8"))
+    audit_meta = next(
+        item
+        for item in manifest["artifacts"]
+        if item["dataset"] == "event_access_audit"
+    )
+    audit = json.loads((holdout_dir / audit_meta["path"]).read_text(encoding="utf-8"))
+    allow = next(
+        row
+        for row in audit
+        if row.get("purpose") == "FINAL_REVEAL" and row.get("decision") == "ALLOW"
+    )
+    allow["decision"] = "DENY"
+    _rewrite_holdout_json_dataset(holdout_dir, manifest, "event_access_audit", audit)
+    _rewrite_holdout_manifest(holdout_dir, manifest)
+
+    with pytest.raises(RankingError, match="unique physical reveal proof"):
+        verify_holdout_artifact(holdout_dir)
+
+
+def test_holdout_verifier_cross_checks_ranking_and_parquet_metrics(
+    tmp_path: Path,
+) -> None:
+    holdout_dir = _published_holdout_artifact(tmp_path)
+    manifest = json.loads((holdout_dir / "manifest.json").read_text(encoding="utf-8"))
+    ranking_meta = next(
+        item for item in manifest["artifacts"] if item["dataset"] == "holdout_rankings"
+    )
+    rankings = json.loads(
+        (holdout_dir / ranking_meta["path"]).read_text(encoding="utf-8")
+    )
+    metric = rankings[0]["holdout_metrics"]
+    metric["mean_return"] = float(metric.get("mean_return") or 0.0) + 1.0
+    _rewrite_holdout_json_dataset(holdout_dir, manifest, "holdout_rankings", rankings)
+    manifest["reveal_id"] = _content_id(
+        {
+            "freeze_id": manifest["freeze_id"],
+            "ranking_set_id": manifest["ranking_set_id"],
+            "frozen_order": manifest["frozen_order"],
+            "holdout_metric_digests": {
+                row["combo_id"]: _content_id(row["holdout_metrics"]) for row in rankings
+            },
+            "successful_holdout_reads": 1,
+        }
+    )
+    _rewrite_holdout_manifest(holdout_dir, manifest)
+
+    with pytest.raises(RankingError, match="ranking/parquet metrics differ"):
+        verify_holdout_artifact(holdout_dir)
 
 
 def test_claimed_crash_fails_closed_before_any_holdout_open(tmp_path: Path) -> None:
@@ -409,14 +559,142 @@ def test_claimed_crash_fails_closed_before_any_holdout_open(tmp_path: Path) -> N
     )
     restarted.install_freeze(result.freeze_record)
     with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_CLAIMED"):
-        reveal_holdout(
-            result,
-            restarted,
-            calendar,
-            persistent_ledger=PersistentHoldoutLedger(tmp_path / "crash-ledger"),
+        PersistentHoldoutLedger(tmp_path / "crash-ledger").claim(
+            result.freeze_record,
+            ranking_set_id=result.ranking_set_id,
         )
     assert restarted.holdout_file_reads == 0
     assert opens == []
+
+
+def test_publish_failure_leaves_claimed_ledger_and_retry_reads_no_holdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    loaded = load_ranking_result(ranking_dir)
+    output_dir = tmp_path / "holdout"
+    ledger_dir = tmp_path / "ledger"
+    access_log = tmp_path / "access.jsonl"
+    original_publish = ranking_io.publish_holdout_artifact
+
+    def fail_publish(*args, **kwargs):
+        raise RuntimeError("fixture publish interruption")
+
+    monkeypatch.setattr(ranking_io, "publish_holdout_artifact", fail_publish)
+    with pytest.raises(RuntimeError, match="publish interruption"):
+        reveal_ranking_holdout(
+            event_dir,
+            calendar,
+            ranking_dir,
+            output_dir,
+            ledger_dir,
+            access_log=access_log,
+        )
+
+    ledger = PersistentHoldoutLedger(ledger_dir)
+    state = ledger.state(loaded.freeze_record["freeze_id"])
+    assert state is not None and state["state"] == "CLAIMED"
+    assert not output_dir.exists()
+    before = access_log.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(ranking_io, "publish_holdout_artifact", original_publish)
+    with pytest.raises(HoldoutAlreadyRevealedError, match="ALREADY_CLAIMED"):
+        reveal_ranking_holdout(
+            event_dir,
+            calendar,
+            ranking_dir,
+            output_dir,
+            ledger_dir,
+            access_log=access_log,
+        )
+    assert access_log.read_text(encoding="utf-8") == before
+
+
+def test_published_artifact_reconciles_claim_after_completion_interruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    loaded = load_ranking_result(ranking_dir)
+    output_dir = tmp_path / "holdout"
+    ledger_dir = tmp_path / "ledger"
+    access_log = tmp_path / "access.jsonl"
+    original_complete = PersistentHoldoutLedger.complete
+
+    def fail_complete(self, claim, *, reveal_id):
+        raise RuntimeError("fixture ledger completion interruption")
+
+    monkeypatch.setattr(PersistentHoldoutLedger, "complete", fail_complete)
+    with pytest.raises(RuntimeError, match="completion interruption"):
+        reveal_ranking_holdout(
+            event_dir,
+            calendar,
+            ranking_dir,
+            output_dir,
+            ledger_dir,
+            access_log=access_log,
+        )
+
+    published = verify_holdout_artifact(output_dir)
+    ledger = PersistentHoldoutLedger(ledger_dir)
+    state = ledger.state(loaded.freeze_record["freeze_id"])
+    assert state is not None and state["state"] == "CLAIMED"
+    before = access_log.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(PersistentHoldoutLedger, "complete", original_complete)
+    resumed = reveal_ranking_holdout(
+        event_dir,
+        calendar,
+        ranking_dir,
+        output_dir,
+        ledger_dir,
+        access_log=access_log,
+    )
+    assert resumed == published
+    assert access_log.read_text(encoding="utf-8") == before
+    state = ledger.state(loaded.freeze_record["freeze_id"])
+    assert state is not None
+    assert state["state"] == "COMPLETE"
+    assert state["reveal_id"] == published["reveal_id"]
+
+
+def test_published_artifact_without_persistent_claim_fails_closed_without_reread(
+    tmp_path: Path,
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    output_dir = tmp_path / "holdout"
+    access_log = tmp_path / "access.jsonl"
+    reveal_ranking_holdout(
+        event_dir,
+        calendar,
+        ranking_dir,
+        output_dir,
+        tmp_path / "original-ledger",
+        access_log=access_log,
+    )
+    before = access_log.read_text(encoding="utf-8")
+
+    with pytest.raises(RankingError, match="persistent HOLDOUT claim is missing"):
+        reveal_ranking_holdout(
+            event_dir,
+            calendar,
+            ranking_dir,
+            output_dir,
+            tmp_path / "missing-ledger",
+            access_log=access_log,
+        )
+    assert access_log.read_text(encoding="utf-8") == before
 
 
 def test_build_is_resumable_and_two_fresh_runs_are_byte_identical(
@@ -441,6 +719,60 @@ def test_build_is_resumable_and_two_fresh_runs_are_byte_identical(
     assert first_files == second_files
     for relative in first_files:
         assert (first / relative).read_bytes() == (second / relative).read_bytes()
+
+
+def test_build_resume_rejects_changed_calendar_session_identity(tmp_path: Path) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    changed_rows = list(calendar.iter_rows(named=True))
+    changed_rows[0]["trade_date"], changed_rows[1]["trade_date"] = (
+        changed_rows[1]["trade_date"],
+        changed_rows[0]["trade_date"],
+    )
+    changed_calendar = pl.DataFrame(changed_rows, schema=calendar.schema)
+
+    with pytest.raises(RankingError, match="another build"):
+        build_ranking_artifact(
+            event_dir,
+            changed_calendar,
+            plan,
+            _config(),
+            ranking_dir,
+        )
+
+
+def test_holdout_reveal_rejects_changed_calendar_before_claim_or_read(
+    tmp_path: Path,
+) -> None:
+    calendar = _calendar()
+    event_dir = tmp_path / "events"
+    _, plan = _event_artifact(event_dir, calendar)
+    ranking_dir = tmp_path / "ranking"
+    build_ranking_artifact(event_dir, calendar, plan, _config(), ranking_dir)
+    changed_rows = list(calendar.iter_rows(named=True))
+    changed_rows[-2]["trade_date"], changed_rows[-1]["trade_date"] = (
+        changed_rows[-1]["trade_date"],
+        changed_rows[-2]["trade_date"],
+    )
+    changed_calendar = pl.DataFrame(changed_rows, schema=calendar.schema)
+    access_log = tmp_path / "access.jsonl"
+    ledger_dir = tmp_path / "ledger"
+
+    with pytest.raises(RankingError, match="calendar differs"):
+        reveal_ranking_holdout(
+            event_dir,
+            changed_calendar,
+            ranking_dir,
+            tmp_path / "holdout",
+            ledger_dir,
+            access_log=access_log,
+        )
+
+    assert not access_log.exists()
+    assert list(ledger_dir.iterdir()) == []
 
 
 def test_two_processes_share_one_claim_and_loser_opens_zero_event_files(

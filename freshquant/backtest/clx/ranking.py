@@ -145,6 +145,58 @@ class PersistentHoldoutLedger:
             },
         )
 
+    def reconcile_complete(
+        self,
+        *,
+        freeze_id: str,
+        ranking_set_id: str,
+        reveal_id: str,
+    ) -> None:
+        """Finish a CLAIMED ledger from an already verified reveal artifact.
+
+        Artifact publication and the ledger update are separate atomic file
+        operations.  If a process stops between them, the immutable artifact
+        is the proof that the one allowed read finished successfully; this
+        method closes that window without opening HOLDOUT again.
+        """
+
+        self._digest(freeze_id)
+        self._digest(reveal_id)
+        state_path = self.root / self._digest(freeze_id) / "state.json"
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RankingError("persistent HOLDOUT claim state is unreadable") from exc
+        if (
+            state.get("freeze_id") != freeze_id
+            or state.get("ranking_set_id") != ranking_set_id
+        ):
+            raise RankingError(
+                "persistent HOLDOUT artifact identity differs from claim"
+            )
+        if state.get("state") == "COMPLETE":
+            if state.get("reveal_id") != reveal_id:
+                raise RankingError("persistent HOLDOUT reveal differs from artifact")
+            return
+        claim_payload = {
+            "ledger_schema_version": "clx-holdout-ledger-v1",
+            "freeze_id": freeze_id,
+            "ranking_set_id": ranking_set_id,
+            "state": "CLAIMED",
+        }
+        claim_id = _content_id(claim_payload)
+        if state.get("state") != "CLAIMED" or state.get("claim_id") != claim_id:
+            raise RankingError("persistent HOLDOUT claim state changed unexpectedly")
+        self.complete(
+            HoldoutRevealClaim(
+                freeze_id=freeze_id,
+                ranking_set_id=ranking_set_id,
+                claim_id=claim_id,
+                state_path=state_path,
+            ),
+            reveal_id=reveal_id,
+        )
+
     def state(self, freeze_id: str) -> dict[str, Any] | None:
         state_path = self.root / self._digest(freeze_id) / "state.json"
         if not state_path.is_file():
@@ -166,6 +218,49 @@ def _sha256_file(path: Path) -> str:
 
 def _content_id(value: object) -> str:
     return "sha256:" + _sha256_bytes(canonical_json_bytes(value))
+
+
+def _normalize_calendar(calendar: pl.DataFrame) -> pl.DataFrame:
+    """Return the exact canonical clock used by ranking and HOLDOUT evaluation."""
+
+    missing = {"trade_date", "session_no"} - set(calendar.columns)
+    if missing:
+        raise RankingError(f"calendar misses columns: {sorted(missing)}")
+    try:
+        normalized = calendar.select(
+            pl.col("trade_date").cast(pl.Date, strict=True),
+            pl.col("session_no").cast(pl.Int64, strict=True),
+        ).sort(["session_no", "trade_date"])
+    except (pl.exceptions.PolarsError, TypeError, ValueError) as exc:
+        raise RankingError(
+            "calendar trade_date/session_no cannot be normalized"
+        ) from exc
+    if normalized.null_count().row(0) != (0, 0):
+        raise RankingError("calendar trade_date/session_no contains nulls")
+    sessions = normalized["session_no"].to_list()
+    if sessions != list(range(1, normalized.height + 1)):
+        raise RankingError("calendar session_no must be one-based contiguous")
+    if normalized["trade_date"].n_unique() != normalized.height:
+        raise RankingError("calendar trade_date must be unique")
+    return normalized
+
+
+def _calendar_logical_sha256(calendar: pl.DataFrame) -> str:
+    """Hash normalized session/date pairs, independent of input row order/types."""
+
+    normalized = _normalize_calendar(calendar)
+    return _content_id(
+        {
+            "schema": [("trade_date", "Date"), ("session_no", "Int64")],
+            "rows": [
+                {
+                    "trade_date": day.isoformat(),
+                    "session_no": int(session_no),
+                }
+                for day, session_no in normalized.iter_rows()
+            ],
+        }
+    )
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -371,6 +466,7 @@ class RankingResult:
     config_id: str
     run_id: str
     source_identity: dict[str, str]
+    calendar_logical_sha256: str
     config: RankingConfig
     split_plan: SplitPlan
     candidates: tuple[Candidate, ...]
@@ -1238,6 +1334,8 @@ def discover_and_freeze(
         raise RankingError(
             f"source_identity misses {sorted(required_identity-set(source_identity))}"
         )
+    normalized_calendar = _normalize_calendar(calendar)
+    calendar_logical_sha256 = _calendar_logical_sha256(normalized_calendar)
     effective_relations = relations or ModelRelations()
     train = store.train()
     run_id = _run_id(train)
@@ -1247,6 +1345,7 @@ def discover_and_freeze(
         "source_identity": {
             key: source_identity[key] for key in sorted(source_identity)
         },
+        "calendar_logical_sha256": calendar_logical_sha256,
         "split_plan": split_plan.to_dict(),
         "config": config.to_dict(),
         "causal_clock": "reveal_date/session_no backward-only",
@@ -1260,7 +1359,12 @@ def discover_and_freeze(
 
         evaluator_factory = BitmapCandidateEvaluator
     train_evaluator = evaluator_factory(
-        train, calendar, split_plan, "TRAIN", effective_relations, config.horizon
+        train,
+        normalized_calendar,
+        split_plan,
+        "TRAIN",
+        effective_relations,
+        config.horizon,
     )
     single = generate_single_model_candidates(train, config, effective_relations)
     selected_single, single_evaluated, rejected_single = _select_train(
@@ -1305,7 +1409,7 @@ def discover_and_freeze(
     validation_context = store.validation_context()
     validation_evaluator = evaluator_factory(
         validation_context,
-        calendar,
+        normalized_calendar,
         split_plan,
         "VALIDATION",
         effective_relations,
@@ -1427,6 +1531,7 @@ def discover_and_freeze(
         "source_identity": {
             key: source_identity[key] for key in sorted(source_identity)
         },
+        "calendar_logical_sha256": calendar_logical_sha256,
         "split_plan": split_plan.to_dict(),
         "horizon": config.horizon,
         "validation_score_weights": [
@@ -1466,6 +1571,7 @@ def discover_and_freeze(
         config_id=config_id,
         run_id=run_id,
         source_identity={key: source_identity[key] for key in sorted(source_identity)},
+        calendar_logical_sha256=calendar_logical_sha256,
         config=config,
         split_plan=split_plan,
         candidates=tuple(ranked_candidates),
@@ -1482,29 +1588,25 @@ def reveal_holdout(
     calendar: pl.DataFrame,
     *,
     relations: ModelRelations | None = None,
-    persistent_ledger: PersistentHoldoutLedger | None = None,
 ) -> HoldoutReveal:
-    """Perform the one successful read and attach metrics without re-ranking.
+    """Perform one store-scoped read and attach metrics without re-ranking.
 
-    Production callers pass ``persistent_ledger`` before any data access.  The
-    in-memory store remains useful for fixture evaluation, while the filesystem
-    claim serializes independent worker processes on the single VM.
+    Persistent production serialization and two-phase artifact publication are
+    owned by :func:`ranking_io.reveal_ranking_holdout`; keeping ledger
+    completion outside this evaluator ensures COMPLETE always has a published,
+    verified artifact as its proof.
     """
 
-    claim = (
-        persistent_ledger.claim(
-            result.freeze_record, ranking_set_id=result.ranking_set_id
-        )
-        if persistent_ledger is not None
-        else None
-    )
+    normalized_calendar = _normalize_calendar(calendar)
+    if _calendar_logical_sha256(normalized_calendar) != result.calendar_logical_sha256:
+        raise RankingError("HOLDOUT calendar differs from frozen ranking calendar")
     context = store.reveal_holdout(result.freeze_record["freeze_id"])
     effective_relations = relations or ModelRelations()
     from .ranking_bitmap import BitmapCandidateEvaluator
 
     evaluator = BitmapCandidateEvaluator(
         context,
-        calendar,
+        normalized_calendar,
         result.split_plan,
         "HOLDOUT",
         effective_relations,
@@ -1541,9 +1643,6 @@ def reveal_holdout(
         rankings=tuple(revealed),
         access_audit=store.access_audit,
     )
-    if persistent_ledger is not None:
-        assert claim is not None
-        persistent_ledger.complete(claim, reveal_id=reveal.reveal_id)
     return reveal
 
 
@@ -1715,6 +1814,7 @@ def _config_document(result: RankingResult) -> dict[str, Any]:
         "schema_version": RANKING_SCHEMA_VERSION,
         "model_registry_sha256": model_registry_sha256(),
         "source_identity": result.source_identity,
+        "calendar_logical_sha256": result.calendar_logical_sha256,
         "split_plan": result.split_plan.to_dict(),
         "config": result.config.to_dict(),
         "causal_clock": "reveal_date/session_no backward-only",
@@ -1787,6 +1887,7 @@ def publish_ranking_artifact(
             "config_id": result.config_id,
             "freeze_id": result.freeze_record["freeze_id"],
             "source_identity": result.source_identity,
+            "calendar_logical_sha256": result.calendar_logical_sha256,
             "model_registry_sha256": model_registry_sha256(),
             "holdout_state": HOLDOUT_LOCKED,
             "successful_holdout_reads": 0,
@@ -1854,6 +1955,19 @@ def verify_ranking_artifact(output_dir: str | Path) -> dict[str, Any]:
     config_document = json.loads(
         (root / "config/ranking_config.json").read_text(encoding="utf-8")
     )
+    calendar_logical_sha256 = manifest.get("calendar_logical_sha256")
+    if (
+        not isinstance(calendar_logical_sha256, str)
+        or not calendar_logical_sha256.startswith("sha256:")
+        or len(calendar_logical_sha256) != 71
+        or any(
+            character not in "0123456789abcdef"
+            for character in calendar_logical_sha256.removeprefix("sha256:")
+        )
+        or freeze.get("calendar_logical_sha256") != calendar_logical_sha256
+        or config_document.get("calendar_logical_sha256") != calendar_logical_sha256
+    ):
+        raise RankingError("ranking calendar identity mismatch")
     config_id = config_document.pop("config_id", None)
     if config_id != _content_id(config_document) or config_id != manifest.get(
         "config_id"
@@ -1865,6 +1979,7 @@ def verify_ranking_artifact(output_dir: str | Path) -> dict[str, Any]:
         "status": "verified",
         "ranking_set_id": manifest["ranking_set_id"],
         "freeze_id": manifest["freeze_id"],
+        "calendar_logical_sha256": calendar_logical_sha256,
         "manifest_sha256": parts[0],
         "holdout_state": manifest["holdout_state"],
         **counts,

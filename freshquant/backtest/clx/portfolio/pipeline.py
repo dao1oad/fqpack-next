@@ -36,7 +36,8 @@ from ..ranking_io import verify_holdout_artifact
 from .engine import PortfolioConfig, run_portfolios_shared
 from .models import MarketBar, PortfolioRunResult, SignalDecision
 
-PORTFOLIO_SCHEMA_VERSION = "clx-portfolio-artifact-v1"
+PORTFOLIO_SCHEMA_VERSION = "clx-portfolio-artifact-v2"
+DECISION_SOURCE_CONTRACT = "CANONICAL_DSL_MATCH_TRACE_ONLY"
 ELIGIBLE = "ELIGIBLE"
 _ALLOWED_SPLITS = ("TRAIN", "VALIDATION", "HOLDOUT")
 _PARQUET_OPTIONS: dict[str, Any] = {
@@ -137,9 +138,7 @@ def _read_hashed_manifest(root: Path, label: str) -> tuple[dict[str, Any], str]:
     return value, actual
 
 
-def _verified_source_path(
-    root: Path, meta: Mapping[str, Any], label: str
-) -> Path:
+def _verified_source_path(root: Path, meta: Mapping[str, Any], label: str) -> Path:
     relative = meta.get("path")
     expected = meta.get("file_sha256", meta.get("sha256"))
     if not isinstance(relative, str) or not relative:
@@ -256,13 +255,6 @@ def invert_combo_direction(
     return inverse
 
 
-def _source_ids(index: EventIndex, code: str, reveal_date: date) -> tuple[str, ...]:
-    anchor = index.session_for_date(reveal_date)
-    # The grammar bounds a three-node sequence to two 5-session gaps.
-    rows = index.events(code, max(1, anchor - 10), anchor)
-    return tuple(sorted({str(row["signal_fact_id"]) for row in rows}))
-
-
 def _decision_id(
     combo_id: str,
     inverse_combo_id: str,
@@ -323,14 +315,35 @@ def build_frozen_combo_decisions(
         inverse = invert_combo_direction(combo, relations=effective_relations)
         decisions: list[SignalDecision] = []
         for code, reveal_date in anchor_rows:
-            buy = index.matches(combo, code, reveal_date)
-            sell = index.matches(inverse, code, reveal_date)
-            if not buy and not sell:
+            buy_trace = index.match_trace(combo, code, reveal_date)
+            sell_trace = index.match_trace(inverse, code, reveal_date)
+            matched_traces = []
+            if sell_trace is not None:
+                matched_traces.append((-1, sell_trace))
+            if buy_trace is not None:
+                matched_traces.append((1, buy_trace))
+            if not matched_traces:
                 continue
-            source_ids = _source_ids(index, code, reveal_date)
-            for direction in (
-                (1,) if buy and not sell else (-1,) if sell and not buy else (-1, 1)
-            ):
+            for direction, trace in matched_traces:
+                source_ids = tuple(
+                    sorted({str(row["signal_fact_id"]) for row in trace})
+                )
+                if not source_ids:
+                    # Boolean-only evidence (for example a factor or absence)
+                    # cannot produce an auditable order without an event fact.
+                    raise PortfolioArtifactError(
+                        "matched portfolio combination has no source signal facts: "
+                        f"{combo.combo_id} {code} {reveal_date.isoformat()}"
+                    )
+                if not any(
+                    row.get("reveal_date") == reveal_date
+                    and int(row.get("direction", 0)) == direction
+                    for row in trace
+                ):
+                    raise PortfolioArtifactError(
+                        "matched portfolio combination has no same-day direction "
+                        f"anchor: {combo.combo_id} {code} {reveal_date.isoformat()}"
+                    )
                 decisions.append(
                     SignalDecision(
                         decision_id=_decision_id(
@@ -616,9 +629,7 @@ def _bar_paths_for_codes(
         code = str(meta.get("partition", {}).get("code", ""))
         if code not in codes:
             continue
-        result.append(
-            str(_verified_source_path(snapshot_root, meta, "snapshot bar"))
-        )
+        result.append(str(_verified_source_path(snapshot_root, meta, "snapshot bar")))
         found.add(code)
     missing = sorted(codes - found)
     if missing:
@@ -1375,6 +1386,7 @@ def build_portfolio_artifact(
         "schema_version": PORTFOLIO_SCHEMA_VERSION,
         "split_id": split_id,
         "source_identity": source_identity,
+        "decision_source_contract": DECISION_SOURCE_CONTRACT,
         "portfolio_contract": contract.raw,
         "combos": combo_contract,
         "decision_clock": "T_CLOSE",
@@ -1606,13 +1618,16 @@ def verify_portfolio_artifact(output_dir: str | Path) -> dict[str, Any]:
     if _content_id(build_config["identity"]) != manifest.get("portfolio_set_id"):
         raise PortfolioArtifactError("portfolio set content id mismatch")
     identity = build_config.get("identity", {})
+    if identity.get("decision_source_contract") != DECISION_SOURCE_CONTRACT:
+        raise PortfolioArtifactError("portfolio decision source contract mismatch")
     split_id = manifest.get("split_id")
     if split_id != identity.get("split_id"):
         raise PortfolioArtifactError("portfolio split identity mismatch")
     source_identity = identity.get("source_identity")
-    if not isinstance(source_identity, Mapping) or manifest.get(
-        "source_identity"
-    ) != source_identity:
+    if (
+        not isinstance(source_identity, Mapping)
+        or manifest.get("source_identity") != source_identity
+    ):
         raise PortfolioArtifactError("portfolio source identity mismatch")
     holdout = manifest.get("holdout_access", {})
     if split_id == "HOLDOUT":
@@ -1632,9 +1647,10 @@ def verify_portfolio_artifact(output_dir: str | Path) -> dict[str, Any]:
         raise PortfolioArtifactError("portfolio combo contract is missing")
     expected_order = [item["combo_id"] for item in combo_contracts]
     expected_ranks = [int(item["source_frozen_rank"]) for item in combo_contracts]
-    if manifest.get("frozen_order") != expected_order or manifest.get(
-        "source_frozen_ranks"
-    ) != expected_ranks:
+    if (
+        manifest.get("frozen_order") != expected_order
+        or manifest.get("source_frozen_ranks") != expected_ranks
+    ):
         raise PortfolioArtifactError("portfolio frozen selection identity mismatch")
     expected_portfolio_ids = {
         item["combo_id"]: item["portfolio_config_id"] for item in combo_contracts
@@ -1672,8 +1688,7 @@ def verify_portfolio_artifact(output_dir: str | Path) -> dict[str, Any]:
             != int(contract["source_frozen_rank"])
             or checkpoint.get("combo_id") != contract["combo_id"]
             or definition.combo_id != contract["combo_id"]
-            or _content_id(definition.canonical)
-            != contract["canonical_dsl_sha256"]
+            or _content_id(definition.canonical) != contract["canonical_dsl_sha256"]
             or checkpoint.get("inverse_combo_id") != contract["inverse_combo_id"]
             or inverse.combo_id != contract["inverse_combo_id"]
             or checkpoint.get("inverse_canonical_dsl") != inverse.canonical

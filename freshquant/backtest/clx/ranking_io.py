@@ -16,7 +16,13 @@ import polars as pl
 
 from ._file_lock import lock_exclusive, unlock
 from .combo_dsl import ComboDefinition, ModelRelations
-from .event_study import SplitPlan, _schema_fingerprint as _event_schema_fingerprint
+from .event_study import (
+    DIRECTION_ADJUSTED_EXCURSION_CONTRACT,
+    DIRECTION_ADJUSTED_RETURN_CONTRACT,
+    EVENT_STUDY_SCHEMA_VERSION,
+    SplitPlan,
+)
+from .event_study import _schema_fingerprint as _event_schema_fingerprint
 from .ranking import (
     HOLDOUT_LOCKED,
     HOLDOUT_REVEALED,
@@ -29,6 +35,7 @@ from .ranking import (
     RankingConfig,
     RankingError,
     RankingResult,
+    _calendar_logical_sha256,
     _content_id,
     _definitions_frame,
     _logical_frame_sha256,
@@ -46,6 +53,17 @@ from .ranking import (
 
 EVENT_ACCESS_SCHEMA_VERSION = "clx-event-file-access-v1"
 HOLDOUT_ARTIFACT_SCHEMA_VERSION = "clx-holdout-reveal-v1"
+
+
+def _require_sha256_content_id(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        raise RankingError(f"{field} is not a SHA-256 content id")
+    digest = value.removeprefix("sha256:")
+    if len(digest) != 64 or any(
+        character not in "0123456789abcdef" for character in digest
+    ):
+        raise RankingError(f"{field} is not a SHA-256 content id")
+    return value
 
 
 def _manifest_sidecar(root: Path, *, kind: str) -> tuple[dict[str, Any], str]:
@@ -110,8 +128,23 @@ class EventArtifactOutcomeStore:
         self.root = Path(event_dir).resolve()
         self.split_plan = split_plan
         self.manifest, self.manifest_sha256 = _manifest_sidecar(self.root, kind="event")
-        if self.manifest.get("state") != "COMPLETE":
-            raise RankingError("event manifest state is not COMPLETE")
+        identity = self.manifest.get("identity")
+        event_clock = self.manifest.get("event_clock")
+        if (
+            self.manifest.get("state") != "COMPLETE"
+            or self.manifest.get("schema_version") != EVENT_STUDY_SCHEMA_VERSION
+            or not isinstance(identity, Mapping)
+            or not isinstance(event_clock, Mapping)
+            or identity.get("direction_adjusted_return")
+            != DIRECTION_ADJUSTED_RETURN_CONTRACT
+            or identity.get("direction_adjusted_excursions")
+            != DIRECTION_ADJUSTED_EXCURSION_CONTRACT
+            or event_clock.get("direction_adjusted_return")
+            != DIRECTION_ADJUSTED_RETURN_CONTRACT
+            or event_clock.get("direction_adjusted_excursions")
+            != DIRECTION_ADJUSTED_EXCURSION_CONTRACT
+        ):
+            raise RankingError("event artifact schema/outcome contract is invalid")
         if self.manifest.get("split_plan") != split_plan.to_dict():
             raise RankingError(
                 "event manifest split plan differs from ranking split plan"
@@ -493,6 +526,7 @@ def load_ranking_result(output_dir: str | Path) -> RankingResult:
             str(key): str(value)
             for key, value in config_document["source_identity"].items()
         },
+        calendar_logical_sha256=str(config_document["calendar_logical_sha256"]),
         config=config,
         split_plan=split_plan,
         candidates=candidates,
@@ -539,6 +573,7 @@ def build_ranking_artifact(
     """Build/freeze under a cross-process lock with idempotent resume."""
 
     output = Path(output_dir).resolve()
+    calendar_logical_sha256 = _calendar_logical_sha256(calendar)
     with _artifact_lock(output):
         if output.exists():
             loaded = load_ranking_result(output)
@@ -549,6 +584,7 @@ def build_ranking_artifact(
                 loaded.config.to_dict() != config.to_dict()
                 or loaded.split_plan.to_dict() != split_plan.to_dict()
                 or loaded.source_identity != catalog.source_identity
+                or loaded.calendar_logical_sha256 != calendar_logical_sha256
             ):
                 raise RankingError("existing ranking artifact belongs to another build")
             return verify_ranking_artifact(output)
@@ -667,9 +703,40 @@ def verify_holdout_artifact(output_dir: str | Path) -> dict[str, Any]:
         or manifest.get("successful_holdout_reads") != 1
     ):
         raise RankingError("HOLDOUT manifest state/schema is invalid")
+    ranking_set_id = _require_sha256_content_id(
+        manifest.get("ranking_set_id"), field="HOLDOUT ranking_set_id"
+    )
+    freeze_id = _require_sha256_content_id(
+        manifest.get("freeze_id"), field="HOLDOUT freeze_id"
+    )
+    reveal_id = _require_sha256_content_id(
+        manifest.get("reveal_id"), field="HOLDOUT reveal_id"
+    )
+    ranking_manifest_sha256 = manifest.get("ranking_manifest_sha256")
+    if (
+        not isinstance(ranking_manifest_sha256, str)
+        or len(ranking_manifest_sha256) != 64
+        or any(
+            character not in "0123456789abcdef" for character in ranking_manifest_sha256
+        )
+    ):
+        raise RankingError("HOLDOUT ranking manifest digest is invalid")
+    run_id = manifest.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        raise RankingError("HOLDOUT manifest has no run_id")
     counts: dict[str, int] = {}
-    for meta in manifest.get("artifacts", []):
-        path = _safe_artifact_path(root, str(meta["path"]))
+    loaded: dict[str, object] = {}
+    paths: set[str] = set()
+    for raw_meta in manifest.get("artifacts", []):
+        if not isinstance(raw_meta, Mapping):
+            raise RankingError("HOLDOUT artifact metadata is invalid")
+        meta = dict(raw_meta)
+        dataset = str(meta.get("dataset", ""))
+        relative = str(meta.get("path", ""))
+        if not dataset or dataset in loaded or not relative or relative in paths:
+            raise RankingError("HOLDOUT artifact dataset/path is empty or duplicate")
+        paths.add(relative)
+        path = _safe_artifact_path(root, relative)
         if not path.is_file() or _sha256_file(path) != meta["file_sha256"]:
             raise RankingError(f"HOLDOUT artifact hash mismatch: {path}")
         if str(path).endswith(".parquet"):
@@ -680,12 +747,29 @@ def verify_holdout_artifact(output_dir: str | Path) -> dict[str, Any]:
                 or _logical_frame_sha256(frame) != meta["logical_sha256"]
             ):
                 raise RankingError(f"HOLDOUT parquet mismatch: {path}")
+            loaded[dataset] = frame
         else:
             document = json.loads(path.read_text(encoding="utf-8"))
             if _content_id(document) != meta["logical_sha256"]:
                 raise RankingError(f"HOLDOUT logical hash mismatch: {path}")
-        counts[str(meta["dataset"])] = int(meta["rows"])
-    rankings = json.loads((root / "holdout/rankings.json").read_text(encoding="utf-8"))
+            loaded[dataset] = document
+        counts[dataset] = int(meta["rows"])
+    required = {"holdout_metrics", "holdout_rankings", "event_access_audit"}
+    if not required.issubset(loaded):
+        raise RankingError("HOLDOUT artifact misses required datasets")
+    rankings = loaded["holdout_rankings"]
+    metrics = loaded["holdout_metrics"]
+    audit = loaded["event_access_audit"]
+    if not isinstance(rankings, list) or not all(
+        isinstance(row, Mapping) for row in rankings
+    ):
+        raise RankingError("HOLDOUT rankings are invalid")
+    if not isinstance(metrics, pl.DataFrame):
+        raise RankingError("HOLDOUT metrics are invalid")
+    if not isinstance(audit, list) or not all(
+        isinstance(row, Mapping) for row in audit
+    ):
+        raise RankingError("HOLDOUT access audit is invalid")
     if (
         [row["combo_id"] for row in rankings] != manifest["frozen_order"]
         or [row["frozen_rank"] for row in rankings] != manifest["frozen_ranks"]
@@ -693,11 +777,65 @@ def verify_holdout_artifact(output_dir: str | Path) -> dict[str, Any]:
         or any(row["holdout_state"] != HOLDOUT_REVEALED for row in rankings)
     ):
         raise RankingError("HOLDOUT artifact changed frozen order/ranks")
+    metric_rows: dict[str, dict[str, Any]] = {}
+    for row in metrics.iter_rows(named=True):
+        combo_id = str(row.get("combo_id", ""))
+        if not combo_id or combo_id in metric_rows or row.get("split_id") != "HOLDOUT":
+            raise RankingError("HOLDOUT metrics have invalid combo/split identity")
+        metric_rows[combo_id] = dict(row)
+    if set(metric_rows) != set(manifest["frozen_order"]):
+        raise RankingError("HOLDOUT metrics differ from frozen combinations")
+    metric_digests: dict[str, str] = {}
+    for row in rankings:
+        combo_id = str(row["combo_id"])
+        holdout_metrics = row.get("holdout_metrics")
+        if not isinstance(holdout_metrics, Mapping):
+            raise RankingError("HOLDOUT ranking has no metric payload")
+        if _content_id(dict(holdout_metrics)) != _content_id(metric_rows[combo_id]):
+            raise RankingError("HOLDOUT ranking/parquet metrics differ")
+        if row.get("holdout_sample") != metric_rows[combo_id].get("n_executable"):
+            raise RankingError("HOLDOUT ranking sample differs from metric payload")
+        metric_digests[combo_id] = _content_id(dict(holdout_metrics))
+
+    reveal_allows = [
+        row
+        for row in audit
+        if row.get("split_id") == "HOLDOUT"
+        and row.get("purpose") == "FINAL_REVEAL"
+        and row.get("decision") == "ALLOW"
+        and row.get("reason") == "FROZEN_RULES_ONE_TIME_REVEAL"
+        and row.get("freeze_id") == freeze_id
+    ]
+    holdout_opens = [
+        row
+        for row in audit
+        if row.get("operation") == "OPEN_PARQUET"
+        and row.get("purpose") == "LOAD_HOLDOUT"
+        and row.get("dataset") == "event_outcomes"
+        and row.get("holdout") is True
+        and row.get("decision") == "ALLOW"
+    ]
+    successful_reads = len(reveal_allows)
+    if successful_reads != 1 or not holdout_opens:
+        raise RankingError("HOLDOUT access audit has no unique physical reveal proof")
+    if manifest.get("successful_holdout_reads") != successful_reads:
+        raise RankingError("HOLDOUT successful read count differs from access audit")
+    reveal_payload = {
+        "freeze_id": freeze_id,
+        "ranking_set_id": ranking_set_id,
+        "frozen_order": list(manifest["frozen_order"]),
+        "holdout_metric_digests": metric_digests,
+        "successful_holdout_reads": successful_reads,
+    }
+    if _content_id(reveal_payload) != reveal_id:
+        raise RankingError("HOLDOUT reveal content id mismatch")
     return {
         "status": "verified",
-        "ranking_set_id": manifest["ranking_set_id"],
-        "freeze_id": manifest["freeze_id"],
-        "reveal_id": manifest["reveal_id"],
+        "run_id": run_id,
+        "ranking_set_id": ranking_set_id,
+        "freeze_id": freeze_id,
+        "reveal_id": reveal_id,
+        "ranking_manifest_sha256": ranking_manifest_sha256,
         "manifest_sha256": manifest_sha,
         **counts,
     }
@@ -713,31 +851,74 @@ def reveal_ranking_holdout(
     access_log: str | Path | None = None,
 ) -> dict[str, Any]:
     output = Path(output_dir).resolve()
+    calendar_logical_sha256 = _calendar_logical_sha256(calendar)
+    ledger = PersistentHoldoutLedger(ledger_dir)
     with _artifact_lock(output):
         if output.exists():
-            return verify_holdout_artifact(output)
+            verified = verify_holdout_artifact(output)
+            ranking_verification = verify_ranking_artifact(ranking_dir)
+            result = load_ranking_result(ranking_dir)
+            if result.calendar_logical_sha256 != calendar_logical_sha256:
+                raise RankingError(
+                    "HOLDOUT calendar differs from frozen ranking calendar"
+                )
+            catalog = EventArtifactOutcomeStore(
+                event_dir, result.split_plan, access_log=access_log
+            )
+            if (
+                catalog.source_identity != result.source_identity
+                or verified["run_id"] != result.run_id
+                or verified["ranking_set_id"] != result.ranking_set_id
+                or verified["freeze_id"] != result.freeze_record["freeze_id"]
+                or verified["ranking_manifest_sha256"]
+                != ranking_verification["manifest_sha256"]
+            ):
+                raise RankingError(
+                    "HOLDOUT artifact identity differs from frozen ranking"
+                )
+            # The artifact rename is atomic but the persistent ledger lives in
+            # a different directory.  Reconcile a stop after rename and before
+            # ledger completion from the verified immutable artifact, without
+            # performing a second HOLDOUT read.
+            if ledger.state(verified["freeze_id"]) is None:
+                raise RankingError(
+                    "persistent HOLDOUT claim is missing for published artifact"
+                )
+            ledger.reconcile_complete(
+                freeze_id=verified["freeze_id"],
+                ranking_set_id=verified["ranking_set_id"],
+                reveal_id=verified["reveal_id"],
+            )
+            return verified
         ranking_verification = verify_ranking_artifact(ranking_dir)
         result = load_ranking_result(ranking_dir)
+        if result.calendar_logical_sha256 != calendar_logical_sha256:
+            raise RankingError("HOLDOUT calendar differs from frozen ranking calendar")
         store = EventArtifactOutcomeStore(
             event_dir, result.split_plan, access_log=access_log
         )
         if store.source_identity != result.source_identity:
             raise RankingError("ranking artifact and event artifact identities differ")
         store.install_freeze(result.freeze_record)
+        # Claim before the one physical read.  Publication precedes COMPLETE so
+        # COMPLETE always means a verified artifact exists; a pre-publication
+        # stop remains CLAIMED and therefore fails closed.
+        claim = ledger.claim(result.freeze_record, ranking_set_id=result.ranking_set_id)
         reveal = reveal_holdout(
             result,
             store,
             calendar,
-            persistent_ledger=PersistentHoldoutLedger(ledger_dir),
         )
         if store.holdout_file_reads < 1:
             raise RankingError("HOLDOUT reveal opened no HOLDOUT event parquet")
-        return publish_holdout_artifact(
+        verified = publish_holdout_artifact(
             reveal,
             result,
             output,
             ranking_manifest_sha256=ranking_verification["manifest_sha256"],
         )
+        ledger.complete(claim, reveal_id=reveal.reveal_id)
+        return verified
 
 
 def _read_calendar(path: str | Path) -> pl.DataFrame:

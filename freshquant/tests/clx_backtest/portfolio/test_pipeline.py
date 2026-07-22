@@ -33,6 +33,7 @@ from freshquant.backtest.clx.ranking import (
     HoldoutReveal,
     RankingConfig,
     RankingResult,
+    _calendar_logical_sha256,
     publish_ranking_artifact,
 )
 from freshquant.backtest.clx.ranking_io import (
@@ -283,6 +284,7 @@ def _build_inputs(root: Path) -> dict[str, Any]:
         "schema_version": "clx-combination-ranking-v1",
         "model_registry_sha256": model_registry_sha256(),
         "source_identity": source_identity,
+        "calendar_logical_sha256": _calendar_logical_sha256(calendar),
         "split_plan": plan.to_dict(),
         "config": config.to_dict(),
         "causal_clock": "reveal_date/session_no backward-only",
@@ -308,6 +310,7 @@ def _build_inputs(root: Path) -> dict[str, Any]:
         "config_id": config_id,
         "run_id": event_manifest["run_id"],
         "source_identity": source_identity,
+        "calendar_logical_sha256": _calendar_logical_sha256(calendar),
         "split_plan": plan.to_dict(),
         "horizon": 5,
         "validation_score_weights": [
@@ -330,6 +333,7 @@ def _build_inputs(root: Path) -> dict[str, Any]:
             config_id=config_id,
             run_id=str(event_manifest["run_id"]),
             source_identity=source_identity,
+            calendar_logical_sha256=_calendar_logical_sha256(calendar),
             config=config,
             split_plan=plan,
             candidates=candidates,
@@ -473,10 +477,95 @@ def test_decisions_are_close_anchored_and_inverse_is_exit(tmp_path: Path) -> Non
         inputs["event_frame"], inputs["calendar"], combos, "VALIDATION"
     )
     for rows in decisions.values():
-        assert [(row.reveal_date.day, row.direction) for row in rows] == [
-            (5, 1),
-            (7, -1),
+        assert [
+            (row.reveal_date.day, row.direction, row.source_signal_fact_ids)
+            for row in rows
+        ] == [
+            (5, 1, ("validation-positive",)),
+            (7, -1, ("validation-negative",)),
         ]
+
+
+def test_decision_sources_are_the_causal_sequence_members_only() -> None:
+    days = tuple(date(2024, 1, 2) + timedelta(days=offset) for offset in range(4))
+    calendar = pl.DataFrame(
+        {"trade_date": days, "session_no": tuple(range(1, len(days) + 1))}
+    )
+    prior = _event("prior", days[0], "VALIDATION", 1)
+    prior.update(expected_model_id=1, model_code="S0001")
+    unrelated = _event("unrelated", days[1], "VALIDATION", -1)
+    unrelated.update(expected_model_id=2, model_code="S0002")
+    anchor = _event("anchor", days[2], "VALIDATION", 1)
+    events = pl.DataFrame([prior, unrelated, anchor])
+    combo = make_combo(
+        {
+            "op": "sequence",
+            "args": [
+                {"op": "signal", "model": "S0001", "direction": 1},
+                {"op": "signal", "model": "S0000", "direction": 1},
+            ],
+            "max_gap_sessions": 3,
+            "anchor_last": True,
+        },
+        target_direction=1,
+    )
+
+    decisions = build_frozen_combo_decisions(
+        events,
+        calendar,
+        (FrozenPortfolioCombo(1, combo, 1.0),),
+        "VALIDATION",
+    )[combo.combo_id]
+
+    assert len(decisions) == 1
+    assert decisions[0].reveal_date == days[2]
+    assert decisions[0].source_signal_fact_ids == ("anchor", "prior")
+
+
+def test_portfolio_rejects_a_source_free_negative_match() -> None:
+    day = date(2024, 1, 2)
+    calendar = pl.DataFrame({"trade_date": [day], "session_no": [1]})
+    events = pl.DataFrame([_event("anchor", day, "VALIDATION", 1)])
+    combo = make_combo(
+        {
+            "op": "not",
+            "expr": {"op": "signal", "model": "S0001", "direction": 1},
+        },
+        target_direction=1,
+    )
+
+    with pytest.raises(PortfolioArtifactError, match="has no source signal facts"):
+        build_frozen_combo_decisions(
+            events,
+            calendar,
+            (FrozenPortfolioCombo(1, combo, 1.0),),
+            "VALIDATION",
+        )
+
+
+def test_portfolio_rejects_a_historical_only_trace_without_decision_anchor() -> None:
+    days = (date(2024, 1, 2), date(2024, 1, 3))
+    calendar = pl.DataFrame({"trade_date": days, "session_no": (1, 2)})
+    prior = _event("prior", days[0], "VALIDATION", 1)
+    prior.update(expected_model_id=1, model_code="S0001")
+    unrelated_anchor = _event("unrelated-anchor", days[1], "VALIDATION", 1)
+    unrelated_anchor.update(expected_model_id=2, model_code="S0002")
+    combo = make_combo(
+        {
+            "op": "within",
+            "expr": {"op": "signal", "model": "S0001", "direction": 1},
+            "sessions": 1,
+        },
+        target_direction=1,
+    )
+
+    with pytest.raises(PortfolioArtifactError, match="no same-day direction anchor"):
+        build_frozen_combo_decisions(
+            pl.DataFrame([prior, unrelated_anchor]),
+            calendar,
+            (FrozenPortfolioCombo(1, combo, 1.0),),
+            "VALIDATION",
+        )
 
 
 def test_artifact_resume_double_run_and_holdout_gate(tmp_path: Path) -> None:
@@ -536,6 +625,24 @@ def test_artifact_resume_double_run_and_holdout_gate(tmp_path: Path) -> None:
     assert second["manifest_sha256"] == completed["manifest_sha256"]
     assert _tree_bytes(output_a) == _tree_bytes(output_b)
     assert verify_portfolio_artifact(output_b) == second
+    build_config = json.loads(
+        (output_b / "build_config.json").read_text(encoding="utf-8")
+    )
+    assert (
+        build_config["identity"]["decision_source_contract"]
+        == "CANONICAL_DSL_MATCH_TRACE_ONLY"
+    )
+
+    previous_schema = tmp_path / "portfolio-previous-schema"
+    shutil.copytree(output_b, previous_schema)
+    _make_tree_writable(previous_schema)
+    previous_manifest = json.loads(
+        (previous_schema / "manifest.json").read_text(encoding="utf-8")
+    )
+    previous_manifest["schema_version"] = "clx-portfolio-artifact-v1"
+    _publish_manifest(previous_schema, previous_manifest)
+    with pytest.raises(PortfolioArtifactError, match="schema version"):
+        verify_portfolio_artifact(previous_schema)
 
     with pytest.raises(PortfolioArtifactError, match="unique ranking reveal"):
         build_portfolio_artifact(
@@ -549,32 +656,51 @@ def test_artifact_resume_double_run_and_holdout_gate(tmp_path: Path) -> None:
 
     locked_holdout.write_bytes(holdout_bytes)
     ranking_result = load_ranking_result(inputs["ranking"])
+    holdout_metrics = tuple(
+        _metric(candidate, "HOLDOUT") for candidate in ranking_result.candidates
+    )
+    metrics_by_combo = {
+        metric.candidate.definition.combo_id: metric.to_dict()
+        for metric in holdout_metrics
+    }
     revealed_rankings = tuple(
         {
             **row,
             "holdout_state": "REVEALED",
-            "holdout_sample": 1,
-            "holdout_metrics": {"fixture": True},
+            "holdout_sample": metrics_by_combo[row["combo_id"]]["n_executable"],
+            "holdout_metrics": metrics_by_combo[row["combo_id"]],
         }
         for row in ranking_result.rankings
     )
+    reveal_payload = {
+        "freeze_id": ranking_result.freeze_record["freeze_id"],
+        "ranking_set_id": ranking_result.ranking_set_id,
+        "frozen_order": [row["combo_id"] for row in revealed_rankings],
+        "holdout_metric_digests": {
+            row["combo_id"]: _content_id(row["holdout_metrics"])
+            for row in revealed_rankings
+        },
+        "successful_holdout_reads": 1,
+    }
     reveal = HoldoutReveal(
         freeze_id=ranking_result.freeze_record["freeze_id"],
-        reveal_id=_content_id(
-            {
-                "freeze_id": ranking_result.freeze_record["freeze_id"],
-                "fixture": "one-read",
-            }
-        ),
-        metrics=tuple(
-            _metric(candidate, "HOLDOUT") for candidate in ranking_result.candidates
-        ),
+        reveal_id=_content_id(reveal_payload),
+        metrics=holdout_metrics,
         rankings=revealed_rankings,
         access_audit=(
             {
                 "split_id": "HOLDOUT",
+                "purpose": "FINAL_REVEAL",
                 "decision": "ALLOW",
                 "reason": "FROZEN_RULES_ONE_TIME_REVEAL",
+                "freeze_id": ranking_result.freeze_record["freeze_id"],
+            },
+            {
+                "operation": "OPEN_PARQUET",
+                "purpose": "LOAD_HOLDOUT",
+                "dataset": "event_outcomes",
+                "holdout": True,
+                "decision": "ALLOW",
             },
         ),
     )
@@ -637,9 +763,7 @@ def test_source_manifest_chain_and_physical_hashes_are_enforced(
         )
 
     changed_bar = _build_inputs(tmp_path / "changed-bar")
-    bar_path = (
-        changed_bar["snapshot"] / "bars/code=600001/part-00000.parquet"
-    )
+    bar_path = changed_bar["snapshot"] / "bars/code=600001/part-00000.parquet"
     bar_path.write_bytes(bar_path.read_bytes() + b"tampered")
     with pytest.raises(PortfolioArtifactError, match="snapshot bar artifact hash"):
         build_portfolio_artifact(
@@ -677,9 +801,7 @@ def test_verifier_rejects_cross_source_checkpoint_even_with_rehashed_registry(
         json.dumps(checkpoint, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
-    manifest["checkpoints"][0]["checkpoint_sha256"] = checkpoint[
-        "checkpoint_sha256"
-    ]
+    manifest["checkpoints"][0]["checkpoint_sha256"] = checkpoint["checkpoint_sha256"]
     _publish_manifest(tampered, manifest)
 
     with pytest.raises(PortfolioArtifactError, match="checkpoint contract identity"):

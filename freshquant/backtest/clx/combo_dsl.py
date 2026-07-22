@@ -694,6 +694,16 @@ class EventIndex:
             if self._event_matches(node, row)
         )
 
+    @staticmethod
+    def _merge_traces(
+        traces: Iterable[Iterable[dict[str, Any]]],
+    ) -> tuple[dict[str, Any], ...]:
+        rows: dict[str, dict[str, Any]] = {}
+        for trace in traces:
+            for row in trace:
+                rows.setdefault(str(row["signal_fact_id"]), row)
+        return tuple(rows[identifier] for identifier in sorted(rows))
+
     def _factor_matches(self, node: Mapping[str, Any], code: str, session: int) -> bool:
         if self._factor_provider is None:
             raise DslEvaluationError("factor DSL requires an as-of factor provider")
@@ -793,11 +803,131 @@ class EventIndex:
             return search(0, None)
         raise DslEvaluationError(f"unsupported canonical op: {op}")
 
+    def _trace(
+        self,
+        node: Mapping[str, Any],
+        code: str,
+        anchor: int,
+        start: int,
+        end: int,
+    ) -> tuple[dict[str, Any], ...] | None:
+        """Return event facts witnessing a match, or ``None`` when it fails."""
+
+        op = node["op"]
+        if op in {"signal", "trigger_mask"}:
+            rows = self._matching_rows(node, code, start, end)
+            return rows or None
+        if op == "factor":
+            return (
+                ()
+                if any(
+                    self._factor_matches(node, code, session)
+                    for session in range(max(1, start), end + 1)
+                )
+                else None
+            )
+        if op == "and":
+            traces = []
+            for child in node["args"]:
+                trace = self._trace(child, code, anchor, start, end)
+                if trace is None:
+                    return None
+                traces.append(trace)
+            return self._merge_traces(traces)
+        if op == "or":
+            traces = [
+                trace
+                for child in node["args"]
+                if (trace := self._trace(child, code, anchor, start, end)) is not None
+            ]
+            return self._merge_traces(traces) if traces else None
+        if op == "not":
+            return (
+                ()
+                if self._trace(node["expr"], code, anchor, start, end) is None
+                else None
+            )
+        if op == "same_day":
+            return self._trace(node["expr"], code, anchor, anchor, anchor)
+        if op in {"within", "not_exists"}:
+            lookback_start = anchor - int(node["sessions"])
+            lookback_end = anchor if node["include_current"] else anchor - 1
+            traces = [
+                trace
+                for session in range(max(1, lookback_start), lookback_end + 1)
+                if (trace := self._trace(node["expr"], code, session, session, session))
+                is not None
+            ]
+            if op == "not_exists":
+                return None if traces else ()
+            return self._merge_traces(traces) if traces else None
+        if op == "count":
+            count_start = anchor - int(node["sessions"])
+            count_end = anchor if node["include_current"] else anchor - 1
+            rows = self._matching_rows(node["expr"], code, count_start, count_end)
+            roots = {
+                self._relations.root_for_id(int(row["expected_model_id"]))
+                for row in rows
+            }
+            if not int(node["min"]) <= len(roots) <= int(node["max"]):
+                return None
+            return rows
+        if op == "sequence":
+            gap = int(node["max_gap_sessions"])
+            candidates: list[list[tuple[int, tuple[dict[str, Any], ...]]]] = []
+            for child in node["args"]:
+                child_candidates: list[tuple[int, tuple[dict[str, Any], ...]]] = []
+                for session in range(
+                    max(1, anchor - gap * (len(node["args"]) - 1)), anchor + 1
+                ):
+                    trace = self._trace(child, code, session, session, session)
+                    if trace is not None:
+                        child_candidates.append((session, trace))
+                candidates.append(child_candidates)
+            if node["anchor_last"]:
+                candidates[-1] = [
+                    candidate for candidate in candidates[-1] if candidate[0] == anchor
+                ]
+            allow_same = bool(node["allow_same_session"])
+
+            def search(
+                position: int,
+                previous: int | None,
+                traces: tuple[tuple[dict[str, Any], ...], ...],
+            ) -> tuple[tuple[dict[str, Any], ...], ...] | None:
+                if position == len(candidates):
+                    return traces
+                for session, trace in candidates[position]:
+                    if previous is not None:
+                        delta = session - previous
+                        if delta < (0 if allow_same else 1) or delta > gap:
+                            continue
+                    matched = search(position + 1, session, (*traces, trace))
+                    if matched is not None:
+                        return matched
+                return None
+
+            matched_traces = search(0, None, ())
+            return (
+                self._merge_traces(matched_traces)
+                if matched_traces is not None
+                else None
+            )
+        raise DslEvaluationError(f"unsupported canonical op: {op}")
+
     def matches(self, combo: ComboDefinition, code: str, reveal_date: date) -> bool:
         anchor = self.session_for_date(reveal_date)
         # Root leaves are same-session by default. Temporal nodes widen only their
         # own subtree and can therefore never inspect a future session.
         return self._eval(combo.canonical["where"], code, anchor, anchor, anchor)
+
+    def match_trace(
+        self, combo: ComboDefinition, code: str, reveal_date: date
+    ) -> tuple[dict[str, Any], ...] | None:
+        """Return the exact causal event facts supporting a combination match."""
+
+        anchor = self.session_for_date(reveal_date)
+        return self._trace(combo.canonical["where"], code, anchor, anchor, anchor)
 
 
 def make_combo(
