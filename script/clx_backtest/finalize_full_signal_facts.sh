@@ -4,13 +4,15 @@ set -euo pipefail
 run_root="${CLX_FULL_RUN_ROOT:-/opt/fqpack/runtime/clx-backtest/events/full-9738aabd75ba}"
 facts="$run_root/facts"
 runner="$run_root/.runner"
-image="${CLX_ENGINE_IMAGE_ID:-sha256:8e6948e28e52ac67f39455dd25c16d39ca9f97297b7afa25718a9dca445dcf43}"
+: "${CLX_ENGINE_IMAGE_ID:?CLX_ENGINE_IMAGE_ID must name the verified immutable engine image}"
+image="$CLX_ENGINE_IMAGE_ID"
 evidence_root="${CLX_EVIDENCE_ROOT:-/opt/fqpack/runtime/clx-backtest/evidence}"
 [[ -f "$runner/complete" ]] || { echo "full signal runner is not complete" >&2; exit 1; }
 [[ -f "$facts/manifest.json" && -f "$facts/manifest.sha256" ]] || {
   echo "complete signal manifest is missing" >&2; exit 1;
 }
 mkdir -p "$evidence_root"
+docker image inspect "$image" >/dev/null
 verify_json=$(docker run --rm --network none --entrypoint python   -v "$facts:/data/facts:ro" "$image"   -m freshquant.backtest.clx.signal_facts verify --output-dir /data/facts)
 printf '%s
 ' "$verify_json"

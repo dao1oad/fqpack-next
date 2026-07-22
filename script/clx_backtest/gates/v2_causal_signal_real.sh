@@ -4,10 +4,15 @@ set -euo pipefail
 run_root="${CLX_FULL_RUN_ROOT:-/opt/fqpack/runtime/clx-backtest/events/full-9738aabd75ba}"
 facts="$run_root/facts"
 runner="$run_root/.runner"
-image="${CLX_ENGINE_IMAGE_ID:-sha256:8e6948e28e52ac67f39455dd25c16d39ca9f97297b7afa25718a9dca445dcf43}"
+: "${CLX_ENGINE_IMAGE_ID:?CLX_ENGINE_IMAGE_ID must name the verified immutable engine image}"
+image="$CLX_ENGINE_IMAGE_ID"
+: "${CLX_EXPECTED_ENGINE_SHA256:?CLX_EXPECTED_ENGINE_SHA256 must name the verified native engine digest}"
+expected_engine="${CLX_EXPECTED_ENGINE_SHA256#sha256:}"
+[[ "$expected_engine" =~ ^[0-9a-f]{64}$ ]] || {
+  echo "CLX_EXPECTED_ENGINE_SHA256 must be a lowercase SHA-256 digest" >&2; exit 64;
+}
 expected_snapshot="cf579f3b0c081b7097de19eca8103c27f6643b64e5fa9ca6d7cb3e99491feec4"
 expected_snapshot_manifest="e12b898e325e4573ebd156a49ddfed17036004d47aff29bc11fcc47a97db6e22"
-expected_engine="fc0e74e4decad20714d7075985153688aa5d83eb36f229ce32d6efa7fbcd2c97"
 expected_online="06b82ea4cadd4faf358c0baa6f36edec084064b502139a2317341625594f6110"
 
 [[ -f "$runner/complete" && -f "$runner/finalized" ]] || {

@@ -193,6 +193,25 @@ def test_compute_rewrite_result_can_opt_in_remote_cached_images(monkeypatch) -> 
     }
 
 
+def test_clx_worker_uses_the_shared_rear_cache_and_build_inputs() -> None:
+    module = load_module()
+
+    revision = "abc123"
+    registry_images = module.build_registry_service_images(revision)
+    overrides, pull_images = module.build_image_overrides(
+        ["fq_clx_backtest_worker"], registry_images
+    )
+
+    expected_image = f"ghcr.io/dao1oad/fqnext-rear:{revision}"
+    assert registry_images["fq_clx_backtest_worker"] == expected_image
+    assert overrides == {"FQNEXT_REAR_IMAGE": expected_image}
+    assert pull_images == [expected_image]
+    assert (
+        module.SERVICE_BUILD_INPUT_PREFIXES["fq_clx_backtest_worker"]
+        == module.SHARED_REAR_BUILD_INPUT_PREFIXES
+    )
+
+
 def test_compute_rewrite_result_keeps_build_when_dirty_path_hits_target_context(
     monkeypatch,
 ) -> None:

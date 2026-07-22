@@ -12,6 +12,7 @@ REMOTE_CACHE_ENV = "FQ_ENABLE_REMOTE_CACHE_PULL"
 
 SERVICE_IMAGE_ENV_VARS = {
     "fq_apiserver": "FQNEXT_REAR_IMAGE",
+    "fq_clx_backtest_worker": "FQNEXT_REAR_IMAGE",
     "fq_tdxhq": "FQNEXT_REAR_IMAGE",
     "fq_dagster_webserver": "FQNEXT_REAR_IMAGE",
     "fq_dagster_daemon": "FQNEXT_REAR_IMAGE",
@@ -23,6 +24,7 @@ SERVICE_IMAGE_ENV_VARS = {
 
 SERVICE_REGISTRY_PACKAGES = {
     "fq_apiserver": "fqnext-rear",
+    "fq_clx_backtest_worker": "fqnext-rear",
     "fq_tdxhq": "fqnext-rear",
     "fq_dagster_webserver": "fqnext-rear",
     "fq_dagster_daemon": "fqnext-rear",
@@ -62,6 +64,7 @@ GLOBAL_BUILD_INPUT_PREFIXES = (
 
 SERVICE_BUILD_INPUT_PREFIXES = {
     "fq_apiserver": SHARED_REAR_BUILD_INPUT_PREFIXES,
+    "fq_clx_backtest_worker": SHARED_REAR_BUILD_INPUT_PREFIXES,
     "fq_tdxhq": SHARED_REAR_BUILD_INPUT_PREFIXES,
     "fq_dagster_webserver": SHARED_REAR_BUILD_INPUT_PREFIXES,
     "fq_dagster_daemon": SHARED_REAR_BUILD_INPUT_PREFIXES,
