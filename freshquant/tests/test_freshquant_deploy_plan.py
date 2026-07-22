@@ -22,7 +22,7 @@ def test_order_management_paths_expand_to_api_and_host_runtime() -> None:
     )
 
     assert plan["deployment_surfaces"] == ["api", "order_management"]
-    assert plan["docker_services"] == ["fq_apiserver"]
+    assert plan["docker_services"] == ["fq_apiserver", "fq_clx_backtest_worker"]
     assert plan["host_surfaces"] == ["order_management"]
     assert "fqnext_xtquant_broker" in plan["host_programs"]
     assert "fqnext_xt_account_sync_worker" in plan["host_programs"]
@@ -78,7 +78,10 @@ def test_summary_render_includes_host_and_docker_sections() -> None:
     summary = module.render_summary(plan)
 
     assert "deployment_surfaces: api, web, order_management" in summary
-    assert "docker_services: fq_apiserver, fq_webui" in summary
+    assert (
+        "docker_services: fq_apiserver, fq_webui, fq_clx_backtest_worker"
+        in summary
+    )
     assert "host_surfaces: order_management" in summary
 
 
@@ -106,6 +109,7 @@ def test_shared_runtime_paths_expand_to_all_affected_surfaces() -> None:
     ]
     assert plan["docker_services"] == [
         "fq_apiserver",
+        "fq_clx_backtest_worker",
         "fq_dagster_webserver",
         "fq_dagster_daemon",
     ]
@@ -176,6 +180,7 @@ def test_compose_parallel_changes_require_full_docker_runtime_redeploy() -> None
         "fq_redis",
         "fq_runtime_clickhouse",
         "fq_apiserver",
+        "fq_clx_backtest_worker",
         "fq_runtime_indexer",
         "fq_tdxhq",
         "fq_dagster_webserver",

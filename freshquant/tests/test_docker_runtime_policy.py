@@ -25,6 +25,7 @@ def test_compose_core_rear_services_override_container_redis_host() -> None:
 
     for service_name in (
         "fq_apiserver",
+        "fq_clx_backtest_worker",
         "fq_runtime_indexer",
         "fq_tdxhq",
         "fq_dagster_webserver",
@@ -66,6 +67,22 @@ def test_compose_apiserver_mounts_tdx_sync_dir() -> None:
     text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
     assert "${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}" in text
     assert "target: /opt/tdx" in text
+
+
+def test_compose_runs_clx_worker_with_bounded_resources_and_shared_artifacts() -> None:
+    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
+    match = re.search(
+        r"^  fq_clx_backtest_worker:\n(?P<body>.*?)(?=^  [a-z0-9_]+:\n|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match
+    body = match.group("body")
+    assert "freshquant.rear.clx_backtest.worker" in body
+    assert "${FQ_CLX_WORKER_MEM:-12G}" in body
+    assert "${FQ_CLX_BACKTEST_HOST_ROOT:-D:/fqpack/runtime/clx-backtest}" in body
+    assert "target: /opt/clx-backtest" in body
+    assert "health" in body
 
 
 def test_ci_uses_uv_sync() -> None:
