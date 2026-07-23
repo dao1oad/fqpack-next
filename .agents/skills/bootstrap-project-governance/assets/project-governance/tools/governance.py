@@ -20,13 +20,13 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
-
 TOOL_ID = "bootstrap-project-governance/runtime"
-TOOL_VERSION = "1.2.0"
-# Stable evidence-protocol identifier. Keep it unchanged for host adapters,
-# board rendering, and other changes that do not alter Gate execution or
-# evidence identity semantics. Bump it deliberately when those semantics change.
-RUNNER_EVIDENCE_DIGEST = "11a9f3ddac7109285e71fd492e1018a459f90a484fca830d1163b84b24cb6329"
+TOOL_VERSION = "1.3.0"
+# Stable evidence-protocol salt. The runtime file bytes are also bound so any
+# implementation change makes prior Gate evidence stale without corrupting it.
+RUNNER_EVIDENCE_DIGEST = (
+    "0ee02fc4c4be716012724e4b32a5ffa08de8c698d304069c38017f3f9f1f340f"
+)
 SCHEMA_VERSION = 1
 PROJECT_REL = ".governance/project.json"
 WORK_REL = ".governance/work.json"
@@ -36,6 +36,7 @@ RUNS_REL = ".governance/runs"
 CODEX_HOOKS_REL = ".codex/hooks.json"
 DEVIN_HOOKS_REL = ".devin/hooks.v1.json"
 HOOK_RELS = (CODEX_HOOKS_REL, DEVIN_HOOKS_REL)
+MIN_STOP_HOOK_TIMEOUT_SECONDS = 120
 
 LEVELS = {"V0": 0, "V1": 1, "V2": 2}
 DATA_MODES = {"mock", "fixture", "synthetic", "real"}
@@ -100,11 +101,17 @@ class Model:
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def canonical_bytes(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -129,7 +136,9 @@ def read_json(path: Path) -> dict[str, Any]:
     except FileNotFoundError as exc:
         raise GovernanceError(f"缺少治理文件：{path}") from exc
     except json.JSONDecodeError as exc:
-        raise GovernanceError(f"JSON 格式错误：{path}:{exc.lineno}:{exc.colno}") from exc
+        raise GovernanceError(
+            f"JSON 格式错误：{path}:{exc.lineno}:{exc.colno}"
+        ) from exc
     if not isinstance(value, dict):
         raise GovernanceError(f"治理文件根节点应为对象：{path}")
     return value
@@ -145,7 +154,9 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         try:
             value = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise GovernanceError(f"事件日志格式错误：{path}:{line_number}:{exc.colno}") from exc
+            raise GovernanceError(
+                f"事件日志格式错误：{path}:{line_number}:{exc.colno}"
+            ) from exc
         if not isinstance(value, dict):
             raise GovernanceError(f"事件应为对象：{path}:{line_number}")
         result.append(value)
@@ -278,12 +289,19 @@ def work_lock_issues(model: Model) -> list[str]:
 
     issues: list[str] = []
     expected_digest = start.get("workLockDigest")
-    if not isinstance(expected_digest, str) or sha256_bytes(canonical_bytes(locked)) != expected_digest:
+    if (
+        not isinstance(expected_digest, str)
+        or sha256_bytes(canonical_bytes(locked)) != expected_digest
+    ):
         issues.append("AUTONOMY_STARTED workLock 摘要不匹配")
     required_items = locked.get("requiredItems")
     required_gates = locked.get("requiredGates")
     final_gates = locked.get("finalClaimGates")
-    if not isinstance(required_items, list) or not isinstance(required_gates, list) or not isinstance(final_gates, list):
+    if (
+        not isinstance(required_items, list)
+        or not isinstance(required_gates, list)
+        or not isinstance(final_gates, list)
+    ):
         return ["AUTONOMY_STARTED workLock 格式错误"]
 
     for locked_item in required_items:
@@ -301,12 +319,16 @@ def work_lock_issues(model: Model) -> list[str]:
         current_refs = {str(value) for value in current.get("gateRefs", [])}
         missing_refs = sorted(locked_refs - current_refs)
         if missing_refs:
-            issues.append(f"锁定的工作项 Gate 被移除：{item_id} -> {','.join(missing_refs)}")
+            issues.append(
+                f"锁定的工作项 Gate 被移除：{item_id} -> {','.join(missing_refs)}"
+            )
         locked_scopes = {str(value) for value in locked_item.get("pathScopes", [])}
         current_scopes = {str(value) for value in current.get("pathScopes", [])}
         missing_scopes = sorted(locked_scopes - current_scopes)
         if missing_scopes:
-            issues.append(f"锁定的工作项 pathScopes 被缩窄：{item_id} -> {','.join(missing_scopes)}")
+            issues.append(
+                f"锁定的工作项 pathScopes 被缩窄：{item_id} -> {','.join(missing_scopes)}"
+            )
 
     for locked_gate in required_gates:
         if not isinstance(locked_gate, dict):
@@ -327,13 +349,17 @@ def work_lock_issues(model: Model) -> list[str]:
             issues.append("workLock.finalClaimGates 包含非法记录")
             continue
         gate_id = str(final_gate.get("id", ""))
-        if gate_id not in required_gate_map or canonical_bytes(required_gate_map[gate_id]) != canonical_bytes(final_gate):
+        if gate_id not in required_gate_map or canonical_bytes(
+            required_gate_map[gate_id]
+        ) != canonical_bytes(final_gate):
             issues.append(f"final-claim Gate 未被 required Gate 锁覆盖：{gate_id}")
     return issues
 
 
 def started_event(model: Model) -> dict[str, Any] | None:
-    matches = [event for event in model.events if event.get("type") == "AUTONOMY_STARTED"]
+    matches = [
+        event for event in model.events if event.get("type") == "AUTONOMY_STARTED"
+    ]
     return matches[0] if matches else None
 
 
@@ -393,28 +419,126 @@ def parse_iso(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def hook_has_governance_stop(path: Path, host: str) -> bool:
+def expected_governance_hook_command(host: str) -> str:
+    if host == "codex":
+        if os.name == "nt":
+            return (
+                'powershell.exe -NoLogo -NoProfile -NonInteractive -Command "'
+                "$r=(& git rev-parse --show-toplevel).Trim(); "
+                "$p=Join-Path $r 'tools/governance.py'; "
+                "if(Get-Command py -ErrorAction SilentlyContinue){"
+                "& py -3 -X utf8 $p hook-stop"
+                "}else{"
+                "& python -X utf8 $p hook-stop"
+                '}"'
+            )
+        return (
+            'python3 "$(git rev-parse --show-toplevel)/tools/governance.py" hook-stop'
+        )
+    if host == "devin":
+        if os.name == "nt":
+            return (
+                'powershell.exe -NoLogo -NoProfile -NonInteractive -Command "'
+                "$p=Join-Path $env:DEVIN_PROJECT_DIR 'tools/governance.py'; "
+                "if(Get-Command py -ErrorAction SilentlyContinue){"
+                "& py -3 -X utf8 $p hook-stop --repo $env:DEVIN_PROJECT_DIR"
+                "}else{"
+                "& python -X utf8 $p hook-stop --repo $env:DEVIN_PROJECT_DIR"
+                '}"'
+            )
+        return 'python3 "$DEVIN_PROJECT_DIR/tools/governance.py" hook-stop --repo "$DEVIN_PROJECT_DIR"'
+    raise GovernanceError(f"未知 Hook 宿主：{host}")
+
+
+def hook_group_has_expected_matcher(group: dict[str, Any], host: str) -> bool:
+    if host == "codex":
+        return "matcher" not in group
+    if host == "devin":
+        return "matcher" in group and group.get("matcher") == ""
+    raise GovernanceError(f"未知 Hook 宿主：{host}")
+
+
+def governance_hook_specs(path: Path, host: str) -> list[dict[str, Any]]:
     if not path.is_file():
-        return False
+        return []
     try:
         config = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return False
+        return []
     if not isinstance(config, dict):
-        return False
+        return []
     hooks = config.get("hooks") if host == "codex" else config
     groups = hooks.get("Stop", []) if isinstance(hooks, dict) else []
     if not isinstance(groups, list):
-        return False
+        return []
+    specs: list[dict[str, Any]] = []
     for group in groups:
         handlers = group.get("hooks", []) if isinstance(group, dict) else []
         for handler in handlers if isinstance(handlers, list) else []:
             if not isinstance(handler, dict):
                 continue
-            commands = f"{handler.get('command', '')} {handler.get('commandWindows', '')}"
-            if "governance.py" in commands and "hook-stop" in commands:
-                return True
-    return False
+            active_command_field = (
+                "commandWindows" if host == "codex" and os.name == "nt" else "command"
+            )
+            active_command = str(handler.get(active_command_field, ""))
+            if (
+                handler.get("type") != "command"
+                or active_command != expected_governance_hook_command(host)
+                or not hook_group_has_expected_matcher(group, host)
+            ):
+                continue
+            specs.append(
+                {
+                    "group": {
+                        key: value for key, value in group.items() if key != "hooks"
+                    },
+                    "handler": handler,
+                }
+            )
+    return specs
+
+
+def hook_has_governance_stop(path: Path, host: str) -> bool:
+    return any(
+        isinstance(spec.get("handler"), dict)
+        and isinstance(spec["handler"].get("timeout"), int)
+        and spec["handler"]["timeout"] >= MIN_STOP_HOOK_TIMEOUT_SECONDS
+        for spec in governance_hook_specs(path, host)
+    )
+
+
+def current_hook_lock(model: Model) -> dict[str, Any]:
+    return {
+        "codex": governance_hook_specs(model.root / CODEX_HOOKS_REL, "codex"),
+        "devin": governance_hook_specs(model.root / DEVIN_HOOKS_REL, "devin"),
+    }
+
+
+def runtime_hook_issues(model: Model) -> list[str]:
+    issues: list[str] = []
+    if not hook_has_governance_stop(model.root / CODEX_HOOKS_REL, "codex"):
+        issues.append(
+            f"Codex Stop Hook 缺失、无效或 timeout 小于 {MIN_STOP_HOOK_TIMEOUT_SECONDS}s"
+        )
+    if not hook_has_governance_stop(model.root / DEVIN_HOOKS_REL, "devin"):
+        issues.append(
+            f"Devin Stop Hook 缺失、无效或 timeout 小于 {MIN_STOP_HOOK_TIMEOUT_SECONDS}s"
+        )
+    start = started_event(model)
+    if start:
+        locked = start.get("hookLock")
+        if not isinstance(locked, dict):
+            issues.append("AUTONOMY_STARTED 缺少 hookLock；需重新初始化治理证据")
+            return issues
+        expected_digest = start.get("hookLockDigest")
+        if (
+            not isinstance(expected_digest, str)
+            or sha256_bytes(canonical_bytes(locked)) != expected_digest
+        ):
+            issues.append("AUTONOMY_STARTED hookLock 摘要不匹配")
+        elif canonical_bytes(current_hook_lock(model)) != canonical_bytes(locked):
+            issues.append("启动后治理 Stop Hook 执行规格发生漂移")
+    return issues
 
 
 def structural_issues(model: Model) -> list[str]:
@@ -426,9 +550,15 @@ def structural_issues(model: Model) -> list[str]:
         issues.append("project.json schemaVersion 应为 1")
     if work.get("schemaVersion") != SCHEMA_VERSION:
         issues.append("work.json schemaVersion 应为 1")
-    if not isinstance(project.get("projectId"), str) or not project.get("projectId", "").strip():
+    if (
+        not isinstance(project.get("projectId"), str)
+        or not project.get("projectId", "").strip()
+    ):
         issues.append("projectId 缺失")
-    if not isinstance(project.get("projectName"), str) or not project.get("projectName", "").strip():
+    if (
+        not isinstance(project.get("projectName"), str)
+        or not project.get("projectName", "").strip()
+    ):
         issues.append("projectName 缺失")
     if not isinstance(project.get("outcome"), str):
         issues.append("outcome 应为字符串")
@@ -454,7 +584,9 @@ def structural_issues(model: Model) -> list[str]:
     else:
         if not isinstance(authority.get("fixed"), list) or not authority.get("fixed"):
             issues.append("agentAuthority.fixed 缺失")
-        if not isinstance(authority.get("mutable"), list) or not authority.get("mutable"):
+        if not isinstance(authority.get("mutable"), list) or not authority.get(
+            "mutable"
+        ):
             issues.append("agentAuthority.mutable 缺失")
 
     budgets = project.get("budgets")
@@ -463,7 +595,11 @@ def structural_issues(model: Model) -> list[str]:
     preflight = project.get("preflight")
     if not isinstance(preflight, dict):
         issues.append("preflight 缺失")
-    claims = project.get("finalAcceptance", {}).get("claims") if isinstance(project.get("finalAcceptance"), dict) else None
+    claims = (
+        project.get("finalAcceptance", {}).get("claims")
+        if isinstance(project.get("finalAcceptance"), dict)
+        else None
+    )
     if not isinstance(claims, list):
         issues.append("finalAcceptance.claims 应为数组")
 
@@ -501,7 +637,9 @@ def structural_issues(model: Model) -> list[str]:
             value = gate.get(field)
             if value is not None and not isinstance(value, (str, list)):
                 issues.append(f"{label}.{field} 应为字符串或参数数组")
-            if isinstance(value, list) and not all(isinstance(part, str) for part in value):
+            if isinstance(value, list) and not all(
+                isinstance(part, str) for part in value
+            ):
                 issues.append(f"{label}.{field} 参数应为字符串")
         if not isinstance(gate.get("subjectPaths", []), list):
             issues.append(f"{label}.subjectPaths 应为数组")
@@ -555,7 +693,11 @@ def structural_issues(model: Model) -> list[str]:
             issues.append(f"{label}.itemRef 未引用有效工作项")
         else:
             bound_item = next(
-                (item for item in items if isinstance(item, dict) and item.get("id") == claim.get("itemRef")),
+                (
+                    item
+                    for item in items
+                    if isinstance(item, dict) and item.get("id") == claim.get("itemRef")
+                ),
                 None,
             )
             if bound_item and bound_item.get("requiredForFinal") is not True:
@@ -567,10 +709,22 @@ def structural_issues(model: Model) -> list[str]:
             issues.append(f"{label}.level 应为 V0/V1/V2")
         if claim.get("dataMode") not in DATA_MODES:
             issues.append(f"{label}.dataMode 非法")
-        gate = next((g for g in gates if isinstance(g, dict) and g.get("id") == gate_ref), None)
-        if gate and claim.get("level") in LEVELS and LEVELS[gate.get("level")] < LEVELS[claim.get("level")]:
+        gate = next(
+            (g for g in gates if isinstance(g, dict) and g.get("id") == gate_ref), None
+        )
+        claim_level = str(claim.get("level"))
+        gate_level = str(gate.get("level")) if gate else ""
+        if (
+            gate
+            and claim_level in LEVELS
+            and LEVELS.get(gate_level, -1) < LEVELS[claim_level]
+        ):
             issues.append(f"{label} 要求的证据层级高于 Gate")
-        if gate and claim.get("dataMode") and gate.get("dataMode") != claim.get("dataMode"):
+        if (
+            gate
+            and claim.get("dataMode")
+            and gate.get("dataMode") != claim.get("dataMode")
+        ):
             issues.append(f"{label} 的 dataMode 与 Gate 不一致")
 
     ids: set[str] = set()
@@ -590,7 +744,9 @@ def structural_issues(model: Model) -> list[str]:
             if terminal_seen is not None:
                 issues.append("存在多个终态事件")
             terminal_seen = event
-        elif terminal_seen is not None and event.get("type") != "FINAL_REPORT_REQUESTED":
+        elif (
+            terminal_seen is not None and event.get("type") != "FINAL_REPORT_REQUESTED"
+        ):
             issues.append(f"终态后出现运行事件：{event.get('type')}")
     if start_count > 1:
         issues.append("AUTONOMY_STARTED 只能出现一次")
@@ -616,7 +772,12 @@ def readiness_issues(model: Model) -> list[str]:
                 issues.append(f"preflight.{key} 尚未确认")
     budgets = project.get("budgets", {})
     if isinstance(budgets, dict):
-        for key in ("maxCheckRuns", "maxStopContinuations", "maxNoProgressStops", "sameFailureLimit"):
+        for key in (
+            "maxCheckRuns",
+            "maxStopContinuations",
+            "maxNoProgressStops",
+            "sameFailureLimit",
+        ):
             value = budgets.get(key)
             if not isinstance(value, int) or value <= 0:
                 issues.append(f"budgets.{key} 应为已确认的正整数")
@@ -630,7 +791,9 @@ def readiness_issues(model: Model) -> list[str]:
     if not claims:
         issues.append("至少需要一个最终验收 claim")
     elif not any(
-        isinstance(claim, dict) and claim.get("level") == "V2" and claim.get("dataMode") == "real"
+        isinstance(claim, dict)
+        and claim.get("level") == "V2"
+        and claim.get("dataMode") == "real"
         for claim in claims
     ):
         issues.append("最终验收至少包含一个 V2/real claim")
@@ -640,12 +803,11 @@ def readiness_issues(model: Model) -> list[str]:
         issues.append("至少需要一个已登记 Gate")
     if not items:
         issues.append("至少需要一个工作项")
-    elif not any(isinstance(item, dict) and item.get("bucket") == "NOW" for item in items):
+    elif not any(
+        isinstance(item, dict) and item.get("bucket") == "NOW" for item in items
+    ):
         issues.append("至少需要一个 NOW 工作项")
-    if not hook_has_governance_stop(model.root / CODEX_HOOKS_REL, "codex"):
-        issues.append("Codex Stop Hook 尚未安装")
-    if not hook_has_governance_stop(model.root / DEVIN_HOOKS_REL, "devin"):
-        issues.append("Devin Stop Hook 尚未安装")
+    issues.extend(runtime_hook_issues(model))
     detected_git_root = git_root(model.root)
     if detected_git_root is None:
         issues.append("仓库尚未完成 Git 根目录预检")
@@ -668,7 +830,11 @@ def git_visible_files(root: Path) -> list[str] | None:
         return None
     if result.returncode != 0:
         return None
-    return [part.decode("utf-8", errors="surrogateescape") for part in result.stdout.split(b"\0") if part]
+    return [
+        part.decode("utf-8", errors="surrogateescape")
+        for part in result.stdout.split(b"\0")
+        if part
+    ]
 
 
 def fallback_visible_files(root: Path) -> list[str]:
@@ -679,7 +845,8 @@ def fallback_visible_files(root: Path) -> list[str]:
         dirs[:] = [
             name
             for name in dirs
-            if name not in SOURCE_EXCLUDED_DIRS and not (rel_dir == Path("tools") and name == "governance.py")
+            if name not in SOURCE_EXCLUDED_DIRS
+            and not (rel_dir == Path("tools") and name == "governance.py")
         ]
         for name in files:
             path = current_path / name
@@ -703,21 +870,29 @@ def is_source_excluded(relative: str) -> bool:
 
 def path_matches(relative: str, patterns: Iterable[str]) -> bool:
     normalized = relative.replace("\\", "/")
-    pattern_list = [str(pattern).replace("\\", "/").lstrip("./") for pattern in patterns if str(pattern).strip()]
+    pattern_list = [
+        str(pattern).replace("\\", "/").lstrip("./")
+        for pattern in patterns
+        if str(pattern).strip()
+    ]
     if not pattern_list:
         return True
     path = PurePosixPath(normalized)
     for pattern in pattern_list:
         if fnmatch.fnmatchcase(normalized, pattern) or path.match(pattern):
             return True
-        if pattern.endswith("/**") and normalized.startswith(pattern[:-3].rstrip("/") + "/"):
+        if pattern.endswith("/**") and normalized.startswith(
+            pattern[:-3].rstrip("/") + "/"
+        ):
             return True
         if pattern.endswith("/") and normalized.startswith(pattern):
             return True
     return False
 
 
-def subject_snapshot(root: Path, patterns: Iterable[str]) -> tuple[str, list[dict[str, Any]]]:
+def subject_snapshot(
+    root: Path, patterns: Iterable[str]
+) -> tuple[str, list[dict[str, Any]]]:
     visible = git_visible_files(root)
     if visible is None:
         visible = fallback_visible_files(root)
@@ -751,14 +926,17 @@ def item_gate_patterns(item: dict[str, Any], gate: dict[str, Any]) -> list[str]:
 
 
 def runner_digest() -> str:
-    return RUNNER_EVIDENCE_DIGEST
+    runtime_bytes = Path(__file__).resolve().read_bytes()
+    return sha256_bytes(RUNNER_EVIDENCE_DIGEST.encode("ascii") + b"\0" + runtime_bytes)
 
 
 def gate_digest(gate: dict[str, Any]) -> str:
     return sha256_bytes(canonical_bytes(gate))
 
 
-def inspect_result_record(model: Model, event: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+def inspect_result_record(
+    model: Model, event: dict[str, Any]
+) -> tuple[dict[str, Any] | None, list[str]]:
     issues: list[str] = []
     run_id = event.get("runId")
     reference = event.get("resultRef")
@@ -774,7 +952,9 @@ def inspect_result_record(model: Model, event: dict[str, Any]) -> tuple[dict[str
         return None, [f"检查结果缺失或损坏：{run_id}: {exc}"]
 
     expected_sha = event.get("resultSha256")
-    if not isinstance(expected_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
+    if not isinstance(expected_sha, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", expected_sha
+    ):
         issues.append(f"CHECK_FINISHED 缺少 resultSha256：{run_id}")
     elif sha256_file(path) != expected_sha:
         issues.append(f"检查结果摘要不匹配：{run_id}")
@@ -796,15 +976,23 @@ def inspect_result_record(model: Model, event: dict[str, Any]) -> tuple[dict[str
     if start and event.get("lockedContractDigest") != start.get("contractDigest"):
         issues.append(f"检查结果未绑定当前锁定契约：{run_id}")
     for field in ("gateSpecDigest", "lockedContractDigest", "runnerDigest"):
-        if not isinstance(event.get(field), str) or not re.fullmatch(r"[0-9a-f]{64}", str(event.get(field))):
+        if not isinstance(event.get(field), str) or not re.fullmatch(
+            r"[0-9a-f]{64}", str(event.get(field))
+        ):
             issues.append(f"CHECK_FINISHED 缺少有效 {field}：{run_id}")
 
     for name, field in (("stdout.log", "stdoutSha256"), ("stderr.log", "stderrSha256")):
-        log_path = safe_repo_path(model.root, str(PurePosixPath(reference).parent / name))
+        log_path = safe_repo_path(
+            model.root, str(PurePosixPath(reference).parent / name)
+        )
         if not log_path.is_file():
-            issues.append(f"检查日志缺失：{log_path.relative_to(model.root).as_posix()}")
+            issues.append(
+                f"检查日志缺失：{log_path.relative_to(model.root).as_posix()}"
+            )
         elif sha256_file(log_path) != result.get(field):
-            issues.append(f"检查日志摘要不匹配：{log_path.relative_to(model.root).as_posix()}")
+            issues.append(
+                f"检查日志摘要不匹配：{log_path.relative_to(model.root).as_posix()}"
+            )
     return result, issues
 
 
@@ -813,7 +1001,9 @@ def load_result(model: Model, event: dict[str, Any]) -> dict[str, Any] | None:
     return None if issues else result
 
 
-def latest_run_events(model: Model, item_id: str, gate_id: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+def latest_run_events(
+    model: Model, item_id: str, gate_id: str
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     result: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for event in model.events:
         if event.get("type") != "CHECK_FINISHED":
@@ -826,7 +1016,9 @@ def latest_run_events(model: Model, item_id: str, gate_id: str) -> list[tuple[di
     return result
 
 
-def current_identity(model: Model, item: dict[str, Any], gate: dict[str, Any]) -> dict[str, str]:
+def current_identity(
+    model: Model, item: dict[str, Any], gate: dict[str, Any]
+) -> dict[str, str]:
     start = started_event(model)
     if start is None:
         raise GovernanceError("自主运行尚未开始")
@@ -839,7 +1031,13 @@ def current_identity(model: Model, item: dict[str, Any], gate: dict[str, Any]) -
     }
 
 
-def run_identity_matches(run: dict[str, Any], identity: dict[str, str], gate: dict[str, Any]) -> bool:
+def run_identity_matches(
+    run: dict[str, Any],
+    identity: dict[str, str],
+    gate: dict[str, Any],
+    *,
+    as_of: datetime | None = None,
+) -> bool:
     for key, expected in identity.items():
         if run.get(key) != expected:
             return False
@@ -853,21 +1051,30 @@ def run_identity_matches(run: dict[str, Any], identity: dict[str, str], gate: di
             finished = parse_iso(str(run.get("finishedAt")))
         except GovernanceError:
             return False
-        if (datetime.now(timezone.utc) - finished).total_seconds() > max_age:
+        freshness_time = as_of or datetime.now(timezone.utc)
+        if (freshness_time - finished).total_seconds() > max_age:
             return False
     return True
 
 
-def verification_state(model: Model, item: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any]:
+def verification_state(
+    model: Model,
+    item: dict[str, Any],
+    gate: dict[str, Any],
+    *,
+    as_of: datetime | None = None,
+) -> dict[str, Any]:
     item_id = str(item.get("id"))
     gate_id = str(gate.get("id"))
     history = latest_run_events(model, item_id, gate_id)
     identity = current_identity(model, item, gate)
     for event, run in reversed(history):
-        if not run_identity_matches(run, identity, gate):
+        if not run_identity_matches(run, identity, gate, as_of=as_of):
             continue
         outcome = run.get("outcome")
-        if outcome == "pass" and run.get("subjectDigestBefore") == run.get("subjectDigestAfter"):
+        if outcome == "pass" and run.get("subjectDigestBefore") == run.get(
+            "subjectDigestAfter"
+        ):
             status = "passed"
         elif outcome in {"fail", "timeout", "error"}:
             status = "failed"
@@ -914,7 +1121,9 @@ def runtime_flag_open(model: Model, opened: set[str], closed: set[str]) -> bool:
 def runtime_state(model: Model) -> str:
     terminal = terminal_event(model)
     if terminal:
-        return "COMPLETED" if terminal.get("type") == "PROJECT_COMPLETED" else "EXHAUSTED"
+        return (
+            "COMPLETED" if terminal.get("type") == "PROJECT_COMPLETED" else "EXHAUSTED"
+        )
     if started_event(model):
         if runtime_flag_open(model, {"REPLAN_STARTED"}, {"REPLAN_FINISHED"}):
             return "REPLANNING"
@@ -937,8 +1146,15 @@ def completion_report(model: Model) -> dict[str, Any]:
             "items": [],
             "claims": [],
         }
+    terminal = terminal_event(model)
+    evidence_as_of: datetime | None = None
+    if terminal and terminal.get("type") == "PROJECT_COMPLETED":
+        try:
+            evidence_as_of = parse_iso(str(terminal.get("at")))
+        except GovernanceError:
+            evidence_as_of = None
     item_states = work_states(model)
-    governance_issues = structural_issues(model) + evidence_integrity_issues(model)
+    governance_issues = structural_issues(model) + runtime_integrity_issues(model)
     issues: list[dict[str, Any]] = [
         {"kind": "governance", "status": "invalid", "message": message}
         for message in dict.fromkeys(governance_issues)
@@ -952,7 +1168,7 @@ def completion_report(model: Model) -> dict[str, Any]:
             gate = model.gates.get(str(gate_ref))
             if gate is None:
                 continue
-            state = verification_state(model, item, gate)
+            state = verification_state(model, item, gate, as_of=evidence_as_of)
             verification_cache[(item_id, str(gate_ref))] = state
             run = state.get("run") or {}
             gate_view = {
@@ -962,7 +1178,11 @@ def completion_report(model: Model) -> dict[str, Any]:
                 "status": state.get("status"),
                 "runId": run.get("runId"),
                 "finishedAt": run.get("finishedAt"),
-                "resultRef": state.get("event", {}).get("resultRef") if state.get("event") else None,
+                "resultRef": (
+                    state.get("event", {}).get("resultRef")
+                    if state.get("event")
+                    else None
+                ),
                 "failureSignature": run.get("failureSignature"),
             }
             gate_views.append(gate_view)
@@ -976,7 +1196,10 @@ def completion_report(model: Model) -> dict[str, Any]:
                         "message": f"{item_id}/{gate_ref} 验证状态为 {state.get('status')}",
                     }
                 )
-        if item.get("requiredForFinal", True) and item_states.get(item_id) != "implemented":
+        if (
+            item.get("requiredForFinal", True)
+            and item_states.get(item_id) != "implemented"
+        ):
             issues.append(
                 {
                     "kind": "work",
@@ -1002,17 +1225,20 @@ def completion_report(model: Model) -> dict[str, Any]:
     for claim in claims:
         item_id = str(claim.get("itemRef"))
         gate_id = str(claim.get("gateRef"))
-        item = model.items.get(item_id)
-        gate = model.gates.get(gate_id)
-        state = verification_cache.get((item_id, gate_id))
-        if state is None and item and gate:
-            state = verification_state(model, item, gate)
-        run = (state or {}).get("run") or {}
+        claim_item = model.items.get(item_id)
+        claim_gate = model.gates.get(gate_id)
+        claim_state: dict[str, Any] | None = verification_cache.get((item_id, gate_id))
+        if claim_state is None and claim_item and claim_gate:
+            claim_state = verification_state(
+                model, claim_item, claim_gate, as_of=evidence_as_of
+            )
+        run = (claim_state or {}).get("run") or {}
         passed = bool(
-            state
-            and state.get("status") == "passed"
-            and gate
-            and LEVELS.get(str(gate.get("level")), -1) >= LEVELS.get(str(claim.get("level")), 99)
+            claim_state
+            and claim_state.get("status") == "passed"
+            and claim_gate
+            and LEVELS.get(str(claim_gate.get("level")), -1)
+            >= LEVELS.get(str(claim.get("level")), 99)
             and run.get("dataMode") == claim.get("dataMode")
         )
         claim_view = {
@@ -1022,7 +1248,9 @@ def completion_report(model: Model) -> dict[str, Any]:
             "gateRef": gate_id,
             "requiredLevel": claim.get("level"),
             "requiredDataMode": claim.get("dataMode"),
-            "status": "passed" if passed else (state or {}).get("status", "missing"),
+            "status": (
+                "passed" if passed else (claim_state or {}).get("status", "missing")
+            ),
             "runId": run.get("runId"),
         }
         claim_views.append(claim_view)
@@ -1038,13 +1266,62 @@ def completion_report(model: Model) -> dict[str, Any]:
                 }
             )
 
-    return {
+    report: dict[str, Any] = {
         "eligible": not issues,
         "runtimeState": runtime_state(model),
         "issues": issues,
         "items": item_views,
         "claims": claim_views,
     }
+    if (
+        terminal
+        and terminal.get("type") == "PROJECT_COMPLETED"
+        and (
+            not report["eligible"]
+            or not completed_evidence_matches(model, terminal, report)
+        )
+    ):
+        report["eligible"] = False
+        report["runtimeState"] = "COMPLETED_INVALID"
+        report["issues"] = [
+            {
+                "kind": "terminal",
+                "status": "invalid",
+                "message": "PROJECT_COMPLETED 的当前证据与完成断言不一致",
+            }
+        ] + report["issues"]
+    return report
+
+
+def completion_evidence_digest(model: Model, report: dict[str, Any]) -> str:
+    start = started_event(model) or {}
+    evidence = {
+        "contractDigest": start.get("contractDigest"),
+        "workLockDigest": start.get("workLockDigest"),
+        "workDigest": work_digest(model.work),
+        "eligible": report.get("eligible"),
+        "items": report.get("items", []),
+        "claims": report.get("claims", []),
+        "issues": report.get("issues", []),
+    }
+    return sha256_bytes(canonical_bytes(evidence))
+
+
+def completed_evidence_matches(
+    model: Model, terminal: dict[str, Any], report: dict[str, Any]
+) -> bool:
+    expected = terminal.get("completionEvidenceDigest")
+    if isinstance(expected, str) and re.fullmatch(r"[0-9a-f]{64}", expected):
+        return expected == completion_evidence_digest(model, report)
+
+    # Compatibility for completion events written before the stable digest existed.
+    legacy_expected = terminal.get("completionDigest")
+    if not isinstance(legacy_expected, str):
+        return False
+    legacy_report = dict(report)
+    legacy_report["runtimeState"] = "RUNNING"
+    legacy_report.pop("boardIntegrity", None)
+    return legacy_expected == sha256_bytes(canonical_bytes(legacy_report))
 
 
 def command_for_gate(gate: dict[str, Any]) -> str | list[str]:
@@ -1054,7 +1331,9 @@ def command_for_gate(gate: dict[str, Any]) -> str | list[str]:
         command = gate.get("command") or gate.get("commandWindows")
     if not isinstance(command, (str, list)) or not command:
         raise GovernanceError(f"Gate {gate.get('id')} 缺少当前平台命令")
-    if isinstance(command, list) and not all(isinstance(part, str) and part for part in command):
+    if isinstance(command, list) and not all(
+        isinstance(part, str) and part for part in command
+    ):
         raise GovernanceError(f"Gate {gate.get('id')} 命令参数非法")
     return command
 
@@ -1067,7 +1346,9 @@ def check_working_directory(root: Path, gate: dict[str, Any]) -> Path:
     return path
 
 
-def normalize_failure_signature(exit_code: int | None, stdout: bytes, stderr: bytes, outcome: str) -> str | None:
+def normalize_failure_signature(
+    exit_code: int | None, stdout: bytes, stderr: bytes, outcome: str
+) -> str | None:
     if outcome == "pass":
         return None
     sample = stderr[-4096:] if stderr.strip() else stdout[-4096:]
@@ -1092,7 +1373,10 @@ def unchanged_failure_count(
         if not run_identity_matches(run, identity, gate):
             break
         current_signature = run.get("failureSignature")
-        if run.get("outcome") not in {"fail", "timeout", "error"} or not current_signature:
+        if (
+            run.get("outcome") not in {"fail", "timeout", "error"}
+            or not current_signature
+        ):
             break
         if signature is None:
             signature = str(current_signature)
@@ -1107,7 +1391,9 @@ def execute_gate(model: Model, item_id: str, gate_id: str) -> dict[str, Any]:
     if start is None:
         raise GovernanceError("请先执行 governance.py start")
     if contract_drifted(model):
-        raise GovernanceError("启动契约发生漂移；请先执行 governance.py restore-contract")
+        raise GovernanceError(
+            "启动契约发生漂移；请先执行 governance.py restore-contract"
+        )
     integrity_issues = runtime_integrity_issues(model)
     if integrity_issues:
         raise GovernanceError(f"治理完整性检查失败：{'；'.join(integrity_issues)}")
@@ -1123,7 +1409,9 @@ def execute_gate(model: Model, item_id: str, gate_id: str) -> dict[str, Any]:
         raise GovernanceError(f"未知 Gate：{gate_id}")
 
     identity_before = current_identity(model, item, gate)
-    same_count, signature = unchanged_failure_count(model, item_id, gate_id, identity_before, gate)
+    same_count, signature = unchanged_failure_count(
+        model, item_id, gate_id, identity_before, gate
+    )
     limit = int(model.project.get("budgets", {}).get("sameFailureLimit", 2))
     if same_count >= limit:
         raise GovernanceError(
@@ -1235,24 +1523,32 @@ def progress_digest(model: Model, report: dict[str, Any] | None = None) -> str:
     value = {
         "sourceDigest": source,
         "workDigest": work_digest(model.work),
-        "workStatus": {view["id"]: view["workStatus"] for view in report.get("items", [])},
+        "workStatus": {
+            view["id"]: view["workStatus"] for view in report.get("items", [])
+        },
         "runs": latest_runs,
         "claims": {view["id"]: view["status"] for view in report.get("claims", [])},
     }
     return sha256_bytes(canonical_bytes(value))
 
 
-def budget_exhaustion_reason(model: Model, report: dict[str, Any], next_progress: str) -> str | None:
+def budget_exhaustion_reason(
+    model: Model, report: dict[str, Any], next_progress: str
+) -> str | None:
     if report.get("eligible"):
         return None
     budgets = model.project.get("budgets", {})
     deadline = budgets.get("deadlineAt")
     if deadline is not None and datetime.now(timezone.utc) >= parse_iso(str(deadline)):
         return f"到达锁定截止时间 {deadline}"
-    check_runs = sum(1 for event in model.events if event.get("type") == "CHECK_FINISHED")
+    check_runs = sum(
+        1 for event in model.events if event.get("type") == "CHECK_FINISHED"
+    )
     if check_runs >= int(budgets.get("maxCheckRuns", 0)):
         return f"检查运行预算已用尽：{check_runs}/{budgets.get('maxCheckRuns')}"
-    continuations = [event for event in model.events if event.get("type") == "STOP_CONTINUED"]
+    continuations = [
+        event for event in model.events if event.get("type") == "STOP_CONTINUED"
+    ]
     if len(continuations) >= int(budgets.get("maxStopContinuations", 0)):
         return f"Stop continuation 预算已用尽：{len(continuations)}/{budgets.get('maxStopContinuations')}"
     streak = 1
@@ -1275,7 +1571,12 @@ def next_action(model: Model, report: dict[str, Any]) -> str:
     item = issue.get("item")
     gate = issue.get("gate")
     status = issue.get("status")
-    if kind in {"verification", "final_claim"} and status in {"missing", "stale"} and item and gate:
+    if (
+        kind in {"verification", "final_claim"}
+        and status in {"missing", "stale"}
+        and item
+        and gate
+    ):
         return (
             f"{item}/{gate} 缺少当前证据。继续执行："
             f"python tools/governance.py run --item {item} --gate {gate}。"
@@ -1296,7 +1597,9 @@ def next_action(model: Model, report: dict[str, Any]) -> str:
 def board_source_files(model: Model) -> list[Path]:
     result = [model.root / PROJECT_REL, model.root / WORK_REL, model.root / EVENTS_REL]
     for event in model.events:
-        if event.get("type") == "CHECK_FINISHED" and isinstance(event.get("resultRef"), str):
+        if event.get("type") == "CHECK_FINISHED" and isinstance(
+            event.get("resultRef"), str
+        ):
             path = safe_repo_path(model.root, event["resultRef"])
             if path.is_file():
                 result.append(path)
@@ -1355,33 +1658,49 @@ def render_board(model: Model, report: dict[str, Any] | None = None) -> bytes:
     if readiness_issues(model) and started_event(model) is None:
         raise GovernanceError("readiness 尚未通过，暂不生成运行看板")
     digest = board_input_digest(model)
-    report = report if report is not None else (completion_report(model) if started_event(model) else {
-        "eligible": False,
-        "items": [
-            {
-                "id": item.get("id"),
-                "title": item.get("title", item.get("id")),
-                "bucket": item.get("bucket"),
-                "requiredForFinal": item.get("requiredForFinal", True),
-                "workStatus": "planned",
-                "checks": [],
-                "nextCheckpoint": item.get("nextCheckpoint", ""),
+    report = (
+        report
+        if report is not None
+        else (
+            completion_report(model)
+            if started_event(model)
+            else {
+                "eligible": False,
+                "items": [
+                    {
+                        "id": item.get("id"),
+                        "title": item.get("title", item.get("id")),
+                        "bucket": item.get("bucket"),
+                        "requiredForFinal": item.get("requiredForFinal", True),
+                        "workStatus": "planned",
+                        "checks": [],
+                        "nextCheckpoint": item.get("nextCheckpoint", ""),
+                    }
+                    for item in model.work.get("items", [])
+                ],
+                "claims": [],
+                "issues": [],
             }
-            for item in model.work.get("items", [])
-        ],
-        "claims": [],
-        "issues": [],
-    })
-    state = runtime_state(model)
+        )
+    )
+    state = str(report.get("runtimeState", runtime_state(model)))
     items = report.get("items", [])
     claims = report.get("claims", [])
     required_items = [item for item in items if item.get("requiredForFinal")]
-    implemented = sum(1 for item in required_items if item.get("workStatus") == "implemented")
-    required_checks = [check for item in required_items for check in item.get("checks", [])]
-    passed_checks = sum(1 for check in required_checks if check.get("status") == "passed")
+    implemented = sum(
+        1 for item in required_items if item.get("workStatus") == "implemented"
+    )
+    required_checks = [
+        check for item in required_items for check in item.get("checks", [])
+    ]
+    passed_checks = sum(
+        1 for check in required_checks if check.get("status") == "passed"
+    )
     passed_claims = sum(1 for claim in claims if claim.get("status") == "passed")
 
-    constraints = "".join(f"<li>{esc(value)}</li>" for value in model.project.get("hardConstraints", []))
+    constraints = "".join(
+        f"<li>{esc(value)}</li>" for value in model.project.get("hardConstraints", [])
+    )
     if not constraints:
         constraints = "<li>已确认无额外硬约束</li>"
 
@@ -1394,7 +1713,9 @@ def render_board(model: Model, report: dict[str, Any] | None = None) -> bytes:
     if not warning_html:
         warning_html = "<li>当前没有完成条件告警。</li>"
 
-    item_by_bucket: dict[str, list[dict[str, Any]]] = {bucket: [] for bucket in ("NOW", "NEXT", "LATER")}
+    item_by_bucket: dict[str, list[dict[str, Any]]] = {
+        bucket: [] for bucket in ("NOW", "NEXT", "LATER")
+    }
     for view in items:
         item_by_bucket.setdefault(str(view.get("bucket")), []).append(view)
 
@@ -1404,7 +1725,9 @@ def render_board(model: Model, report: dict[str, Any] | None = None) -> bytes:
         for view in item_by_bucket.get(bucket, []):
             check_rows: list[str] = []
             for check in view.get("checks", []):
-                failures = repeated_failure_count(model, str(view.get("id")), str(check.get("id")))
+                failures = repeated_failure_count(
+                    model, str(view.get("id")), str(check.get("id"))
+                )
                 check_rows.append(
                     '<div class="check-row">'
                     f'<span class="mono">{esc(check.get("id"))}</span>'
@@ -1414,7 +1737,9 @@ def render_board(model: Model, report: dict[str, Any] | None = None) -> bytes:
                     "</div>"
                 )
             if not check_rows:
-                check_rows.append('<div class="muted">显式验证豁免或尚未进入运行态</div>')
+                check_rows.append(
+                    '<div class="muted">显式验证豁免或尚未进入运行态</div>'
+                )
             cards.append(
                 '<article class="work-card">'
                 '<div class="work-head">'
@@ -1538,7 +1863,10 @@ def board_integrity_issue(model: Model) -> str | None:
     expected = render_board(model)
     if actual == expected:
         return None
-    match = re.search(br'<meta name="governance-input-digest" content="sha256:([0-9a-f]{64})">', actual)
+    match = re.search(
+        rb'<meta name="governance-input-digest" content="sha256:([0-9a-f]{64})">',
+        actual,
+    )
     current = board_input_digest(model)
     if not match or match.group(1).decode("ascii") == current:
         return "BOARD_MODIFIED"
@@ -1569,12 +1897,18 @@ def runtime_integrity_issues(model: Model) -> list[str]:
         issues.append("启动契约发生漂移")
     issues.extend(work_lock_issues(model))
     issues.extend(evidence_integrity_issues(model))
+    issues.extend(runtime_hook_issues(model))
     return list(dict.fromkeys(issues))
 
 
 def validate_model(model: Model, include_board: bool = True) -> list[str]:
     issues = structural_issues(model)
-    issues.extend(evidence_integrity_issues(model))
+    issues.extend(runtime_integrity_issues(model))
+    terminal = terminal_event(model)
+    if terminal and terminal.get("type") == "PROJECT_COMPLETED":
+        report = completion_report(model)
+        if report.get("runtimeState") == "COMPLETED_INVALID":
+            issues.append("PROJECT_COMPLETED 的当前证据与完成断言不一致")
     if include_board:
         board_issue = board_integrity_issue(model)
         if board_issue:
@@ -1585,7 +1919,11 @@ def validate_model(model: Model, include_board: bool = True) -> list[str]:
 def command_ready(args: argparse.Namespace) -> int:
     model = load_model(resolve_root(args.repo))
     issues = readiness_issues(model)
-    payload = {"ready": not issues, "issues": issues, "runtimeState": runtime_state(model)}
+    payload = {
+        "ready": not issues,
+        "issues": issues,
+        "runtimeState": runtime_state(model),
+    }
     print_json(payload)
     return 0 if not issues else 1
 
@@ -1602,11 +1940,18 @@ def command_start(args: argparse.Namespace) -> int:
         if existing.get("contractDigest") != digest:
             raise GovernanceError("现有 AUTONOMY_STARTED 与当前契约摘要不同")
         if not isinstance(existing.get("workLock"), dict):
-            raise GovernanceError("现有 AUTONOMY_STARTED 缺少 workLock；需在提交前重新初始化治理证据")
+            raise GovernanceError(
+                "现有 AUTONOMY_STARTED 缺少 workLock；需在提交前重新初始化治理证据"
+            )
+        if not isinstance(existing.get("hookLock"), dict):
+            raise GovernanceError(
+                "现有 AUTONOMY_STARTED 缺少 hookLock；需在提交前重新初始化治理证据"
+            )
         derive_board(model)
         print_json({"started": True, "idempotent": True, "contractDigest": digest})
         return 0
     work_lock = build_work_lock(model)
+    hook_lock = current_hook_lock(model)
     append_event(
         model,
         "AUTONOMY_STARTED",
@@ -1614,6 +1959,8 @@ def command_start(args: argparse.Namespace) -> int:
         contractSnapshot=model.project,
         workLock=work_lock,
         workLockDigest=sha256_bytes(canonical_bytes(work_lock)),
+        hookLock=hook_lock,
+        hookLockDigest=sha256_bytes(canonical_bytes(hook_lock)),
         budgets=model.project.get("budgets", {}),
         interactionPolicy=model.project.get("interactionPolicy", {}),
     )
@@ -1634,7 +1981,9 @@ def command_record(args: argparse.Namespace) -> int:
     if started_event(model) is None:
         raise GovernanceError("请先执行 governance.py start")
     if contract_drifted(model):
-        raise GovernanceError("启动契约发生漂移；请先执行 governance.py restore-contract")
+        raise GovernanceError(
+            "启动契约发生漂移；请先执行 governance.py restore-contract"
+        )
     integrity_issues = runtime_integrity_issues(model)
     if integrity_issues:
         raise GovernanceError(f"治理完整性检查失败：{'；'.join(integrity_issues)}")
@@ -1681,7 +2030,10 @@ def command_restore_contract(args: argparse.Namespace) -> int:
     expected = str(start.get("contractDigest", ""))
     if project_digest(snapshot) != expected:
         raise GovernanceError("锁定契约快照摘要不匹配")
-    changed = atomic_write(model.root / PROJECT_REL, json.dumps(snapshot, ensure_ascii=False, indent=2).encode("utf-8") + b"\n")
+    changed = atomic_write(
+        model.root / PROJECT_REL,
+        json.dumps(snapshot, ensure_ascii=False, indent=2).encode("utf-8") + b"\n",
+    )
     model.project = snapshot
     if changed:
         append_event(model, "CONTRACT_RESTORED", contractDigest=expected)
@@ -1701,7 +2053,10 @@ def command_restore_work_contract(args: argparse.Namespace) -> int:
     if locked is None:
         raise GovernanceError("AUTONOMY_STARTED 缺少 workLock")
     expected = start.get("workLockDigest")
-    if not isinstance(expected, str) or sha256_bytes(canonical_bytes(locked)) != expected:
+    if (
+        not isinstance(expected, str)
+        or sha256_bytes(canonical_bytes(locked)) != expected
+    ):
         raise GovernanceError("锁定工作契约摘要不匹配")
 
     work = json.loads(json.dumps(model.work, ensure_ascii=False))
@@ -1717,7 +2072,9 @@ def command_restore_work_contract(args: argparse.Namespace) -> int:
         if not isinstance(gate, dict):
             continue
         gate_id = str(gate.get("id", ""))
-        restored_gates.append(json.loads(json.dumps(locked_gates.get(gate_id, gate), ensure_ascii=False)))
+        restored_gates.append(
+            json.loads(json.dumps(locked_gates.get(gate_id, gate), ensure_ascii=False))
+        )
         seen_gates.add(gate_id)
     for gate_id, gate in locked_gates.items():
         if gate_id not in seen_gates:
@@ -1754,8 +2111,13 @@ def command_restore_work_contract(args: argparse.Namespace) -> int:
 
     changed = canonical_bytes(work) != canonical_bytes(model.work)
     if changed:
-        work["revision"] = max(int(model.work.get("revision", 0)) + 1, int(work.get("revision", 0)))
-        atomic_write(model.root / WORK_REL, json.dumps(work, ensure_ascii=False, indent=2).encode("utf-8") + b"\n")
+        work["revision"] = max(
+            int(model.work.get("revision", 0)) + 1, int(work.get("revision", 0))
+        )
+        atomic_write(
+            model.root / WORK_REL,
+            json.dumps(work, ensure_ascii=False, indent=2).encode("utf-8") + b"\n",
+        )
         model.work = work
         append_event(model, "WORK_CONTRACT_RESTORED", workLockDigest=expected)
     derive_board(model)
@@ -1778,8 +2140,18 @@ def command_check(args: argparse.Namespace) -> int:
             }
             for message in integrity_issues
         ] + report.get("issues", [])
-    if args.completion and report.get("eligible") and started_event(model) and terminal_event(model) is None:
-        append_event(model, "PROJECT_COMPLETED", completionDigest=sha256_bytes(canonical_bytes(report)))
+    if (
+        args.completion
+        and report.get("eligible")
+        and started_event(model)
+        and terminal_event(model) is None
+    ):
+        append_event(
+            model,
+            "PROJECT_COMPLETED",
+            completionDigest=sha256_bytes(canonical_bytes(report)),
+            completionEvidenceDigest=completion_evidence_digest(model, report),
+        )
         derive_board(model)
         report = completion_report(model)
     report["boardIntegrity"] = board_integrity_issue(model) or "current"
@@ -1790,17 +2162,22 @@ def command_check(args: argparse.Namespace) -> int:
 def command_status(args: argparse.Namespace) -> int:
     model = load_model(resolve_root(args.repo))
     readiness = readiness_issues(model)
-    report = completion_report(model) if started_event(model) else None
+    start = started_event(model)
+    report = completion_report(model) if start else None
     payload = {
         "projectId": model.project.get("projectId"),
         "projectName": model.project.get("projectName"),
-        "runtimeState": runtime_state(model),
+        "runtimeState": (
+            report.get("runtimeState") if report is not None else runtime_state(model)
+        ),
         "ready": not readiness,
         "readinessIssues": readiness,
-        "contractDigest": started_event(model).get("contractDigest") if started_event(model) else None,
+        "contractDigest": start.get("contractDigest") if start else None,
         "completion": report,
-        "integrityIssues": runtime_integrity_issues(model) if started_event(model) else [],
-        "board": str(model.root / BOARD_REL) if (model.root / BOARD_REL).exists() else None,
+        "integrityIssues": (runtime_integrity_issues(model) if start else []),
+        "board": (
+            str(model.root / BOARD_REL) if (model.root / BOARD_REL).exists() else None
+        ),
     }
     print_json(payload)
     return 0
@@ -1833,22 +2210,6 @@ def final_report_requested(model: Model) -> bool:
 def hook_payload(model: Model, hook_input: dict[str, Any]) -> dict[str, Any]:
     if started_event(model) is None:
         return {"continue": True, "decision": "approve"}
-    terminal = terminal_event(model)
-    if terminal:
-        if terminal.get("type") == "AUTONOMY_EXHAUSTED" and not final_report_requested(model):
-            append_event(model, "FINAL_REPORT_REQUESTED", reason=terminal.get("reason"))
-            derive_board(model)
-            return {
-                "decision": "block",
-                "reason": "项目已达到 EXHAUSTED。整理最终证据报告：已完成结果、运行命令与结果、未闭合项、耗尽原因、残余风险和恢复入口；随后结束本轮自主运行。",
-            }
-        derive_board(model)
-        terminal_state = "EXHAUSTED" if terminal.get("type") == "AUTONOMY_EXHAUSTED" else "COMPLETED"
-        return {
-            "continue": True,
-            "decision": "approve",
-            "systemMessage": f"Governance state: {terminal_state}",
-        }
     if contract_drifted(model):
         return {
             "decision": "block",
@@ -1865,18 +2226,72 @@ def hook_payload(model: Model, hook_input: dict[str, Any]) -> dict[str, Any]:
             ),
         }
 
+    terminal = terminal_event(model)
+    if terminal:
+        if terminal.get("type") == "AUTONOMY_EXHAUSTED":
+            if not final_report_requested(model):
+                append_event(
+                    model, "FINAL_REPORT_REQUESTED", reason=terminal.get("reason")
+                )
+                derive_board(model)
+                return {
+                    "decision": "block",
+                    "reason": "项目已达到 EXHAUSTED。整理最终证据报告：已完成结果、运行命令与结果、未闭合项、耗尽原因、残余风险和恢复入口；随后结束本轮自主运行。",
+                }
+            derive_board(model)
+            return {
+                "continue": True,
+                "decision": "approve",
+                "systemMessage": "Governance state: EXHAUSTED",
+            }
+
+        report = completion_report(model)
+        if not report.get("eligible") or not completed_evidence_matches(
+            model, terminal, report
+        ):
+            derive_board(model, report=report)
+            return {
+                "decision": "block",
+                "reason": "项目完成证据已失效。恢复完成时的 source、Gate 和 evidence 原始字节，或为后续工作启动新的治理周期；当前终态不会被批准。",
+            }
+        derive_board(model, report=report)
+        return {
+            "continue": True,
+            "decision": "approve",
+            "systemMessage": "Governance state: COMPLETED",
+        }
+
     report = completion_report(model)
     if report.get("eligible"):
-        append_event(model, "PROJECT_COMPLETED", completionDigest=sha256_bytes(canonical_bytes(report)))
-        derive_board(model, report=report)
-        return {"continue": True, "decision": "approve", "systemMessage": "Governance state: COMPLETED"}
+        completion_event = append_event(
+            model,
+            "PROJECT_COMPLETED",
+            completionDigest=sha256_bytes(canonical_bytes(report)),
+            completionEvidenceDigest=completion_evidence_digest(model, report),
+        )
+        derive_board(model)
+        completed_report = completion_report(model)
+        if not completed_report.get("eligible") or not completed_evidence_matches(
+            model, completion_event, completed_report
+        ):
+            return {
+                "decision": "block",
+                "reason": "项目完成证据已失效。恢复完成时的 source、Gate 和 evidence 原始字节，或为后续工作启动新的治理周期；当前终态不会被批准。",
+            }
+        return {
+            "continue": True,
+            "decision": "approve",
+            "systemMessage": "Governance state: COMPLETED",
+        }
 
     progress = progress_digest(model, report)
     exhaustion = budget_exhaustion_reason(model, report, progress)
     if exhaustion:
-        append_event(model, "AUTONOMY_EXHAUSTED", reason=exhaustion, progressDigest=progress)
+        append_event(
+            model, "AUTONOMY_EXHAUSTED", reason=exhaustion, progressDigest=progress
+        )
         append_event(model, "FINAL_REPORT_REQUESTED", reason=exhaustion)
-        derive_board(model, report=report)
+        derive_board(model)
         return {
             "decision": "block",
             "reason": f"项目已达到 EXHAUSTED：{exhaustion}。整理最终证据报告：已完成结果、运行命令与结果、未闭合项、残余风险和恢复入口；随后结束本轮自主运行。",
@@ -1916,7 +2331,9 @@ def command_hook_stop(args: argparse.Namespace) -> int:
 
 
 def add_repo_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--repo", help="Repository root; defaults to searching upward from cwd")
+    parser.add_argument(
+        "--repo", help="Repository root; defaults to searching upward from cwd"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1946,17 +2363,26 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--details", help="JSON object")
     record.set_defaults(func=command_record)
 
-    restore = sub.add_parser("restore-contract", help="Restore the project contract frozen at start")
+    restore = sub.add_parser(
+        "restore-contract", help="Restore the project contract frozen at start"
+    )
     add_repo_argument(restore)
     restore.set_defaults(func=command_restore_contract)
 
-    restore_work = sub.add_parser("restore-work-contract", help="Restore locked final Gates and required work bindings")
+    restore_work = sub.add_parser(
+        "restore-work-contract",
+        help="Restore locked final Gates and required work bindings",
+    )
     add_repo_argument(restore_work)
     restore_work.set_defaults(func=command_restore_work_contract)
 
     check = sub.add_parser("check", help="Evaluate current completion evidence")
     add_repo_argument(check)
-    check.add_argument("--completion", action="store_true", help="Compatibility flag; completion is the V1 check")
+    check.add_argument(
+        "--completion",
+        action="store_true",
+        help="Compatibility flag; completion is the V1 check",
+    )
     check.set_defaults(func=command_check)
 
     status = sub.add_parser("status", help="Print deterministic project status")
@@ -1967,7 +2393,9 @@ def build_parser() -> argparse.ArgumentParser:
     add_repo_argument(derive)
     derive.set_defaults(func=command_derive)
 
-    validate = sub.add_parser("validate", help="Validate governance and evidence integrity")
+    validate = sub.add_parser(
+        "validate", help="Validate governance and evidence integrity"
+    )
     add_repo_argument(validate)
     validate.set_defaults(func=command_validate)
 

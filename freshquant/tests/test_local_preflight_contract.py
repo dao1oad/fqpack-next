@@ -40,10 +40,13 @@ def test_local_preflight_script_contains_preflight_contract() -> None:
 
 
 @pytest.mark.parametrize("child_exit_code", [0, 7])
-def test_invoke_external_command_returns_only_native_exit_code(child_exit_code: int) -> None:
+def test_invoke_external_command_returns_only_native_exit_code(
+    child_exit_code: int,
+) -> None:
     powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
     if powershell is None:
         pytest.skip("PowerShell is not installed")
+    assert powershell is not None
 
     preflight_script = REPO_ROOT / "script" / "fq_local_preflight.ps1"
     probe = f"Write-Output 'probe-output'; exit {child_exit_code}"

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 3,
+  "revision": 4,
   "gates": [
     {
       "id": "governance-layer",
@@ -142,7 +142,8 @@
         "stock,etf",
         "--full",
         "--verify",
-        "--require-deployed-main"
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
       ],
       "commandWindows": [
         ".venv\\Scripts\\python.exe",
@@ -152,7 +153,8 @@
         "stock,etf",
         "--full",
         "--verify",
-        "--require-deployed-main"
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
       ],
       "cwd": ".",
       "subjectPaths": [
@@ -240,7 +242,7 @@
         "script/qfq_governance_gate.py",
         "verify",
         "--check",
-        "deployment,health,runtime,cleanup",
+        "deployment,qfq,mongo,api,dagster,coverage,health,runtime,cleanup",
         "--require-deployed-main",
         "--require-after-latest-deploy"
       ],
@@ -249,7 +251,7 @@
         "script/qfq_governance_gate.py",
         "verify",
         "--check",
-        "deployment,health,runtime,cleanup",
+        "deployment,qfq,mongo,api,dagster,coverage,health,runtime,cleanup",
         "--require-deployed-main",
         "--require-after-latest-deploy"
       ],
@@ -263,7 +265,7 @@
         "docs/current/**"
       ],
       "timeoutSeconds": 21600,
-      "maxAgeSeconds": 86400
+      "maxAgeSeconds": 600
     }
   ],
   "items": [
@@ -273,12 +275,17 @@
       "bucket": "NOW",
       "pathScopes": [
         "AGENTS.md",
-        ".agents/skills/**"
+        ".agents/skills/**",
+        ".codex/hooks.json",
+        ".devin/hooks.v1.json",
+        ".gitattributes",
+        ".gitignore",
+        "tools/governance.py"
       ],
       "gateRefs": [
         "governance-layer"
       ],
-      "requiredForFinal": false,
+      "requiredForFinal": true,
       "nextCheckpoint": "governance validate 通过，AUTONOMY_STARTED 和派生看板已生成。"
     },
     {
@@ -297,7 +304,7 @@
         "qfq-bootstrap-real"
       ],
       "requiredForFinal": true,
-      "nextCheckpoint": "幂等 Bootstrap 在真实 XTData/Mongo 上发布完整 snapshot，missing/invalid/duplicates 均为 0。"
+      "nextCheckpoint": "qfq-bootstrap-real 的 --verify 在真实 XTData/Mongo 上先发布完整 snapshot，再执行一次真实 incremental/no-op 幂等发布；两次均核对 writer/source/ready marker，且 missing/invalid/duplicates 均为 0。"
     },
     {
       "id": "WI-002",
@@ -341,6 +348,8 @@
       "title": "同步测试、部署计划映射和 docs/current 当前事实",
       "bucket": "NEXT",
       "pathScopes": [
+        ".gitattributes",
+        ".gitignore",
         "freshquant/tests/**",
         "script/**",
         "docs/current/**"
@@ -370,7 +379,7 @@
         "market-jobs-real"
       ],
       "requiredForFinal": true,
-      "nextCheckpoint": "最新远程 main 正式部署后，Bootstrap、三类行情任务、API、健康检查、runtime ops check 和 cleanup 全部有当前证据。"
+      "nextCheckpoint": "formal-deploy-main 逐项读取全部 required V2 result，确认 finishedAt 晚于同一 deployedAt，并在结束前再次确认 HEAD、origin/main 与 deployed SHA 相等；Bootstrap、三类行情任务、API、健康检查、runtime ops check 和 cleanup 全部有该部署代次的当前证据。"
     }
   ]
 }
