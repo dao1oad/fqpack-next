@@ -96,6 +96,7 @@ def run_rebuild(
     account_id=None,
     database=None,
     rebuild_service=None,
+    history_archiver=None,
 ):
     if dry_run and execute:
         raise click.UsageError("--dry-run and --execute cannot be used together")
@@ -120,6 +121,11 @@ def run_rebuild(
     rebuild_service = (
         rebuild_service if rebuild_service is not None else _get_rebuild_service()
     )
+    history_archiver = (
+        history_archiver
+        if history_archiver is not None
+        else _archive_position_review_history
+    )
 
     truth_snapshots = _load_broker_truth(
         database=broker_truth_database,
@@ -128,8 +134,16 @@ def run_rebuild(
     rebuild_result = rebuild_service.build_from_truth(**truth_snapshots)
     purge_collections = list(ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS)
     backup_performed = False
+    history_archive = None
 
     if should_execute:
+        history_archive = history_archiver(
+            business_database=broker_truth_database,
+            order_database=database,
+            include_business=True,
+            include_order=True,
+            reason="order_ledger_rebuild_before_purge",
+        )
         _backup_database(
             database=database,
             backup_db_name=normalized_backup_db,
@@ -147,6 +161,7 @@ def run_rebuild(
         "execute": should_execute,
         "backup_db": normalized_backup_db,
         "backup_performed": backup_performed,
+        "position_review_history_archive": history_archive,
         "source_counts": {
             collection_name: len(truth_snapshots.get(collection_name) or [])
             for collection_name in _BROKER_TRUTH_COLLECTIONS
@@ -157,6 +172,14 @@ def run_rebuild(
     for key in _SUMMARY_COUNT_KEYS:
         summary[key] = int(rebuild_result.get(key) or 0)
     return summary
+
+
+def _archive_position_review_history(**kwargs):
+    from freshquant.order_management.position_review_archive import (
+        backfill_position_review_history,
+    )
+
+    return backfill_position_review_history(dry_run=False, **kwargs)
 
 
 @click.command(name="rebuild-order-ledger-v2")

@@ -21,6 +21,12 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'success',
     size: 'small',
   },
+  positionReview: {
+    label: '持仓复盘',
+    path: '/position-review',
+    buttonType: 'primary',
+    size: 'small',
+  },
   runtime: {
     label: '运行观测',
     path: '/runtime-observability',
@@ -76,7 +82,7 @@ export const HEADER_NAV_TARGETS = {
 
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
-  ['klineSlim', 'positionManagement', 'runtime'],
+  ['klineSlim', 'positionManagement', 'positionReview', 'runtime'],
   ['gantt', 'shouban30', 'dailyScreening', 'clxBacktest'],
   ['stock', 'pool'],
 ]
@@ -93,6 +99,7 @@ export const ROUTE_TITLES_BY_NAME = {
   'clx-backtest': 'CLX回测',
   'gantt-stocks': '板块趋势',
   'position-management': '仓位管理',
+  'position-review': '持仓复盘',
   'runtime-observability': '运行观测',
   'system-settings': '系统设置',
 }

@@ -90,6 +90,45 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 - 正式 deploy 入口会先解析最新远程 `origin/main` SHA，再按 `last_success_sha -> latest origin/main sha` 计算部署范围。
 - 本地未 merge 的 worktree 不能直接当正式 deploy 来源。
 
+### 持仓复盘历史证据 backfill
+
+首次部署持仓复盘历史档案，或确认旧环境尚未完成归档时，正式顺序固定为：
+
+1. 先完成最新远程 `main` 的 API / Web / order-management 正式 deploy
+2. 先跑 preview，确认发现的成交数不低于已知安全下限
+3. 用 preview 的发现数作为 `--expected-minimum-executions` 执行幂等 apply
+4. 核对 apply 返回的 `executions / evidence` 的
+   `discovered / upserted / matched`
+5. 核对持仓复盘 API 的全局目录和重点标的逐笔成交数
+
+```powershell
+$preview = .venv\Scripts\python.exe script/maintenance/backfill_position_review_history.py |
+    ConvertFrom-Json
+if ($preview.executions.discovered -lt 366) {
+    throw "position-review execution preview is below the verified floor"
+}
+
+.venv\Scripts\python.exe script/maintenance/backfill_position_review_history.py `
+    --apply `
+    --expected-minimum-executions $preview.executions.discovered
+
+$summary = Invoke-RestMethod http://127.0.0.1:15000/api/position-review/summary?refresh=true
+$enhua = Invoke-RestMethod http://127.0.0.1:15000/api/position-review/symbols/002262
+$summary.totals
+$enhua.data_quality.canonical_trade_count
+$enhua.data_quality.account_partitions
+```
+
+- backfill 只读取当前 `xt_trades` 与 OM 证据并幂等追加档案，不删除或改写当前成交、订单、持仓。
+- 已验证环境中，恩华药业 `002262` 的
+  `data_quality.canonical_trade_count` 必须为 `55`；2026-04-29 两次卖出复盘仍应分别为
+  `2300 / 2300 / PASS` 与 `4500 / 0 / FAIL`。
+- 当前正式数据 preview 的 canonical execution 下限是 `366`；若
+  `conflicting_evidence` 非零，表示 OM 与 XT 在五元成交身份一致但方向冲突，
+  这些记录只作质量告警，不能增加 canonical execution 数。
+- `account_partition` 只能是不可逆摘要或 `unknown`；接口和部署日志不得输出原始账户号。
+- positions-only initialize 与正式 order-ledger rebuild 都会在清理前自动归档，并在归档失败时中止清理；人工 backfill 是既有数据上线前的安全补齐，不替代自动钩子。
+
 ### 正式部署最佳实践
 
 - 先确认当前代码真值是最新远程 `origin/main`；如果为了修 deploy 问题需要改代码，必须先走 `feature branch -> PR -> merge remote main`，再回到本地 `main` 与 `origin/main` 对齐。
@@ -178,9 +217,10 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 
 1. 停止命中的写入面
 2. 先跑 `--dry-run`
-3. 再跑 `--execute --backup-db <backup>`
-4. 重建完成后做接口健康检查
-5. 再做 runtime verify
+3. 执行一次 `--execute --backup-db <backup>`；该调用会先写持仓复盘成交与策略证据档案，再备份和清理订单账本，归档或备份失败都会中止
+4. 核对执行摘要中的 `position_review_history_archive`
+5. 重建完成后做接口健康检查
+6. 再做 runtime verify
 
 当前命中的写入面至少包括：
 

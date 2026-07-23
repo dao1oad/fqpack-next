@@ -41,6 +41,21 @@
 - `om_takeprofit_states`
 - `om_exit_trigger_events`
 - `om_credit_subjects`
+- `om_execution_history_archive`
+  - 持仓复盘的规范化成交档案；`execution_key` 使用
+    `broker_trade_id + symbol + side + trade_time + quantity + price`
+    六元身份，`archive_key` 再叠加不可逆账户分区，防止跨账户覆盖
+  - 请求、订单、fill、trade fact 关联以候选数组保存，不用单值覆盖冲突证据
+  - OM 与 XT 的 `broker_trade_id + symbol + time + quantity + price`
+    相同但 `side` 相反时，XT/archive 保持 canonical；OM 只以
+    `canonical_conflict=side_mismatch_with_xt` 归档为质量证据
+- `position_review_evidence_archive`
+  - 持仓复盘的不可变证据档案；保存 `xt_trade / order_request / order /
+    execution_fill / trade_fact / position_entry / entry_slice /
+    exit_allocation` 的业务 payload
+  - 使用 `evidence_type + account_partition + 稳定业务身份` 幂等写入
+  - 顶层、候选快照和 payload 均不持久化原始 `account_id`；只保留不可逆
+    `account_partition`
 
 当前仍保留的 legacy 集合：
 
@@ -132,6 +147,12 @@ CLX 回测专用派生库，源行情库在这条链上保持只读：
   - `om_reconciliation_gaps`
   - `om_reconciliation_resolutions`
   - `om_ingest_rejections`
+- 历史持仓复盘真值
+  - 当前运行态仍优先读取 `xt_trades` 与当前 OM 账本
+  - `om_execution_history_archive / position_review_evidence_archive`
+    提供不随 positions-only initialize 或 destructive rebuild 消失的历史只读证据
+  - 历史档案不参与当前仓位重建，也不反向改写 `xt_positions`
+  - `account_partition` 是账户号的不可逆摘要；API 不返回原始账户号
 
 ## 当前兼容边界
 
@@ -172,6 +193,14 @@ CLX 回测专用派生库，源行情库在这条链上保持只读：
 - `TpslService`
   - 读 `xt_positions` 与 `om_*`
   - 写 `om_takeprofit_* / om_exit_trigger_events`
+- initialize / order-ledger rebuild
+  - 替换 `xt_trades` 或 purge OM 账本前，先幂等写入两个持仓复盘档案
+  - 归档失败时中止清理；两个档案集合不在 order-ledger purge 边界内
+- `PositionReviewRepository`
+  - 合并当前 `xt_trades / om_*` 与两个历史档案
+  - 同一账户内按成交六元身份去重，不同已知账户分区保留为不同成交
+  - 无账户 OM 证据只在唯一账户匹配时归并；多账户候选保持歧义证据，
+    不额外制造第三笔 canonical execution
 
 ## 当前排障原则
 
@@ -180,6 +209,8 @@ CLX 回测专用派生库，源行情库在这条链上保持只读：
 - 查执行事实先看 `om_broker_orders / om_execution_fills`
 - 查 odd-lot 或拒绝写入先看 `om_ingest_rejections`
 - 查 legacy 镜像问题最后再看 `stock_fills_compat / om_buy_lots`
+- 查全历史持仓复盘缺失先看
+  `om_execution_history_archive / position_review_evidence_archive`
 
 ## Trade Calendar Cache
 

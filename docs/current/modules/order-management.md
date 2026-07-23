@@ -252,7 +252,7 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --dry-run
 py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup_db_name>
 ```
 
-初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前会直接执行 destructive rebuild：先 purge order-ledger rebuild 边界内的旧账本集合，再仅用刚同步的 `xt_positions` 生成新的 `om_position_entries / om_entry_slices / om_exit_allocations` 等主账本结果，并在完成后重建 `stock_fills_compat` 镜像，同时把同账户的 `xt_orders / xt_trades` 快照清空，避免旧委托/成交残留继续被误当成 broker truth，而不是走 runtime `auto_open_entry` 平账链路。
+初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前会直接执行 destructive rebuild：先把将被替换的 `xt_trades` 和将被 purge 的订单请求、订单、成交、position entries / slices / allocations 幂等写入 `om_execution_history_archive / position_review_evidence_archive`；归档成功后才 purge order-ledger rebuild 边界内的旧账本集合，再仅用刚同步的 `xt_positions` 生成新的 `om_position_entries / om_entry_slices / om_exit_allocations` 等主账本结果，并在完成后重建 `stock_fills_compat` 镜像，同时把同账户的 `xt_orders / xt_trades` 快照清空，避免旧委托/成交残留继续被误当成 broker truth，而不是走 runtime `auto_open_entry` 平账链路。归档失败时初始化会在删除前中止。
 
 当前约束：
 
@@ -279,6 +279,11 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `om_buy_lots / om_lot_slices / om_sell_allocations`
 - `om_external_candidates / om_reconciliation_gaps / om_reconciliation_resolutions`
 - `om_stoploss_bindings / om_entry_stoploss_bindings / om_ingest_rejections`
+
+`om_execution_history_archive / position_review_evidence_archive` 不在重建 purge
+边界内。正式 `rebuild_order_ledger_v2.py --execute` 会在数据库备份和 purge
+之前自动写入这两个档案；同一 `execution_key` 下的请求、订单、fill、trade fact
+冲突关联以候选数组保留，不用后到单值覆盖先到证据。
 
 重建后的运行期读侧：
 

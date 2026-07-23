@@ -146,6 +146,25 @@ Gate 执行器由 `CLX_GATE_RUNNER=direct|governance` 显式选择，默认 `dir
 - 右侧步骤详情区在桌面宽度和浏览器默认 `100%` 缩放下由详情面板自身承接纵向滚动；内容超出可视高度时应出现内部滚动条，不能依赖浏览器缩放才能看全。
 - `当前过滤条件下没有节点` 只在当前步骤过滤结果实际为空时显示；若当前 Trace 仍有可见步骤，该提示不应额外占用大块空白区域。
 
+## 持仓复盘页面口径
+
+- 顶部导航中的“持仓复盘”进入独立 `/position-review` 路由；页面只读，不提交订单，也不修改持仓、策略配置或历史证据。
+- 页面通过以下只读接口加载全局统计、历史成交标的和单标的完整详情：
+  - `GET /api/position-review/summary`
+  - `GET /api/position-review/symbols`
+  - `GET /api/position-review/symbols/<symbol>`
+- 历史成交标的集合包含当前仍持仓和已经清仓的标的。全局统计、标的列表、图表和订单明细使用同一套账户、标的与时间范围口径。
+- 当前交易快照来自 `xt_trades`，持久历史成交由
+  `om_execution_history_archive` 补齐；订单请求、实际成交数量和持仓变化合并
+  当前 OM 账本与 `position_review_evidence_archive` 交叉核对。
+  `broker_order_id` 和 `broker_trade_id` 都不能作为跨历史记录的单键关联依据。
+- 页面与 API 只显示不可逆 `account_partition`，不返回原始券商账户号；多账户冲突或
+  `unknown` 分区通过 `data_quality` 明示。
+- 复盘结果使用 `PASS / FAIL / INSUFFICIENT_EVIDENCE / NOT_APPLICABLE` 四态；合规率只使用可判定的 `PASS + FAIL` 作为分母，不能把证据不足或不适用记录计入合规率。
+- 证据置信度使用 `HIGH / MEDIUM / LOW`；页面同时展示 `data_quality`，使缺失策略上下文、持仓解释或执行关联的结果不会被误读为确定结论。
+- 单标的详情统一返回摘要、图表、订单级复盘、成交时间线和数据质量信息。图表数量与订单级复盘明细必须能够回勾到相同的实际成交事实。
+- ClickHouse Trace 只用于补充可选的信号、策略门禁和运行链证据，以及跳转到 `/runtime-observability`。持仓复盘接口不依赖 ClickHouse 才能返回成交和账本结果；Trace 不可用时由证据置信度和 `data_quality` 显示降级。
+
 ## 并行环境的默认口径
 
 - 宿主机 `.env` 示例：`deployment/examples/envs.fqnext.example`

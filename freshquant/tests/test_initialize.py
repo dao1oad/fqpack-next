@@ -4,6 +4,8 @@ import sys
 import types
 from types import SimpleNamespace
 
+import pytest
+
 from freshquant.carnation.enum_instrument import InstrumentType
 
 
@@ -501,6 +503,110 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
             "projection_database": projection_database,
         }
     ]
+
+
+def test_initialize_archives_review_evidence_before_order_ledger_purge():
+    from freshquant.initialize import _bootstrap_order_ledger_from_synced_truth
+
+    database = FakeDatabase(
+        {
+            "om_order_requests": [{"request_id": "request-before-purge"}],
+        }
+    )
+    events = []
+
+    class FakeRebuildService:
+        def build_from_truth(self, **kwargs):
+            events.append("build")
+            return {
+                "broker_orders": 0,
+                "execution_fills": 0,
+                "position_entries": 0,
+                "entry_slices": 0,
+                "exit_allocations": 0,
+                "reconciliation_gaps": 0,
+                "reconciliation_resolutions": 0,
+                "auto_open_entries": 0,
+                "auto_close_allocations": 0,
+                "ingest_rejections": 0,
+            }
+
+    def history_archiver(**kwargs):
+        assert database["om_order_requests"].documents == [
+            {"request_id": "request-before-purge"}
+        ]
+        events.append("archive")
+        return {"evidence": {"discovered": 1}}
+
+    _bootstrap_order_ledger_from_synced_truth(
+        xt_positions=[],
+        database=database,
+        rebuild_service=FakeRebuildService(),
+        history_archiver=history_archiver,
+        compat_view_rebuilder=lambda **kwargs: {
+            "synced_symbols": [],
+            "rows_by_symbol": {},
+            "rebuilt_collections": ["stock_fills_compat"],
+        },
+    )
+
+    assert events[:2] == ["archive", "build"]
+    assert database["om_order_requests"].documents == []
+
+
+def test_initialize_does_not_purge_when_review_archive_fails():
+    from freshquant.initialize import _bootstrap_order_ledger_from_synced_truth
+
+    database = FakeDatabase({"om_order_requests": [{"request_id": "must-survive"}]})
+
+    with pytest.raises(RuntimeError, match="archive unavailable"):
+        _bootstrap_order_ledger_from_synced_truth(
+            xt_positions=[],
+            database=database,
+            history_archiver=lambda **kwargs: (_ for _ in ()).throw(
+                RuntimeError("archive unavailable")
+            ),
+        )
+
+    assert database["om_order_requests"].documents == [{"request_id": "must-survive"}]
+
+
+def test_initialize_archives_xt_trades_before_positions_only_snapshot_replace(
+    monkeypatch,
+):
+    from freshquant.initialize import _persist_xt_runtime_truth
+
+    business_database = FakeDatabase(
+        {
+            "xt_trades": [{"account_id": "acct-1", "traded_id": "historical-trade"}],
+            "xt_orders": [{"account_id": "acct-1", "order_id": "old-order"}],
+        }
+    )
+    monkeypatch.setattr(
+        "fqxtrade.database.mongodb.DBfreshquant",
+        business_database,
+    )
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.persistence.persist_positions",
+        lambda *args, **kwargs: None,
+    )
+    observed = []
+
+    def history_archiver(**kwargs):
+        observed.extend(business_database["xt_trades"].documents)
+        return {"executions": {"discovered": 1}}
+
+    _persist_xt_runtime_truth(
+        account_id="acct-1",
+        asset=None,
+        positions=[],
+        orders=[],
+        trades=[],
+        history_archiver=history_archiver,
+    )
+
+    assert observed == [{"account_id": "acct-1", "traded_id": "historical-trade"}]
+    assert business_database["xt_trades"].documents == []
 
 
 def test_bootstrap_order_ledger_from_synced_truth_purges_existing_ledger_instead_of_skipping():

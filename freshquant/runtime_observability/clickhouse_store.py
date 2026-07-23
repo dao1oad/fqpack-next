@@ -530,7 +530,10 @@ class RuntimeObservabilityClickHouseStore:
         )
         next_cursor = None
         if len(rows) > safe_limit:
-            cursor_row = rows[safe_limit]
+            # Cursor points at the last row actually returned. The next page
+            # uses a strict `< cursor` predicate, so pointing at the lookahead
+            # row would silently skip that row between pages.
+            cursor_row = rows[safe_limit - 1]
             next_cursor = {
                 "ts": _clickhouse_ts_to_iso(cursor_row.get("ts")),
                 "event_id": _normalized_text(cursor_row.get("event_id")),
@@ -677,8 +680,12 @@ class RuntimeObservabilityClickHouseStore:
                 symbol_name,
                 message,
                 reason_code,
+                decision_branch,
+                decision_expr,
+                decision_outcome,
                 payload_json,
                 metrics_json,
+                raw_json,
                 raw_file,
                 raw_line,
                 error_type,
@@ -691,7 +698,9 @@ class RuntimeObservabilityClickHouseStore:
         )
         next_cursor = None
         if len(rows) > safe_limit:
-            cursor_row = rows[safe_limit]
+            # The next page predicate is strictly older than this cursor, so
+            # anchor it to the final row returned instead of the lookahead row.
+            cursor_row = rows[safe_limit - 1]
             next_cursor = {
                 "ts": _clickhouse_ts_to_iso(cursor_row.get("ts")),
                 "event_id": _normalized_text(cursor_row.get("event_id")),
@@ -967,6 +976,17 @@ def _build_where_conditions(
     if include_session_key:
         conditions.append("session_key != ''")
     for field, value in (filters or {}).items():
+        if field == "node" and isinstance(value, (list, tuple, set)):
+            normalized_values = [
+                _normalized_text(item) for item in value if _normalized_text(item)
+            ]
+            if normalized_values:
+                conditions.append(
+                    "node IN ("
+                    + ", ".join(_sql_string(item) for item in normalized_values)
+                    + ")"
+                )
+            continue
         normalized = _normalized_text(value)
         if not normalized:
             continue
@@ -980,6 +1000,7 @@ def _build_where_conditions(
             "component",
             "event_type",
             "runtime_node",
+            "node",
         }:
             continue
         conditions.append(f"{field} = {_sql_string(normalized)}")
