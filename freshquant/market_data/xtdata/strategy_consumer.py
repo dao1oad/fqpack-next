@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
@@ -21,6 +22,10 @@ from freshquant.data.adj_intraday import (
     apply_qfq_with_intraday_override,
     fetch_intraday_override,
     fetch_qfq_adj_df,
+)
+from freshquant.data.qfq_contract import (
+    QFQDataNotReadyError,
+    require_qfq_ready_marker,
 )
 from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.market_data.xtdata.chanlun_payload import build_chanlun_payload
@@ -93,12 +98,6 @@ def _base_code(code_prefixed: str) -> str:
         return s[2:8]
     digits = "".join(ch for ch in s if ch.isdigit())
     return digits[-6:] if len(digits) >= 6 else digits
-
-
-def _is_etf(base_code6: str) -> bool:
-    # 常见 ETF：15xxxx/16xxxx/51xxxx/52xxxx/53xxxx/56xxxx/58xxxx/159xxx 等
-    s = str(base_code6 or "")
-    return s.startswith(("15", "16", "51", "52", "53", "56", "58", "159"))
 
 
 def _is_cn_a_trading_bar_end(dt: datetime) -> bool:
@@ -494,37 +493,42 @@ class StrategyConsumer:
         """
         kind: "stock" | "etf"
         """
+        if kind not in {"stock", "etf"}:
+            raise ValueError(f"unsupported QFQ asset kind: {kind}")
         coll = "stock_adj" if kind == "stock" else "etf_adj"
         override_coll = "stock_adj_intraday" if kind == "stock" else "etf_adj_intraday"
-        try:
-            override = fetch_intraday_override(
-                coll_name=override_coll,
-                code=base_code6,
-                trade_date=date_str,
-                db=DBQuantAxis,
-            )
-            if override is not None:
-                return 1.0
-        except Exception:
-            pass
+        require_qfq_ready_marker(db=DBQuantAxis, collection_name=coll)
+        override = fetch_intraday_override(
+            coll_name=override_coll,
+            code=base_code6,
+            trade_date=date_str,
+            db=DBQuantAxis,
+        )
+        if override is not None:
+            return 1.0
 
-        factor = 1.0
         try:
             doc = DBQuantAxis[coll].find_one(
-                {"code": str(base_code6), "date": {"$lte": str(date_str)}},
-                sort=[("date", -1)],
+                {"code": str(base_code6), "date": str(date_str)},
                 projection={"_id": 0, "date": 1, "adj": 1},
             )
-            if doc and doc.get("adj") is not None:
-                factor = float(doc["adj"])
-        except Exception:
-            factor = 1.0
+            factor = float((doc or {}).get("adj"))
+            if not math.isfinite(factor) or factor <= 0:
+                raise ValueError("factor must be finite and positive")
+        except Exception as exc:
+            raise QFQDataNotReadyError(
+                f"{kind} factor lookup failed: {exc}",
+                code=base_code6,
+                missing_dates=[date_str],
+            ) from exc
 
-        return float(factor)
+        return factor
 
     def _apply_qfq_to_bar(
         self, *, kind: str, code_prefixed: str, bar: dict[str, Any]
     ) -> dict[str, Any]:
+        if kind == "index":
+            return bar
         dt: datetime | None = bar.get("datetime")
         if not isinstance(dt, datetime):
             return bar
@@ -541,19 +545,27 @@ class StrategyConsumer:
                 continue
         return out
 
-    def _is_index_like(self, code_prefixed: str) -> bool:
-        try:
-            from freshquant.carnation.enum_instrument import InstrumentType
-            from freshquant.instrument.general import query_instrument_type
+    def _asset_kind(self, code_prefixed: str) -> str:
+        from freshquant.carnation.enum_instrument import InstrumentType
+        from freshquant.instrument.general import (
+            infer_cn_instrument_type,
+            query_instrument_type,
+        )
 
+        try:
             t = query_instrument_type(code_prefixed)
-            if t in {InstrumentType.ETF_CN, InstrumentType.INDEX_CN}:
-                return True
-            if t == InstrumentType.STOCK_CN:
-                return False
         except Exception:
-            pass
-        return _is_etf(_base_code(code_prefixed))
+            t = infer_cn_instrument_type(code_prefixed)
+        if t is None:
+            t = infer_cn_instrument_type(code_prefixed)
+        if t == InstrumentType.ETF_CN:
+            return "etf"
+        if t == InstrumentType.INDEX_CN:
+            return "index"
+        return "stock"
+
+    def _is_index_like(self, code_prefixed: str) -> bool:
+        return self._asset_kind(code_prefixed) in {"etf", "index"}
 
     def _load_window_from_db(self, *, code: str, period_backend: str) -> pd.DataFrame:
         """
@@ -569,9 +581,10 @@ class StrategyConsumer:
         )
 
         base6 = _base_code(code)
-        is_index_like = self._is_index_like(code)
+        asset_kind = self._asset_kind(code)
+        is_index_collection = asset_kind in {"etf", "index"}
 
-        hist_coll = "index_min" if is_index_like else "stock_min"
+        hist_coll = "index_min" if is_index_collection else "stock_min"
         hist_df = _empty_bar_window_df()
         try:
             hist_df = _load_minute_history_from_quantaxis_db(
@@ -589,7 +602,7 @@ class StrategyConsumer:
 
         # realtime bars are only trusted for the current calendar day; completed
         # trading days must come from the post-close history sync.
-        coll = "index_realtime" if is_index_like else "stock_realtime"
+        coll = "index_realtime" if is_index_collection else "stock_realtime"
         rt_start_dt = max(start_dt, _current_realtime_window_start(end_dt))
         rt_cur = (
             DBfreshquant[coll]
@@ -615,24 +628,6 @@ class StrategyConsumer:
         rt_df = pd.DataFrame(list(rt_cur))
         rt_df = _filter_trade_date_bar_df(rt_df)
 
-        start_date = start_dt.strftime("%Y-%m-%d")
-        end_date = end_dt.strftime("%Y-%m-%d")
-        adj_coll = "etf_adj" if is_index_like else "stock_adj"
-        override_coll = "etf_adj_intraday" if is_index_like else "stock_adj_intraday"
-        adj_df = fetch_qfq_adj_df(
-            coll_name=adj_coll,
-            code=base6,
-            start_date=start_date,
-            end_date=end_date,
-            db=DBQuantAxis,
-        )
-        override = fetch_intraday_override(
-            coll_name=override_coll,
-            code=base6,
-            trade_date=end_date,
-            db=DBQuantAxis,
-        )
-
         merged = _normalize_bar_window_df(
             pd.concat([hist_df, rt_df], ignore_index=True)
         )
@@ -641,12 +636,39 @@ class StrategyConsumer:
 
         merged = merged.drop_duplicates(subset=["datetime"], keep="last")
         merged = merged.sort_values("datetime")
-        merged = apply_qfq_with_intraday_override(
-            merged,
-            adj_df,
-            override=override,
-            datetime_col="datetime",
-        )
+        if asset_kind != "index":
+            date_values = pd.to_datetime(merged["datetime"], errors="coerce").dropna()
+            if date_values.empty:
+                raise QFQDataNotReadyError(
+                    "bars have no valid trading date", code=base6
+                )
+            start_date = date_values.min().strftime("%Y-%m-%d")
+            end_date = date_values.max().strftime("%Y-%m-%d")
+            adj_coll = "etf_adj" if asset_kind == "etf" else "stock_adj"
+            override_coll = (
+                "etf_adj_intraday" if asset_kind == "etf" else "stock_adj_intraday"
+            )
+            adj_df = fetch_qfq_adj_df(
+                coll_name=adj_coll,
+                code=base6,
+                start_date=start_date,
+                end_date=end_date,
+                db=DBQuantAxis,
+            )
+            override = fetch_intraday_override(
+                coll_name=override_coll,
+                code=base6,
+                trade_date=end_date,
+                db=DBQuantAxis,
+            )
+            merged = apply_qfq_with_intraday_override(
+                merged,
+                adj_df,
+                override=override,
+                datetime_col="datetime",
+                strict=True,
+                code=base6,
+            )
 
         if len(merged) > self.max_bars:
             merged = merged.iloc[-self.max_bars :]
@@ -1069,7 +1091,7 @@ class StrategyConsumer:
             out = df.resample(rule, closed="right", label="right").agg(agg).dropna()
             return out
 
-        is_index_like = self._is_index_like(code)
+        is_index_like = self._asset_kind(code) in {"etf", "index"}
         periods_min = [1, 5, 15, 30]
         for pm in periods_min:
             df_p = _resample(df_1m, pm)
@@ -1136,9 +1158,9 @@ class StrategyConsumer:
             "source": "xtdata",
         }
 
-        is_index_like = self._is_index_like(code)
-        kind = "etf" if is_index_like else "stock"
-        coll = "index_realtime" if is_index_like else "stock_realtime"
+        kind = self._asset_kind(code)
+        is_index_collection = kind in {"etf", "index"}
+        coll = "index_realtime" if is_index_collection else "stock_realtime"
         bar_store = bar_raw
         bar_calc = self._apply_qfq_to_bar(kind=kind, code_prefixed=code, bar=bar_raw)
 

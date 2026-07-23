@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Iterable
 
 import pandas as pd
 
 from freshquant.db import DBQuantAxis
+from freshquant.data.qfq_contract import (
+    QFQDataNotReadyError,
+    require_factor_coverage,
+    require_qfq_ready_marker,
+)
 from freshquant.util.code import normalize_to_base_code
 
 
@@ -49,6 +55,7 @@ def fetch_qfq_adj_df(
 ) -> pd.DataFrame:
     database = db if db is not None else DBQuantAxis
     code6 = normalize_to_base_code(code)
+    require_qfq_ready_marker(db=database, collection_name=coll_name)
     try:
         cursor = (
             database[coll_name]
@@ -95,13 +102,21 @@ def apply_qfq_with_intraday_override(
     date_col: str | None = None,
     datetime_col: str = "datetime",
     ohlc_cols: Iterable[str] = ("open", "high", "low", "close"),
+    strict: bool = False,
+    code: str | None = None,
 ) -> pd.DataFrame:
     if bars_df is None or len(bars_df) == 0:
         return bars_df
 
     bars = bars_df.copy()
     date_key = _extract_date_key(bars, date_col=date_col, datetime_col=datetime_col)
+    if strict and date_key.isna().any():
+        raise QFQDataNotReadyError(
+            "bars contain invalid trading dates",
+            code=normalize_to_base_code(code or ""),
+        )
     factor = pd.Series(1.0, index=bars.index, dtype=float)
+    trade_date = _normalize_date_str((override or {}).get("trade_date"))
 
     if adj_df is not None and len(adj_df) > 0:
         adj = adj_df.copy()
@@ -109,6 +124,15 @@ def apply_qfq_with_intraday_override(
             raise ValueError("adj_df must include columns: date, adj")
         adj["date_key"] = _normalize_date_series(adj["date"])
         adj["adj"] = pd.to_numeric(adj["adj"], errors="coerce")
+        if strict:
+            expected_dates = set(date_key.dropna().tolist())
+            if trade_date:
+                expected_dates.discard(trade_date)
+            require_factor_coverage(
+                adj.to_dict(orient="records"),
+                expected_dates=expected_dates,
+                code=normalize_to_base_code(code or ""),
+            )
         adj = adj.dropna(subset=["date_key", "adj"])
         adj = adj.drop_duplicates("date_key", keep="last")
         if len(adj) > 0:
@@ -122,9 +146,39 @@ def apply_qfq_with_intraday_override(
             factor = pd.to_numeric(date_key.map(adj_series), errors="coerce").fillna(
                 1.0
             )
+        elif strict and not trade_date:
+            require_factor_coverage(
+                [],
+                expected_dates=date_key.dropna().tolist(),
+                code=normalize_to_base_code(code or ""),
+            )
+    elif strict:
+        expected_dates = set(date_key.dropna().tolist())
+        if trade_date:
+            expected_dates.discard(trade_date)
+        require_factor_coverage(
+            [],
+            expected_dates=expected_dates,
+            code=normalize_to_base_code(code or ""),
+        )
 
-    trade_date = _normalize_date_str((override or {}).get("trade_date"))
-    anchor_scale = float((override or {}).get("anchor_scale") or 1.0)
+    raw_anchor_scale = (
+        (override or {}).get("anchor_scale", 1.0) if override is not None else 1.0
+    )
+    if raw_anchor_scale is None or raw_anchor_scale == "":
+        raw_anchor_scale = 1.0
+    try:
+        anchor_scale = float(raw_anchor_scale)
+    except (TypeError, ValueError) as exc:
+        raise QFQDataNotReadyError(
+            "intraday anchor_scale is invalid",
+            code=normalize_to_base_code(code or ""),
+        ) from exc
+    if strict and (not math.isfinite(anchor_scale) or anchor_scale <= 0):
+        raise QFQDataNotReadyError(
+            "intraday anchor_scale must be finite and positive",
+            code=normalize_to_base_code(code or ""),
+        )
     if trade_date:
         history_mask = date_key < trade_date
         trade_mask = date_key == trade_date

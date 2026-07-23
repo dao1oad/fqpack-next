@@ -80,7 +80,21 @@ class FakeCollection:
 
 class FakeDatabase:
     def __init__(self, collections: dict[str, FakeCollection]):
-        self._collections = collections
+        self._collections = dict(collections)
+        self._collections.setdefault(
+            "qfq_ready",
+            FakeCollection(
+                [
+                    {
+                        "collection": name,
+                        "status": "ready",
+                        "source": "xtdata_preclose",
+                        "writer": "freshquant.market_data.xtdata.qfq",
+                    }
+                    for name in ("stock_adj", "etf_adj")
+                ]
+            ),
+        )
 
     def __getitem__(self, name: str) -> FakeCollection:
         return self._collections[name]
@@ -375,6 +389,23 @@ def test_handle_bar_close_does_not_refresh_symbol_position_snapshot_on_1min(
             return {"symbol": "000001"}
 
     monkeypatch.setattr(sc, "upsert_realtime_bars", lambda **_kwargs: 1)
+    monkeypatch.setattr(
+        sc,
+        "DBQuantAxis",
+        FakeDatabase(
+            {
+                "stock_adj": FakeCollection(
+                    [
+                        {
+                            "code": "000001",
+                            "date": now_dt.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        }
+                    ]
+                )
+            }
+        ),
+    )
 
     consumer = cast(Any, object.__new__(sc.StrategyConsumer))
     consumer.max_bars = 32
@@ -483,7 +514,15 @@ def test_load_window_from_db_handles_mixed_datetime_shapes_in_history_docs(
         FakeDatabase(
             {
                 "index_min": FakeCollection(mixed_docs),
-                "etf_adj": FakeCollection([]),
+                "etf_adj": FakeCollection(
+                    [
+                        {
+                            "code": "512000",
+                            "date": bar_1.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        }
+                    ]
+                ),
             }
         ),
     )
@@ -552,7 +591,20 @@ def test_load_window_from_db_ignores_completed_day_realtime_overlap(monkeypatch)
                         },
                     ]
                 ),
-                "etf_adj": FakeCollection([]),
+                "etf_adj": FakeCollection(
+                    [
+                        {
+                            "code": "512000",
+                            "date": prev_day_bar.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        },
+                        {
+                            "code": "512000",
+                            "date": today_bar.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        },
+                    ]
+                ),
             }
         ),
     )
@@ -626,7 +678,15 @@ def test_load_window_from_db_filters_non_trading_day_realtime(monkeypatch):
                 "stock_min": FakeCollection(
                     [_make_bar_doc(friday_bar, code="600104", period="5min", open_=9.8)]
                 ),
-                "stock_adj": FakeCollection([]),
+                "stock_adj": FakeCollection(
+                    [
+                        {
+                            "code": "600104",
+                            "date": friday_bar.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        }
+                    ]
+                ),
             }
         ),
     )

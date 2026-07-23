@@ -5,6 +5,7 @@ import types
 
 import pytest
 
+from freshquant.data.qfq_contract import QFQ_DATA_NOT_READY, QFQDataNotReadyError
 from freshquant.util.period import get_redis_cache_key
 
 
@@ -140,6 +141,34 @@ class FakeRedis:
 def call_stock_data(stock_routes, **params):
     stock_routes.request.args = params
     return stock_routes.stock_data()
+
+
+def call_stock_data_v2(stock_routes, **params):
+    stock_routes.request.args = params
+    return stock_routes.stock_data_v2()
+
+
+@pytest.mark.parametrize("route_call", [call_stock_data, call_stock_data_v2])
+def test_stock_data_routes_map_qfq_not_ready_to_stable_json(
+    monkeypatch, stock_routes, route_call
+):
+    def raise_qfq_not_ready(*_args, **_kwargs):
+        raise QFQDataNotReadyError(
+            "factor missing",
+            code="520000",
+            missing_dates=["2026-07-22"],
+        )
+
+    monkeypatch.setattr(stock_routes, "get_data_v2", raise_qfq_not_ready)
+
+    response = route_call(stock_routes, symbol="sh520000", period="5m")
+
+    assert response.status_code == 503
+    payload = response.get_json()
+    assert payload["ok"] is False
+    assert payload["error_code"] == QFQ_DATA_NOT_READY
+    assert payload["code"] == "520000"
+    assert payload["missing_dates"] == ["2026-07-22"]
 
 
 def test_stock_data_uses_fallback_by_default(monkeypatch, stock_routes):

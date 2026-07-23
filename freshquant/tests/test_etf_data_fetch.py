@@ -131,7 +131,16 @@ def _realtime_bar(dt, frequence, close):
 
 def _patch_common(monkeypatch, etf_module, collection):
     monkeypatch.setattr(etf_module, "DBfreshquant", _FakeDB(collection))
-    monkeypatch.setattr(etf_module, "_fetch_etf_adj", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        etf_module,
+        "_fetch_etf_adj",
+        lambda *args, **kwargs: pd.DataFrame(
+            {
+                "date": ["2026-07-03", "2026-07-06"],
+                "adj": [1.0, 1.0],
+            }
+        ),
+    )
     monkeypatch.setattr(
         etf_module,
         "fq_util_code_append_market_code",

@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from freshquant.carnation.enum_instrument import InstrumentType
+from freshquant.instrument.general import infer_cn_instrument_type
 
 
 def _install_chanlun_stubs(monkeypatch):
@@ -61,6 +62,7 @@ def _install_chanlun_stubs(monkeypatch):
 
     instrument_general_module = types.ModuleType("freshquant.instrument.general")
     instrument_general_module.query_instrument_type = lambda code: None
+    instrument_general_module.infer_cn_instrument_type = infer_cn_instrument_type
 
     instrument_stock_module = types.ModuleType("freshquant.instrument.stock")
     instrument_stock_module.query_stock_map = lambda: {}

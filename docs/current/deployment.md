@@ -159,10 +159,12 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/xt_auto_repay/**` | XT 自动还款 worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/tpsl/**` | TPSL | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |
 | `freshquant/market_data/**` | XTData producer / consumer | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`；必要时重新 prewarm |
+| `freshquant/market_data/xtdata/qfq.py` | XTData preClose canonical factor writer、API/Dagster QFQ 读写链 | 重建 `fq_apiserver`；重启 `fq_dagster_webserver` / `fq_dagster_daemon`；必要时重启 `market_data` reference-data worker |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
 | `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
-| `freshquant/data/etf_adj_sync.py` | ETF 前复权 xdxr/adj Dagster 同步链路 | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
+| `freshquant/data/etf_adj_sync.py` | ETF canonical XTData QFQ 同步入口（旧 XDXR 仅诊断） | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
+| `freshquant/data/qfq_contract.py`, `freshquant/data/stock.py`, `freshquant/data/index.py`, `freshquant/quote/etf.py`, `freshquant/data/adj_intraday.py` | QFQ 读取门禁、Stock/ETF QFQ 与 Index BFQ 分流 | 按影响面重建 `fq_apiserver`；同步重启 Dagster 行情运行面 |
 | `freshquant/daily_screening/**` | 每日选股 API 与 `fqscreening` 读模型 | 重建 API；如改动影响自动任务语义，补跑 Dagster 每日筛选任务 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
@@ -170,6 +172,20 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 
 - `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接
 - 管理员桥接恢复后，脚本会先确认目标 programs 是否已经 settled 到 `RUNNING`；只有仍未恢复时，才继续补做第二次 `restart-surfaces`
+
+## Issue #467 QFQ 验收 Gate
+
+正式 deploy 完成并确认 `HEAD == origin/main == production-state.last_success_sha` 后，按以下顺序执行：
+
+```powershell
+.venv\Scripts\python.exe script/qfq_governance_gate.py bootstrap --scope stock,etf --full --verify --require-deployed-main --require-after-latest-deploy
+.venv\Scripts\python.exe script/qfq_governance_gate.py verify --check mongo,api --require-deployed-main --require-after-latest-deploy
+.venv\Scripts\python.exe script/qfq_governance_gate.py verify --check dagster,coverage --require-deployed-main --require-after-latest-deploy
+```
+
+Gate 证据默认写入 `D:\fqpack\runtime\artifacts\ISSUE-467\qfq-gates`。Stock/交易型 ETF
+必须满足 `missing=0`、`invalid=0`、`duplicates=0`；Index 只验 BFQ；Stock/ETF/Index
+任务使用精确资产白名单且不包含 `cjsd`。本轮不迁移 cjsd、不清理或重启 Redis、不做备份。
 
 ## Order Ledger V2 重建执行口径
 

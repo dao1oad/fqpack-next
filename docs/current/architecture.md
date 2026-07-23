@@ -19,6 +19,20 @@
 - 记忆层
   - `freshquant.runtime.memory.*`
 
+## QFQ 数据与资产分类
+
+- `freshquant.market_data.xtdata.qfq` 是 `quantaxis.stock_adj` 与
+  `quantaxis.etf_adj` 的唯一 canonical writer，使用 XTData 日线
+  `preClose` 计算前复权因子；因子文档保持 `{code,date,adj}` 合同。
+- Stock 与交易型 ETF 使用 QFQ。因子 universe 独立于实时 monitor pool，
+  非交易型开放式基金从 universe 排除并保留审计记录。
+- 真正的 Index 只读取 `index_day/index_min` 的 BFQ 数据，不读取
+  `etf_adj`，也不生成 QFQ 因子。
+- Bootstrap、每日增量和 ready marker 发布前都执行缺失、非正数、非有限值、
+  重复键及实际交易日覆盖审计；审计失败时不发布 ready marker。
+- Stock/ETF/Index Dagster job 使用显式资产白名单，不把 `cjsd` downstream
+  带入本轮行情同步。
+
 ## 记忆层
 
 - 热记忆

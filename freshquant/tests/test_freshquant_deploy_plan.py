@@ -152,6 +152,54 @@ def test_etf_adj_sync_path_requires_dagster_redeploy() -> None:
     ]
 
 
+def test_xtdata_qfq_writer_path_redeploys_api_dagster_and_market_data() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/market_data/xtdata/qfq.py"]
+    )
+
+    assert plan["deployment_surfaces"] == ["api", "dagster", "market_data"]
+    assert plan["docker_services"] == [
+        "fq_apiserver",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+    assert plan["host_surfaces"] == ["market_data"]
+    assert "fqnext_xtdata_adj_refresh_worker" in plan["host_programs"]
+    assert any("canonical writer" in note for note in plan["notes"])
+
+
+def test_qfq_read_contract_paths_redeploy_api_and_dagster() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=[
+            "freshquant/data/qfq_contract.py",
+            "freshquant/data/stock.py",
+            "freshquant/data/index.py",
+            "freshquant/quote/etf.py",
+        ]
+    )
+
+    assert plan["deployment_surfaces"] == ["api", "dagster"]
+    assert plan["docker_services"] == [
+        "fq_apiserver",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+    assert plan["host_surfaces"] == []
+
+
+def test_qfq_governance_gate_is_not_a_runtime_deploy_surface() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(changed_paths=["script/qfq_governance_gate.py"])
+
+    assert plan["deployment_required"] is False
+    assert plan["deployment_surfaces"] == []
+
+
 def test_compose_parallel_changes_require_full_docker_runtime_redeploy() -> None:
     module = load_module()
 

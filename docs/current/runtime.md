@@ -52,6 +52,7 @@
 - FQNext 宿主机 Supervisor service：`fqnext-supervisord`
 - Supervisor XML-RPC 入口：`http://127.0.0.1:10011/RPC2`
 - formal deploy 状态根目录：`D:/fqpack/runtime/formal-deploy`
+- Issue #467 QFQ Gate 证据根目录：`D:/fqpack/runtime/artifacts/ISSUE-467/qfq-gates`
 - memory context pack 产物根目录：`D:/fqpack/runtime/artifacts/memory/context-packs`
 - 冷记忆目录：`.codex/memory`
 - 热记忆 Mongo database：`fq_memory`
@@ -73,6 +74,30 @@
 - 本地会话只负责开发、测试和预检查，不是正式 deploy 真值。
 - 正式 deploy 只允许基于最新远程 `main` 已合并 SHA。
 - 命中宿主机 deployment surface 时，正式入口固定为 `script/fqnext_host_runtime_ctl.ps1`。
+
+## XTData QFQ 运行链
+
+- 盘后 Bootstrap/增量入口由 `script/qfq_governance_gate.py` 调用
+  `freshquant.market_data.xtdata.qfq`；`--scope stock,etf` 只处理 Stock 和
+  交易型 ETF，Index 保持 BFQ。
+- writer 先在 staging collection 完成完整审计，再原子发布
+  `stock_adj`/`etf_adj`，最后写入 `qfq_ready` marker。任何逐票失败、缺失因子、
+  重复键或异常值都会使 Gate 失败，不生成可消费的 ready 状态。
+- 读取端按实际 bar 日期查因子；Stock/ETF 缺因子返回
+  `QFQ_DATA_NOT_READY`，Index 日线与分钟线不访问 `etf_adj`。
+- 行情验收同时核对 day 与 `1/5/15/30/60min` 覆盖，不能用日线成功推断分钟线完整。
+- Redis 不在本轮数据迁移范围；正式部署后的系统重启自然加载新因子和运行缓存。
+
+执行与证据：
+
+```powershell
+.venv\Scripts\python.exe script/qfq_governance_gate.py bootstrap --scope stock,etf --full --verify --require-deployed-main --require-after-latest-deploy
+.venv\Scripts\python.exe script/qfq_governance_gate.py verify --check mongo,api --require-deployed-main --require-after-latest-deploy
+.venv\Scripts\python.exe script/qfq_governance_gate.py verify --check dagster,coverage --require-deployed-main --require-after-latest-deploy
+```
+
+每个结果会记录 `deployedSha`、`deployedAt` 和 `finishedAt`；`finishedAt` 必须晚于
+同一轮 formal deploy 的 `last_success_at`，证据才可用于 V2 收口。
 
 ## 最小可用运行面
 

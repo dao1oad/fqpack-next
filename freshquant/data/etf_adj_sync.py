@@ -15,7 +15,6 @@ from pymongo.errors import (
     ServerSelectionTimeoutError,
 )
 
-from freshquant.data.etf_adj import compute_etf_qfq_adj
 from freshquant.db import DBQuantAxis
 from freshquant.gateway.tdx_ip_pool import load_tdx_ip_pool
 
@@ -660,79 +659,14 @@ def sync_etf_adj_all(
     *,
     db=DBQuantAxis,
     codes: Optional[Iterable[str]] = None,
+    **kwargs,
 ) -> dict:
+    """Publish canonical ETF factors from XTData ``preClose`` only.
+
+    The historical TDX/XDXR functions remain available for diagnostics, but
+    they are no longer allowed to write ``quantaxis.etf_adj``.
     """
-    生成并同步 ETF 前复权(qfq)因子到 quantaxis.etf_adj。
 
-    - 数据源：quantaxis.index_day（bfq） + quantaxis.etf_xdxr
-    - 存储：按 code 全量覆盖（delete_many + insert_many）
-    """
-    _ensure_indexes(db)
+    from freshquant.market_data.xtdata.qfq import sync_etf_adj_all as sync_xtdata
 
-    code_list = _normalize_code_list(codes)
-    if not code_list:
-        cursor = db.etf_list.find({}, {"_id": 0, "code": 1})
-        code_list = sorted(
-            {
-                str(doc.get("code", "")).zfill(6)
-                for doc in cursor
-                if str(doc.get("code", "")).isdigit()
-            }
-        )
-
-    coll_adj = db.etf_adj
-    coll_day = db.index_day
-    coll_xdxr = db.etf_xdxr
-
-    ok = 0
-    skipped = 0
-    failed = 0
-
-    for i, code in enumerate(code_list, 1):
-        try:
-            day_cursor = coll_day.find(
-                {"code": code},
-                {"_id": 0, "date": 1, "open": 1, "high": 1, "low": 1, "close": 1},
-            ).sort("date", pymongo.ASCENDING)
-            day = pd.DataFrame(list(day_cursor))
-            if day is None or len(day) == 0:
-                skipped += 1
-                continue
-
-            xdxr_cursor = coll_xdxr.find(
-                {"code": code},
-                {
-                    "_id": 0,
-                    "date": 1,
-                    "category": 1,
-                    "fenhong": 1,
-                    "peigu": 1,
-                    "peigujia": 1,
-                    "songzhuangu": 1,
-                    "suogu": 1,
-                },
-            )
-            xdxr = pd.DataFrame(list(xdxr_cursor))
-            adj = compute_etf_qfq_adj(day, xdxr if len(xdxr) > 0 else None)
-            if adj is None or len(adj) == 0:
-                skipped += 1
-                continue
-
-            out = adj.assign(code=code).loc[:, ["date", "code", "adj"]]
-            out = out.where(pd.notnull(out), None)
-            docs = out.to_dict(orient="records")
-            coll_adj.delete_many({"code": code})
-            if docs:
-                coll_adj.insert_many(docs, ordered=False)
-            ok += 1
-        except Exception as e:
-            failed += 1
-            logger.warning(f"sync etf_adj failed: {code} err={e}")
-            continue
-
-        if i % 200 == 0:
-            logger.info(
-                f"etf_adj progress: {i}/{len(code_list)} ok={ok} skipped={skipped} failed={failed}"
-            )
-
-    return {"total": len(code_list), "ok": ok, "skipped": skipped, "failed": failed}
+    return sync_xtdata(db=db, codes=codes, **kwargs)
