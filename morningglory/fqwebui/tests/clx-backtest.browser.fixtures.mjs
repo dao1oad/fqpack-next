@@ -66,31 +66,28 @@ export const fixtureRun = {
 }
 
 const metricsA = {
-  totalReturn: 0.184,
-  annualizedReturn: 0.116,
-  sharpe: 1.21,
-  maxDrawdown: -0.087,
+  meanReturn: 0.021,
   winRate: 0.574,
   fdrQValue: 0.031,
   sampleCount: 1260,
-  tradeCount: 318,
   stabilityScore: 0.75,
   confidenceLow: 0.012,
   confidenceHigh: 0.029,
 }
 const metricsB = {
-  totalReturn: 0.129,
-  annualizedReturn: 0.084,
-  sharpe: 0.96,
-  maxDrawdown: -0.064,
+  meanReturn: 0.016,
   winRate: 0.552,
   fdrQValue: 0.044,
   sampleCount: 980,
-  tradeCount: 244,
   stabilityScore: 0.68,
   confidenceLow: 0.008,
   confidenceHigh: 0.023,
 }
+
+export const fixturePortfolioMetrics = [
+  { totalReturn: 0.184, cagr: 0.116, sharpe: 1.21, maxDrawdown: -0.087, tradeWinRate: 0.574, closedLotCount: 318 },
+  { totalReturn: 0.129, cagr: 0.084, sharpe: 0.96, maxDrawdown: -0.064, tradeWinRate: 0.552, closedLotCount: 244 },
+]
 
 export const fixtureRankings = [
   {

@@ -215,19 +215,86 @@ def create_clx_backtest_blueprint(
             equals["primary_triggers"] = validated_id(trigger, field="primary_trigger")
         ranges: dict[str, tuple[str, object]] = {}
         if request.args.get("min_score") is not None:
+            if split_id == "HOLDOUT":
+                raise invalid_request(
+                    "min_score is unavailable for HOLDOUT rankings",
+                    field="min_score",
+                )
             ranges["score"] = (
                 "gte",
                 finite_float(request.args["min_score"], "min_score"),
             )
+        ranking_sort = (
+            (("frozen_rank", 1), ("combo_id", 1), ("_id", 1))
+            if split_id == "HOLDOUT"
+            else (("score", -1), ("combo_id", 1), ("_id", 1))
+        )
+        ranking_kind = f"rankings:{run_id}:{split_id}"
+        if split_id == "HOLDOUT":
+            ranking_kind += ":frozen-rank-v1"
         page = service().page_collection(
             "combo_metrics",
-            kind=f"rankings:{run_id}:{split_id}",
+            kind=ranking_kind,
             equals=equals,
             ranges=ranges,
-            sort=(("score", -1), ("combo_id", 1), ("_id", 1)),
+            sort=ranking_sort,
             page_size=parse_page_size(request.args.get("page_size")),
             cursor=request.args.get("cursor"),
         )
+        if split_id == "HOLDOUT":
+            for item in page.items:
+                metric_identity = {
+                    "run_id": run_id,
+                    "combo_id": item.get("combo_id"),
+                    "split_id": "VALIDATION",
+                    "horizon": item.get("horizon"),
+                    "segment_type": item.get("segment_type"),
+                    "segment_value": item.get("segment_value"),
+                }
+                validation = service().store.get_one("combo_metrics", metric_identity)
+                if validation is None:
+                    raise ApiError(
+                        "HOLDOUT_RANKING_INTEGRITY_ERROR",
+                        "HOLDOUT ranking has no matching frozen VALIDATION metric",
+                        500,
+                        {
+                            "combo_id": item.get("combo_id"),
+                            "horizon": item.get("horizon"),
+                        },
+                    )
+                frozen_rank = item.get("frozen_rank")
+                validation_rank = validation.get("frozen_rank")
+                if (
+                    type(frozen_rank) is not int
+                    or frozen_rank < 1
+                    or type(validation_rank) is not int
+                    or validation_rank < 1
+                    or validation_rank != frozen_rank
+                ):
+                    raise ApiError(
+                        "HOLDOUT_RANKING_INTEGRITY_ERROR",
+                        "HOLDOUT ranking disagrees with its frozen VALIDATION rank",
+                        500,
+                        {
+                            "combo_id": item.get("combo_id"),
+                            "holdout_frozen_rank": frozen_rank,
+                            "validation_frozen_rank": validation_rank,
+                        },
+                    )
+                validation_score = validation.get("score")
+                if (
+                    isinstance(validation_score, bool)
+                    or not isinstance(validation_score, (int, float))
+                    or not math.isfinite(validation_score)
+                ):
+                    raise ApiError(
+                        "HOLDOUT_RANKING_INTEGRITY_ERROR",
+                        "Frozen VALIDATION metric has no finite ranking score",
+                        500,
+                        {"combo_id": item.get("combo_id")},
+                    )
+                item["score"] = validation_score
+                item["validation_score"] = validation_score
         return page_response(page)
 
     @blueprint.get("/runs/<run_id>/combos/<combo_id>")

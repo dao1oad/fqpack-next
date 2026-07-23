@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { ElOption } from 'element-plus'
+import { ElInputNumber, ElOption, ElSelect, ElTableColumn } from 'element-plus'
 import ClxResultsPanel from '@/components/clx-backtest/ClxResultsPanel.vue'
 import { clxBacktestApi } from '@/api/clxBacktestApi'
 import { mountWithProviders } from '@/test/mountClx'
@@ -41,6 +41,9 @@ describe('ClxResultsPanel F1', () => {
     expect(wrapper.get('[data-testid="ranking-table"]').text()).toContain('S0002 正向吞没')
     expect(wrapper.get('[data-testid="model-trigger-heatmap"]').text()).toContain('18 模型 × 主触发热力图')
     expect(wrapper.get('[data-testid="metric-cards"]').text()).toContain('综合得分')
+    expect(wrapper.get('[data-testid="metric-cards"]').text()).toContain('事件平均收益')
+    expect(wrapper.get('[data-testid="metric-cards"]').text()).toContain('组合总收益')
+    expect(wrapper.get('[data-testid="metric-cards"]').text()).toContain('组合 CAGR')
     expect(wrapper.get('[data-testid="combo-detail"]').text()).toContain('ALL_OF')
     expect(wrapper.get('[data-testid="performance-charts"]').text()).toContain('净值、回撤与年度收益')
     expect(api.listRankings).toHaveBeenCalledWith(fixtureRun.runId, expect.objectContaining({ splitId: 'VALIDATION', pageSize: 25 }))
@@ -63,6 +66,36 @@ describe('ClxResultsPanel F1', () => {
     expect(api.getCandles).toHaveBeenCalledWith('000001', '2023-03-01')
     expect(document.body.textContent).toContain('日线（前后窗口）')
     expect(document.body.textContent).toContain('同K线并发触发')
+    wrapper.unmount()
+  })
+
+  it('HOLDOUT 已揭示后禁用最低分并从排行请求中剔除该筛选', async () => {
+    api.listRuns.mockResolvedValue({
+      items: [{ ...fixtureRun, frozen: true, freezeId: 'freeze-fixture', holdoutRevealed: true }],
+      nextCursor: null,
+    })
+    const wrapper = mountWithProviders(ClxResultsPanel)
+    await settle()
+
+    const minScore = wrapper.findAllComponents(ElInputNumber)[2]!
+    minScore.vm.$emit('update:modelValue', 0.5)
+    const splitSelect = wrapper.findAllComponents(ElSelect)
+      .find(node => node.props('modelValue') === 'VALIDATION')!
+    splitSelect.vm.$emit('update:modelValue', 'HOLDOUT')
+    await settle()
+
+    expect(minScore.props('disabled')).toBe(true)
+    const scoreColumn = wrapper.findAllComponents(ElTableColumn)
+      .find(node => node.props('label') === '得分')!
+    expect(scoreColumn.props('sortable')).toBe(false)
+    api.listRankings.mockClear()
+    const filterButton = wrapper.findAll('button').find(node => node.text() === '筛选')!
+    await filterButton.trigger('click')
+    await settle()
+    expect(api.listRankings).toHaveBeenCalledWith(
+      fixtureRun.runId,
+      expect.objectContaining({ splitId: 'HOLDOUT', minScore: undefined, pageSize: 25 }),
+    )
     wrapper.unmount()
   })
 })

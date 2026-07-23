@@ -61,6 +61,8 @@ describe('ClxComparePanel F3', () => {
     await settle()
     expect(api.compare).toHaveBeenCalledWith(fixtureRun.runId, ['combo-a', 'combo-b'], 'VALIDATION', undefined)
     expect(wrapper.get('[data-testid="comparison-results"]').text()).toContain('S0002 正向吞没')
+    expect(wrapper.get('[data-testid="comparison-results"]').text()).toContain('平均事件收益')
+    expect(wrapper.get('[data-testid="comparison-results"]').text()).not.toContain('总收益')
     wrapper.unmount()
   })
 

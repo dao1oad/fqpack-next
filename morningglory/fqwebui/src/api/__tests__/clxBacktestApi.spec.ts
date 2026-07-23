@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import http from '@/http'
-import { clxBacktestApi, describeApiError, normalizeRanking, normalizeRun } from '@/api/clxBacktestApi'
+import { clxBacktestApi, describeApiError, normalizeMetrics, normalizeRanking, normalizeRun } from '@/api/clxBacktestApi'
 
 vi.mock('@/http', () => ({ default: vi.fn() }))
 const httpMock = vi.mocked(http)
@@ -26,7 +26,24 @@ describe('clxBacktestApi 合同适配', () => {
       year_positive_ratio: 0.8, holdout_state: 'SEALED', sample_count: 500,
     })
     expect(ranking).toMatchObject({ rank: 3, comboId: 'combo-1', score: 0.71, modelIds: ['S0002', 'S0007'], frozen: true, holdoutRevealed: false })
-    expect(ranking.metrics).toMatchObject({ totalReturn: 0.025, winRate: 0.57, fdrQValue: 0.03, coverage: 0.12, stabilityScore: 0.8 })
+    expect(ranking.metrics).toMatchObject({ meanReturn: 0.025, totalReturn: null, winRate: 0.57, fdrQValue: 0.03, coverage: 0.12, stabilityScore: 0.8 })
+  })
+
+  it('严格区分事件均值与组合资金曲线收益', () => {
+    const metrics = normalizeMetrics({
+      mean_return: 0.025,
+      total_return: 0.184,
+      cagr: 0.116,
+      trade_win_rate: 0.57,
+      closed_lot_count: 318,
+    })
+    expect(metrics).toMatchObject({
+      meanReturn: 0.025,
+      totalReturn: 0.184,
+      annualizedReturn: 0.116,
+      winRate: 0.57,
+      tradeCount: 318,
+    })
   })
 
   it('从 run detail 包装中合并冻结摘要', async () => {

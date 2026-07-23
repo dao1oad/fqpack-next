@@ -35,7 +35,7 @@
             <span class="clx-card__kicker">VALIDATION-FIRST RANKING</span>
             <h3>组合表现排行</h3>
           </div>
-          <div class="clx-ranking-card__hint">HOLDOUT 在规则冻结和一次揭示前不参与排序</div>
+          <div class="clx-ranking-card__hint">HOLDOUT 仅附加展示，排行始终沿用 VALIDATION 冻结顺序</div>
         </div>
 
         <div class="clx-filters" data-testid="ranking-filters">
@@ -51,7 +51,7 @@
           <el-input v-model="filters.primaryTrigger" size="small" clearable placeholder="主触发类型" style="width: 142px" aria-label="主触发类型" />
           <el-input-number v-model="filters.occurrence" size="small" :min="1" placeholder="次数" style="width: 92px" aria-label="触发次数" />
           <el-input-number v-model="filters.horizon" size="small" :min="1" placeholder="周期" style="width: 92px" aria-label="周期" />
-          <el-input-number v-model="filters.minScore" size="small" placeholder="最低分" style="width: 106px" aria-label="最低得分" />
+          <el-input-number v-model="filters.minScore" size="small" :disabled="filters.splitId === 'HOLDOUT'" placeholder="最低分" style="width: 106px" aria-label="最低得分" />
           <el-input v-model="filters.keyword" size="small" clearable placeholder="当前页组合 / DSL" style="min-width: 140px; flex: 1" aria-label="当前页关键词" @keyup.enter="applyFilters" />
           <el-button size="small" type="primary" :loading="rankingsLoading" @click="applyFilters">筛选</el-button>
           <el-button size="small" @click="resetFilters">重置</el-button>
@@ -72,10 +72,10 @@
           <el-table-column label="组合" width="270" fixed="left">
             <template #default="{ row }"><div class="clx-table-primary"><strong>{{ row.name }}</strong><small>{{ row.modelIds.join(' + ') || '组合规则' }} · {{ row.primaryTriggers?.join(' / ') || '多触发' }}</small></div></template>
           </el-table-column>
-          <el-table-column label="得分" width="88" sortable><template #default="{ row }">{{ formatNumber(row.score, 3) }}</template></el-table-column>
-          <el-table-column label="收益" width="94"><template #default="{ row }"><span :class="Number(row.metrics.totalReturn) >= 0 ? 'clx-positive' : 'clx-negative'">{{ formatPercent(row.metrics.totalReturn) }}</span></template></el-table-column>
+          <el-table-column label="得分" width="88" :sortable="filters.splitId !== 'HOLDOUT'"><template #default="{ row }">{{ formatNumber(row.score, 3) }}</template></el-table-column>
+          <el-table-column label="事件均值" width="94"><template #default="{ row }"><span :class="Number(row.metrics.meanReturn) >= 0 ? 'clx-positive' : 'clx-negative'">{{ formatPercent(row.metrics.meanReturn) }}</span></template></el-table-column>
           <el-table-column label="胜率" width="84"><template #default="{ row }">{{ formatPercent(row.metrics.winRate) }}</template></el-table-column>
-          <el-table-column label="最大回撤" width="96"><template #default="{ row }">{{ formatPercent(row.metrics.maxDrawdown) }}</template></el-table-column>
+          <el-table-column label="95% CI" width="150"><template #default="{ row }">{{ formatPercent(row.metrics.confidenceLow) }} ～ {{ formatPercent(row.metrics.confidenceHigh) }}</template></el-table-column>
           <el-table-column label="信号数" width="86"><template #default="{ row }">{{ formatInteger(row.metrics.sampleCount ?? row.metrics.signalCount) }}</template></el-table-column>
           <el-table-column label="FDR q" width="82"><template #default="{ row }">{{ formatPercent(row.metrics.fdrQValue) }}</template></el-table-column>
           <el-table-column label="周期" width="72"><template #default="{ row }">{{ row.horizon ? `${row.horizon}日` : '--' }}</template></el-table-column>
@@ -242,18 +242,21 @@ const displayRankings = computed(() => rankings.value.filter((row) => {
   return !keyword || `${row.name} ${row.comboId}`.toLowerCase().includes(keyword);
 }));
 const comboDsl = computed(() => String(comboDetail.value?.definition?.dsl ?? comboDetail.value?.definition?.canonical_dsl ?? selectedRanking.value?.name ?? "--"));
-function metricSource() {
-  return comboDetail.value?.metrics ?? selectedRanking.value?.metrics ?? {};
-}
 const metricCards = computed(() => {
-  const metrics = metricSource();
+  const eventMetrics = selectedRanking.value?.metrics ?? {};
+  const portfolioMetrics = comboDetail.value?.metrics ?? {};
+  const eventNotes = [
+    confidenceLabel(eventMetrics.confidenceLow, eventMetrics.confidenceHigh),
+    `FDR q ${formatPercent(eventMetrics.fdrQValue)}`,
+    `n ${formatInteger(eventMetrics.sampleCount ?? eventMetrics.signalCount)}`
+  ].join(" \xB7 ");
   return [
     { label: "\u7EFC\u5408\u5F97\u5206", value: formatNumber(selectedRanking.value?.score, 3), note: "\u9A8C\u8BC1\u96C6\u51BB\u7ED3\u53E3\u5F84", tone: "accent" },
-    { label: "\u5E73\u5747 / \u603B\u6536\u76CA", value: formatPercent(metrics.totalReturn), note: confidenceLabel(metrics.confidenceLow, metrics.confidenceHigh), tone: Number(metrics.totalReturn) >= 0 ? "up" : "down" },
-    { label: "\u5E74\u5316\u6536\u76CA", value: formatPercent(metrics.annualizedReturn), note: "\u6309\u53EF\u4EA4\u6613\u8D44\u91D1\u66F2\u7EBF", tone: Number(metrics.annualizedReturn) >= 0 ? "up" : "down" },
-    { label: "\u6700\u5927\u56DE\u64A4", value: formatPercent(metrics.maxDrawdown), note: "\u8D8A\u63A5\u8FD1 0 \u8D8A\u7A33\u5065", tone: "warning" },
-    { label: "\u80DC\u7387", value: formatPercent(metrics.winRate), note: `\u4EA4\u6613 ${formatInteger(metrics.tradeCount)}`, tone: "neutral" },
-    { label: "FDR q \u503C", value: formatPercent(metrics.fdrQValue), note: `\u4FE1\u53F7 ${formatInteger(metrics.sampleCount ?? metrics.signalCount)}`, tone: "mauve" }
+    { label: "\u4E8B\u4EF6\u5E73\u5747\u6536\u76CA", value: formatPercent(eventMetrics.meanReturn), note: eventNotes, tone: Number(eventMetrics.meanReturn) >= 0 ? "up" : "down" },
+    { label: "\u7EC4\u5408\u603B\u6536\u76CA", value: formatPercent(portfolioMetrics.totalReturn), note: "\u53EF\u4EA4\u6613\u8D44\u91D1\u66F2\u7EBF", tone: Number(portfolioMetrics.totalReturn) >= 0 ? "up" : "down" },
+    { label: "\u7EC4\u5408 CAGR", value: formatPercent(portfolioMetrics.annualizedReturn), note: "252 \u4EA4\u6613\u65E5\u5E74\u5316", tone: Number(portfolioMetrics.annualizedReturn) >= 0 ? "up" : "down" },
+    { label: "\u7EC4\u5408 Sharpe", value: formatNumber(portfolioMetrics.sharpe, 3), note: `\u5DF2\u5E73\u4ED3 ${formatInteger(portfolioMetrics.tradeCount)}`, tone: "neutral" },
+    { label: "\u7EC4\u5408\u6700\u5927\u56DE\u64A4", value: formatPercent(portfolioMetrics.maxDrawdown), note: "\u8D8A\u63A5\u8FD1 0 \u8D8A\u7A33\u5065", tone: "warning" }
   ];
 });
 function confidenceLabel(low, high) {
@@ -293,7 +296,7 @@ async function loadRankings(cursor) {
       occurrence: filters.occurrence || void 0,
       horizon: filters.horizon || void 0,
       primaryTrigger: filters.primaryTrigger || void 0,
-      minScore: filters.minScore ?? void 0,
+      minScore: filters.splitId === "HOLDOUT" ? void 0 : filters.minScore ?? void 0,
       pageSize: 25,
       cursor
     });

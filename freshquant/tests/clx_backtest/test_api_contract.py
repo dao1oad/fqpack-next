@@ -20,7 +20,7 @@ from freshquant.rear.clx_backtest.store import (
     INDEX_DEFINITIONS,
     MongoClxBacktestStore,
 )
-from freshquant.rear.clx_backtest.utils import content_hash
+from freshquant.rear.clx_backtest.utils import content_hash, encode_cursor
 
 
 @pytest.fixture
@@ -993,11 +993,81 @@ def test_holdout_queries_open_only_after_worker_publishes_reveal(client, store):
             }
         ],
     )
-
-    rankings = client.get(
-        f"/api/clx-backtest/runs/{run['run_id']}/rankings?split_id=HOLDOUT"
+    store.seed(
+        "combo_metrics",
+        [
+            {
+                "_id": f"validation-ranking-{combo_id}",
+                "run_id": run["run_id"],
+                "combo_id": combo_id,
+                "split_id": "VALIDATION",
+                "segment_type": "ALL",
+                "segment_value": "ALL",
+                "horizon": 5,
+                "score": validation_score,
+                "frozen_rank": frozen_rank,
+            }
+            for combo_id, validation_score, frozen_rank in (
+                ("C1", 0.91, 1),
+                ("C2", 0.82, 2),
+                ("C3", 0.73, 3),
+            )
+        ],
     )
-    assert rankings.status_code == 200
+    store.seed(
+        "combo_metrics",
+        [
+            {
+                "_id": f"holdout-ranking-{combo_id}",
+                "run_id": run["run_id"],
+                "combo_id": combo_id,
+                "split_id": "HOLDOUT",
+                "segment_type": "ALL",
+                "segment_value": "ALL",
+                "horizon": 5,
+                "score": holdout_score,
+                "frozen_rank": frozen_rank,
+                "mean_return": mean_return,
+            }
+            for combo_id, holdout_score, frozen_rank, mean_return in (
+                ("C1", 1.0, 1, 0.011),
+                ("C2", 2.0, 2, 0.022),
+                ("C3", 3.0, 3, 0.033),
+            )
+        ],
+    )
+
+    seen: list[tuple[str, int, float, float, float]] = []
+    cursor = None
+    while True:
+        query = f"?split_id=HOLDOUT&page_size=2{f'&cursor={cursor}' if cursor else ''}"
+        rankings = client.get(f"/api/clx-backtest/runs/{run['run_id']}/rankings{query}")
+        assert rankings.status_code == 200
+        page = rankings.get_json()["data"]
+        seen.extend(
+            (
+                item["combo_id"],
+                item["frozen_rank"],
+                item["score"],
+                item["validation_score"],
+                item["mean_return"],
+            )
+            for item in page["items"]
+        )
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert seen == [
+        ("C1", 1, 0.91, 0.91, 0.011),
+        ("C2", 2, 0.82, 0.82, 0.022),
+        ("C3", 3, 0.73, 0.73, 0.033),
+    ]
+    holdout_score_filter = client.get(
+        f"/api/clx-backtest/runs/{run['run_id']}/rankings"
+        "?split_id=HOLDOUT&min_score=2"
+    )
+    assert holdout_score_filter.status_code == 400
+    assert error_code(holdout_score_filter) == "INVALID_REQUEST"
     exported = client.post(
         f"/api/clx-backtest/runs/{run['run_id']}/exports",
         json={
@@ -1009,6 +1079,118 @@ def test_holdout_queries_open_only_after_worker_publishes_reveal(client, store):
     )
     assert exported.status_code == 202
     assert exported.get_json()["data"]["holdout_access"]["reveal_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "validation_metric",
+    [
+        None,
+        {"score": 0.91, "frozen_rank": 2},
+        {"score": "not-a-number", "frozen_rank": 1},
+        {"score": 0.91, "frozen_rank": True},
+    ],
+    ids=[
+        "missing-validation-metric",
+        "frozen-rank-mismatch",
+        "invalid-validation-score",
+        "invalid-frozen-rank-type",
+    ],
+)
+def test_holdout_rankings_fail_closed_on_validation_link_drift(
+    client, store, validation_metric
+):
+    run = seed_complete_run(store, "RUN_HOLDOUT_RANKING_DRIFT")
+    store.seed(
+        "freeze_records",
+        [
+            {
+                "_id": "revealed-freeze-for-ranking-drift",
+                "run_id": run["run_id"],
+                "freeze_id": "sha256:" + "b" * 64,
+                "state": "REVEALED",
+                "reveal_count": 1,
+                "holdout_revealed_at": "2026-07-22T05:00:00.000Z",
+            }
+        ],
+    )
+    store.seed(
+        "combo_metrics",
+        [
+            {
+                "_id": "holdout-ranking-with-drift",
+                "run_id": run["run_id"],
+                "combo_id": "C1",
+                "split_id": "HOLDOUT",
+                "segment_type": "ALL",
+                "segment_value": "ALL",
+                "horizon": 5,
+                "score": 9.99,
+                "frozen_rank": 1,
+                "mean_return": 0.031,
+            }
+        ],
+    )
+    if validation_metric is not None:
+        store.seed(
+            "combo_metrics",
+            [
+                {
+                    "_id": "validation-ranking-with-drift",
+                    "run_id": run["run_id"],
+                    "combo_id": "C1",
+                    "split_id": "VALIDATION",
+                    "segment_type": "ALL",
+                    "segment_value": "ALL",
+                    "horizon": 5,
+                    **validation_metric,
+                }
+            ],
+        )
+
+    response = client.get(
+        f"/api/clx-backtest/runs/{run['run_id']}/rankings?split_id=HOLDOUT"
+    )
+    assert response.status_code == 500
+    assert error_code(response) == "HOLDOUT_RANKING_INTEGRITY_ERROR"
+
+
+def test_holdout_rankings_reject_pre_frozen_rank_cursor(client, store):
+    run = seed_complete_run(store, "RUN_HOLDOUT_STALE_CURSOR")
+    store.seed(
+        "freeze_records",
+        [
+            {
+                "_id": "revealed-freeze-for-stale-cursor",
+                "run_id": run["run_id"],
+                "freeze_id": "sha256:" + "c" * 64,
+                "state": "REVEALED",
+                "reveal_count": 1,
+                "holdout_revealed_at": "2026-07-22T05:00:00.000Z",
+            }
+        ],
+    )
+    equals = {
+        "run_id": run["run_id"],
+        "split_id": "HOLDOUT",
+        "horizon": 5,
+        "segment_type": "ALL",
+        "segment_value": "ALL",
+    }
+    old_filter_kind = (
+        f"rankings:{run['run_id']}:HOLDOUT:"
+        f"{content_hash({'equals': equals, 'ranges': {}})}"
+    )
+    stale_cursor = encode_cursor(
+        old_filter_kind,
+        [9.99, "C1", "holdout-ranking-before-frozen-rank-sort"],
+    )
+
+    response = client.get(
+        f"/api/clx-backtest/runs/{run['run_id']}/rankings"
+        f"?split_id=HOLDOUT&cursor={stale_cursor}"
+    )
+    assert response.status_code == 400
+    assert error_code(response) == "INVALID_CURSOR"
 
 
 def test_export_metadata_and_progress_stream(client):
@@ -1091,6 +1273,11 @@ def test_required_unique_and_query_indexes_are_declared():
     assert any(index.unique for index in INDEX_DEFINITIONS["freeze_records"])
     assert any(
         index.name == "combo_metric_rank"
+        for index in INDEX_DEFINITIONS["combo_metrics"]
+    )
+    assert any(
+        index.name == "combo_metric_frozen_rank"
+        and index.keys[-3:] == (("frozen_rank", 1), ("combo_id", 1), ("_id", 1))
         for index in INDEX_DEFINITIONS["combo_metrics"]
     )
     assert any(

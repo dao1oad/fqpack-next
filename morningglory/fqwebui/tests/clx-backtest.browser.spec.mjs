@@ -3,7 +3,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import {
   DEFAULT_CLX_RANKING_CONFIG,
-  fixtureCandles, fixtureEquity, fixtureManifest, fixtureProgress, fixtureQuality, fixtureRankings,
+  fixtureCandles, fixtureEquity, fixtureManifest, fixturePortfolioMetrics, fixtureProgress, fixtureQuality, fixtureRankings,
   fixtureRun, fixtureSignals, fixtureTrades,
 } from './clx-backtest.browser.fixtures.mjs'
 import { createIsolatedViteArtifactsContext, runLockedBuild } from './vite-build-lock.mjs'
@@ -67,6 +67,9 @@ const rawRankings = fixtureRankings.map(row => ({
   occurrence: row.occurrence, horizon: row.horizon, ...Object.fromEntries(Object.entries(row.metrics).map(([key, value]) => [key.replace(/[A-Z]/g, char => `_${char.toLowerCase()}`), value])),
   ranking_config_sha256: fixtureRankingConfigSha256,
 }))
+const rawPortfolioSummaries = fixturePortfolioMetrics.map(metrics => Object.fromEntries(
+  Object.entries(metrics).map(([key, value]) => [key.replace(/[A-Z]/g, char => `_${char.toLowerCase()}`), value]),
+))
 
 async function fulfill(route, data, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
@@ -101,7 +104,7 @@ async function installFixtureApi(page) {
     }
     if (/\/combos\/[^/]+$/.test(path)) return fulfill(route, { data: {
       definition: { run_id: fixtureRun.runId, combo_id: 'combo-a', name: fixtureRankings[0].name, operator: 'ALL_OF', holding_period: 10, family_deduplication: true, dsl: fixtureRankings[0].name, rules: [{ role: 'ENTRY', model_id: 'S0002', direction: 'POSITIVE', primary_trigger: 'ENGULFING' }] },
-      portfolio_summary: rawRankings[0],
+      portfolio_summary: rawPortfolioSummaries[0],
     } })
     if (path.endsWith('/equity')) return fulfill(route, { data: { items: fixtureEquity.map(item => ({ trade_date: item.date, equity: item.equity, benchmark: item.benchmark, drawdown: item.drawdown })), next_cursor: null } })
     if (path.endsWith('/trades')) return fulfill(route, { data: { items: fixtureTrades.map((item, index) => ({ sequence: index + 1, code: item.code, side: item.side, signal_date: item.signalDate, trade_date: item.tradeDate, price: item.price, quantity: item.quantity, fees: item.fees, pnl: item.pnl, return_rate: item.returnRate, exit_reason: item.exitReason })), next_cursor: null } })
@@ -171,7 +174,12 @@ test('F1结果分析可完成排行、图表、信号K线下钻', async ({ page 
   await expect(page.getByRole('heading', { name: 'CLX 大规模回测研究工作台' })).toBeVisible()
   await expect(page.getByTestId('ranking-table')).toContainText('S0002 正向吞没')
   await expect(page.getByTestId('model-trigger-heatmap')).toContainText('18 模型 × 主触发热力图')
-  await expect(page.getByTestId('metric-cards')).toContainText('综合得分')
+  await expect(page.getByTestId('metric-cards')).toContainText('事件平均收益')
+  await expect(page.getByTestId('metric-cards')).toContainText('组合总收益')
+  await expect(page.getByTestId('metric-cards')).toContainText('组合 CAGR')
+  await expect(page.getByTestId('metric-cards')).toContainText('18.40%')
+  await expect(page.getByTestId('metric-cards')).toContainText('11.60%')
+  await expect(page.getByTestId('metric-cards')).toContainText('318')
   await page.getByText(/信号明细 \(1\)/).click()
   await page.getByRole('button', { name: '看K线' }).click()
   await expect(page.getByText('日线（前后窗口）')).toBeVisible()
@@ -196,6 +204,7 @@ test('F2实验运行和F3审计在桌面及窄屏均可用', async ({ page }) =>
   await page.keyboard.press('Escape')
   await page.getByTestId('compare-button').click()
   await expect(page.getByTestId('comparison-results')).toContainText('S0002 正向吞没')
+  await expect(page.getByTestId('comparison-results')).toContainText('平均事件收益')
 
   await page.getByRole('button', { name: '创建可审计导出' }).click()
   await expect(page.getByTestId('manifest-card')).toContainText('metrics.csv · VALIDATION')

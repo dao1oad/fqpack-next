@@ -61,10 +61,8 @@
           <template v-if="comparison.items.length">
             <el-table :data="comparison.items" :row-key="row => row.comboId" size="small">
               <el-table-column label="组合" width="250" fixed="left"><template #default="{ row }"><div class="clx-combo-cell"><strong>{{ row.name }}</strong><small>{{ row.comboId }}</small></div></template></el-table-column>
-              <el-table-column label="总收益" width="100"><template #default="{ row }"><span :class="Number(row.metrics.totalReturn) >= 0 ? 'clx-positive' : 'clx-negative'">{{ formatPercent(row.metrics.totalReturn) }}</span></template></el-table-column>
-              <el-table-column label="年化" width="94"><template #default="{ row }">{{ formatPercent(row.metrics.annualizedReturn) }}</template></el-table-column>
-              <el-table-column label="Sharpe" width="86"><template #default="{ row }">{{ formatNumber(row.metrics.sharpe, 3) }}</template></el-table-column>
-              <el-table-column label="最大回撤" width="96"><template #default="{ row }">{{ formatPercent(row.metrics.maxDrawdown) }}</template></el-table-column>
+              <el-table-column label="平均事件收益" width="112"><template #default="{ row }"><span :class="Number(row.metrics.meanReturn) >= 0 ? 'clx-positive' : 'clx-negative'">{{ formatPercent(row.metrics.meanReturn) }}</span></template></el-table-column>
+              <el-table-column label="95% CI" width="150"><template #default="{ row }">{{ formatPercent(row.metrics.confidenceLow) }} ～ {{ formatPercent(row.metrics.confidenceHigh) }}</template></el-table-column>
               <el-table-column label="胜率" width="84"><template #default="{ row }">{{ formatPercent(row.metrics.winRate) }}</template></el-table-column>
               <el-table-column label="稳定性" width="90"><template #default="{ row }">{{ formatPercent(row.metrics.stabilityScore) }}</template></el-table-column>
               <el-table-column label="FDR q" width="86"><template #default="{ row }">{{ formatPercent(row.metrics.fdrQValue) }}</template></el-table-column>

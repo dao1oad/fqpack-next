@@ -73,6 +73,19 @@ INDEX_DEFINITIONS: dict[str, tuple[IndexDefinition, ...]] = {
             (("run_id", 1), ("split_id", 1), ("score", -1), ("combo_id", 1)),
             "combo_metric_rank",
         ),
+        IndexDefinition(
+            (
+                ("run_id", 1),
+                ("split_id", 1),
+                ("horizon", 1),
+                ("segment_type", 1),
+                ("segment_value", 1),
+                ("frozen_rank", 1),
+                ("combo_id", 1),
+                ("_id", 1),
+            ),
+            "combo_metric_frozen_rank",
+        ),
     ),
     "portfolio_summaries": (
         IndexDefinition(

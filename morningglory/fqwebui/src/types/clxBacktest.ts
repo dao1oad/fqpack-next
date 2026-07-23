@@ -81,6 +81,7 @@ export interface RankingFilters {
 }
 
 export interface PerformanceMetrics {
+  meanReturn?: number | null
   totalReturn?: number | null
   annualizedReturn?: number | null
   excessReturn?: number | null
