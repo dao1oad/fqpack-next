@@ -49,6 +49,10 @@
 
 `xt_account_sync.worker -> pm_credit_asset_snapshots -> xt_auto_repay.worker -> query_credit_detail confirm -> XtQuantTrader.order_stock(CREDIT_DIRECT_CASH_REPAY, placeholder stock_code, LATEST_PRICE)`
 
+### 当前持仓复盘链
+
+`current xt_trades / OM ledger + om_execution_history_archive / position_review_evidence_archive -> position-review read model -> /api/position-review/* -> PositionReview`
+
 ## 当前订单账本边界
 
 ### 券商真值层
@@ -90,8 +94,21 @@
 
 - `xt_positions`
   - 定义当前券商仓位真值
-- `om_broker_orders + om_execution_fills`
-  - 定义执行事实
+- `xt_trades`
+  - 定义当前可替换的券商成交快照
+  - 读取时必须按 `symbol + side` 与内部执行事实交叉核对
+- `om_execution_history_archive`
+  - 持久保存复盘使用的规范化历史成交；成交基础身份固定为
+    `broker_trade_id + symbol + side + trade_time + quantity + price`
+  - 不同账户使用不可逆 `account_partition` 分开保存；不会因
+    `broker_trade_id` 复用或 positions-only initialize 相互覆盖
+- `position_review_evidence_archive`
+  - 持久保存策略请求、订单关联、执行事实与持仓解释原始证据
+  - 不参与 order-ledger purge，也不反向定义当前仓位
+- `om_execution_fills + om_trade_facts`
+  - 定义内部订单执行事实，并用于交叉核对 `xt_trades`
+- `om_broker_orders`
+  - 定义券商订单聚合视图，不单独作为历史成交数量真值
   - XT 回报进入订单账本时，`broker_order_id` 只作为候选检索键；重复券商订单号需要结合 `symbol`、`side/order_type` 与回报时间确定内部订单
 - `om_position_entries`
   - 定义系统可消费的持仓入口
@@ -112,6 +129,24 @@
   - `entries + entry_slices + takeprofit + stoploss`
 - `KlineSlim`
   - `entries + entry stoploss + guardian/takeprofit`
+- `PositionReview`
+  - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
+  - ClickHouse Trace 只作为可选判定上下文和运行观测跳转证据
+
+## 当前持仓复盘口径
+
+- `/position-review` 是只读工作台，覆盖所有存在可信历史成交的标的；当前持仓和已清仓标的不采用不同的成交真值口径。
+- 复盘以策略请求或订单为判定单位；同一订单的逐笔成交只作为实际成交数量、价格和执行过程的下钻证据。
+- 订单判定固定为四态：
+  - `PASS`：现有证据能够确认实际行为符合策略逻辑。
+  - `FAIL`：现有证据能够确认实际行为偏离策略逻辑。
+  - `INSUFFICIENT_EVIDENCE`：实际成交可确认，但策略上下文、持仓状态或关联证据不足以作确定判断。
+  - `NOT_APPLICABLE`：人工、外部或其他不适用自动策略判定的交易。
+- 证据置信度固定为 `HIGH / MEDIUM / LOW`，由券商成交、内部执行关联、策略上下文和持仓解释证据的完整程度共同决定；置信度不替代四态判定。
+- ClickHouse Runtime Trace 不是成交或持仓账本真值。Trace 存在时可补充信号、门禁和链路上下文；Trace 缺失或 ClickHouse 不可用时，复盘 API 仍以 Mongo 中的成交与账本事实返回结果，并通过 `data_quality` 和置信度表达证据缺口。
+- positions-only initialize 和 destructive order-ledger rebuild 在删除易失集合前先写两个历史档案；归档失败时清理中止。
+- API 只返回不可逆账户分区，不返回原始券商账户号；无账户证据仅在唯一分区可确认时归并，多分区候选保持歧义而不伪造额外成交。
+- 持仓复盘 API 不写入订单、持仓、策略配置或运行观测数据。
 
 ## 当前规则
 

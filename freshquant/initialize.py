@@ -333,11 +333,26 @@ def _default_xt_runtime_sync_runner():
     }
 
 
-def _persist_xt_runtime_truth(*, account_id, asset, positions, orders, trades):
+def _persist_xt_runtime_truth(
+    *,
+    account_id,
+    asset,
+    positions,
+    orders,
+    trades,
+    history_archiver=None,
+):
     from fqxtrade.database.mongodb import DBfreshquant
 
     from freshquant.xt_account_sync.persistence import persist_assets, persist_positions
 
+    history_archiver = history_archiver or _archive_initialize_position_review_history
+    history_archiver(
+        business_database=DBfreshquant,
+        include_business=True,
+        include_order=True,
+        reason="initialize_before_xt_snapshot_replace",
+    )
     normalized_account_id = str(account_id or "").strip()
     if asset is not None:
         persist_assets([asset], collection=DBfreshquant["xt_assets"])
@@ -406,12 +421,20 @@ def _bootstrap_order_ledger_from_synced_truth(
     projection_database=None,
     rebuild_service=None,
     compat_view_rebuilder=None,
+    history_archiver=None,
 ):
     from freshquant.order_management.db import get_order_management_db
     from freshquant.order_management.rebuild import OrderLedgerV2RebuildService
 
     database = database or get_order_management_db()
     rebuild_service = rebuild_service or OrderLedgerV2RebuildService()
+    history_archiver = history_archiver or _archive_initialize_position_review_history
+    history_archiver(
+        order_database=database,
+        include_business=False,
+        include_order=True,
+        reason="initialize_before_order_ledger_purge",
+    )
     rebuild_result = rebuild_service.build_from_truth(
         xt_orders=[],
         xt_trades=[],
@@ -435,6 +458,17 @@ def _bootstrap_order_ledger_from_synced_truth(
     summary["purged_collections"] = list(_INITIALIZE_PURGE_COLLECTIONS)
     summary["compat"] = compat_summary
     return summary
+
+
+def _archive_initialize_position_review_history(**kwargs):
+    from freshquant.order_management.position_review_archive import (
+        backfill_position_review_history,
+    )
+
+    return backfill_position_review_history(
+        dry_run=False,
+        **kwargs,
+    )
 
 
 def _purge_initialize_order_ledger(*, database, collection_names=None):
