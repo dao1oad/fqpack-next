@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,6 +37,53 @@ def test_local_preflight_script_contains_preflight_contract() -> None:
     assert "head_sha" in text
     assert "base_sha" in text
     assert "fq-preflight" in text
+
+
+@pytest.mark.parametrize("child_exit_code", [0, 7])
+def test_invoke_external_command_returns_only_native_exit_code(child_exit_code: int) -> None:
+    powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("PowerShell is not installed")
+
+    preflight_script = REPO_ROOT / "script" / "fq_local_preflight.ps1"
+    probe = f"Write-Output 'probe-output'; exit {child_exit_code}"
+    command = r"""
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($env:FQ_TEST_PREFLIGHT, [ref]$tokens, [ref]$errors)
+if ($errors.Count -ne 0) { throw ($errors | Out-String) }
+$functionAst = $ast.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Invoke-ExternalCommand'
+}, $true)
+if ($null -eq $functionAst) { throw 'Invoke-ExternalCommand not found' }
+Invoke-Expression $functionAst.Extent.Text
+$value = Invoke-ExternalCommand -FilePath $env:FQ_TEST_POWERSHELL -Arguments @('-NoProfile', '-NonInteractive', '-Command', $env:FQ_TEST_PROBE)
+[pscustomobject]@{ type = $value.GetType().FullName; value = $value } | ConvertTo-Json -Compress
+"""
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "FQ_TEST_PREFLIGHT": str(preflight_script),
+            "FQ_TEST_POWERSHELL": powershell,
+            "FQ_TEST_PROBE": probe,
+        }
+    )
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
+        text=True,
+        encoding="utf-8",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout.splitlines()[-1])
+    assert payload == {"type": "System.Int32", "value": child_exit_code}
+    assert "probe-output" in result.stdout
 
 
 def test_pre_push_hook_uses_shell_wrapper_to_call_powershell() -> None:

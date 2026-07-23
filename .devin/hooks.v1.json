@@ -1,0 +1,14 @@
+{
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"$p=Join-Path $env:DEVIN_PROJECT_DIR 'tools/governance.py'; if(Get-Command py -ErrorAction SilentlyContinue){& py -3 -X utf8 $p hook-stop --repo $env:DEVIN_PROJECT_DIR}else{& python -X utf8 $p hook-stop --repo $env:DEVIN_PROJECT_DIR}\"",
+          "timeout": 120
+        }
+      ]
+    }
+  ]
+}

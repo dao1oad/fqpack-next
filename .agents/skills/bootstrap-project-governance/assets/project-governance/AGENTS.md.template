@@ -1,0 +1,28 @@
+<!-- BEGIN BOOTSTRAP-PROJECT-GOVERNANCE -->
+## Autonomous project governance
+
+- The locked outcome and boundaries live in `.governance/project.json`; the rolling Agent-owned plan lives in `.governance/work.json`.
+- `AUTONOMY_STARTED` also locks every `requiredForFinal` item, its minimum Gate/path bindings, and the full specifications of all required Gates; use `restore-work-contract` if those bindings drift.
+- Before `AUTONOMY_STARTED`, resolve every goal, boundary, permission, external dependency, fallback, budget, and final-acceptance decision.
+- Store only readiness status and resource identifiers in governance files; keep secret values in the project's established secret store.
+- After `AUTONOMY_STARTED`, keep runtime questions at zero. Replan, change implementation routes, adjust soft Gates, and activate declared fallbacks autonomously.
+- Run checks through `tools/governance.py run`; direct check commands do not create eligible governance evidence.
+- Treat work status, verification status, and final real-chain status as independent facts.
+- Use mock or fixture evidence for declared V0/V1 work. Final V2 claims honor the data mode locked in the project contract.
+- Before repeating an identical failed Gate, change the source, Gate, verifier, or route. The configured retry guard rejects unchanged repetition.
+- The Codex or Devin Stop hook checks current evidence and continues the Agent internally until `COMPLETED` or `EXHAUSTED`.
+- In Devin Cloud sessions that reach this Windows checkout through XN, read the repository `AGENTS.md`, `.agents/handoffs/main.md` when present, and the project-local governance Skills before work. Run local commands through XN with the repository root as `cwd`.
+- Before a Devin Cloud final response, run `tools/governance.py hook-stop` locally through XN with a Stop JSON payload. Treat `decision: block` and its `reason` as an internal continuation, then repeat until `decision: approve`; do not turn that continuation into a user question.
+- `.governance/board.html` is generated and read-only. Regenerate it through `tools/governance.py derive`.
+
+Canonical commands:
+
+```text
+python tools/governance.py ready
+python tools/governance.py start
+python tools/governance.py run --item ITEM --gate GATE
+python tools/governance.py check --completion
+python tools/governance.py status
+python tools/governance.py validate
+```
+<!-- END BOOTSTRAP-PROJECT-GOVERNANCE -->

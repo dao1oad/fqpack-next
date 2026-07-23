@@ -6,6 +6,8 @@ build/
 *.log
 *.pid
 *.log.*
+!.governance/runs/**/stdout.log
+!.governance/runs/**/stderr.log
 package-lock.json
 
 # Virtual environments
