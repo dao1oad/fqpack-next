@@ -31,6 +31,12 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/position-management/reconciliation/<symbol>`
 - `/api/position-management/reconciliation-workspace/<symbol>`
 
+### `position-review`
+
+- `GET /api/position-review/summary`
+- `GET /api/position-review/symbols`
+- `GET /api/position-review/symbols/<symbol>`
+
 ### `subject-management`
 
 - `/api/subject-management/overview`
@@ -123,6 +129,24 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/position-management/reconciliation-workspace/<symbol>`
   - 当前返回 `/position-management` 右上统一排障工作区需要的 symbol 级对账 workspace
   - 包含 `detail / gaps / resolutions / rejections`
+- `/api/position-review/summary`
+  - 当前返回历史交易复盘的全局 `totals / verdict_counts / data_quality`
+- `/api/position-review/symbols`
+  - 当前返回所有存在可信历史成交的标的，包含当前持仓与已清仓标的
+  - 每行包含首末成交时间、请求与逐笔成交数量、买卖数量与金额、复盘计数、汇总结论和可判定订单合规率
+- `/api/position-review/symbols/<symbol>`
+  - 当前返回单标的 `summary / executions / charts / reviews / timeline / data_quality`
+  - `executions` 是按账户分区稳定标识的 canonical 逐笔成交台账；同账户迟到或更正的 XT 真值不会与旧 OM/XT 归档重复计数
+  - 合并当前 `xt_trades / OM ledger` 与
+    `om_execution_history_archive / position_review_evidence_archive`；
+    initialize 或 order-ledger rebuild 后已归档历史仍可查询
+  - `charts` 包含 `cumulative_quantity / traded_amount / trade_price / verdict_distribution / request_quantity_compare`
+  - `reviews` 以订单请求为单位返回 `request / expected / actual / verdict / reasons / evidence`
+  - `verdict` 固定为 `PASS / FAIL / INSUFFICIENT_EVIDENCE / NOT_APPLICABLE`
+  - 证据置信度固定为 `HIGH / MEDIUM / LOW`
+  - 账户只返回不可逆 `account_partition` 或 `unknown`，不返回原始账户号；
+    多账户与未知分区由 `data_quality` 显式说明
+  - ClickHouse Trace 只作为可选补充证据，不是接口返回成交数量或持仓解释的前置条件
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`
@@ -185,6 +209,7 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 
 - `/kline-slim`
 - `/position-management`
+- `/position-review`
 - `/runtime-observability`
 - `/gantt`
 - `/gantt/shouban30`

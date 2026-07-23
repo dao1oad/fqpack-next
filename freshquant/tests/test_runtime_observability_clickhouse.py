@@ -414,8 +414,21 @@ def test_clickhouse_store_list_events_decodes_payloads_and_builds_cursor(monkeyp
                 "symbol_name": "平安银行",
                 "message": "payload rejected",
                 "reason_code": "bad_payload",
+                "decision_branch": "quantity",
+                "decision_expr": "quantity > 0",
+                "decision_outcome": '{"outcome":"submit"}',
                 "payload_json": '{"error_type":"ValueError"}',
                 "metrics_json": '{"queue_len":3}',
+                "raw_json": json.dumps(
+                    {
+                        "decision_context": {
+                            "threshold": {
+                                "last_fill_price": 21.32,
+                                "top_river_price": 21.5332,
+                            }
+                        }
+                    }
+                ),
                 "raw_file": "host_rear/order_submit/2026-03-20/file.jsonl",
                 "raw_line": 2,
                 "error_type": "ValueError",
@@ -438,8 +451,12 @@ def test_clickhouse_store_list_events_decodes_payloads_and_builds_cursor(monkeyp
                 "symbol_name": "平安银行",
                 "message": "",
                 "reason_code": "",
+                "decision_branch": "",
+                "decision_expr": "",
+                "decision_outcome": "",
                 "payload_json": "{}",
                 "metrics_json": "{}",
+                "raw_json": "{}",
                 "raw_file": "host_guardian/guardian_strategy/2026-03-20/file.jsonl",
                 "raw_line": 1,
                 "error_type": "",
@@ -450,17 +467,86 @@ def test_clickhouse_store_list_events_decodes_payloads_and_builds_cursor(monkeyp
     monkeypatch.setattr(store, "ensure_schema", lambda: None)
     monkeypatch.setattr(store, "_select_rows", _fake_select_rows)
 
-    payload = store.list_events(filters={"component": "order_submit"}, limit=1)
+    payload = store.list_events(
+        filters={
+            "component": "order_submit",
+            "node": ["price_threshold_check", "sellable_volume_check"],
+        },
+        limit=1,
+    )
 
     assert queries
     assert "component = 'order_submit'" in queries[0]
+    assert "node IN ('price_threshold_check', 'sellable_volume_check')" in queries[0]
     assert payload["items"][0]["event_id"] == "evt_2"
     assert payload["items"][0]["payload"] == {"error_type": "ValueError"}
     assert payload["items"][0]["metrics"] == {"queue_len": 3}
-    assert payload["next_cursor"] == {
-        "ts": "2026-03-20T10:00:01+08:00",
-        "event_id": "evt_1",
+    assert payload["items"][0]["decision_context"] == {
+        "threshold": {
+            "last_fill_price": 21.32,
+            "top_river_price": 21.5332,
+        }
     }
+    assert "raw_json" in queries[0]
+    assert payload["next_cursor"] == {
+        "ts": "2026-03-20T10:00:02+08:00",
+        "event_id": "evt_2",
+    }
+
+
+def test_clickhouse_store_list_events_cursor_has_no_cross_page_gap(monkeypatch):
+    from freshquant.runtime_observability.clickhouse_store import (
+        RuntimeObservabilityClickHouseStore,
+    )
+
+    store = RuntimeObservabilityClickHouseStore(base_url="http://clickhouse.test")
+    rows = [
+        {
+            "event_id": "evt_3",
+            "ts": "2026-03-20 10:00:03.000",
+            "component": "guardian_strategy",
+            "symbol": "002262",
+        },
+        {
+            "event_id": "evt_2",
+            "ts": "2026-03-20 10:00:02.000",
+            "component": "guardian_strategy",
+            "symbol": "002262",
+        },
+        {
+            "event_id": "evt_1",
+            "ts": "2026-03-20 10:00:01.000",
+            "component": "guardian_strategy",
+            "symbol": "002262",
+        },
+    ]
+
+    def select_rows(query):
+        if "event_id < 'evt_3'" in query:
+            return rows[1:]
+        return rows[:2]
+
+    monkeypatch.setattr(store, "ensure_schema", lambda: None)
+    monkeypatch.setattr(store, "_select_rows", select_rows)
+
+    first = store.list_events(limit=1)
+    second = store.list_events(
+        limit=1,
+        cursor_ts=first["next_cursor"]["ts"],
+        cursor_event_id=first["next_cursor"]["event_id"],
+    )
+
+    assert [item["event_id"] for item in first["items"]] == ["evt_3"]
+    assert [item["event_id"] for item in second["items"]] == ["evt_2"]
+    assert (
+        len(
+            {
+                first["items"][0]["event_id"],
+                second["items"][0]["event_id"],
+            }
+        )
+        == 2
+    )
 
 
 def test_clickhouse_store_list_events_hides_non_triggered_tpsl_info_noise(
@@ -596,8 +682,8 @@ def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
         "error_message": "bad payload",
     }
     assert payload["steps_next_cursor"] == {
-        "ts": "2026-03-20T10:00:01+08:00",
-        "event_id": "evt_1",
+        "ts": "2026-03-20T10:00:02+08:00",
+        "event_id": "evt_2",
     }
 
 

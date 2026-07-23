@@ -22,6 +22,9 @@ def create_app():
         ).position_management_bp
     )
     app.register_blueprint(
+        import_module("freshquant.rear.position_review.routes").position_review_bp
+    )
+    app.register_blueprint(
         import_module("freshquant.rear.system_config.routes").system_config_bp
     )
     app.register_blueprint(import_module("freshquant.rear.runtime.routes").runtime_bp)

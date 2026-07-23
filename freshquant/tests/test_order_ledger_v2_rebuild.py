@@ -1714,15 +1714,29 @@ def test_rebuild_cli_execute_with_backup_purges_then_writes(monkeypatch):
             "collection_names": summary["would_purge_collections"],
         }
     ]
-    assert database.event_log[0] == "backup:freshquant_order_management_backup_unit"
+    backup_event = "backup:freshquant_order_management_backup_unit"
+    backup_index = database.event_log.index(backup_event)
+    archive_indexes = [
+        index
+        for index, event in enumerate(database.event_log)
+        if event
+        in {
+            "insert_many:om_execution_history_archive",
+            "insert_many:position_review_evidence_archive",
+        }
+    ]
+    assert archive_indexes
+    assert max(archive_indexes) < backup_index
     first_insert_index = next(
         index
         for index, event in enumerate(database.event_log)
-        if event.startswith("insert_")
+        if index > backup_index
+        and event.startswith("insert_")
+        and "archive" not in event
     )
     assert all(
         event.startswith("delete_many:")
-        for event in database.event_log[1:first_insert_index]
+        for event in database.event_log[backup_index + 1 : first_insert_index]
     )
     assert database["om_orders"].rows == []
     assert database["om_broker_orders"].rows == [{"broker_order_key": "70001"}]
@@ -1734,3 +1748,37 @@ def test_rebuild_cli_execute_with_backup_purges_then_writes(monkeypatch):
         {"resolution_id": "resolution-1"}
     ]
     assert database["om_ingest_rejections"].rows == [{"rejection_id": "reject-1"}]
+
+
+def test_rebuild_execute_aborts_before_backup_and_purge_when_archive_fails():
+    rebuild_cli = _load_rebuild_cli_module()
+    database = _FakeMaintenanceDatabase(
+        {
+            "xt_trades": [
+                {
+                    "account_id": "acct-1",
+                    "traded_id": "trade-1",
+                    "stock_code": "002262.SZ",
+                    "side": "sell",
+                    "traded_volume": 100,
+                    "traded_price": 10.0,
+                    "traded_time": 1,
+                }
+            ],
+            "om_order_requests": [{"request_id": "must-survive"}],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="archive unavailable"):
+        rebuild_cli.run_rebuild(
+            execute=True,
+            backup_db="backup-db",
+            database=database,
+            rebuild_service=_FakeRebuildService(_sample_rebuild_summary()),
+            history_archiver=lambda **kwargs: (_ for _ in ()).throw(
+                RuntimeError("archive unavailable")
+            ),
+        )
+
+    assert database["om_order_requests"].rows == [{"request_id": "must-survive"}]
+    assert not any(event.startswith("delete_many:") for event in database.event_log)
