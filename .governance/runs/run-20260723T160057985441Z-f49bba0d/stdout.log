@@ -1,0 +1,9 @@
+........................................................................ [ 96%]
+...                                                                      [100%]
+============================== warnings summary ===============================
+freshquant/tests/test_xtdata_qfq.py::test_sync_stock_uses_bfq_bounds_and_publishes_marker
+  D:\fqpack\freshquant-2026.2.23\.venv\Lib\site-packages\xtquant\xtbson\bson37\datetime_ms.py:29: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    EPOCH_NAIVE = datetime.datetime.utcfromtimestamp(0)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+75 passed, 1 warning in 34.33s

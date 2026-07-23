@@ -232,6 +232,45 @@ PATH_RULES: tuple[PathRule, ...] = (
         surfaces=("market_data",),
         notes=("必要时重新 prewarm XTData consumer。",),
     ),
+    ExactRule(
+        label="xtdata-qfq-writer",
+        exact_path="freshquant/market_data/xtdata/qfq.py",
+        surfaces=("api", "dagster"),
+        notes=(
+            "XTData preClose 是 stock_adj/etf_adj 的 canonical writer；变更后需重部署 API/Dagster，"
+            "并按需重启 market_data reference-data worker。",
+        ),
+    ),
+    ExactRule(
+        label="qfq-read-contract",
+        exact_path="freshquant/data/qfq_contract.py",
+        surfaces=("api", "dagster"),
+        notes=("QFQ 因子读取门禁变更会影响 API 读路径与行情同步任务。",),
+    ),
+    ExactRule(
+        label="stock-qfq-read",
+        exact_path="freshquant/data/stock.py",
+        surfaces=("api", "dagster"),
+        notes=("股票 QFQ 读取与 day/min 对账变更后需同步部署 API 与 Dagster。",),
+    ),
+    ExactRule(
+        label="index-bfq-read",
+        exact_path="freshquant/data/index.py",
+        surfaces=("api", "dagster"),
+        notes=("指数读取固定 BFQ；变更后需同步部署 API 与行情任务。",),
+    ),
+    ExactRule(
+        label="etf-qfq-read",
+        exact_path="freshquant/quote/etf.py",
+        surfaces=("api", "dagster"),
+        notes=("交易型 ETF QFQ 读取变更后需同步部署 API 与 Dagster。",),
+    ),
+    ExactRule(
+        label="intraday-qfq-override",
+        exact_path="freshquant/data/adj_intraday.py",
+        surfaces=("api",),
+        notes=("分钟线 QFQ 因子门禁变更后需重部署 API。",),
+    ),
     PrefixRule(
         label="guardian",
         prefix="freshquant/strategy/",
@@ -268,7 +307,10 @@ PATH_RULES: tuple[PathRule, ...] = (
         label="etf-adj-sync",
         exact_path="freshquant/data/etf_adj_sync.py",
         surfaces=("dagster",),
-        notes=("ETF 前复权 xdxr/adj 同步逻辑变更后必须重部署 Dagster。",),
+        notes=(
+            "ETF canonical adj 同步已收口到 XTData preClose；旧 XDXR/TDX 诊断路径不得覆盖 etf_adj，"
+            "变更后必须重部署 Dagster。",
+        ),
     ),
     ExactRule(
         label="shouban30-pool-service",

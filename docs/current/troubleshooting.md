@@ -569,7 +569,7 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 
 处理：
 
-- TDX 行情服务器列表由仓库内 `freshquant/gateway/tdx_ip_pool.json` 人工维护（`QUANTAXIS.QAUtil.QAIPPool` 加载，优先于 `~/.quantaxis/setting/*_ip.json` 缓存）；股票日线、分钟线与 ETF xdxr 都使用这份正式池，服务器批量失效时更新该 JSON 即可
+- TDX 行情服务器列表由仓库内 `freshquant/gateway/tdx_ip_pool.json` 人工维护（`QUANTAXIS.QAUtil.QAIPPool` 加载，优先于 `~/.quantaxis/setting/*_ip.json` 缓存）；股票/ETF BFQ 日线与分钟线使用这份正式池，QFQ 因子另由 XTData `preClose` 生成
 - 当前 `QATdx.ping` 已加 K 线接口探活并把连接超时放宽到 3 秒；`select_best_ip` 判定阈值同步放宽，坏 default 服务器会被自动淘汰重选
 - 当前股票日线/分钟线逐票抓取会在首选 host 返回异常、`None` 或源侧空响应时切换仓库 IP 池；旧 QASU 即使继续收集逐票错误，最终 ready asset 的跨集合审计也会阻断假成功 marker
 - 当前 Dagster `stock_day` / `stock_min` asset 落库后仍做基础新鲜度断言；`stock_postclose_ready_asset` 写 marker 前还会交叉审计最近 15 个交易日的当前股票日线与 `1min/5min/15min/30min/60min` 覆盖，任一确定性缺口都会 fail
@@ -615,58 +615,33 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 - 任何真实 ETF 分钟周期缺失或 bar 数异常都会使 `etf_min` step 失败；`etf_postclose_ready_asset` 显式依赖 `etf_min`，不会生成假 ready marker
 - 修复 TDX 连通性或权威 IP 池后重跑 `etf_data_job`，再确认全部 step SUCCESS 和 freshness check 日志
 
-## ETF 前复权未生效但 Dagster run 显示成功
+## ETF QFQ 因子未就绪或结果异常
 
 现象：
 
-- KlineSlim / ETF 日线在拆分、扩缩股之后仍显示 bfq 价格
-- `quantaxis.etf_xdxr` 缺少目标 ETF 的历史事件，但 Dagster `etf_data_schedule` 显示成功
-- `quantaxis.etf_adj` 在事件日前后仍全部为 `1.0`
+- API 或 KlineSlim 返回 `QFQ_DATA_NOT_READY`，或者 ETF 在公司行为前后出现 BFQ 断层。
+- Dagster `etf_data_job` 显示完成，但 `qfq_ready` marker 缺失、来源不是 XTData，或
+  `missing/invalid/duplicates` 任一非零。
 
 先检查：
 
-- `@'
-from freshquant.db import DBQuantAxis
-print(list(DBQuantAxis.etf_xdxr.find({'code':'512800'},{'_id':0}).sort('date',1)))
-print(list(DBQuantAxis.etf_adj.find({'code':'512800','date':{'$gte':'2025-07-01','$lte':'2025-07-10'}},{'_id':0}).sort('date',1)))
-'@ | py -3.12 -m uv run -`
-- `docker exec fqnext_20260223-fq_dagster_webserver-1 sh -lc 'grep -R -n "ETF xdxr sync stats\|preserved=\|sync etf_xdxr empty after retry" /opt/dagster/logs || true'`
-- `@'
-from freshquant.data.etf_adj_sync import sync_etf_xdxr_all
-print(sync_etf_xdxr_all(codes=['512800']))
-'@ | py -3.12 -m uv run -`
+```powershell
+.venv\Scripts\python.exe script/qfq_governance_gate.py verify --check mongo --scope etf --require-deployed-main --require-after-latest-deploy
+```
 
-常见根因：
-
-- pytdx 长连接在 ETF xdxr 全量批量同步后段返回空结果
-- pytdx `connect()` 失败时会直接返回 `False`；旧实现把它放进 `with api.connect(...)`，会把 retry host / batch host 故障误打成 `bool` context manager 错误
-- 部分 ETF 的旧 `etf_xdxr` 文档来自 TDX 之外的历史回填，TDX 当前返回为空时会走 `preserve_on_empty=True` 保留旧文档；如果某只 ETF 在长连接退化场景下误返回空，也会被保留成旧状态
+再核对 `quantaxis.etf_adj` 的 `{code,date,adj}` 文档和
+`quantaxis.qfq_ready` 中对应 marker。交易型 ETF 的实际 XTData 交易日必须全部有有限正数
+因子；非交易型开放式/联接/场外基金应在排除清单中，而不是制造缺失告警。
 
 处理：
 
-- 当前实现会对 ETF xdxr 首次空结果做 fresh connection retry，并在全量同步时周期性重建 TDX 连接
-- 当前实现会在 batch host 连接失败时自动切到下一个可用 HQ host；fresh connection retry 的目标 host 若连不上，也会继续轮转其他 HQ host，而不是把 run 记成成功或打成 `bool` context manager 异常
-- retry 仍超时或为空时，优先核对该 code 在不同 TDX host 上是否一致为空；对确实为空但库里已有历史回填的 ETF，允许保留旧文档
-- Dagster `etf_xdxr` 资产会对本次同步中 `empty/preserved` 的可疑 code 追加一次近期覆盖审计；如果近窗口内源侧有事件但库里没有，或者所有 HQ host 都不可达，asset 会直接 fail，不再把 run 记成成功
-- 如果 API / KlineSlim 在 `/api/stock_data` 上直接报 `redis.exceptions.ConnectionError: Error 111 connecting to 127.0.0.1:6379`，优先检查 Docker compose 是否把宿主机 `.env` 里的 Redis 地址误透传进容器；正式口径应由 `docker/compose.parallel.yaml` 显式覆盖为 `FRESHQUANT_REDIS__HOST=fq_redis`、`FRESHQUANT_REDIS__PORT=6379`
-- 如果 compose Redis 覆盖修复已经 merge，但 formal deploy 的 `plan.json` 仍显示 `deployment_required=false`，优先检查 changed paths 是否包含 `docker/compose.parallel.yaml`；当前正式口径要求这类 compose 运行时变更必须触发全量受管 Docker 并行环境容器重建/重启。
-- 对单券立即修复可执行：
-  - `@'
-from freshquant.data.etf_adj_sync import sync_etf_adj_all, sync_etf_xdxr_all
-print(sync_etf_xdxr_all(codes=['512800']))
-print(sync_etf_adj_all(codes=['512800']))
-'@ | py -3.12 -m uv run -`
-- 对近期覆盖审计可手工执行：
-  - `@'
-from freshquant.data.etf_adj_sync import audit_recent_etf_xdxr_coverage
-print(audit_recent_etf_xdxr_coverage(codes=['512800'], recent_days=365))
-'@ | py -3.12 -m uv run -`
-- 对全量 ETF 近期覆盖审计可手工执行：
-  - `@'
-from freshquant.data.etf_adj_sync import audit_recent_etf_xdxr_coverage
-print(audit_recent_etf_xdxr_coverage(recent_days=365))
-'@ | py -3.12 -m uv run -`
-- 正式修复后，重新部署 Dagster，并再跑一次 formal deploy health check / runtime verify
+- 以最新远程 `main` 完成 formal deploy 后，重跑
+  `script/qfq_governance_gate.py bootstrap --scope etf --full --verify`。
+- Bootstrap 使用 XTData `preClose`，先写 staging collection 并完成覆盖审计，再原子发布
+  `etf_adj` 和 ready marker；不要运行旧的 `etf_xdxr -> etf_adj` 写入路径。
+- 若 marker 已 ready 但读取仍失败，检查 API 是否已重部署，以及实际 bar 日期是否落在因子
+  日期轴内；缺因子保持 fail-closed，不补写默认 `adj=1`。
+- 完成 ETF 日线后必须继续核对 `1/5/15/30/60min` 覆盖；不能以日线成功代替分钟线验收。
 
 ## xt_account_sync worker 启动即 Fatal
 
@@ -769,32 +744,12 @@ print(inspect.signature(resolve_stock_account))
 - 重建 API：`docker compose -f docker/compose.parallel.yaml up -d --build fq_apiserver`
 - 或优先使用 `powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -ChangedPath freshquant/rear/api_server.py -RunHealthChecks`
 
-## ETF 前复权错误
+## ETF QFQ 页面断层
 
-现象：
-- ETF 在页面上跨扩缩股日出现价格断层
-- 例如事件日后 close 约为事件日前的一半，但事件日前没有按前复权回落
-
-先检查：
-- `python -m freshquant.cli etf.xdxr save --code 512000`
-- `python -m freshquant.cli etf.adj save --code 512000`
-- `python -m freshquant.cli etf.xdxr save --code 512800`
-- `python -m freshquant.cli etf.adj save --code 512800`
-- 查询 `quantaxis.etf_xdxr` 是否存在 `category=11` / `suogu`
-- 查询 `quantaxis.etf_adj` 是否在事件日前生成了 `adj=0.5` 这类因子
-- 请求 `/api/stock_data?period=1d&symbol=512000&endDate=2025-08-08`
-
-常见根因：
-- `quantaxis.etf_xdxr` 缺失扩缩股事件，导致 `etf_adj` 整段生成成 `1.0`
-- ETF 历史库已更新，但没有重跑 `etf_xdxr -> etf_adj`
-- 旧实现把上游空响应当真，单次同步把已有 `etf_xdxr` 清空
-
-处理：
-- 优先重跑 `etf.xdxr` 和 `etf.adj`
-- 如果是全市场历史缺口，执行一次 ETF 全量回填：
-  - `python -m freshquant.cli etf.xdxr save`
-  - `python -m freshquant.cli etf.adj save`
-- 如果库里 `etf_adj` 已正确，而页面仍错误，再查 `/api/stock_data` 所在运行面是否仍在读旧库或旧容器
+跨公司行为日出现价格断层时，先确认 `qfq_ready` marker 的 `source` 为
+`xtdata_preclose`，再检查目标代码在 XTData 实际交易日上的因子覆盖。不要以旧
+`etf_xdxr` 事件集合作为 canonical QFQ 真值；完成 bootstrap 后重新部署 API，并重新执行
+日线与五种分钟线覆盖 Gate。
 
 ## Web 页面空白
 

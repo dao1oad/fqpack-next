@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "revision": 4,
+  "gates": [
+    {
+      "id": "governance-layer",
+      "level": "V0",
+      "dataMode": "fixture",
+      "command": [
+        "python3",
+        "tools/governance.py",
+        "validate"
+      ],
+      "commandWindows": [
+        "py",
+        "-3",
+        "-X",
+        "utf8",
+        "tools/governance.py",
+        "validate"
+      ],
+      "cwd": ".",
+      "subjectPaths": [
+        "AGENTS.md",
+        ".agents/skills/**"
+      ],
+      "timeoutSeconds": 120,
+      "maxAgeSeconds": null
+    },
+    {
+      "id": "qfq-unit-contract",
+      "level": "V0",
+      "dataMode": "fixture",
+      "command": [
+        "python3",
+        "-m",
+        "pytest",
+        "-q",
+        "freshquant/tests/test_xtdata_qfq.py",
+        "freshquant/tests/test_qfq_read_contract.py",
+        "freshquant/tests/test_market_data_assets.py",
+        "freshquant/tests/test_market_data_schedules.py",
+        "freshquant/tests/test_quantaxis_index_compat.py",
+        "freshquant/tests/test_freshquant_deploy_plan.py"
+      ],
+      "commandWindows": [
+        ".venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "-q",
+        "freshquant/tests/test_xtdata_qfq.py",
+        "freshquant/tests/test_qfq_read_contract.py",
+        "freshquant/tests/test_market_data_assets.py",
+        "freshquant/tests/test_market_data_schedules.py",
+        "freshquant/tests/test_quantaxis_index_compat.py",
+        "freshquant/tests/test_freshquant_deploy_plan.py"
+      ],
+      "cwd": ".",
+      "subjectPaths": [
+        "freshquant/**",
+        "morningglory/fqdagster/**",
+        "sunflower/QUANTAXIS/**",
+        "script/freshquant_deploy_plan.py"
+      ],
+      "timeoutSeconds": 900,
+      "maxAgeSeconds": null
+    },
+    {
+      "id": "dagster-definitions",
+      "level": "V1",
+      "dataMode": "synthetic",
+      "command": [
+        "dagster",
+        "definitions",
+        "validate",
+        "-m",
+        "fqdagster.definitions"
+      ],
+      "commandWindows": [
+        "D:\\fqpack\\freshquant-2026.2.23\\.venv\\Scripts\\dagster.exe",
+        "definitions",
+        "validate",
+        "-m",
+        "fqdagster.definitions"
+      ],
+      "cwd": "morningglory/fqdagster",
+      "subjectPaths": [
+        "morningglory/fqdagster/**",
+        "morningglory/fqdagsterconfig/**"
+      ],
+      "timeoutSeconds": 300,
+      "maxAgeSeconds": null
+    },
+    {
+      "id": "repo-preflight",
+      "level": "V1",
+      "dataMode": "fixture",
+      "command": [
+        "pwsh",
+        "-NoProfile",
+        "-File",
+        "script/fq_local_preflight.ps1",
+        "-Mode",
+        "Run",
+        "-BaseRef",
+        "origin/main"
+      ],
+      "commandWindows": [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "script/fq_local_preflight.ps1",
+        "-Mode",
+        "Run",
+        "-BaseRef",
+        "origin/main"
+      ],
+      "cwd": ".",
+      "subjectPaths": [
+        "freshquant/**",
+        "morningglory/fqdagster/**",
+        "morningglory/fqdagsterconfig/**",
+        "sunflower/QUANTAXIS/**",
+        "script/**",
+        "docs/current/**",
+        "AGENTS.md"
+      ],
+      "timeoutSeconds": 3600,
+      "maxAgeSeconds": null
+    },
+    {
+      "id": "qfq-bootstrap-real",
+      "level": "V2",
+      "dataMode": "real",
+      "command": [
+        "python3",
+        "script/qfq_governance_gate.py",
+        "bootstrap",
+        "--scope",
+        "stock,etf",
+        "--full",
+        "--verify",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "commandWindows": [
+        ".venv\\Scripts\\python.exe",
+        "script/qfq_governance_gate.py",
+        "bootstrap",
+        "--scope",
+        "stock,etf",
+        "--full",
+        "--verify",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "cwd": ".",
+      "subjectPaths": [
+        "freshquant/market_data/xtdata/**",
+        "freshquant/data/**",
+        "freshquant/command/**",
+        "sunflower/QUANTAXIS/**",
+        "script/qfq_governance_gate.py"
+      ],
+      "timeoutSeconds": 43200,
+      "maxAgeSeconds": 86400
+    },
+    {
+      "id": "qfq-runtime-audit",
+      "level": "V2",
+      "dataMode": "real",
+      "command": [
+        "python3",
+        "script/qfq_governance_gate.py",
+        "verify",
+        "--check",
+        "mongo,api",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "commandWindows": [
+        ".venv\\Scripts\\python.exe",
+        "script/qfq_governance_gate.py",
+        "verify",
+        "--check",
+        "mongo,api",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "cwd": ".",
+      "subjectPaths": [
+        "freshquant/data/**",
+        "freshquant/quote/**",
+        "freshquant/chanlun_service.py",
+        "freshquant/chanlun_structure_service.py",
+        "freshquant/rear/**",
+        "script/qfq_governance_gate.py"
+      ],
+      "timeoutSeconds": 1800,
+      "maxAgeSeconds": 86400
+    },
+    {
+      "id": "market-jobs-real",
+      "level": "V2",
+      "dataMode": "real",
+      "command": [
+        "python3",
+        "script/qfq_governance_gate.py",
+        "verify",
+        "--check",
+        "dagster,coverage",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "commandWindows": [
+        ".venv\\Scripts\\python.exe",
+        "script/qfq_governance_gate.py",
+        "verify",
+        "--check",
+        "dagster,coverage",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "cwd": ".",
+      "subjectPaths": [
+        "freshquant/data/**",
+        "morningglory/fqdagster/**",
+        "morningglory/fqdagsterconfig/**",
+        "script/qfq_governance_gate.py"
+      ],
+      "timeoutSeconds": 3600,
+      "maxAgeSeconds": 86400
+    },
+    {
+      "id": "formal-deploy-main",
+      "level": "V2",
+      "dataMode": "real",
+      "command": [
+        "python3",
+        "script/qfq_governance_gate.py",
+        "verify",
+        "--check",
+        "deployment,qfq,mongo,api,dagster,coverage,health,runtime,cleanup",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "commandWindows": [
+        ".venv\\Scripts\\python.exe",
+        "script/qfq_governance_gate.py",
+        "verify",
+        "--check",
+        "deployment,qfq,mongo,api,dagster,coverage,health,runtime,cleanup",
+        "--require-deployed-main",
+        "--require-after-latest-deploy"
+      ],
+      "cwd": ".",
+      "subjectPaths": [
+        "freshquant/**",
+        "morningglory/fqdagster/**",
+        "morningglory/fqdagsterconfig/**",
+        "sunflower/QUANTAXIS/**",
+        "script/**",
+        "docs/current/**"
+      ],
+      "timeoutSeconds": 21600,
+      "maxAgeSeconds": 600
+    }
+  ],
+  "items": [
+    {
+      "id": "WI-000",
+      "title": "安装并冻结项目治理运行时",
+      "bucket": "NOW",
+      "pathScopes": [
+        "AGENTS.md",
+        ".agents/skills/**",
+        ".codex/hooks.json",
+        ".devin/hooks.v1.json",
+        ".gitattributes",
+        ".gitignore",
+        "tools/governance.py"
+      ],
+      "gateRefs": [
+        "governance-layer"
+      ],
+      "requiredForFinal": true,
+      "nextCheckpoint": "governance validate 通过，AUTONOMY_STARTED 和派生看板已生成。"
+    },
+    {
+      "id": "WI-001",
+      "title": "建立 XTData canonical QFQ Bootstrap、增量发布和全量覆盖门禁",
+      "bucket": "NEXT",
+      "pathScopes": [
+        "freshquant/market_data/xtdata/**",
+        "freshquant/data/**",
+        "freshquant/command/**",
+        "sunflower/QUANTAXIS/**",
+        "freshquant/tests/**"
+      ],
+      "gateRefs": [
+        "qfq-unit-contract",
+        "qfq-bootstrap-real"
+      ],
+      "requiredForFinal": true,
+      "nextCheckpoint": "qfq-bootstrap-real 的 --verify 在真实 XTData/Mongo 上先发布完整 snapshot，再执行一次真实 incremental/no-op 幂等发布；两次均核对 writer/source/ready marker，且 missing/invalid/duplicates 均为 0。"
+    },
+    {
+      "id": "WI-002",
+      "title": "收紧 QFQ 消费合同并完成 Stock/ETF/Index 类型分流",
+      "bucket": "NEXT",
+      "pathScopes": [
+        "freshquant/data/**",
+        "freshquant/quote/**",
+        "freshquant/chanlun_service.py",
+        "freshquant/chanlun_structure_service.py",
+        "freshquant/rear/**",
+        "freshquant/tests/**"
+      ],
+      "gateRefs": [
+        "qfq-unit-contract",
+        "qfq-runtime-audit"
+      ],
+      "requiredForFinal": true,
+      "nextCheckpoint": "真实 API 样本证明 Stock/ETF 为 QFQ、Index 为 BFQ，缺因子明确失败。"
+    },
+    {
+      "id": "WI-003",
+      "title": "修复 Stock/ETF/Index Dagster 白名单、并发、索引与 day/min 完整性",
+      "bucket": "NEXT",
+      "pathScopes": [
+        "freshquant/data/**",
+        "morningglory/fqdagster/**",
+        "morningglory/fqdagsterconfig/**",
+        "freshquant/tests/**"
+      ],
+      "gateRefs": [
+        "qfq-unit-contract",
+        "dagster-definitions",
+        "market-jobs-real"
+      ],
+      "requiredForFinal": true,
+      "nextCheckpoint": "真实三类行情 run 成功、不含 cjsd、不并发写库，day/min 对账没有未解释缺口。"
+    },
+    {
+      "id": "WI-004",
+      "title": "同步测试、部署计划映射和 docs/current 当前事实",
+      "bucket": "NEXT",
+      "pathScopes": [
+        ".gitattributes",
+        ".gitignore",
+        "freshquant/tests/**",
+        "script/**",
+        "docs/current/**"
+      ],
+      "gateRefs": [
+        "qfq-unit-contract",
+        "repo-preflight"
+      ],
+      "requiredForFinal": true,
+      "nextCheckpoint": "docs-current-guard、pre-commit、pytest 和部署范围断言全部通过。"
+    },
+    {
+      "id": "WI-005",
+      "title": "合并远程 main 并完成正式部署、系统重启和 V2 真实链验收",
+      "bucket": "LATER",
+      "pathScopes": [
+        "freshquant/**",
+        "morningglory/fqdagster/**",
+        "morningglory/fqdagsterconfig/**",
+        "sunflower/QUANTAXIS/**",
+        "script/**",
+        "docs/current/**"
+      ],
+      "gateRefs": [
+        "formal-deploy-main",
+        "qfq-runtime-audit",
+        "market-jobs-real"
+      ],
+      "requiredForFinal": true,
+      "nextCheckpoint": "formal-deploy-main 逐项读取全部 required V2 result，确认 finishedAt 晚于同一 deployedAt，并在结束前再次确认 HEAD、origin/main 与 deployed SHA 相等；Bootstrap、三类行情任务、API、健康检查、runtime ops check 和 cleanup 全部有该部署代次的当前证据。"
+    }
+  ]
+}

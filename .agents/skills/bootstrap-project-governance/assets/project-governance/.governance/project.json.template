@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "projectId": "{{PROJECT_ID}}",
+  "projectName": "{{PROJECT_NAME}}",
+  "initializedAt": "{{INITIALIZED_AT}}",
+  "outcome": "REPLACE_WITH_CONFIRMED_OUTCOME",
+  "nonGoals": [],
+  "hardConstraints": [],
+  "interactionPolicy": {
+    "decisionPhase": "bootstrap_only",
+    "runtimeQuestions": false,
+    "escalationAllowlist": []
+  },
+  "agentAuthority": {
+    "fixed": [
+      "outcome",
+      "nonGoals",
+      "hardConstraints",
+      "budgets",
+      "finalAcceptance"
+    ],
+    "mutable": [
+      "implementation_route",
+      "architecture_details",
+      "work_breakdown",
+      "work_order",
+      "intermediate_gates",
+      "soft_thresholds",
+      "pre_final_data_mode",
+      "fallback_route"
+    ]
+  },
+  "budgets": {
+    "deadlineAt": null,
+    "maxCheckRuns": null,
+    "maxStopContinuations": null,
+    "maxNoProgressStops": null,
+    "sameFailureLimit": 2
+  },
+  "preflight": {
+    "goalAndBoundariesConfirmed": false,
+    "repositoryRootVerified": false,
+    "credentialsAndPermissionsVerified": false,
+    "externalDependenciesProbed": false,
+    "fallbacksDefined": false,
+    "budgetsConfirmed": false,
+    "finalAcceptanceConfirmed": false,
+    "hookTrustReviewed": false
+  },
+  "fallbacks": [],
+  "finalAcceptance": {
+    "claims": []
+  }
+}

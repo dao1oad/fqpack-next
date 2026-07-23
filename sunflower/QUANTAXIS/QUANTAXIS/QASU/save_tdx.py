@@ -85,11 +85,9 @@ from QUANTAXIS.QAUtil import (
     QA_util_to_json_from_pandas,
     trade_date_sse
 )
-from QUANTAXIS.QAData.data_fq import _QA_data_stock_to_fq
-from QUANTAXIS.QAFetch.QAQuery import QA_fetch_stock_day
 from QUANTAXIS.QAUtil import Parallelism
 from QUANTAXIS.QAFetch.QATdx import ping, get_ip_list_by_multi_process_ping, stock_ip_list
-from QUANTAXIS.QASU.index_compat import ensure_compatible_index as _ensure_compatible_index
+from QUANTAXIS.QASU.index_compat import ensure_canonical_index as _ensure_canonical_index
 from multiprocessing import cpu_count
 
 
@@ -612,7 +610,7 @@ def QA_SU_save_stock_year(client=DATABASE, ui_log=None, ui_progress=None):
 
 
 def QA_SU_save_stock_xdxr(client=DATABASE, ui_log=None, ui_progress=None):
-    """[summary]
+    """Save XDXR diagnostic events without touching canonical QFQ factors.
 
     Keyword Arguments:
         client {[type]} -- [description] (default: {DATABASE})
@@ -629,14 +627,6 @@ def QA_SU_save_stock_xdxr(client=DATABASE, ui_log=None, ui_progress=None):
               pymongo.ASCENDING)],
             unique=True
         )
-        coll_adj = client.stock_adj
-        coll_adj.create_index(
-            [('code',
-                pymongo.ASCENDING),
-                ('date',
-                pymongo.ASCENDING)],
-            unique=True
-        )
     except:
         client.drop_collection('stock_xdxr')
         coll = client.stock_xdxr
@@ -645,15 +635,6 @@ def QA_SU_save_stock_xdxr(client=DATABASE, ui_log=None, ui_progress=None):
               pymongo.ASCENDING),
              ('date',
               pymongo.ASCENDING)],
-            unique=True
-        )
-        client.drop_collection('stock_adj')
-        coll_adj = client.stock_adj
-        coll_adj.create_index(
-            [('code',
-                pymongo.ASCENDING),
-                ('date',
-                pymongo.ASCENDING)],
             unique=True
         )
 
@@ -674,19 +655,6 @@ def QA_SU_save_stock_xdxr(client=DATABASE, ui_log=None, ui_progress=None):
                 )
             except:
                 pass
-            try:
-                data = QA_fetch_stock_day(str(code), '1990-01-01',str(datetime.date.today()), 'pd')
-                qfq = _QA_data_stock_to_fq(data, xdxr, 'qfq')
-                qfq = qfq.assign(date=qfq.date.apply(lambda x: str(x)[0:10]))
-                adjdata = QA_util_to_json_from_pandas(qfq.loc[:, ['date','code', 'adj']])
-                coll_adj.delete_many({'code': code})
-                #print(adjdata)
-                coll_adj.insert_many(adjdata)
-
-
-            except Exception as e:
-                print(e)
-
 
         except Exception as e:
             print(e)
@@ -969,13 +937,7 @@ def QA_SU_save_single_index_day(code : str, client=DATABASE, ui_log=None):
 
     #__index_list = QA_fetch_get_stock_list('index')
     coll = client.index_day
-    _ensure_compatible_index(
-        coll,
-        [('code',
-          pymongo.ASCENDING),
-         ('date_stamp',
-           pymongo.ASCENDING)]
-    )
+    _ensure_canonical_index(coll, 'index_day')
     err = []
 
     def __saving_work(code, coll):
@@ -1063,13 +1025,7 @@ def QA_SU_save_index_day(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('index')
     coll = client.index_day
-    _ensure_compatible_index(
-        coll,
-        [('code',
-          pymongo.ASCENDING),
-         ('date_stamp',
-           pymongo.ASCENDING)]
-    )
+    _ensure_canonical_index(coll, 'index_day')
     err = []
 
     def __saving_work(code, coll):
@@ -1175,16 +1131,7 @@ def QA_SU_save_index_min(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('index')
     coll = client.index_min
-    coll.create_index(
-        [
-            ('code',
-             pymongo.ASCENDING),
-            ('time_stamp',
-             pymongo.ASCENDING),
-            ('date_stamp',
-             pymongo.ASCENDING)
-        ]
-    )
+    _ensure_canonical_index(coll, 'index_min')
     err = []
 
     def __saving_work(code, coll):
@@ -1301,16 +1248,7 @@ def QA_SU_save_single_index_min(code : str, client=DATABASE, ui_log=None, ui_pro
     #__index_list = QA_fetch_get_stock_list('index')
     __index_list = [code]
     coll = client.index_min
-    coll.create_index(
-        [
-            ('code',
-             pymongo.ASCENDING),
-            ('time_stamp',
-             pymongo.ASCENDING),
-            ('date_stamp',
-             pymongo.ASCENDING)
-        ]
-    )
+    _ensure_canonical_index(coll, 'index_min')
     err = []
 
     def __saving_work(code, coll):
@@ -1428,13 +1366,7 @@ def QA_SU_save_single_etf_day(code : str, client=DATABASE, ui_log=None):
 
     #__index_list = QA_fetch_get_stock_list('etf')
     coll = client.index_day
-    _ensure_compatible_index(
-        coll,
-        [('code',
-          pymongo.ASCENDING),
-         ('date_stamp',
-           pymongo.ASCENDING)]
-    )
+    _ensure_canonical_index(coll, 'index_day')
     err = []
 
     def __saving_work(code, coll):
@@ -1503,13 +1435,7 @@ def QA_SU_save_etf_day(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('etf')
     coll = client.index_day
-    _ensure_compatible_index(
-        coll,
-        [('code',
-          pymongo.ASCENDING),
-         ('date_stamp',
-           pymongo.ASCENDING)]
-    )
+    _ensure_canonical_index(coll, 'index_day')
     err = []
 
     def __saving_work(code, coll):
@@ -1598,16 +1524,7 @@ def QA_SU_save_etf_min(client=DATABASE, ui_log=None, ui_progress=None):
 
     __index_list = QA_fetch_get_stock_list('etf')
     coll = client.index_min
-    coll.create_index(
-        [
-            ('code',
-             pymongo.ASCENDING),
-            ('time_stamp',
-             pymongo.ASCENDING),
-            ('date_stamp',
-             pymongo.ASCENDING)
-        ]
-    )
+    _ensure_canonical_index(coll, 'index_min')
     err = []
 
     def __saving_work(code, coll):
@@ -1725,16 +1642,7 @@ def QA_SU_save_single_etf_min(code : str, client=DATABASE, ui_log=None, ui_progr
     #__index_list = QA_fetch_get_stock_list('etf')
     __index_list = [code]
     coll = client.index_min
-    coll.create_index(
-        [
-            ('code',
-             pymongo.ASCENDING),
-            ('time_stamp',
-             pymongo.ASCENDING),
-            ('date_stamp',
-             pymongo.ASCENDING)
-        ]
-    )
+    _ensure_canonical_index(coll, 'index_min')
     err = []
 
     def __saving_work(code, coll):

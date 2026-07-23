@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "projectId": "freshquant-xtdata-qfq-integrity",
+  "projectName": "FreshQuant XTData QFQ Integrity",
+  "initializedAt": "2026-07-23T01:33:25Z",
+  "sourceOfTruth": {
+    "repository": "dao1oad/fqpack-next",
+    "issueNumber": 467,
+    "issueUrl": "https://github.com/dao1oad/fqpack-next/issues/467",
+    "baselineRef": "origin/main",
+    "baselineCommit": "ae5c002f8b03828d52d487c3125788c453427870"
+  },
+  "outcome": "以 XTData preClose 作为 Stock 与交易型 ETF 唯一 QFQ 因子源，在保持 quantaxis.stock_adj/etf_adj 和 get_data_v2 兼容合同的前提下，完成独立幂等 Bootstrap、每日增量、严格读取、Stock/ETF/Index 类型分流、Dagster 并发与完整性门禁；最终由真实 XTData、Mongo、Dagster、API、远程 main 正式部署和健康检查共同证明 Stock/ETF 返回 QFQ、Index 返回 BFQ。",
+  "nonGoals": [
+    "不迁移、运行或让任何行情 job 隐式选择 cjsd。",
+    "不把 GBBQ 或旧 XDXR category 链作为正式 QFQ 因子来源，也不做 GBBQ 在线核验。",
+    "不处理非交易型开放式基金，也不把它们计入 QFQ 缺失告警。",
+    "不为真正指数生成 QFQ，不改变 Futures 及其他未列明行情链。",
+    "不改变 get_data_v2 的参数以及主要 OHLC、volume、amount 响应合同。",
+    "不执行 Redis 数据迁移、清键或手工 prewarm；正式系统重启后按新数据自然重建。",
+    "不把行情 Bootstrap 混入会重建订单或仓位的 freshquant.initialize。",
+    "不修改 GitHub #465/#466 的 CLX 研究功能，只在因子切换后复验其 QFQ 依赖。",
+    "本任务不做数据备份。"
+  ],
+  "hardConstraints": [
+    "quantaxis.stock_adj 和 quantaxis.etf_adj 继续使用 code=六位字符串、date=YYYY-MM-DD、adj=有限正数的兼容合同。",
+    "included universe 的每个实际 BFQ 交易日必须有显式因子；无公司行为标的显式保存 adj=1，缺失时不得将 BFQ 冒充 QFQ。",
+    "QFQ factor universe 独立于实时 monitor pool 和 monitor.xtdata.max_symbols，并明确排除非交易型开放式基金。",
+    "XTData QFQ 发布器是 stock_adj/etf_adj 的唯一 writer；旧 CLI、Dagster 和 QUANTAXIS XDXR 路径不得覆盖 canonical 因子。",
+    "真正指数只读 index_day/index_min BFQ，绝不读取 etf_adj；Stock、ETF、Index 必须使用统一 instrument/universe 分类。",
+    "周末、停牌期或非交易日事件必须映射到该标的后续第一根实际日线，不能按市场日历虚构 K 线。",
+    "Bootstrap 与每日增量必须幂等、可恢复并原子发布；失败或覆盖审计未通过时不得发布 ready marker。",
+    "Stock、ETF、Index Dagster job 必须使用精确资产白名单、排除 cjsd，并通过真实共享 Mongo writer concurrency limit 串行写库。",
+    "Stock/ETF/Index 下载函数必须返回结构化统计，真实逐票失败必须使 run 失败；day 与 1/5/15/30/60min 缺口仅接受有原因和计数的审计豁免。",
+    "所有 V2 Gate 必须验证正式部署 SHA 等于最新远程 main，并证明运行证据产生于该次部署之后；部署前或旧部署上的通过结果不具备最终验收资格。",
+    "不停止无关的正常运行任务；业务实施、Bootstrap 写库和正式系统重启均留在后续实施与部署阶段。",
+    "正式交付必须遵循 GitHub Issue、feature branch、PR、CI、远程 main、formal deploy、health check、runtime ops check 和 cleanup。",
+    "当前事实变化时必须在同一实施 PR 更新 docs/current/**；治理阶段不提前把未来设计写成当前事实。",
+    "Agent 不得自行改变 outcome、nonGoals、hardConstraints、budgets 或 V2/real 最终验收，也不得用低层证据代替真实链证据。"
+  ],
+  "interactionPolicy": {
+    "decisionPhase": "bootstrap_only",
+    "runtimeQuestions": false,
+    "escalationAllowlist": []
+  },
+  "agentAuthority": {
+    "fixed": [
+      "sourceOfTruth",
+      "outcome",
+      "nonGoals",
+      "hardConstraints",
+      "permissions",
+      "budgets",
+      "finalAcceptance"
+    ],
+    "mutable": [
+      "implementation_route",
+      "architecture_details",
+      "work_breakdown",
+      "work_order",
+      "intermediate_gates",
+      "soft_thresholds",
+      "pre_final_data_mode",
+      "fallback_route"
+    ]
+  },
+  "permissions": {
+    "allowed": [
+      "创建和维护 GitHub #467、codex/ feature branch、PR 与评审证据。",
+      "读写仓库内治理文件，并在后续实施阶段修改 #467 范围内代码、测试和 docs/current/**。",
+      "探测 XTData、Mongo、Docker、Dagster、API 和宿主机运行面，并通过治理 runner 执行已登记 Gate。",
+      "在合并最新远程 main 后通过正式部署入口执行 Bootstrap、系统重启、健康检查和 runtime ops check。"
+    ],
+    "prohibited": [
+      "停止或改动与 #467 无关的正常运行任务。",
+      "执行数据备份、Redis 专项迁移、Redis 清键或手工 prewarm。",
+      "在本地 main 开发、直接推送 main，或绕过 PR、CI、formal deploy。",
+      "泄露 GitHub、Mongo、XTData 或其他运行凭据。"
+    ]
+  },
+  "budgets": {
+    "deadlineAt": null,
+    "maxCheckRuns": 80,
+    "maxStopContinuations": 30,
+    "maxNoProgressStops": 3,
+    "sameFailureLimit": 2
+  },
+  "dependencies": [
+    {
+      "id": "github",
+      "resource": "dao1oad/fqpack-next",
+      "status": "ready",
+      "evidence": "Authenticated GitHub API created issue #467."
+    },
+    {
+      "id": "xtdata",
+      "resource": "127.0.0.1:58610",
+      "status": "ready",
+      "evidence": "Real preClose probes succeeded for Stock and ETF samples."
+    },
+    {
+      "id": "mongo",
+      "resource": "127.0.0.1:27027",
+      "status": "ready",
+      "evidence": "Docker Mongo health and quantaxis factor collections were read successfully."
+    },
+    {
+      "id": "host-market-data",
+      "resource": "fqnext-supervisord",
+      "status": "ready_with_legacy_worker",
+      "evidence": "Supervisor and market-data processes are running; process state is not accepted as factor readiness."
+    },
+    {
+      "id": "api-and-dagster-v2",
+      "resource": "formal Docker runtime",
+      "status": "deferred_until_formal_deploy",
+      "evidence": "API and Dagster are currently stopped and must be verified after the implementation is merged and the system is formally restarted."
+    }
+  ],
+  "preflight": {
+    "goalAndBoundariesConfirmed": true,
+    "repositoryRootVerified": true,
+    "credentialsAndPermissionsVerified": true,
+    "externalDependenciesProbed": true,
+    "fallbacksDefined": true,
+    "budgetsConfirmed": true,
+    "finalAcceptanceConfirmed": true,
+    "hookTrustReviewed": true
+  },
+  "fallbacks": [
+    {
+      "when": "REAL_CHAIN_NOT_READY",
+      "action": "CONTINUE_INDEPENDENT_V0_V1_WORK_AND_KEEP_V2_CLAIMS_MISSING"
+    },
+    {
+      "when": "XTDATA_HISTORY_OR_FACTOR_COVERAGE_INCOMPLETE",
+      "action": "KEEP_GATE_FAILED_AND_REPLAN_WITHOUT_XDXR_OR_BFQ_FALLBACK"
+    },
+    {
+      "when": "GITHUB_CI_OR_FORMAL_DEPLOY_UNAVAILABLE",
+      "action": "PRESERVE_EVIDENCE_AND_WITHHOLD_DONE_CLAIM_UNTIL_DEPENDENCY_RECOVERS"
+    },
+    {
+      "when": "IDENTICAL_GATE_FAILURE_REPEATS",
+      "action": "CHANGE_SOURCE_GATE_VERIFIER_OR_ROUTE_BEFORE_ANOTHER_RUN"
+    }
+  ],
+  "finalAcceptance": {
+    "claims": [
+      {
+        "id": "CLAIM-QFQ-DATA",
+        "description": "真实 XTData Bootstrap 和增量发布完成，included Stock/交易型 ETF 全历史因子 missing=0、invalid=0、duplicates=0，且 canonical 因子只有 XTData writer。",
+        "itemRef": "WI-001",
+        "gateRef": "qfq-bootstrap-real",
+        "level": "V2",
+        "dataMode": "real"
+      },
+      {
+        "id": "CLAIM-QFQ-READ",
+        "description": "正式 API 的 get_data_v2 保持兼容，真实 Stock/ETF 样本返回 QFQ，真实 Index 样本返回 BFQ，缺因子明确返回 QFQ_DATA_NOT_READY。",
+        "itemRef": "WI-002",
+        "gateRef": "qfq-runtime-audit",
+        "level": "V2",
+        "dataMode": "real"
+      },
+      {
+        "id": "CLAIM-MARKET-JOBS",
+        "description": "正式 Dagster 的 stock_data_job、etf_data_job、index_data_job 使用精确资产白名单且不含 cjsd，共享 writer concurrency 生效，真实运行和 day/min 覆盖审计通过。",
+        "itemRef": "WI-003",
+        "gateRef": "market-jobs-real",
+        "level": "V2",
+        "dataMode": "real"
+      },
+      {
+        "id": "CLAIM-DEPLOY",
+        "description": "所有实现、测试和 docs/current/** 通过 PR/CI 合并到最新远程 main，并完成 formal deploy、系统重启、健康检查、runtime ops check 和 cleanup。",
+        "itemRef": "WI-005",
+        "gateRef": "formal-deploy-main",
+        "level": "V2",
+        "dataMode": "real"
+      }
+    ]
+  }
+}

@@ -144,6 +144,53 @@ def test_stock_day_empty_source_is_a_noop():
     assert module._insert_stock_day_rows(Collection(), None) == 0
 
 
+def test_stock_xdxr_sync_never_accesses_canonical_stock_adj(monkeypatch):
+    module = _load_save_module()
+
+    class XdxrCollection:
+        def __init__(self):
+            self.documents = []
+
+        def create_index(self, fields, **kwargs):
+            return "code_1_date_1"
+
+        def insert_many(self, documents, **kwargs):
+            self.documents.extend(documents)
+
+    class Client:
+        def __init__(self):
+            self.stock_xdxr = XdxrCollection()
+
+        @property
+        def stock_adj(self):
+            raise AssertionError("legacy XDXR sync accessed canonical stock_adj")
+
+        def drop_collection(self, name):
+            raise AssertionError(f"unexpected collection drop: {name}")
+
+    client = Client()
+    monkeypatch.setattr(
+        module,
+        "QA_fetch_get_stock_list",
+        lambda: pd.DataFrame([{"code": "000001"}]),
+    )
+    monkeypatch.setattr(
+        module,
+        "QA_fetch_get_stock_xdxr",
+        lambda code: pd.DataFrame([{"code": code, "date": "2026-07-23"}]),
+    )
+    monkeypatch.setattr(
+        module,
+        "QA_util_to_json_from_pandas",
+        lambda frame: frame.to_dict("records"),
+    )
+    monkeypatch.setattr(module, "QA_util_log_info", lambda *args, **kwargs: None)
+
+    module.QA_SU_save_stock_xdxr(client=client)
+
+    assert client.stock_xdxr.documents == [{"code": "000001", "date": "2026-07-23"}]
+
+
 def test_full_stock_day_sync_accepts_unlisted_empty_source(monkeypatch):
     module = _load_save_module()
 

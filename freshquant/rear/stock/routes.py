@@ -24,6 +24,10 @@ from freshquant.data.astock.holding import (
     get_stock_hold_position,
     get_stock_positions,
 )
+from freshquant.data.qfq_contract import (
+    QFQ_DATA_NOT_READY_HTTP_STATUS,
+    QFQDataNotReadyError,
+)
 from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info, query_instrument_type
 from freshquant.position.cn_future import queryArrangedCnFutureFillList
@@ -138,6 +142,14 @@ def _parse_bar_count(raw):
     return min(max(value, 0), MAX_STOCK_DATA_BAR_COUNT)
 
 
+def _qfq_data_not_ready_response(error):
+    return Response(
+        json.dumps(error.as_dict(), cls=FqJsonEncoder),
+        mimetype="application/json",
+        status=QFQ_DATA_NOT_READY_HTTP_STATUS,
+    )
+
+
 def _tail_stock_data_payload(payload, bar_count):
     if not isinstance(payload, dict) or bar_count <= 0:
         return payload
@@ -219,7 +231,10 @@ def stock_data():
         result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
         result = _tail_stock_data_payload(result, bar_count)
     if result is None:
-        result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
+        try:
+            result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
+        except QFQDataNotReadyError as error:
+            return _qfq_data_not_ready_response(error)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 
@@ -228,7 +243,10 @@ def stock_data_v2():
     period = request.args.get("period")
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
-    result = get_data_v2(symbol, period, end_date)
+    try:
+        result = get_data_v2(symbol, period, end_date)
+    except QFQDataNotReadyError as error:
+        return _qfq_data_not_ready_response(error)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 

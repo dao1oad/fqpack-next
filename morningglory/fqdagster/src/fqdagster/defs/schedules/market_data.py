@@ -1,7 +1,8 @@
 """Market data schedules using asset-based approach.
 
-This module defines schedules that trigger asset materialization.
-Each schedule targets the root asset (list assets), and dependent assets are automatically triggered.
+This module defines schedules that trigger asset materialization. Stock, ETF,
+and Index jobs use explicit whitelists so unrelated downstream assets cannot
+join a market-data run.
 """
 
 from typing import cast
@@ -14,29 +15,51 @@ from dagster import (
 )
 from fqdagster.defs.assets.market_data import (
     bond_list,
+    etf_adj,
+    etf_day,
     etf_list,
+    etf_min,
+    etf_postclose_ready_asset,
     future_list,
+    index_day,
     index_list,
+    index_min,
+    stock_adj,
+    stock_block,
+    stock_day,
     stock_list,
+    stock_min,
+    stock_postclose_ready_asset,
+)
+from fqdagster.defs.assets.postclose_ready import (
+    refresh_quality_stock_universe_snapshot,
 )
 
 from freshquant.config import cfg
 
 TIME_ZONE = cast(str, getattr(cfg, "TIME_ZONE", "Asia/Shanghai"))
+MONGO_WRITER_TAG = {"freshquant/mongo_writer": "quantaxis_market_data"}
+BOUNDED_MARKET_JOB_TAGS = {
+    **MONGO_WRITER_TAG,
+    "dagster/max_concurrent_runs": "1",
+    "dagster/max_retries": "2",
+    "dagster/max_runtime": "28800",
+}
 
-# Define asset jobs that will materialize the root assets and their dependencies
+# Define market-data asset jobs.
 stock_data_job = define_asset_job(
     name="stock_data_job",
-    description="Materialize stock data assets starting from stock_list",
-    selection=(
-        AssetSelection.assets(stock_list).downstream()
-        - AssetSelection.groups("cjsd_data")
+    description="Materialize the explicit Stock market-data asset whitelist",
+    selection=AssetSelection.assets(
+        stock_list,
+        stock_block,
+        stock_day,
+        stock_min,
+        stock_adj,
+        refresh_quality_stock_universe_snapshot,
+        stock_postclose_ready_asset,
     ),
-    tags={
-        "dagster/max_concurrent_runs": "1",
-        "dagster/max_retries": "2",
-        "dagster/max_runtime": "28800",
-    },
+    tags=BOUNDED_MARKET_JOB_TAGS,
 )
 
 future_data_job = define_asset_job(
@@ -48,13 +71,15 @@ future_data_job = define_asset_job(
 
 etf_data_job = define_asset_job(
     name="etf_data_job",
-    description="Materialize ETF data assets starting from etf_list",
-    selection=AssetSelection.assets(etf_list).downstream(),
-    tags={
-        "dagster/max_concurrent_runs": "1",
-        "dagster/max_retries": "2",
-        "dagster/max_runtime": "28800",
-    },
+    description="Materialize the explicit ETF market-data asset whitelist",
+    selection=AssetSelection.assets(
+        etf_list,
+        etf_day,
+        etf_min,
+        etf_adj,
+        etf_postclose_ready_asset,
+    ),
+    tags=BOUNDED_MARKET_JOB_TAGS,
 )
 
 bond_data_job = define_asset_job(
@@ -66,9 +91,9 @@ bond_data_job = define_asset_job(
 
 index_data_job = define_asset_job(
     name="index_data_job",
-    description="Materialize index data assets starting from index_list",
-    selection=AssetSelection.assets(index_list).downstream(),
-    tags={"dagster/max_concurrent_runs": "1"},
+    description="Materialize the explicit BFQ Index market-data asset whitelist",
+    selection=AssetSelection.assets(index_list, index_day, index_min),
+    tags=BOUNDED_MARKET_JOB_TAGS,
 )
 
 # Schedule definitions

@@ -18,12 +18,16 @@ from freshquant.util.code import fq_util_code_append_market_code
 
 @redis_cache.memoize(expiration=900)
 def fq_data_QA_fetch_index_min_adv(code, start, end, frequence):
-    return QA_fetch_index_min_adv(code, start, end, frequence).to_qfq().data
+    # Real indexes are intentionally BFQ.  ETF QFQ factors are never read on
+    # this path, even though both products use QUANTAXIS index collections.
+    data = QA_fetch_index_min_adv(code, start, end, frequence)
+    return data.data if data is not None else None
 
 
 @redis_cache.memoize(expiration=900)
 def fqDataQAFetchIndexDayAdv(code, start, end):
-    return QA_fetch_index_day_adv(code, start, end).data
+    data = QA_fetch_index_day_adv(code, start, end)
+    return data.data if data is not None else None
 
 
 @redis_cache.memoize(expiration=864000)
@@ -38,14 +42,14 @@ def fq_data_index_fetch_min(code, frequence, start=None, end=None):
         QA_util_datetime_to_strdatetime(end),
         frequence=frequence,
     )
+    if data is None or len(data) == 0:
+        return None
     data.reset_index(inplace=True)
     data["time_stamp"] = data["datetime"].apply(lambda dt: QA_util_time_stamp(dt))
     data.set_index("datetime", inplace=True, drop=False)
-    if data is None or len(data) == 0:
-        return None
-    last_datetime = data["datetime"][-1]
+    last_datetime = data["datetime"].iloc[-1]
     realtime_data_list = (
-        DBfreshquant["stock_realtime"]
+        DBfreshquant["index_realtime"]
         .find(
             {
                 "code": fq_util_code_append_market_code(code, upper_case=False),
@@ -88,7 +92,7 @@ def fq_data_index_fetch_min(code, frequence, start=None, end=None):
             lambda value: value.replace(tzinfo=None)
         )
         realtime_data_list.set_index("datetime", drop=False, inplace=True)
-        data = data.append(realtime_data_list)
+        data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
     data = data.round(
         {"open": 2, "high": 2, "low": 2, "close": 2, "volume": 2, "amount": 2}
@@ -102,6 +106,8 @@ def fqDataIndexFetchDay(code, start=None, end=None):
         QA_util_datetime_to_strdatetime(start),
         QA_util_datetime_to_strdatetime(end),
     )
+    if data is None or len(data) == 0:
+        return None
     data.reset_index(inplace=True)
     data["datetime"] = data["date"].apply(lambda x: datetime.combine(x, time()))
     data["date_stamp"] = data["datetime"].apply(lambda x: QA_util_time_stamp(x))
@@ -111,6 +117,10 @@ def fqDataIndexFetchDay(code, start=None, end=None):
     )
     data.set_index("datetime", drop=False, inplace=True)
     return data
+
+
+# Explicit BFQ aliases used by the type-routing layer.
+fq_data_index_fetch_day = fqDataIndexFetchDay
 
 
 def fq_data_stock_resample_60min(data):

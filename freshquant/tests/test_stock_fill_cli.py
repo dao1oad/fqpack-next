@@ -123,3 +123,22 @@ def test_stock_fill_compare_command_routes_to_fill_module(monkeypatch):
 
     assert result.exit_code == 0
     assert captured == ["000001"]
+
+
+def test_stock_xdxr_save_command_keeps_compatible_diagnostic_entry(monkeypatch):
+    stock_command_module = _load_stock_command_module(monkeypatch)
+    captured = []
+    monkeypatch.setattr(
+        stock_command_module,
+        "QA_SU_save_stock_xdxr",
+        lambda **kwargs: captured.append(kwargs),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        stock_command_module.stock_xdxr_command_group,
+        ["save", "--engine", "tdx"],
+    )
+
+    assert result.exit_code == 0
+    assert captured == [{"engine": "tdx"}]

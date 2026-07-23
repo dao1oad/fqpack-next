@@ -4,6 +4,7 @@ from .market_data import (  # Stock assets; Future assets; ETF assets; Bond asse
     bond_day,
     bond_list,
     bond_min,
+    etf_adj,
     etf_day,
     etf_list,
     etf_min,
@@ -14,6 +15,7 @@ from .market_data import (  # Stock assets; Future assets; ETF assets; Bond asse
     index_day,
     index_list,
     index_min,
+    stock_adj,
     stock_block,
     stock_day,
     stock_list,
@@ -28,6 +30,7 @@ __all__ = [
     # Stock assets
     "stock_list",
     "stock_block",
+    "stock_adj",
     "stock_day",
     "stock_min",
     "stock_xdxr",
@@ -38,6 +41,7 @@ __all__ = [
     "future_min",
     # ETF assets
     "etf_list",
+    "etf_adj",
     "etf_day",
     "etf_min",
     "etf_postclose_ready_asset",

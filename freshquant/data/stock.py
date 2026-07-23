@@ -12,6 +12,7 @@ from freshquant.data.adj_intraday import (
     fetch_intraday_override,
     fetch_qfq_adj_df,
 )
+from freshquant.data.qfq_contract import QFQDataNotReadyError
 from freshquant.database.cache import redis_cache
 from freshquant.db import DBfreshquant
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
@@ -43,8 +44,18 @@ def _apply_stock_qfq(
 ) -> pd.DataFrame:
     if data is None or len(data) == 0 or start is None or end is None:
         return data
-    start_date = start.strftime("%Y-%m-%d")
-    end_date = end.strftime("%Y-%m-%d")
+    date_values = pd.to_datetime(
+        data["date"] if "date" in data.columns else data["datetime"],
+        errors="coerce",
+    ).dropna()
+    if date_values.empty:
+        raise QFQDataNotReadyError(
+            "stock bars have no valid trading date", code=normalize_to_base_code(code)
+        )
+    # Use the actual bar axis.  A weekend/future query end must not become a
+    # factor or intraday-override lookup date.
+    start_date = date_values.min().strftime("%Y-%m-%d")
+    end_date = date_values.max().strftime("%Y-%m-%d")
     base_code = normalize_to_base_code(code)
     adj = fetch_qfq_adj_df(
         coll_name="stock_adj",
@@ -62,6 +73,8 @@ def _apply_stock_qfq(
         adj,
         override=override,
         datetime_col="datetime",
+        strict=True,
+        code=base_code,
     )
 
 
@@ -81,11 +94,11 @@ def fq_data_stock_fetch_min(code, frequence, start=None, end=None):
         QA_util_datetime_to_strdatetime(end),
         frequence=frequence,
     )
+    if data is None or len(data) == 0:
+        return None
     data.reset_index(inplace=True)
     data["time_stamp"] = data["datetime"].apply(lambda dt: QA_util_time_stamp(dt))
     data.set_index("datetime", inplace=True, drop=False)
-    if data is None or len(data) == 0:
-        return None
     last_datetime = data["datetime"].iloc[-1]
     realtime_data_list = (
         DBfreshquant["stock_realtime"]

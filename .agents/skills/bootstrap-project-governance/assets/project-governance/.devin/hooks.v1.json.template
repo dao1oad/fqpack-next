@@ -1,0 +1,14 @@
+{
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"$DEVIN_PROJECT_DIR/tools/governance.py\" hook-stop --repo \"$DEVIN_PROJECT_DIR\"",
+          "timeout": 120
+        }
+      ]
+    }
+  ]
+}

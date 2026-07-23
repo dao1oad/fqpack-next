@@ -6,6 +6,10 @@ build/
 *.log
 *.pid
 *.log.*
+# BEGIN BOOTSTRAP-PROJECT-GOVERNANCE
+!.governance/runs/**/stdout.log
+!.governance/runs/**/stderr.log
+# END BOOTSTRAP-PROJECT-GOVERNANCE
 package-lock.json
 
 # Virtual environments

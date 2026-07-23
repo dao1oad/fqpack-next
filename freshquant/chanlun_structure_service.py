@@ -331,19 +331,29 @@ def _get_realtime_cache_payload(
 
 def _fetch_kline_df(symbol: str, period: str, end_date: str | None) -> pd.DataFrame:
     from freshquant.carnation.enum_instrument import InstrumentType
-    from freshquant.instrument.general import query_instrument_type
+    from freshquant.instrument.general import (
+        infer_cn_instrument_type,
+        query_instrument_type,
+    )
+    from freshquant.util.code import infer_cn_security_prefixed_code
     from freshquant.KlineDataTool import get_future_data_v2, get_stock_data
     from freshquant.quote.etf import queryEtfCandleSticks
+    from freshquant.quote.index import queryIndexCandleSticks
 
-    instrument_type = query_instrument_type((symbol or "").lower())
+    normalized_symbol = infer_cn_security_prefixed_code(symbol) or symbol
+    instrument_type = query_instrument_type((normalized_symbol or "").lower())
+    if instrument_type is None:
+        instrument_type = infer_cn_instrument_type(normalized_symbol)
     if instrument_type == InstrumentType.STOCK_CN:
         fetcher = get_stock_data
     elif instrument_type == InstrumentType.ETF_CN:
         fetcher = queryEtfCandleSticks
+    elif instrument_type == InstrumentType.INDEX_CN:
+        fetcher = queryIndexCandleSticks
     else:
         fetcher = get_future_data_v2
 
-    df = fetcher(symbol, period, end_date)
+    df = fetcher(normalized_symbol, period, end_date)
     return _sanitize_kline_df(df)
 
 

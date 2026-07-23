@@ -78,9 +78,15 @@ def _build_qautil_stub():
 
 def _build_etf_adj_sync_stub():
     module = ModuleType("freshquant.data.etf_adj_sync")
-    module.sync_etf_adj_all = lambda *args, **kwargs: None
     module.sync_etf_xdxr_all = lambda *args, **kwargs: None
     module.audit_recent_etf_xdxr_coverage = lambda *args, **kwargs: None
+    return module
+
+
+def _build_xtdata_qfq_stub():
+    module = ModuleType("freshquant.market_data.xtdata.qfq")
+    module.sync_stock_adj_all = lambda *args, **kwargs: None
+    module.sync_etf_adj_all = lambda *args, **kwargs: None
     return module
 
 
@@ -107,6 +113,11 @@ def _import_market_data_module(monkeypatch):
         sys.modules,
         "freshquant.data.etf_adj_sync",
         _build_etf_adj_sync_stub(),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "freshquant.market_data.xtdata.qfq",
+        _build_xtdata_qfq_stub(),
     )
     assets_dir = project_src / "fqdagster" / "defs" / "assets"
     assets_package = ModuleType("fqdagster.defs.assets")
@@ -467,13 +478,30 @@ def test_etf_adj_asset_calls_sync_function(monkeypatch):
     monkeypatch.setattr(
         module,
         "sync_etf_adj_all",
-        lambda: captured.setdefault("etf_adj", True) or {"ok": 1},
+        lambda **kwargs: captured.setdefault("etf_adj", kwargs) or {"ok": 1},
     )
 
-    context = SimpleNamespace(log=log)
-    result = module.etf_adj(context, "2026-03-17 16:00:00", "2026-03-17 16:01:00")
+    context = SimpleNamespace(log=log, run_id="run-etf-adj")
+    result = module.etf_adj(context, "2026-03-17 16:00:00")
 
-    assert captured == {"etf_adj": True}
+    assert captured == {"etf_adj": {"run_id": "run-etf-adj", "incremental": True}}
+    assert isinstance(result, str)
+
+
+def test_stock_adj_asset_calls_xtdata_sync_function(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    captured = {}
+
+    monkeypatch.setattr(
+        module,
+        "sync_stock_adj_all",
+        lambda **kwargs: captured.setdefault("stock_adj", kwargs) or {"ok": 1},
+    )
+
+    context = SimpleNamespace(log=FakeLog(), run_id="run-stock-adj")
+    result = module.stock_adj(context, "2026-03-17 16:00:00")
+
+    assert captured == {"stock_adj": {"run_id": "run-stock-adj", "incremental": True}}
     assert isinstance(result, str)
 
 
@@ -484,6 +512,7 @@ def test_stock_postclose_ready_asset_depends_on_quality_snapshot(monkeypatch):
         "refresh_quality_stock_universe_snapshot",
         "stock_day",
         "stock_min",
+        "stock_adj",
     ]
 
 
@@ -659,6 +688,7 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
         },
         "2026-03-19 16:00:00",
         "2026-03-19 16:05:00",
+        "2026-03-19 16:10:00",
     )
 
     assert calls == [
@@ -670,6 +700,7 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
                 "count": 18,
                 "source_version": "xgt_hot_blocks_v1",
                 "integrity_audited_dates": ["2026-03-19"],
+                "stock_adj_completed_at": "2026-03-19 16:10:00",
             },
         }
     ]

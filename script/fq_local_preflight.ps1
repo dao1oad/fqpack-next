@@ -288,8 +288,12 @@ function Invoke-ExternalCommand {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
-    & $FilePath @Arguments
-    return $LASTEXITCODE
+    $output = @(& $FilePath @Arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+    foreach ($line in $output) {
+        Write-Host $line
+    }
+    return [int]$exitCode
 }
 
 $repoRoot = (& git rev-parse --show-toplevel 2>$null)

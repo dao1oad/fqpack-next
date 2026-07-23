@@ -16,3 +16,11 @@ Dockerfile* text eol=lf
 *.cmd text eol=crlf
 
 morningglory/fqwebui/web/index.html text eol=lf
+
+# BEGIN BOOTSTRAP-PROJECT-GOVERNANCE
+/.governance/*.json text eol=lf
+/.governance/*.jsonl text eol=lf
+/.governance/runs/**/result.json text eol=lf
+/.governance/runs/**/stdout.log binary
+/.governance/runs/**/stderr.log binary
+# END BOOTSTRAP-PROJECT-GOVERNANCE

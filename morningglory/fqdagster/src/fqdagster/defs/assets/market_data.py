@@ -34,10 +34,10 @@ from QUANTAXIS.QAUtil import QA_util_to_json_from_pandas
 
 from freshquant.data.etf_adj_sync import (
     audit_recent_etf_xdxr_coverage,
-    sync_etf_adj_all,
     sync_etf_xdxr_all,
 )
 from freshquant.db import DBQuantAxis
+from freshquant.market_data.xtdata.qfq import sync_etf_adj_all, sync_stock_adj_all
 
 from ..postclose_markers import (
     resolve_latest_completed_trade_date,
@@ -519,12 +519,34 @@ def stock_xdxr(context: AssetExecutionContext, stock_day: str) -> str:
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
 
 
+@asset(deps=[stock_day], group_name="stock_data")
+def stock_adj(context: AssetExecutionContext, stock_day: str) -> str:
+    """Publish canonical XTData preClose QFQ factors after stock daily data."""
+    context.log.info(
+        f"Saving Stock XTData adj(qfq), triggered after stock_day at {stock_day}"
+    )
+    stats = sync_stock_adj_all(
+        run_id=getattr(context, "run_id", None),
+        incremental=True,
+    )
+    context.log.info(f"Stock XTData adj sync stats: {stats}")
+    market_data_alert.send(
+        "dagster-asset",
+        payload={
+            "title": "事件通知-数据下载完成",
+            "content": "股票 XTData 前复权因子(stock_adj) 数据已生成完成。",
+        },
+    )
+    return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
+
+
 @asset(group_name="stock_data")
 def stock_postclose_ready_asset(
     context: AssetExecutionContext,
     refresh_quality_stock_universe_snapshot: dict,
     stock_day: str,
     stock_min: str,
+    stock_adj: str,
 ) -> dict:
     trade_date = (
         str(refresh_quality_stock_universe_snapshot.get("trade_date") or "")
@@ -538,6 +560,7 @@ def stock_postclose_ready_asset(
             refresh_quality_stock_universe_snapshot.get("source_version") or ""
         ).strip(),
         "integrity_audited_dates": list(integrity.get("audited_dates") or []),
+        "stock_adj_completed_at": stock_adj,
     }
     upsert_postclose_marker(
         "stock_postclose_ready",
@@ -690,14 +713,17 @@ def etf_xdxr(context: AssetExecutionContext, etf_list: str) -> str:
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
 
 
-@asset(deps=[etf_day, etf_xdxr], group_name="etf_data")
-def etf_adj(context: AssetExecutionContext, etf_day: str, etf_xdxr: str) -> str:
-    """Compute and save ETF qfq adjustment factors. Depends on etf_day + etf_xdxr."""
+@asset(deps=[etf_day], group_name="etf_data")
+def etf_adj(context: AssetExecutionContext, etf_day: str) -> str:
+    """Publish canonical XTData preClose QFQ factors after ETF daily data."""
     context.log.info(
-        f"Saving ETF adj(qfq) data, triggered after etf_day at {etf_day} and etf_xdxr at {etf_xdxr}"
+        f"Saving ETF XTData adj(qfq), triggered after etf_day at {etf_day}"
     )
-    stats = sync_etf_adj_all()
-    context.log.info(f"ETF adj sync stats: {stats}")
+    stats = sync_etf_adj_all(
+        run_id=getattr(context, "run_id", None),
+        incremental=True,
+    )
+    context.log.info(f"ETF XTData adj sync stats: {stats}")
     market_data_alert.send(
         "dagster-asset",
         payload={
