@@ -67,6 +67,10 @@ class PortfolioContract:
     frozen_rank_top_n: int
     raw: dict[str, Any]
     file_sha256: str
+    contract_version: int = 1
+    replacement_policy: str = "NONE"
+    min_validation_samples: int = 0
+    dedup_policy: str = "NONE"
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -375,9 +379,69 @@ def build_frozen_combo_decisions(
     return result
 
 
+_CONTRACT_V2_REQUIRED: dict[str, Any] = {
+    "contract_version": 2,
+    "initial_cash_cny": "10000000",
+    "target_weight": "0.025",
+    "max_holdings": 40,
+    "lot_size_default": 100,
+    "decision_clock": "T_CLOSE",
+    "first_attempt": "NEXT_MARKET_SESSION_RAW_OPEN",
+    "buy_rule": "FROZEN_POSITIVE_DIRECTION_COMBO",
+    "exit_rule": "DIRECTION_INVERTED_SAME_CANONICAL_DSL",
+    "negative_signal_priority": "EXIT_AND_SAME_DAY_BUY_VETO",
+    "price_domain": "RAW",
+    "fee_schedule": "DEFAULT_FEE_SCHEDULE",
+    "limit_schedule": "DEFAULT_LIMIT_SCHEDULE",
+    "slippage_model": "DEFAULT_SLIPPAGE_MODEL",
+    "replacement_policy": "SCORE_REPLACE_WEAKEST_HOLDING",
+}
+_CONTRACT_V2_SELECTION: dict[str, Any] = {
+    "split": "VALIDATION",
+    "direction": 1,
+    "frozen_rank_top_n": 20,
+    "min_validation_samples": 300,
+    "dedup_policy": "MODEL_ROOTS_DIRECTION_BEST_RANK",
+}
+
+
+def _load_portfolio_contract_v2(
+    source: Path, value: dict[str, Any]
+) -> PortfolioContract:
+    mismatches = {
+        key: {"expected": expected, "actual": value.get(key)}
+        for key, expected in _CONTRACT_V2_REQUIRED.items()
+        if value.get(key) != expected
+    }
+    selection = value.get("selection", {})
+    if selection != _CONTRACT_V2_SELECTION:
+        mismatches["selection"] = {
+            "expected": _CONTRACT_V2_SELECTION,
+            "actual": selection,
+        }
+    if mismatches:
+        raise PortfolioArtifactError(
+            f"portfolio config contract mismatch: {mismatches}"
+        )
+    return PortfolioContract(
+        initial_cash=Decimal(value["initial_cash_cny"]),
+        target_weight=Decimal(value["target_weight"]),
+        max_holdings=int(value["max_holdings"]),
+        frozen_rank_top_n=int(selection["frozen_rank_top_n"]),
+        raw=value,
+        file_sha256=_sha256_file(source),
+        contract_version=2,
+        replacement_policy=str(value["replacement_policy"]),
+        min_validation_samples=int(selection["min_validation_samples"]),
+        dedup_policy=str(selection["dedup_policy"]),
+    )
+
+
 def load_portfolio_contract(path: str | Path) -> PortfolioContract:
     source = Path(path).resolve()
     value = json.loads(source.read_text(encoding="utf-8"))
+    if value.get("contract_version") == 2:
+        return _load_portfolio_contract_v2(source, value)
     required = {
         "initial_cash_cny": "10000000",
         "target_weight": "0.10",
@@ -427,8 +491,14 @@ def load_portfolio_contract(path: str | Path) -> PortfolioContract:
 
 
 def load_frozen_positive_combos(
-    ranking_dir: str | Path, top_n: int
+    ranking_dir: str | Path,
+    top_n: int,
+    *,
+    min_validation_samples: int = 0,
+    dedup_policy: str = "NONE",
 ) -> tuple[list[FrozenPortfolioCombo], dict[str, Any], str]:
+    if dedup_policy not in ("NONE", "MODEL_ROOTS_DIRECTION_BEST_RANK"):
+        raise PortfolioArtifactError(f"unknown dedup_policy: {dedup_policy}")
     root = Path(ranking_dir).resolve()
     verify_ranking_artifact(root)
     manifest, manifest_sha = _read_hashed_manifest(root, "ranking")
@@ -436,10 +506,23 @@ def load_frozen_positive_combos(
         "frozen_rank"
     )
     selected: list[FrozenPortfolioCombo] = []
+    seen_families: set[tuple[str, ...]] = set()
+    seen_membership_digests: set[str] = set()
     for row in rankings.iter_rows(named=True):
         canonical = json.loads(str(row["canonical_dsl"]))
         if int(canonical["target_direction"]) != 1:
             continue
+        if int(row["validation_sample"]) < min_validation_samples:
+            continue
+        if dedup_policy == "MODEL_ROOTS_DIRECTION_BEST_RANK":
+            family = tuple(sorted(str(item) for item in row["model_roots"]))
+            membership_digest = str(row["validation_membership_digest"])
+            if family in seen_families:
+                continue
+            if membership_digest in seen_membership_digests:
+                continue
+            seen_families.add(family)
+            seen_membership_digests.add(membership_digest)
         definition = ComboDefinition.from_value(canonical)
         if definition.combo_id != row["combo_id"]:
             raise PortfolioArtifactError("ranking canonical DSL identity mismatch")
@@ -1412,7 +1495,10 @@ def build_portfolio_artifact(
     output_root = Path(output_dir).resolve()
     contract = load_portfolio_contract(portfolio_config)
     selected, ranking_manifest, ranking_manifest_sha = load_frozen_positive_combos(
-        ranking_root, contract.frozen_rank_top_n
+        ranking_root,
+        contract.frozen_rank_top_n,
+        min_validation_samples=contract.min_validation_samples,
+        dedup_policy=contract.dedup_policy,
     )
     if not selected:
         raise PortfolioArtifactError("ranking has no positive frozen combinations")
@@ -1494,6 +1580,7 @@ def build_portfolio_artifact(
             initial_cash=contract.initial_cash,
             target_weight=contract.target_weight,
             max_holdings=contract.max_holdings,
+            replacement_policy=contract.replacement_policy,
         )
         for frozen in selected
     }

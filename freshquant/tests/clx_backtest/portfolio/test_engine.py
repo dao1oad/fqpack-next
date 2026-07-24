@@ -283,3 +283,73 @@ def test_twenty_portfolios_consume_each_market_session_once() -> None:
     assert consumed == list(sessions)
     assert len(results) == 20
     assert all(len(result.equity) == len(sessions) for result in results.values())
+
+
+def _replacement_result(second_score: str):
+    bars = tuple(
+        _bar(session, code, raw_open, raw_close, previous)
+        for session in (D1, D2, D3, D4)
+        for code, raw_open, raw_close, previous in (
+            ("600001", "9.80", "10.00", "9.70"),
+            ("600002", "4.90", "5.00", "4.80"),
+        )
+    )
+    decisions = (
+        SignalDecision("FIRST_BUY", D1, "600001", 1, Decimal("1"), ("sf-1",)),
+        SignalDecision("SECOND_BUY", D2, "600002", 1, Decimal(second_score), ("sf-2",)),
+    )
+    return run_portfolio(
+        config=PortfolioConfig(
+            run_id="replacement-run",
+            combo_id="replacement-combo",
+            initial_cash=Decimal("10000"),
+            target_weight=Decimal("1"),
+            max_holdings=1,
+            replacement_policy="SCORE_REPLACE_WEAKEST_HOLDING",
+        ),
+        sessions=(D1, D2, D3, D4),
+        bars=bars,
+        decisions=decisions,
+    )
+
+
+def test_replacement_sells_weakest_holding_before_buying_stronger_signal() -> None:
+    result = _replacement_result("2")
+
+    assert [(fill.side, fill.trade_date, fill.code) for fill in result.fills] == [
+        (Side.BUY, D2, "600001"),
+        (Side.SELL, D3, "600001"),
+        (Side.BUY, D3, "600002"),
+    ]
+    assert BlockedReason.MAX_HOLDINGS not in [row.reason for row in result.blocked]
+    replacement_sell = next(
+        row for row in result.orders if row.side is Side.SELL and row.code == "600001"
+    )
+    assert replacement_sell.status is OrderStatus.FILLED
+    final_equity = result.equity[-1]
+    assert final_equity.holdings_count == 1
+    assert final_equity.balance_sheet_error == Decimal("0")
+    assert final_equity.cash >= 0
+
+
+def test_replacement_keeps_holdings_when_new_signal_is_not_stronger() -> None:
+    result = _replacement_result("0.5")
+
+    assert [(fill.side, fill.trade_date, fill.code) for fill in result.fills] == [
+        (Side.BUY, D2, "600001"),
+    ]
+    assert BlockedReason.MAX_HOLDINGS in [row.reason for row in result.blocked]
+    assert all(row.side is not Side.SELL for row in result.orders)
+
+
+def test_replacement_policy_changes_portfolio_id_but_none_is_stable() -> None:
+    base = PortfolioConfig(
+        run_id="run",
+        combo_id="combo",
+        initial_cash=Decimal("10000"),
+    )
+    changed = replace(
+        base, replacement_policy="SCORE_REPLACE_WEAKEST_HOLDING", max_holdings=40
+    )
+    assert base.portfolio_id != changed.portfolio_id
+    assert base.portfolio_id == replace(base, replacement_policy="NONE").portfolio_id

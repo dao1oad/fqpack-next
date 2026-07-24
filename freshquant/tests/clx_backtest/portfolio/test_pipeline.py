@@ -1056,3 +1056,66 @@ def test_verifier_rejects_cross_source_checkpoint_even_with_rehashed_registry(
 
     with pytest.raises(PortfolioArtifactError, match="checkpoint contract identity"):
         verify_portfolio_artifact(tampered)
+
+
+def _contract_v2_value() -> dict[str, Any]:
+    return {
+        "contract_version": 2,
+        "initial_cash_cny": "10000000",
+        "target_weight": "0.025",
+        "max_holdings": 40,
+        "lot_size_default": 100,
+        "decision_clock": "T_CLOSE",
+        "first_attempt": "NEXT_MARKET_SESSION_RAW_OPEN",
+        "buy_rule": "FROZEN_POSITIVE_DIRECTION_COMBO",
+        "exit_rule": "DIRECTION_INVERTED_SAME_CANONICAL_DSL",
+        "negative_signal_priority": "EXIT_AND_SAME_DAY_BUY_VETO",
+        "price_domain": "RAW",
+        "fee_schedule": "DEFAULT_FEE_SCHEDULE",
+        "limit_schedule": "DEFAULT_LIMIT_SCHEDULE",
+        "slippage_model": "DEFAULT_SLIPPAGE_MODEL",
+        "replacement_policy": "SCORE_REPLACE_WEAKEST_HOLDING",
+        "selection": {
+            "split": "VALIDATION",
+            "direction": 1,
+            "frozen_rank_top_n": 20,
+            "min_validation_samples": 300,
+            "dedup_policy": "MODEL_ROOTS_DIRECTION_BEST_RANK",
+        },
+    }
+
+
+def test_portfolio_contract_v2_pins_replacement_and_selection_gates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "portfolio-config-v2.json"
+    path.write_text(
+        json.dumps(_contract_v2_value(), ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+    contract = portfolio_pipeline.load_portfolio_contract(path)
+    assert contract.contract_version == 2
+    assert contract.max_holdings == 40
+    assert str(contract.target_weight) == "0.025"
+    assert contract.replacement_policy == "SCORE_REPLACE_WEAKEST_HOLDING"
+    assert contract.min_validation_samples == 300
+    assert contract.dedup_policy == "MODEL_ROOTS_DIRECTION_BEST_RANK"
+
+
+def test_portfolio_contract_v2_rejects_any_drifted_pin(tmp_path: Path) -> None:
+    drifted = _contract_v2_value()
+    drifted["target_weight"] = "0.10"
+    path = tmp_path / "portfolio-config-v2.json"
+    path.write_text(
+        json.dumps(drifted, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+    )
+    with pytest.raises(PortfolioArtifactError, match="contract mismatch"):
+        portfolio_pipeline.load_portfolio_contract(path)
+
+    weakened = _contract_v2_value()
+    weakened["selection"]["min_validation_samples"] = 0
+    path.write_text(
+        json.dumps(weakened, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+    )
+    with pytest.raises(PortfolioArtifactError, match="contract mismatch"):
+        portfolio_pipeline.load_portfolio_contract(path)

@@ -74,6 +74,7 @@ class PortfolioConfig:
     slippage_model: SlippageModel = DEFAULT_SLIPPAGE_MODEL
     reconciliation_floor: Decimal = Decimal("0.01")
     reconciliation_relative: Decimal = Decimal("0.00000001")
+    replacement_policy: str = "NONE"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "initial_cash", decimal(self.initial_cash))
@@ -100,11 +101,17 @@ class PortfolioConfig:
             raise ValueError("lot sizes must be positive")
         if self.reconciliation_floor <= 0 or self.reconciliation_relative <= 0:
             raise ValueError("reconciliation tolerances must be positive")
+        if self.replacement_policy not in ("NONE", "SCORE_REPLACE_WEAKEST_HOLDING"):
+            raise ValueError("unknown replacement_policy")
 
     @property
     def portfolio_id(self) -> str:
+        identity = _canonical(asdict(self))
+        if identity.get("replacement_policy") == "NONE":
+            # Keep pre-replacement portfolio identities byte-stable.
+            identity.pop("replacement_policy")
         payload = json.dumps(
-            _canonical(asdict(self)),
+            identity,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
@@ -331,6 +338,7 @@ def _portfolio_coroutine(
     blocked_rows: list[BlockedRecord] = []
     buys_by_date: dict[date, list[_PendingOrder]] = {}
     pending_sells: list[_PendingOrder] = []
+    entry_scores: dict[str, Decimal] = {}
     marks: dict[str, tuple[Decimal, int]] = {}
     order_sequence = 0
     fill_sequence = 0
@@ -560,6 +568,7 @@ def _portfolio_coroutine(
                     quality_mask=quality,
                 )
             )
+            entry_scores[order.decision.code] = order.score
         else:
             lot_events.extend(
                 ledger.sell(
@@ -570,6 +579,8 @@ def _portfolio_coroutine(
                     fill_id=fill_id,
                 )
             )
+            if ledger.quantity(order.decision.code) == 0:
+                entry_scores.pop(order.decision.code, None)
         order_attempts.append(
             OrderAttempt(
                 portfolio_id,
@@ -862,6 +873,39 @@ def _portfolio_coroutine(
                     quality_mask=lot_quality,
                 )
                 continue
+            if config.replacement_policy == "SCORE_REPLACE_WEAKEST_HOLDING":
+                held = ledger.codes()
+                projected = len(held - pending_exit_codes) + len(
+                    buys_by_date.get(next_date, [])
+                )
+                if projected >= config.max_holdings:
+                    candidates = sorted(
+                        (entry_scores.get(item, Decimal("0")), item)
+                        for item in held
+                        if item not in pending_exit_codes
+                    )
+                    if candidates and candidates[0][0] < chosen.score:
+                        weakest_code = candidates[0][1]
+                        replacement = SignalDecision(
+                            decision_id=(
+                                f"replacement:{chosen.decision_id}:{weakest_code}"
+                            ),
+                            reveal_date=session,
+                            code=weakest_code,
+                            direction=-1,
+                            score=chosen.score,
+                            source_signal_fact_ids=chosen.source_signal_fact_ids,
+                        )
+                        pending_sells.append(
+                            make_order(
+                                decision=replacement,
+                                side=Side.SELL,
+                                requested_qty=ledger.quantity(weakest_code),
+                                target_trade_date=next_date,
+                                quality_mask=ledger.quality_mask(weakest_code),
+                            )
+                        )
+                        pending_exit_codes.add(weakest_code)
             buys_by_date.setdefault(next_date, []).append(
                 make_order(
                     decision=chosen,
