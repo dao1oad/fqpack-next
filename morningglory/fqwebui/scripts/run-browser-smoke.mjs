@@ -3,7 +3,10 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 const projectRoot = process.cwd()
-const playwrightCli = path.join(projectRoot, 'node_modules', 'playwright', 'cli.js')
+const playwrightCli = [
+  path.join(projectRoot, 'node_modules', 'playwright', 'cli.js'),
+  path.join(projectRoot, 'node_modules', '@playwright', 'test', 'cli.js'),
+].find(existsSync)
 const smokeSpecs = (
   process.env.FQ_BROWSER_SMOKE_SPECS
     ? process.env.FQ_BROWSER_SMOKE_SPECS.split(',').map((item) => item.trim()).filter(Boolean)
@@ -20,6 +23,10 @@ const localBrowserCandidates = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ]
 const localBrowserPath = localBrowserCandidates.find((candidate) => existsSync(candidate))
+
+if (!playwrightCli) {
+  throw new Error('Playwright CLI is not installed. Run pnpm install before browser smoke tests.')
+}
 
 const runCommand = (args, extraEnv = {}) => {
   const result = spawnSync(process.execPath, [playwrightCli, ...args], {

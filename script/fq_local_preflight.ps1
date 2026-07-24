@@ -62,7 +62,10 @@ function Resolve-UvCommand {
 }
 
 function Resolve-NpmPath {
-    $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+    $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if (-not $npmCommand) {
+        $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+    }
     if (-not $npmCommand) {
         throw "npm not found in PATH."
     }
@@ -288,7 +291,7 @@ function Invoke-ExternalCommand {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
-    & $FilePath @Arguments
+    & $FilePath @Arguments | Out-Host
     return $LASTEXITCODE
 }
 

@@ -1,11 +1,13 @@
 import * as echarts from 'echarts'
 
 import { futureApi } from '@/api/futureApi'
+import { positionReviewApi } from '@/api/positionReviewApi'
 import { stockApi } from '@/api/stockApi'
 import { subjectManagementApi } from '@/api/subjectManagementApi'
 
 import echartsConfig from './echartsConfig'
 import { createKlineSlimChartController, createKlineSlimViewportState } from './kline-slim-chart-controller.mjs'
+import { buildOrderReviewLegendSelectionState } from './kline-slim-chart-renderer.mjs'
 import {
   buildInitialKlineSlimPricePanelState,
   createKlineSlimPricePanelActions,
@@ -35,7 +37,8 @@ import {
   DEFAULT_VISIBLE_CHANLUN_PERIODS,
   buildPeriodLegendSelectionState,
   getVisibleChanlunPeriods,
-  normalizeChanlunPeriod
+  normalizeChanlunPeriod,
+  PERIOD_DURATION_MS,
 } from './kline-slim-chanlun-periods.mjs'
 import {
   buildChartPriceGuides,
@@ -52,6 +55,7 @@ import {
   buildKlineSlimRouteSymbol,
   closeOtherPanels,
 } from '../klineSlimPageState.mjs'
+import { normalizeOrderReviewTimeline } from '../orderReviewTimeline.mjs'
 import klineSlimController from '../klineSlimController.mjs'
 
 const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
@@ -81,6 +85,35 @@ function buildVersion(data) {
   const lastDate = dateList.length ? dateList[dateList.length - 1] : ''
   const updatedAt = data._bar_time ?? data.updated_at ?? data.dt ?? ''
   return `${dateList.length}_${lastDate}_${updatedAt}`
+}
+
+function parseKlineTimeMs(value) {
+  const text = String(value || '').trim()
+  if (!text) return NaN
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(text)) {
+    return Date.parse(text)
+  }
+  const normalized = text.replace(' ', 'T').replace(/\//g, '-')
+  const withTimezone = normalized.length === 10
+    ? `${normalized}T00:00:00+08:00`
+    : `${normalized}+08:00`
+  return Date.parse(withTimezone)
+}
+
+export function buildOrderReviewTimelineParams({ mainData, period } = {}) {
+  const dates = Array.isArray(mainData?.date) ? mainData.date : []
+  if (!dates.length) return {}
+  const startMs = parseKlineTimeMs(dates[0])
+  const lastOpenMs = parseKlineTimeMs(dates[dates.length - 1])
+  const durationMs = PERIOD_DURATION_MS[period] || PERIOD_DURATION_MS['5m']
+  if (!Number.isFinite(startMs) || !Number.isFinite(lastOpenMs)) return {}
+  return {
+    start: new Date(startMs).toISOString(),
+    // The K-line axis is half-open: [first bar open, next bar open). Do not
+    // request a trade exactly at the next bar boundary because it has no slot
+    // in the current candle set.
+    end: new Date(lastOpenMs + durationMs - 1).toISOString(),
+  }
 }
 
 function formatDirectionLabel(value) {
@@ -302,6 +335,15 @@ export default {
       priceGuideLegendSelected: buildPriceGuideLegendSelectionState(),
       priceGuideEditMode: false,
       priceGuideDragDirty: false,
+      showOrderReview: false,
+      orderReviewLegendSelected: buildOrderReviewLegendSelectionState(),
+      orderReviewTimeline: null,
+      orderReviewLoading: false,
+      orderReviewError: '',
+      orderReviewRequestId: 0,
+      orderReviewRequestKey: '',
+      orderReviewLoadedKey: '',
+      orderReviewVersion: 0,
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -441,6 +483,30 @@ export default {
         priceGuideEditLocked: this.priceGuideEditLocked
       })
     },
+    orderReviewChartState() {
+      if (!this.showOrderReview) {
+        return null
+      }
+      if (this.orderReviewError) {
+        return {
+          kind: 'error',
+          message: this.orderReviewError,
+        }
+      }
+      if (this.orderReviewLoading || !this.mainData) {
+        return {
+          kind: 'loading',
+          message: '交易复盘加载中',
+        }
+      }
+      if (!normalizeOrderReviewTimeline(this.orderReviewTimeline || {}).hasData) {
+        return {
+          kind: 'empty',
+          message: '当前时间窗暂无订单复盘数据',
+        }
+      }
+      return null
+    },
     emptyMessage() {
       return getKlineSlimEmptyMessage({
         resolvingDefaultSymbol: this.resolvingDefaultSymbol,
@@ -514,6 +580,9 @@ export default {
       if (this.defaultSymbolResolveError) {
         return this.defaultSymbolResolveError
       }
+      if (this.orderReviewError) {
+        return this.orderReviewError
+      }
       if (this.resolvingDefaultSymbol) {
         return '默认标的解析中'
       }
@@ -523,7 +592,7 @@ export default {
       return this.isRealtimeMode ? '轮询中' : '历史模式'
     },
     toolbarStatusChipVariant() {
-      if (this.defaultSymbolResolveError || this.lastError) {
+      if (this.defaultSymbolResolveError || this.lastError || this.orderReviewError) {
         return 'danger'
       }
       if (this.resolvingDefaultSymbol) {
@@ -637,6 +706,8 @@ export default {
     handleResize() {
       if (this.chart) {
         this.chart.resize()
+        this.lastRenderedVersion = ''
+        this.scheduleRender()
         this.chartController?.syncCrosshair?.()
       }
     },
@@ -656,6 +727,109 @@ export default {
       this.lastMainBarLabel = '--'
       this.chartViewport = createKlineSlimViewportState()
       this.resetViewportOnNextRender = true
+      this.resetOrderReviewState()
+    },
+    resetOrderReviewState() {
+      this.orderReviewRequestId += 1
+      this.orderReviewTimeline = null
+      this.orderReviewLoading = false
+      this.orderReviewError = ''
+      this.orderReviewRequestKey = ''
+      this.orderReviewLoadedKey = ''
+      this.orderReviewVersion += 1
+    },
+    getOrderReviewTimelineParams() {
+      return buildOrderReviewTimelineParams({
+        mainData: this.mainData,
+        period: this.currentPeriod,
+      })
+    },
+    getOrderReviewTimelineKey() {
+      if (!this.routeSymbol || !this.mainData) return ''
+      const params = this.getOrderReviewTimelineParams()
+      return [
+        this.routeSymbol,
+        this.currentPeriod,
+        params.start || '',
+        params.end || '',
+      ].join('__')
+    },
+    async loadOrderReviewTimeline({ force = false } = {}) {
+      if (!this.showOrderReview || !this.routeSymbol || !this.mainData) {
+        return null
+      }
+      const requestKey = this.getOrderReviewTimelineKey()
+      if (!requestKey) return null
+      if (!force && this.orderReviewTimeline && this.orderReviewLoadedKey === requestKey) {
+        return this.orderReviewTimeline
+      }
+      if (
+        this.orderReviewLoading &&
+        !force &&
+        this.orderReviewRequestKey === requestKey
+      ) {
+        return null
+      }
+
+      const routeToken = this.routeToken
+      const requestId = ++this.orderReviewRequestId
+      this.orderReviewLoading = true
+      this.orderReviewRequestKey = requestKey
+      this.orderReviewError = ''
+      this.orderReviewTimeline = null
+      this.orderReviewLoadedKey = ''
+      this.orderReviewVersion += 1
+      this.scheduleRender()
+      try {
+        const params = this.getOrderReviewTimelineParams()
+        const payload = await positionReviewApi.getSymbolTimeline(this.routeSymbol, params)
+        if (
+          requestId !== this.orderReviewRequestId ||
+          routeToken !== this.routeToken ||
+          requestKey !== this.getOrderReviewTimelineKey()
+        ) {
+          return null
+        }
+        this.orderReviewTimeline = payload || null
+        this.orderReviewLoadedKey = requestKey
+        this.orderReviewVersion += 1
+        this.scheduleRender()
+        return this.orderReviewTimeline
+      } catch (error) {
+        if (
+          requestId !== this.orderReviewRequestId ||
+          routeToken !== this.routeToken ||
+          requestKey !== this.getOrderReviewTimelineKey()
+        ) {
+          return null
+        }
+        this.orderReviewTimeline = null
+        this.orderReviewLoadedKey = ''
+        this.orderReviewError = Number(error?.response?.status) === 404
+          ? '订单级复盘服务未部署'
+          : '交易复盘加载失败'
+        this.orderReviewVersion += 1
+        this.scheduleRender()
+        return null
+      } finally {
+        if (requestId === this.orderReviewRequestId) {
+          this.orderReviewLoading = false
+          this.orderReviewRequestKey = ''
+        }
+      }
+    },
+    async toggleOrderReviewMode() {
+      if (!this.routeSymbol) return
+      this.showOrderReview = !this.showOrderReview
+      this.orderReviewError = ''
+      this.orderReviewVersion += 1
+      this.scheduleRender()
+      if (this.showOrderReview) {
+        await this.loadOrderReviewTimeline()
+      }
+    },
+    async retryOrderReviewTimeline() {
+      await this.loadOrderReviewTimeline({ force: true })
     },
     isSidebarItemActive(item) {
       return getSidebarCode6(item) === this.activeCode6
@@ -914,6 +1088,10 @@ export default {
         previousSelected: selected
       })
       this.priceGuideLegendSelected = buildPriceGuideLegendSelectionState(selected)
+      this.orderReviewLegendSelected = buildOrderReviewLegendSelectionState({
+        ...this.orderReviewLegendSelected,
+        ...(selected && typeof selected === 'object' ? selected : {}),
+      })
       this.visibleChanlunPeriods = getVisibleChanlunPeriods({
         currentPeriod: this.currentPeriod,
         selected: this.periodLegendSelected
@@ -964,6 +1142,12 @@ export default {
         this.mainVersion = nextVersion
         this.lastMainBarLabel = payload.date[payload.date.length - 1]
         this.scheduleRender()
+        if (
+          this.showOrderReview &&
+          this.getOrderReviewTimelineKey() !== this.orderReviewLoadedKey
+        ) {
+          this.loadOrderReviewTimeline()
+        }
       } catch (error) {
         if (token === this.routeToken) {
           this.lastError = '主图刷新失败'
@@ -1317,6 +1501,17 @@ export default {
           period: this.currentPeriod,
           ...(this.endDateModel ? { endDate: this.endDateModel } : {})
         }
+      })
+    },
+    jumpToPositionReview() {
+      if (!this.routeSymbol) {
+        return
+      }
+      this.$router.push({
+        path: '/position-review',
+        query: {
+          symbol: this.routeSymbol,
+        },
       })
     },
     formatWanAmountValue(value) {
