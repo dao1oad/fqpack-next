@@ -489,7 +489,13 @@ def _event_fixture(
     )
 
 
-def _ranking_fixture(root: Path, artifact_run_id: str, combo_id: str) -> str:
+def _ranking_fixture(
+    root: Path,
+    artifact_run_id: str,
+    combo_id: str,
+    *,
+    validation_discovery_score: float = 0.4,
+) -> str:
     canonical = json.dumps(
         {
             "dsl_version": "1",
@@ -545,7 +551,9 @@ def _ranking_fixture(root: Path, artifact_run_id: str, combo_id: str) -> str:
                 "n_executable": 10,
                 "mean_return": 0.02,
                 "win_rate": 0.6,
-                "discovery_score": 0.3 if split == "TRAIN" else 0.4,
+                "discovery_score": (
+                    0.3 if split == "TRAIN" else validation_discovery_score
+                ),
             }
             for split in ("TRAIN", "VALIDATION")
         ]
@@ -1045,7 +1053,12 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
     # Mongo projection is a consumer of sealed signal/ranking/portfolio facts.
     # It must not reopen event_outcomes, especially after HOLDOUT publication.
     next(event_dir.glob("**/event_outcomes/**/*.parquet")).unlink()
-    ranking_manifest_sha256 = _ranking_fixture(ranking_dir, artifact_run_id, combo_id)
+    ranking_manifest_sha256 = _ranking_fixture(
+        ranking_dir,
+        artifact_run_id,
+        combo_id,
+        validation_discovery_score=float("nan"),
+    )
     portfolio_source_identity: dict[str, object] = {
         "event_set_id": "event-fixture",
         "event_manifest_sha256": event_manifest_sha256,
@@ -1122,6 +1135,12 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
         portfolio_dirs={"VALIDATION": validation_portfolio},
     )
     assert first["manifest_sha256"] == second["manifest_sha256"]
+    assert (
+        database.combo_metrics.find_one({"run_id": run_id, "split_id": "VALIDATION"})[
+            "discovery_score"
+        ]
+        is None
+    )
     projected_manifest = database.manifests.find_one({"run_id": run_id})
     expected_split_plan = json.loads(
         (ranking_dir / "config/ranking_config.json").read_text(encoding="utf-8")

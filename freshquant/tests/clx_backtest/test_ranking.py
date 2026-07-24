@@ -374,20 +374,26 @@ def test_s0002_strong_swing_candidates_keep_primary_and_mask_dimensions_separate
             and node.get("primary_entrypoint") == {"in": [4]}
         ]
         assert primary_nodes
-        assert {
-            tuple(node["primary_trigger_semantic"]["in"])
-            for node in primary_nodes
-            if "primary_trigger_semantic" in node
-        } == {(S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,)}
+        semantics = set()
+        for node in primary_nodes:
+            semantic = node.get("primary_trigger_semantic")
+            if isinstance(semantic, dict):
+                values = semantic["in"]
+                assert isinstance(values, list)
+                semantics.add(tuple(values))
+        assert semantics == {(S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,)}
 
-    trigger_sources = {
-        node["source"]
-        for document in by_stage["B"]
-        for node in nodes(document)
-        if node.get("op") == "trigger_mask"
-        and node.get("event_filter", {}).get("model") == {"in": ["S0002"]}
-        and node.get("ids") == [4]
-    }
+    trigger_sources = set()
+    for document in by_stage["B"]:
+        for node in nodes(document):
+            event_filter = node.get("event_filter")
+            if (
+                node.get("op") == "trigger_mask"
+                and isinstance(event_filter, dict)
+                and event_filter.get("model") == {"in": ["S0002"]}
+                and node.get("ids") == [4]
+            ):
+                trigger_sources.add(node["source"])
     assert trigger_sources == {
         "direction_base",
         "synthetic_primary",

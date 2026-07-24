@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
@@ -33,6 +34,13 @@ class ProjectionError(RuntimeError):
 
 
 def _json_value(value: Any) -> Any:
+    # Ranking artifacts use NaN for metrics that are undefined for a split.
+    # Mongo/JSON represents that state as null; infinity remains a hard error.
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if math.isinf(value):
+            raise ProjectionError("artifact contains an infinite numeric value")
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, Decimal):

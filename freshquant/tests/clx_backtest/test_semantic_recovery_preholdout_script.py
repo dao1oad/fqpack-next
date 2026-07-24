@@ -101,9 +101,11 @@ def test_semantic_recovery_preholdout_is_contract_pinned_before_writes() -> None
     assert '-v "$target_root:$target_c"' in script
     assert '-v "$audit_dir:$audit_c"' in script
     assert '-v "$evidence_root:$evidence_c"' in script
-    assert script.index('-v "$runtime_root:$runtime_root:ro"') < script.index(
-        '-v "$target_root:$target_c"'
-    ) < script.index('-v "$source_root:$source_c:ro"')
+    assert (
+        script.index('-v "$runtime_root:$runtime_root:ro"')
+        < script.index('-v "$target_root:$target_c"')
+        < script.index('-v "$source_root:$source_c:ro"')
+    )
     assert 'verify_runtime_paths "before mkdir $directory"' in script
     assert 'mkdir -p -m 700 "$directory"' in script
     assert 'verify_runtime_paths "after mkdir $directory"' in script

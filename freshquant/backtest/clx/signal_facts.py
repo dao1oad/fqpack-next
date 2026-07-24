@@ -2135,6 +2135,8 @@ def _validate_semantic_recovery_frozen_configs(
             raise SignalFactsError(f"{label} {name} config SHA-256 differs")
 
         if expected is not None:
+            if materialized_root is None:
+                raise SignalFactsError(f"{label} {name} config lineage differs")
             expected_path = _resolve_semantic_recovery_path(
                 materialized_root / f"{name}.json",
                 label=f"{label} {name} materialized config",
@@ -3057,12 +3059,12 @@ def _verify_existing_semantic_recovery_bucket(
 
     target_artifacts: dict[tuple[str, str], Mapping[str, Any]] = {}
     for meta in target_checkpoint["artifacts"]:
-        key = (str(meta.get("dataset", "")), str(meta.get("path", "")))
-        if key in target_artifacts:
+        artifact_key = (str(meta.get("dataset", "")), str(meta.get("path", "")))
+        if artifact_key in target_artifacts:
             raise SignalFactsError(
                 "semantic recovery checkpoint has duplicate artifacts"
             )
-        target_artifacts[key] = meta
+        target_artifacts[artifact_key] = meta
 
     source_root = Path(source["facts_root"])
     source_prefix = f"code_buckets/code_bucket={bucket:03d}/"

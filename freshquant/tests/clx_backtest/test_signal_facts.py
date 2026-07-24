@@ -25,15 +25,18 @@ from freshquant.backtest.clx.model_registry import (
 )
 from freshquant.backtest.clx.signal import decode_signal
 from freshquant.backtest.clx.signal_facts import (
-    SignalBuildSpec,
+    SIGNAL_QUALITY_S0002_LEGACY_OVERLOAD,
+    SIGNAL_QUALITY_S0002_STRONG_SWING_OVERLOAD,
+    SIGNAL_QUALITY_UNEXPECTED_SYNTHETIC_PRIMARY,
     SemanticDerivationSpec,
     SemanticRecoveryRunSpec,
+    SignalBuildSpec,
     SignalFactsError,
     _acquire_build_lock,
     _build_lock_owner,
     _derive_semantic_frame,
-    _fact_id,
     _fact_frame,
+    _fact_id,
     _local_lock_owner_state,
     _mask_matrices,
     _process_start_id,
@@ -44,9 +47,6 @@ from freshquant.backtest.clx.signal_facts import (
     _with_content_hash,
     _write_artifact,
     _write_json,
-    SIGNAL_QUALITY_S0002_LEGACY_OVERLOAD,
-    SIGNAL_QUALITY_S0002_STRONG_SWING_OVERLOAD,
-    SIGNAL_QUALITY_UNEXPECTED_SYNTHETIC_PRIMARY,
     build_signal_facts,
     code_bucket,
     derive_semantic_signal_facts,
@@ -615,6 +615,7 @@ def _legacy_semantic_recovery_source(
     _write_json(facts / "code_buckets/code_bucket=000/checkpoint.json", checkpoint)
     _write_json(facts / "model_registry.json", legacy_registry)
     _write_json(facts / "build_config.json", build_config)
+    completed_buckets = [0]
     manifest = {
         "manifest_version": 1,
         "schema_version": "clx-causal-signal-facts-v1",
@@ -636,7 +637,7 @@ def _legacy_semantic_recovery_source(
             "reveal_rule": "reveal_date_equals_adjacent_prefix_as_of_date",
         },
         "partitioning": {"bucket_count": 1},
-        "completed_buckets": [0],
+        "completed_buckets": completed_buckets,
         "counts": {
             **code_stats,
             "signal_revisions": 2,
@@ -680,7 +681,7 @@ def _legacy_semantic_recovery_source(
         "runner_image_source_commit": "a" * 40,
         "snapshot_id": snapshot["snapshot_id"],
         "counts": manifest["counts"],
-        "completed_buckets": len(manifest["completed_buckets"]),
+        "completed_buckets": len(completed_buckets),
         "deep_verify": deep_verify,
     }
     evidence_path = source_root / "evidence.json"
@@ -719,10 +720,12 @@ def _legacy_semantic_recovery_source(
 
         _backend = Backend()
 
+    signal_set_id = build_config["signal_set_id"]
+    assert isinstance(signal_set_id, str)
     return (
         source_root,
         {
-            "signal_set_id": build_config["signal_set_id"],
+            "signal_set_id": signal_set_id,
             "manifest_sha256": manifest_sha,
             "evidence_sha256": evidence_sha,
             "native_sha256": native_sha,
