@@ -25,6 +25,8 @@ struct ChanOptions
     int allow_pivot_across = 0;
     // 合并未完备的笔
     int merge_non_complehensive_wave = 0;
+    // 模型扩展参数（当前由 S0015 使用）
+    int ext_opt = 0;
 };
 
 class Chan

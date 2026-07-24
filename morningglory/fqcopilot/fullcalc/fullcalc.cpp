@@ -84,7 +84,7 @@ FullCalcResult full_calc(const std::vector<float> &high,
     options.merge_non_complehensive_wave = wave_opt / 10000 % 10;
 
     // --- Chanlun structures ---
-    auto bi_raw = recognise_bi(length, h, l, options);
+    auto bi_raw = recognise_bi(length, h, l, c, options);
     std::vector<int> bi;
     bi.reserve(bi_raw.size());
     // Chanlun().analysis 只保留精确的 ±1 作为顶/底，其余值（0.5/-0.5 等过渡标记）不计入顶底

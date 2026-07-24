@@ -125,9 +125,8 @@ private:
                   close[x - 1] > river_prices[c] &&
                   close[x - 2] > river_prices[c] &&
                   low[x - 3] <= river_prices[c]) {
-                inner_result[x] =
-                    (++c) * 100 +
-                    static_cast<int>(EntrypointType::ENTRYPOINT_BUY_OPEN_1);
+                inner_result[x] = encode_signal(9, ++c,
+                    EntrypointType::ENTRYPOINT_BUY_OPEN_1);
                 if (c < 3 && close[x] > river_prices[c] &&
                     close[x - 1] > river_prices[c] &&
                     close[x - 2] > river_prices[c] &&
@@ -145,7 +144,7 @@ private:
                 break;
               }
             }
-            
+
             // 从support_price_index到结尾查找值是1.0的索引位置
             int wave_end_index = -1;
             for (int x = support_price_index; x < length; x++) {
@@ -154,7 +153,7 @@ private:
                 break;
               }
             }
-            
+
             // 有了向上笔后就要开始找回踩笔
             if (wave_end_index >= 0 && reatched > 0) {
               for (int y = last_x + 1; y < length; y++) {
@@ -170,11 +169,10 @@ private:
                     if ((low[n] - support_price) / (high[wave_end_index] - support_price) < 0.5) {
                       EntrypointType signal = SignalUtils::is_buy_signal(
                           n, high, low, open, close, vol, wave_sigs, std_bars,
-                          ma5, macd);
+                          ma5, macd, strong_factors);
 
                       if (signal != EntrypointType::ENTRYPOINT_UNKNOWN) {
-                        inner_result[n] =
-                            reatched * 100 + static_cast<int>(signal);
+                        inner_result[n] = encode_signal(9, reatched, signal);
                         break;
                       }
                     }
@@ -247,9 +245,8 @@ private:
                   close[x - 1] < river_prices[c] &&
                   close[x - 2] < river_prices[c] &&
                   high[x - 3] >= river_prices[c]) {
-                inner_result[x] =
-                    -(++c) * 100 +
-                    static_cast<int>(EntrypointType::ENTRYPOINT_SELL_OPEN_1);
+                inner_result[x] = encode_signal(9, ++c,
+                    EntrypointType::ENTRYPOINT_SELL_OPEN_1);
                 if (c < 3 && close[x] < river_prices[c] &&
                     close[x - 1] < river_prices[c] &&
                     close[x - 2] < river_prices[c] &&
@@ -267,7 +264,7 @@ private:
                 break;
               }
             }
-            
+
             // 从resistance_price_index到结尾查找值是-1.0的索引位置
             int wave_end_index = -1;
             for (int x = resistance_price_index; x < length; x++) {
@@ -276,7 +273,7 @@ private:
                 break;
               }
             }
-            
+
             // 有了向下笔后就要开始找上拉笔
             if (wave_end_index >= 0 && reatched > 0) {
               for (int y = last_x + 1; y < length; y++) {
@@ -292,11 +289,10 @@ private:
                     if ((resistance_price - high[n]) / (resistance_price - low[wave_end_index]) < 0.5) {
                       EntrypointType signal = SignalUtils::is_sell_signal(
                           n, high, low, open, close, vol, wave_sigs, std_bars,
-                          ma5, macd);
+                          ma5, macd, strong_factors);
 
                       if (signal != EntrypointType::ENTRYPOINT_UNKNOWN) {
-                        inner_result[n] =
-                            -reatched * 100 + static_cast<int>(signal);
+                        inner_result[n] = encode_signal(9, reatched, signal);
                         break;
                       }
                     }
@@ -323,6 +319,17 @@ public:
       : BaseCalculator(high, low, open, close, vol, switch_opt, options) {
     calculate();
   }
+
+  S0009_Calculator(const std::vector<float> &high,
+                   const std::vector<float> &low,
+                   const std::vector<float> &open,
+                   const std::vector<float> &close,
+                   const std::vector<float> &vol, int switch_opt,
+                   const ChanOptions &options,
+                   const ChanContext &ctx)
+      : BaseCalculator(high, low, open, close, vol, switch_opt, options, ctx) {
+    calculate();
+  }
 };
 
 std::vector<int> F_S0009(const std::vector<float> &high,
@@ -333,4 +340,15 @@ std::vector<int> F_S0009(const std::vector<float> &high,
                          const ChanOptions &options) {
   S0009_Calculator calculator(high, low, open, close, vol, switch_opt, options);
   return calculator.result();
+}
+
+REGISTER_CALC(9, F_S0009)
+
+std::vector<int> F_S0009_ctx(
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol, int switch_opt,
+    const ChanOptions &options, const ChanContext &ctx)
+{
+    return S0009_Calculator(high, low, open, close, vol, switch_opt, options, ctx).result();
 }

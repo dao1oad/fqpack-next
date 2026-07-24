@@ -19,6 +19,10 @@
 7. [当前接口](./current/interfaces.md)
 8. [当前排障](./current/troubleshooting.md)
 
+## 当前专题入口
+
+- [CLX 大规模回测](./current/modules/clx-backtest.md)
+
 ## 当前阶段最常用入口
 
 - API 入口：`python -m freshquant.rear.api_server --port 5000`
@@ -26,6 +30,7 @@
 - 账户同步 worker：`python -m freshquant.xt_account_sync.worker --interval 15`
 - XT 自动还款 worker：`python -m freshquant.xt_auto_repay.worker`
 - TPSL worker：`python -m freshquant.tpsl.tick_listener`
+- CLX 回测 worker：`python -m freshquant.rear.clx_backtest.worker run`
 - XTData producer：`python -m freshquant.market_data.xtdata.market_producer`
 - XTData consumer：`python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
 - Docker 并行环境：`docker compose -f docker/compose.parallel.yaml up -d --build`

@@ -94,6 +94,30 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/daily-screening/pre-pools/stock-pools`
 - `/api/daily-screening/pre-pools/delete`
 
+### `clx-backtest`
+
+- `/api/clx-backtest/health`
+- `/api/clx-backtest/runs`
+- `/api/clx-backtest/runs/<run_id>`
+- `/api/clx-backtest/runs/<run_id>/clone`
+- `/api/clx-backtest/runs/<run_id>/start`
+- `/api/clx-backtest/runs/<run_id>/cancel`
+- `/api/clx-backtest/runs/<run_id>/progress`
+- `/api/clx-backtest/runs/<run_id>/progress/stream`
+- `/api/clx-backtest/runs/<run_id>/rankings`
+- `/api/clx-backtest/runs/<run_id>/combos/<combo_id>/*`
+- `/api/clx-backtest/runs/<run_id>/model-heatmap`
+- `/api/clx-backtest/runs/<run_id>/manifest`
+- `/api/clx-backtest/runs/<run_id>/quality`
+- `/api/clx-backtest/compare`
+- `/api/clx-backtest/runs/<run_id>/freeze`
+- `/api/clx-backtest/runs/<run_id>/freezes/<freeze_id>/holdout/reveal`
+- `/api/clx-backtest/runs/<run_id>/exports`
+- `/api/clx-backtest/exports/<job_id>`
+- `/api/clx-backtest/exports/<job_id>/download`
+
+CLX 列表使用 cursor pagination。排行的 `model_id / primary_trigger / occurrence` 对多模型 DSL 分别按 `model_ids / primary_triggers / occurrences` 数组 membership 查询。揭示 POST 返回 `REVEALING / reveal_count=0` 只表示 worker job 已预留；`HOLDOUT` 排行、组合、对比和导出仅在 worker 完成 artifact 校验与 Mongo 投影并发布 `REVEALED / reveal_count=1` 后开放。冻结材料来自 run manifest 的 `freeze_input`，不是前端临时比较选择。
+
 ### `runtime`
 
 - `/api/runtime/components`
@@ -204,6 +228,9 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
   - `python -m freshquant.xt_auto_repay.worker`
 - TPSL worker
   - `python -m freshquant.tpsl.tick_listener`
+- CLX 回测 worker
+  - `python -m freshquant.rear.clx_backtest.worker run`
+  - `python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90`
 
 ## Web UI 路由
 
@@ -214,3 +241,4 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/gantt`
 - `/gantt/shouban30`
 - `/daily-screening`
+- `/clx-backtest`

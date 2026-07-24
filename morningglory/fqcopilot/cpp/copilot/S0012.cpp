@@ -54,8 +54,8 @@ private:
           if (x - j >= 3 && close[x] > river_price &&
               close[x - 1] > river_price && close[x - 2] > river_price &&
               low[x - 3] <= river_price) {
-            inner_result[x] =
-                100 + static_cast<int>(EntrypointType::ENTRYPOINT_BUY_OPEN_1);
+            inner_result[x] = encode_signal(12, 1,
+                EntrypointType::ENTRYPOINT_BUY_OPEN_1);
             break;
           }
           // 向上笔完成了就可以退出了
@@ -76,10 +76,10 @@ private:
                 }
                 EntrypointType signal =
                     SignalUtils::is_buy_signal(n, high, low, open, close, vol,
-                                               wave_sigs, std_bars, ma5, macd);
+                                               wave_sigs, std_bars, ma5, macd, strong_factors);
 
                 if (signal != EntrypointType::ENTRYPOINT_UNKNOWN) {
-                  inner_result[n] = 100 + static_cast<int>(signal);
+                  inner_result[n] = encode_signal(12, 1, signal);
                   break;
                 }
               }
@@ -118,8 +118,8 @@ private:
           if (x - j >= 3 && close[x] < river_price &&
               close[x - 1] < river_price && close[x - 2] < river_price &&
               high[x - 3] >= river_price) {
-            inner_result[x] =
-                -100 + static_cast<int>(EntrypointType::ENTRYPOINT_SELL_OPEN_1);
+            inner_result[x] = encode_signal(12, 1,
+                EntrypointType::ENTRYPOINT_SELL_OPEN_1);
             break;
           }
           // 向下笔完成了就可以退出了
@@ -140,10 +140,10 @@ private:
                 }
                 EntrypointType signal =
                     SignalUtils::is_sell_signal(n, high, low, open, close, vol,
-                                                wave_sigs, std_bars, ma5, macd);
+                                                wave_sigs, std_bars, ma5, macd, strong_factors);
 
                 if (signal != EntrypointType::ENTRYPOINT_UNKNOWN) {
-                  inner_result[n] = -100 + static_cast<int>(signal);
+                  inner_result[n] = encode_signal(12, 1, signal);
                   break;
                 }
               }
@@ -167,6 +167,17 @@ public:
       : BaseCalculator(high, low, open, close, vol, switch_opt, options) {
     calculate();
   }
+
+  S0012_Calculator(const std::vector<float> &high,
+                   const std::vector<float> &low,
+                   const std::vector<float> &open,
+                   const std::vector<float> &close,
+                   const std::vector<float> &vol, int switch_opt,
+                   const ChanOptions &options,
+                   const ChanContext &ctx)
+      : BaseCalculator(high, low, open, close, vol, switch_opt, options, ctx) {
+    calculate();
+  }
 };
 
 std::vector<int> F_S0012(const std::vector<float> &high,
@@ -177,4 +188,15 @@ std::vector<int> F_S0012(const std::vector<float> &high,
                          const ChanOptions &options) {
   S0012_Calculator calculator(high, low, open, close, vol, switch_opt, options);
   return calculator.result();
+}
+
+REGISTER_CALC(12, F_S0012)
+
+std::vector<int> F_S0012_ctx(
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol, int switch_opt,
+    const ChanOptions &options, const ChanContext &ctx)
+{
+    return S0012_Calculator(high, low, open, close, vol, switch_opt, options, ctx).result();
 }

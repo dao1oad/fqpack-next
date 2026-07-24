@@ -7,6 +7,7 @@ import {
   getHeaderNavTarget,
   resolveHeaderNavGroups,
   resolveDocumentTitle,
+  resolveRouteMetaTitle,
 } from './pageMeta.mjs'
 
 const LEGACY_CORE_ROUTE_SPECS = [
@@ -52,9 +53,16 @@ test('header nav target returns label, route and tab title query', () => {
       tabTitle: '运行观测',
     },
   })
+  assert.deepEqual(getHeaderNavTarget('clxBacktest'), {
+    label: 'CLX回测',
+    path: '/clx-backtest',
+    query: {
+      tabTitle: 'CLX回测',
+    },
+  })
+  assert.equal(resolveRouteMetaTitle('clx-backtest'), 'CLX回测')
   assert.equal(getHeaderNavTarget('subjectManagement'), null)
 })
-
 test('resolveDocumentTitle prefers query title then route meta title', () => {
   assert.equal(resolveDocumentTitle({
     query: {
@@ -77,7 +85,7 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
     ['klineSlim', 'positionManagement', 'positionReview', 'runtime'],
-    ['gantt', 'shouban30', 'dailyScreening'],
+    ['gantt', 'shouban30', 'dailyScreening', 'clxBacktest'],
     ['stock', 'pool'],
   ])
 

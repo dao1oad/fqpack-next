@@ -14,26 +14,26 @@ private:
     {
         if (switch_opt == 1)
         {
-            std::vector<Trend> trends = find_trends(trend_sigs, 0, length - 1);
+            Segs trends = find_segments(trend_sigs, 0, length - 1);
             for (size_t i = 0; i < trends.size(); i++)
             {
                 if (trends[i].direction == DirectionType::DIRECTION_DOWN)
                 {
                     // 在向下走势中找买点
-                    std::vector<Stretch> stretches = find_stretches(stretch_sigs, trends[i].start, trends[i].end);
+                    Segs stretches = find_segments(stretch_sigs, trends[i].start, trends[i].end);
                     find_buy_sigs(stretches);
                 }
                 else if (trends[i].direction == DirectionType::DIRECTION_UP)
                 {
                     // 在向上走势中找卖点
-                    std::vector<Stretch> stretches = find_stretches(stretch_sigs, trends[i].start, trends[i].end);
+                    Segs stretches = find_segments(stretch_sigs, trends[i].start, trends[i].end);
                     find_sell_sigs(stretches);
                 }
             }
         }
         else
         {
-            std::vector<Stretch> stretches = find_stretches(stretch_sigs, 0, length - 1);
+            Segs stretches = find_segments(stretch_sigs, 0, length - 1);
             // 在向下线段中找买点
             find_buy_sigs(stretches);
             // 在向上线段中找卖点
@@ -41,7 +41,7 @@ private:
         }
     }
 
-    void find_buy_sigs(std::vector<Stretch> &stretches)
+    void find_buy_sigs(Segs &stretches)
     {
         int stretchCount = 0;
         float stretchLow = 0;
@@ -74,7 +74,7 @@ private:
                     }
                 }
                 // 在向下线段中找买点
-                std::vector<Wave> waves = find_waves(wave_sigs, stretches[k].start, stretches[k].end);
+                Segs waves = find_segments(wave_sigs, stretches[k].start, stretches[k].end);
                 int waveCount = 0;
                 float waveLow = 0;
                 for (size_t m = 0; m < waves.size(); m++)
@@ -126,11 +126,11 @@ private:
                                 if (count == 2)
                                 {
                                     EntrypointType signal = SignalUtils::is_buy_signal(
-                                        n, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd);
+                                        n, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd, strong_factors);
 
                                     if (signal != EntrypointType::ENTRYPOINT_UNKNOWN)
                                     {
-                                        inner_result[n] = static_cast<int>(signal);
+                                        inner_result[n] = encode_signal(1, 1, signal);
                                         break;
                                     }
                                 }
@@ -142,7 +142,7 @@ private:
         }
     }
 
-    void find_sell_sigs(std::vector<Stretch> &stretches)
+    void find_sell_sigs(Segs &stretches)
     {
         int stretchCount = 0;
         float stretchHigh = 0;
@@ -176,7 +176,7 @@ private:
                 }
 
                 // 在向上线段中找卖点
-                std::vector<Wave> waves = find_waves(wave_sigs, stretches[k].start, stretches[k].end);
+                Segs waves = find_segments(wave_sigs, stretches[k].start, stretches[k].end);
                 int waveCount = 0;
                 float waveHigh = 0;
                 for (size_t m = 0; m < waves.size(); m++)
@@ -228,11 +228,11 @@ private:
                                 if (count == 2)
                                 {
                                     EntrypointType signal = SignalUtils::is_sell_signal(
-                                        n, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd);
+                                        n, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd, strong_factors);
 
                                     if (signal != EntrypointType::ENTRYPOINT_UNKNOWN)
                                     {
-                                        inner_result[n] = static_cast<int>(signal);
+                                        inner_result[n] = encode_signal(1, 1, signal);
                                         break;
                                     }
                                 }
@@ -252,6 +252,15 @@ public:
     {
         calculate();
     }
+
+    S0001_Calculator(
+        const std::vector<float> &high, const std::vector<float> &low, const std::vector<float> &open, const std::vector<float> &close,
+        const std::vector<float> &vol,
+        int switch_opt, const ChanOptions &options,
+        const ChanContext &ctx) : BaseCalculator(high, low, open, close, vol, switch_opt, options, ctx)
+    {
+        calculate();
+    }
 };
 
 std::vector<int> F_S0001(
@@ -260,4 +269,15 @@ std::vector<int> F_S0001(
 {
     S0001_Calculator calculator(high, low, open, close, vol, switch_opt, options);
     return calculator.result();
+}
+
+REGISTER_CALC(1, F_S0001)
+
+std::vector<int> F_S0001_ctx(
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol, int switch_opt,
+    const ChanOptions &options, const ChanContext &ctx)
+{
+    return S0001_Calculator(high, low, open, close, vol, switch_opt, options, ctx).result();
 }

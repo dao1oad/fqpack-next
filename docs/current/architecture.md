@@ -7,6 +7,9 @@
 - 策略层
   - `freshquant.strategy.*`
   - `freshquant.signal.*`
+- 研究回测层
+  - `freshquant.backtest.clx.*`
+  - `freshquant.rear.clx_backtest.*`
 - 交易执行层
   - `freshquant.order_management.*`
   - `freshquant.position_management.*`
@@ -30,6 +33,29 @@
   - 记忆层只提供上下文，不覆盖 GitHub、`docs/current/**` 与最新远程 `origin/main` / `main` 的正式真值
   - 涉及运行交付时，以最新远程 `main` 的正式 deploy 与 health check 为准
   - 所有代码更新的 PR + CI + merge gate 仍是交付收敛面的正式真值
+
+## CLX 研究回测层
+
+### 主链
+
+`quantaxis Mongo -> immutable snapshot -> causal prefix signal facts -> event outcomes -> TRAIN search -> VALIDATION frozen ranking -> one-time HOLDOUT reveal -> RAW portfolio matching -> artifact projector -> freshquant_clx_backtest -> API / Web UI`
+
+### 计算边界
+
+- `S0000`～`S0017` 统一使用前复权 OHLC + 原始成交量识别信号。
+- 信号按逐日 from-zero prefix 计算，`reveal_date` 是研究与交易时钟；历史 `signal_date` 不代表当时已经可见。
+- 事件收益、涨跌停、费用、现金和持仓撮合统一使用原始价格。
+- 单模型候选先经过 TRAIN 门槛；多模型共振/序列只从通过 TRAIN beam 的不同 `independence_root` 生成。
+- VALIDATION 生成不可变完整顺序；HOLDOUT 在冻结前保持物理未读取，成功揭示由 persistent ledger 限制为一次，揭示后不重排。
+
+### 运行边界
+
+- `fq_apiserver` 只读 artifact，并查询派生库 `freshquant_clx_backtest`。
+- `fq_clx_backtest_worker` 通过 Mongo lease 承担长任务、HOLDOUT 和导出，对 artifact 根目录可写。
+- `ClxArtifactProjector` 只投影已经过 manifest、文件哈希和 lineage 校验的 artifact；既有相同身份的不同内容会被拒绝。
+- 页面 2～4 项比较选择只影响展示；正式冻结选择来自服务端 manifest 发布的 VALIDATION 正向前 20（不足时取全部）。
+
+详细合同见 [CLX 大规模回测](./modules/clx-backtest.md)。
 
 ## 订单相关核心调用链
 
@@ -172,5 +198,8 @@
 - `freshquant/tpsl/**`
   - 重建 API Server
   - 重启 `tpsl.tick_listener`
+- `freshquant/backtest/clx/**` 或 `freshquant/rear/clx_backtest/**`
+  - 重建 API Server
+  - 重建 `fq_clx_backtest_worker`
 - `morningglory/fqwebui/**`
   - 重建 Web UI
