@@ -19,6 +19,7 @@ from pymongo import MongoClient
 from freshquant.rear.clx_backtest.projector import (
     ClxArtifactProjector,
     ProjectionError,
+    _json_value,
     _source_signal_facts,
     _validate_decision_source_events,
 )
@@ -1032,6 +1033,13 @@ def test_claim_cancellation_race_finishes_cancelled(mongo_database, monkeypatch)
     )
 
 
+def test_json_value_projects_undefined_metrics_as_null():
+    assert _json_value(float("nan")) is None
+    assert _json_value(float("-inf")) is None
+    with pytest.raises(ProjectionError, match="infinite numeric value"):
+        _json_value(float("inf"))
+
+
 def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
     database, prefix = mongo_database
     run_id = prefix + "-RUN-PROJECT"
@@ -1057,7 +1065,7 @@ def test_mongo_projection_holdout_export_and_download(mongo_database, tmp_path):
         ranking_dir,
         artifact_run_id,
         combo_id,
-        validation_discovery_score=float("nan"),
+        validation_discovery_score=float("-inf"),
     )
     portfolio_source_identity: dict[str, object] = {
         "event_set_id": "event-fixture",

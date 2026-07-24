@@ -34,10 +34,11 @@ class ProjectionError(RuntimeError):
 
 
 def _json_value(value: Any) -> Any:
-    # Ranking artifacts use NaN for metrics that are undefined for a split.
-    # Mongo/JSON represents that state as null; infinity remains a hard error.
+    # Ranking artifacts use NaN for metrics that are undefined for a split and
+    # -inf as the discovery_score sentinel for splits that are never TRAIN
+    # scored. Mongo/JSON represents both as null; +inf remains a hard error.
     if isinstance(value, float):
-        if math.isnan(value):
+        if math.isnan(value) or value == float("-inf"):
             return None
         if math.isinf(value):
             raise ProjectionError("artifact contains an infinite numeric value")
