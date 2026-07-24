@@ -89,7 +89,9 @@ INDEX_DEFINITIONS: dict[str, tuple[IndexDefinition, ...]] = {
     ),
     "portfolio_summaries": (
         IndexDefinition(
-            (("run_id", 1), ("portfolio_id", 1)), "portfolio_summary_unique", True
+            (("run_id", 1), ("portfolio_id", 1), ("split_id", 1)),
+            "portfolio_summary_unique",
+            True,
         ),
         IndexDefinition(
             (("run_id", 1), ("combo_id", 1), ("split_id", 1)),
