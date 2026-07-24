@@ -51,7 +51,7 @@
 
 ### 当前持仓复盘链
 
-`current xt_trades / OM ledger + om_execution_history_archive / position_review_evidence_archive -> position-review read model -> /api/position-review/* -> PositionReview`
+`current xt_trades / OM ledger + om_execution_history_archive / position_review_evidence_archive -> position-review read model -> /api/position-review/* -> PositionReview / KlineSlim`
 
 ## 当前订单账本边界
 
@@ -128,15 +128,18 @@
 - `TpslManagement`
   - `entries + entry_slices + takeprofit + stoploss`
 - `KlineSlim`
-  - `entries + entry stoploss + guardian/takeprofit`
+  - `entries + entry stoploss + guardian/takeprofit + 可选订单级交易复盘覆盖层`
 - `PositionReview`
   - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
+  - 与 `KlineSlim` 共享订单级时间线投影：信号、订单聚合成交、数量对比和连续持仓使用同一口径
   - ClickHouse Trace 只作为可选判定上下文和运行观测跳转证据
 
 ## 当前持仓复盘口径
 
 - `/position-review` 是只读工作台，覆盖所有存在可信历史成交的标的；当前持仓和已清仓标的不采用不同的成交真值口径。
 - 复盘以策略请求或订单为判定单位；同一订单的逐笔成交只作为实际成交数量、价格和执行过程的下钻证据。
+- 订单级时间线只输出聚合订单事件和连续 `position_series`：每个事件保留策略应有量、实际成交总量、加权成交均价、仓位前后值与数据质量；KlineSlim 不展示逐笔 fill。
+- 信号到订单的可视关联只接受明确的 `request_id / internal_order_id / trace_id / intent_id` 键；缺少强关联时返回空信号并保留证据不足语义，不通过时间邻近推断。
 - 订单判定固定为四态：
   - `PASS`：现有证据能够确认实际行为符合策略逻辑。
   - `FAIL`：现有证据能够确认实际行为偏离策略逻辑。

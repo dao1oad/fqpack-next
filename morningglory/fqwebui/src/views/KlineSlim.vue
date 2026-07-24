@@ -36,6 +36,23 @@
         <el-button size="small" :disabled="!routeSymbol" @click="resetChartViewport">重置视图</el-button>
         <el-button
           size="small"
+          :type="showOrderReview ? 'primary' : 'default'"
+          :loading="orderReviewLoading"
+          :disabled="!routeSymbol"
+          @click="toggleOrderReviewMode"
+        >
+          交易复盘
+        </el-button>
+        <el-button
+          v-if="showOrderReview"
+          size="small"
+          :disabled="!routeSymbol"
+          @click="jumpToPositionReview"
+        >
+          复盘详情
+        </el-button>
+        <el-button
+          size="small"
           :type="showPriceGuidePanel ? 'primary' : 'default'"
           :disabled="!routeSymbol"
           @click="togglePriceGuideEditMode"
@@ -591,6 +608,23 @@
           </div>
         </div>
         <div ref="chartHost" class="kline-slim-chart"></div>
+        <div
+          v-if="orderReviewChartState"
+          class="kline-slim-review-state"
+          :class="`kline-slim-review-state--${orderReviewChartState.kind}`"
+          role="status"
+          :aria-live="orderReviewChartState.kind === 'error' ? 'assertive' : 'polite'"
+        >
+          <span>{{ orderReviewChartState.message }}</span>
+          <el-button
+            v-if="orderReviewChartState.kind === 'error'"
+            size="small"
+            type="primary"
+            @click="retryOrderReviewTimeline"
+          >
+            重试
+          </el-button>
+        </div>
         <div v-if="!routeSymbol" class="kline-slim-empty">
           {{ emptyMessage }}
         </div>
@@ -1328,6 +1362,35 @@ export default {
   right 0
   bottom 0
 
+.kline-slim-review-state
+  position absolute
+  top 58px
+  right 16px
+  z-index 8
+  display flex
+  align-items center
+  gap 8px
+  min-height 32px
+  max-width calc(100% - 32px)
+  padding 5px 7px 5px 10px
+  border 1px solid rgba(148, 163, 184, 0.28)
+  border-radius 6px
+  background rgba(15, 23, 42, 0.92)
+  color #dbeafe
+  font-size 12px
+  line-height 1.35
+  pointer-events auto
+
+.kline-slim-review-state--empty
+  color #cbd5e1
+
+.kline-slim-review-state--error
+  border-color rgba(248, 113, 113, 0.46)
+  color #fecaca
+
+.kline-slim-review-state :deep(.el-button)
+  flex 0 0 auto
+
 .kline-slim-empty
   position absolute
   top 0
@@ -1418,6 +1481,11 @@ export default {
 
   .kline-slim-content
     min-height 0
+
+  .kline-slim-review-state
+    top 52px
+    right 8px
+    max-width calc(100% - 16px)
 
   .kline-slim-overlay-panel
     top 8px

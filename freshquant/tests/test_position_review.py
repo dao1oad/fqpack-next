@@ -211,6 +211,16 @@ class FakePositionReviewRepository:
                 "remaining_quantity": 0,
             },
         ]
+        self.signals = [
+            {
+                "code": self.symbol,
+                "name": "恩华药业",
+                "position": "SELL_SHORT",
+                "price": 22.41,
+                "remark": "回拉中枢下跌",
+                "fire_time": datetime.fromisoformat("2026-04-29T10:14:00+08:00"),
+            }
+        ]
 
     def list_symbols(self):
         return [self.symbol]
@@ -222,16 +232,7 @@ class FakePositionReviewRepository:
         return [{"stock_code": "002262.SZ", "volume": 22300}]
 
     def list_stock_signals(self, symbol=None):
-        return [
-            {
-                "code": self.symbol,
-                "name": "恩华药业",
-                "position": "SELL_SHORT",
-                "price": 22.41,
-                "remark": "回拉中枢下跌",
-                "fire_time": datetime.fromisoformat("2026-04-29T10:14:00+08:00"),
-            }
-        ]
+        return deepcopy(self.signals)
 
     def list_order_requests(self, symbol=None):
         return deepcopy(self.requests)
@@ -372,6 +373,467 @@ def test_enhua_april_29_replay_detects_second_sell_as_non_compliant():
     assert first_execution["trade_fact_id"] == "fact_first"
     assert first_execution["association_quality"] == "high"
     assert first_execution["association_method"] == "execution_fill"
+
+
+def test_order_timeline_aggregates_fills_preserves_real_position_steps_and_links_signal():
+    repository = FakePositionReviewRepository()
+    repository.xt_trades[0].update(
+        {
+            "traded_volume": 1000,
+            "traded_price": 22.40,
+        }
+    )
+    repository.fills[0].update({"quantity": 1000, "price": 22.40})
+    repository.trade_facts[0].update({"quantity": 1000, "price": 22.40})
+    second_fill_time = _epoch("2026-04-29T10:14:09")
+    repository.xt_trades.insert(
+        1,
+        {
+            "traded_id": "trade_first_part",
+            "order_id": 1477443585,
+            "stock_code": "002262.SZ",
+            "order_type": 31,
+            "traded_volume": 1300,
+            "traded_price": 22.41,
+            "traded_time": second_fill_time,
+        },
+    )
+    repository.fills.insert(
+        1,
+        {
+            "execution_fill_id": "fill_first_part",
+            "request_id": "req_first",
+            "internal_order_id": "ord_first",
+            "broker_trade_id": "trade_first_part",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 1300,
+            "price": 22.41,
+            "trade_time": second_fill_time,
+        },
+    )
+    repository.trade_facts.insert(
+        1,
+        {
+            "trade_fact_id": "fact_first_part",
+            "internal_order_id": "ord_first",
+            "broker_trade_id": "trade_first_part",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 1300,
+            "price": 22.41,
+            "trade_time": second_fill_time,
+        },
+    )
+    repository.signals = [
+        {
+            # Matching time alone must not attach this signal to an order.
+            "signal_id": "sig_time_only",
+            "code": repository.symbol,
+            "position": "SELL_SHORT",
+            "price": 22.40,
+            "fire_time": datetime.fromisoformat("2026-04-29T10:14:07+08:00"),
+        },
+        {
+            "signal_id": "sig_first",
+            "request_id": "req_first",
+            "code": repository.symbol,
+            "position": "SELL_SHORT",
+            "price": 22.41,
+            "quantity": 2300,
+            "strategy_name": "guardian",
+            "fire_time": datetime.fromisoformat("2026-04-29T10:14:00+08:00"),
+        },
+    ]
+    service = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+    )
+
+    timeline = service.get_symbol_timeline("002262")
+    first = next(
+        item for item in timeline["events"] if item["internal_order_id"] == "ord_first"
+    )
+
+    assert first["type"] == "order"
+    assert first["request_id"] == "req_first"
+    assert first["side"] == "sell"
+    assert first["expected_quantity"] == 2300
+    assert first["request_quantity"] == 2300
+    assert first["actual"] == {
+        "filled_quantity": 2300,
+        "weighted_average_price": 22.405652,
+        "fill_count": 2,
+        "first_fill_at": "2026-04-29T10:14:07+08:00",
+        "last_fill_at": "2026-04-29T10:14:09+08:00",
+    }
+    assert first["position_before"] == 29100
+    assert first["position_after"] == 26800
+    assert first["signal"] == {
+        "id": "sig_first",
+        "occurred_at": "2026-04-29T10:14:00+08:00",
+        "time": "2026-04-29T10:14:00+08:00",
+        "side": "sell",
+        "price": 22.41,
+        "quantity": 2300,
+        "label": "guardian",
+        "strategy": "guardian",
+        "remark": None,
+    }
+    assert first["data_quality"]["signal_association"] == "direct"
+    assert first["data_quality"]["association_quality"] == "high"
+    assert "fills" not in first
+    assert [
+        (point["time"], point["value"]) for point in timeline["position_series"]
+    ] == [
+        ("2026-04-29T10:14:06+08:00", 29100),
+        ("2026-04-29T10:14:07+08:00", 28100),
+        ("2026-04-29T10:14:09+08:00", 26800),
+        ("2026-04-29T10:33:07+08:00", 22300),
+    ]
+
+    window = service.get_symbol_timeline(
+        "002262",
+        start="2026-04-29T10:14:08+08:00",
+        end="2026-04-29T10:14:10+08:00",
+    )
+    assert window["range"] == {
+        "start": "2026-04-29T10:14:08+08:00",
+        "end": "2026-04-29T10:14:10+08:00",
+    }
+    assert [item["internal_order_id"] for item in window["events"]] == ["ord_first"]
+    assert window["events"][0]["time"] == "2026-04-29T10:14:09+08:00"
+    assert window["events"][0]["actual"] == {
+        "filled_quantity": 1300,
+        "weighted_average_price": 22.41,
+        "fill_count": 1,
+        "first_fill_at": "2026-04-29T10:14:09+08:00",
+        "last_fill_at": "2026-04-29T10:14:09+08:00",
+    }
+    assert window["events"][0]["position_before"] == 28100
+    assert window["events"][0]["position_after"] == 26800
+    assert window["events"][0]["data_quality"]["actual_scope"] == "window"
+    assert [(point["time"], point["value"]) for point in window["position_series"]] == [
+        ("2026-04-29T10:14:08+08:00", 28100),
+        ("2026-04-29T10:14:09+08:00", 26800),
+    ]
+
+
+def test_order_timeline_marks_same_second_cross_order_positions_ambiguous():
+    repository = FakePositionReviewRepository()
+    collision_time = _epoch("2026-04-29T10:14:07")
+    repository.xt_trades[1]["traded_time"] = collision_time
+    repository.fills[1]["trade_time"] = collision_time
+    repository.trade_facts[1]["trade_time"] = collision_time
+    service = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+    )
+
+    timeline = service.get_symbol_timeline("002262")
+    events = {
+        item["internal_order_id"]: item
+        for item in timeline["events"]
+        if item["internal_order_id"] in {"ord_first", "ord_second"}
+    }
+
+    assert set(events) == {"ord_first", "ord_second"}
+    assert all(item["position_before"] is None for item in events.values())
+    assert all(item["position_after"] is None for item in events.values())
+    assert all(
+        item["data_quality"]["position_ordering"] == "ambiguous"
+        for item in events.values()
+    )
+    assert all(
+        any(
+            warning["code"] == "position_ordering_ambiguous"
+            for warning in item["data_quality"]["warnings"]
+        )
+        for item in events.values()
+    )
+    fill_points = [
+        point for point in timeline["position_series"] if point["point_type"] == "fill"
+    ]
+    assert [(point["time"], point["value"]) for point in fill_points] == [
+        ("2026-04-29T10:14:07+08:00", 22300),
+    ]
+    assert fill_points[0]["order_event_id"] is None
+    assert fill_points[0]["position_ordering"] == "ambiguous"
+    assert set(fill_points[0]["order_event_ids"]) == {
+        item["id"] for item in events.values()
+    }
+
+    window = service.get_symbol_timeline(
+        "002262",
+        start="2026-04-29T10:14:07+08:00",
+        end="2026-04-29T10:14:07+08:00",
+    )
+    window_events = {
+        item["internal_order_id"]: item
+        for item in window["events"]
+        if item["internal_order_id"] in {"ord_first", "ord_second"}
+    }
+    assert set(window_events) == {"ord_first", "ord_second"}
+    assert all(item["position_before"] is None for item in window_events.values())
+    assert all(item["position_after"] is None for item in window_events.values())
+    assert all(
+        item["data_quality"]["position_ordering"] == "ambiguous"
+        for item in window_events.values()
+    )
+    assert [(point["time"], point["value"]) for point in window["position_series"]] == [
+        ("2026-04-29T10:14:07+08:00", 29100),
+        ("2026-04-29T10:14:07+08:00", 22300),
+    ]
+
+
+def test_order_timeline_keeps_same_internal_order_separate_per_account_partition():
+    repository = FakePositionReviewRepository()
+    repository.requests = [repository.requests[0]]
+    repository.orders = [repository.orders[0]]
+    repository.xt_trades = [
+        {
+            "traded_id": "trade_account_a",
+            "order_id": 1477443585,
+            "stock_code": "002262.SZ",
+            "order_type": 31,
+            "traded_volume": 100,
+            "traded_price": 22.40,
+            "traded_time": _epoch("2026-04-29T10:14:07"),
+            "account_id": "broker-account-a",
+        },
+        {
+            "traded_id": "trade_account_b",
+            "order_id": 1477443585,
+            "stock_code": "002262.SZ",
+            "order_type": 31,
+            "traded_volume": 200,
+            "traded_price": 22.41,
+            "traded_time": _epoch("2026-04-29T10:14:08"),
+            "account_id": "broker-account-b",
+        },
+    ]
+    repository.fills = [
+        {
+            "execution_fill_id": "fill_account_a",
+            "request_id": "req_first",
+            "internal_order_id": "ord_first",
+            "broker_trade_id": "trade_account_a",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 100,
+            "price": 22.40,
+            "trade_time": _epoch("2026-04-29T10:14:07"),
+            "account_id": "broker-account-a",
+        },
+        {
+            "execution_fill_id": "fill_account_b",
+            "request_id": "req_first",
+            "internal_order_id": "ord_first",
+            "broker_trade_id": "trade_account_b",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 200,
+            "price": 22.41,
+            "trade_time": _epoch("2026-04-29T10:14:08"),
+            "account_id": "broker-account-b",
+        },
+    ]
+    repository.trade_facts = [
+        {
+            "trade_fact_id": "fact_account_a",
+            "internal_order_id": "ord_first",
+            "broker_trade_id": "trade_account_a",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 100,
+            "price": 22.40,
+            "trade_time": _epoch("2026-04-29T10:14:07"),
+            "account_id": "broker-account-a",
+        },
+        {
+            "trade_fact_id": "fact_account_b",
+            "internal_order_id": "ord_first",
+            "broker_trade_id": "trade_account_b",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 200,
+            "price": 22.41,
+            "trade_time": _epoch("2026-04-29T10:14:08"),
+            "account_id": "broker-account-b",
+        },
+    ]
+    timeline = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+    ).get_symbol_timeline("002262")
+
+    events = [
+        item
+        for item in timeline["events"]
+        if item["internal_order_id"] == "ord_first"
+        and item["actual"]["filled_quantity"] > 0
+    ]
+    assert len(events) == 2
+    assert {item["actual"]["filled_quantity"] for item in events} == {100, 200}
+    assert len({item["account_partition"] for item in events}) == 2
+    assert all(item["expected_quantity"] is None for item in events)
+    assert all(
+        any(
+            warning["code"] == "order_account_partition_ambiguous"
+            for warning in item["data_quality"]["warnings"]
+        )
+        for item in events
+    )
+    assert all(
+        any(
+            warning["code"] == "expected_quantity_ambiguous_across_orders"
+            for warning in item["data_quality"]["warnings"]
+        )
+        for item in events
+    )
+
+
+def test_order_timeline_does_not_cross_attach_an_order_specific_signal_via_request():
+    repository = FakePositionReviewRepository()
+    repository.requests = [repository.requests[0]]
+    repository.orders = [
+        repository.orders[0],
+        {
+            "internal_order_id": "ord_split",
+            "request_id": "req_first",
+            "broker_order_id": "1477443587",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "state": "FILLED",
+            "submitted_at": "2026-04-29T10:15:05",
+        },
+    ]
+    split_time = _epoch("2026-04-29T10:15:07")
+    repository.xt_trades.append(
+        {
+            "traded_id": "trade_split",
+            "order_id": 1477443587,
+            "stock_code": "002262.SZ",
+            "order_type": 31,
+            "traded_volume": 100,
+            "traded_price": 22.42,
+            "traded_time": split_time,
+        }
+    )
+    repository.fills.append(
+        {
+            "execution_fill_id": "fill_split",
+            "request_id": "req_first",
+            "internal_order_id": "ord_split",
+            "broker_trade_id": "trade_split",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 100,
+            "price": 22.42,
+            "trade_time": split_time,
+        }
+    )
+    repository.trade_facts.append(
+        {
+            "trade_fact_id": "fact_split",
+            "internal_order_id": "ord_split",
+            "broker_trade_id": "trade_split",
+            "symbol": repository.symbol,
+            "side": "sell",
+            "quantity": 100,
+            "price": 22.42,
+            "trade_time": split_time,
+        }
+    )
+    repository.signals = [
+        {
+            "signal_id": "sig_ord_first",
+            "request_id": "req_first",
+            "internal_order_id": "ord_first",
+            "code": repository.symbol,
+            "position": "SELL_SHORT",
+            "price": 22.41,
+            "fire_time": datetime.fromisoformat("2026-04-29T10:14:00+08:00"),
+        }
+    ]
+
+    timeline = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+    ).get_symbol_timeline("002262")
+    events = {
+        item["internal_order_id"]: item
+        for item in timeline["events"]
+        if item["internal_order_id"] in {"ord_first", "ord_split"}
+    }
+
+    assert events["ord_first"]["signal"]["id"] == "sig_ord_first"
+    assert events["ord_first"]["data_quality"]["signal_association"] == "direct"
+    assert events["ord_split"]["signal"] is None
+    assert events["ord_split"]["data_quality"]["signal_association"] == "none"
+    assert all(item["expected_quantity"] is None for item in events.values())
+
+
+def test_order_timeline_rejects_invalid_time_window():
+    service = PositionReviewService(
+        repository=FakePositionReviewRepository(),
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+    )
+
+    for kwargs, expected_message in (
+        ({"start": "not-a-time"}, "start must be"),
+        ({"start": float("nan")}, "start must be"),
+        (
+            {
+                "start": "2026-04-29T10:14:10+08:00",
+                "end": "2026-04-29T10:14:09+08:00",
+            },
+            "start must be earlier",
+        ),
+    ):
+        try:
+            service.get_symbol_timeline("002262", **kwargs)
+        except ValueError as exc:
+            assert expected_message in str(exc)
+        else:
+            raise AssertionError("invalid timeline window must be rejected")
+
+
+def test_order_timeline_route_validates_range_and_serializes_projection(monkeypatch):
+    service = PositionReviewService(
+        repository=FakePositionReviewRepository(),
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+    )
+    monkeypatch.setattr(
+        "freshquant.rear.position_review.routes._get_position_review_service",
+        lambda: service,
+    )
+    app = Flask("position-review-timeline-route")
+    app.register_blueprint(position_review_bp)
+    client = app.test_client()
+
+    response = client.get(
+        "/api/position-review/symbols/002262/timeline",
+        query_string={
+            "start": "2026-04-29T10:14:00+08:00",
+            "end": "2026-04-29T10:34:00+08:00",
+        },
+    )
+    assert response.status_code == 200
+    assert response.get_json()["position_series"][0]["time"].endswith("+08:00")
+    assert (
+        client.get(
+            "/api/position-review/symbols/002262/timeline",
+            query_string={"start": "not-a-time"},
+        ).status_code
+        == 400
+    )
 
 
 def test_reused_broker_trade_id_with_zero_score_does_not_attach_wrong_fill():
@@ -1468,6 +1930,17 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
                 raise ValueError("symbol not found")
             return {"symbol": {"code": "002262", "name": "恩华药业"}}
 
+        def get_symbol_timeline(self, symbol, *, start=None, end=None, refresh=False):
+            if symbol == "missing":
+                raise ValueError("symbol not found")
+            self.calls.append(("timeline", symbol, start, end, refresh))
+            return {
+                "symbol": {"code": "002262", "name": "恩华药业"},
+                "range": {"start": start, "end": end},
+                "events": [],
+                "position_series": [],
+            }
+
     fake_service = FakeService()
     monkeypatch.setattr(
         "freshquant.rear.position_review.routes._get_position_review_service",
@@ -1490,5 +1963,16 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
     assert symbols["rows"][0]["symbol"] == "002262"
     assert client.get("/api/position-review/symbols/002262").status_code == 200
     assert client.get("/api/position-review/symbols/missing").status_code == 404
+    timeline = client.get(
+        "/api/position-review/symbols/002262/timeline?start=1714356847&end=1714356849&refresh=1"
+    ).get_json()
+    assert timeline["range"] == {"start": "1714356847", "end": "1714356849"}
+    assert fake_service.calls[-1] == (
+        "timeline",
+        "002262",
+        "1714356847",
+        "1714356849",
+        True,
+    )
     assert fake_service.calls[:2] == [("summary", True), ("symbols", True)]
     assert client.get("/api/position-review/summary?refresh=maybe").status_code == 400

@@ -32,4 +32,12 @@ export const positionReviewApi = {
       params: compactParams(params),
     })
   },
+
+  getSymbolTimeline (symbol, params = {}) {
+    return http({
+      url: `/api/position-review/symbols/${encodeURIComponent(toText(symbol))}/timeline`,
+      method: 'get',
+      params: compactParams(params),
+    })
+  },
 }

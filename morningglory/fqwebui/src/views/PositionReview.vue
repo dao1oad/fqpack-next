@@ -299,16 +299,16 @@
           >
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">价格 · 策略应有量 · 实际成交量 · 持仓联动</div>
+                <div class="workbench-panel__title">订单复盘 · 信号关联 · 持仓联动</div>
                 <p class="workbench-panel__desc">
-                  同一时间轴查看信号/委托价、策略阈值、成交点、数量偏差与仓位重建；持仓线从“期初仓（推导）”起点开始。
+                  每个节点代表一笔订单的聚合成交：关联信号、策略应有量、实际成交量和持仓前后变化使用同一时间轴；不展示逐笔成交，也不把信号或委托价连成价格线。
                 </p>
               </div>
             </div>
             <PositionReviewChart
               class="position-review-timeline-chart"
               :option="timelineOption"
-              :loading="loading.detail"
+              :loading="loading.detail || loading.timeline"
               :empty="!hasTimelineData"
               empty-text="当前标的暂无可绘制的交易时间轴"
               @chart-click="handleChartClick"
@@ -748,8 +748,11 @@ import {
 import {
   buildPositionReviewMonthlyTradeOption,
   buildPositionReviewStatusDonutOption,
-  buildPositionReviewTimelineOption,
 } from './positionReviewCharts.mjs'
+import {
+  buildOrderReviewTimelineOption,
+  normalizeOrderReviewTimeline,
+} from './orderReviewTimeline.mjs'
 import {
   normalizePositionReviewStatus,
   POSITION_REVIEW_FILTER_OPTIONS,
@@ -775,16 +778,19 @@ const loading = reactive({
   summary: false,
   symbols: false,
   detail: false,
+  timeline: false,
 })
 const loadErrors = reactive({
   summary: '',
   symbols: '',
   detail: '',
+  timeline: '',
 })
 const summary = ref(normalizePositionReviewSummary({}))
 const symbolResult = ref(normalizePositionReviewSymbolRows({ rows: [], total: 0, page: 1, size: 100 }))
 const selectedSymbol = ref('')
 const selectedDetail = ref(null)
+const selectedTimeline = ref(null)
 const activeReview = ref(null)
 const activeExecution = ref(null)
 const drawerVisible = ref(false)
@@ -793,6 +799,7 @@ const reviewTableRef = ref(null)
 let summaryRequestId = 0
 let symbolRequestId = 0
 let detailRequestId = 0
+let timelineRequestId = 0
 
 const summaryKpis = computed(() => buildPositionReviewSummaryKpis(summary.value))
 const detailKpis = computed(() => buildPositionReviewDetailKpis(selectedDetail.value || {}))
@@ -815,14 +822,13 @@ const statusDonutOption = computed(() => (
 const monthlyTradeOption = computed(() => (
   buildPositionReviewMonthlyTradeOption(selectedDetail.value?.monthlyActivity || [])
 ))
+const orderTimeline = computed(() => (
+  normalizeOrderReviewTimeline(selectedTimeline.value || selectedDetail.value || {})
+))
 const timelineOption = computed(() => (
-  buildPositionReviewTimelineOption(selectedDetail.value || {})
+  buildOrderReviewTimelineOption(orderTimeline.value)
 ))
-const hasTimelineData = computed(() => Boolean(
-  selectedDetail.value?.reviews?.length ||
-  selectedDetail.value?.pricePoints?.length ||
-  selectedDetail.value?.positionPoints?.length,
-))
+const hasTimelineData = computed(() => orderTimeline.value.hasData)
 const selectedOutsideCatalog = computed(() => Boolean(
   selectedSymbol.value &&
   !loading.symbols &&
@@ -833,6 +839,7 @@ const activeLoadErrors = computed(() => (
     { scope: 'summary', message: loadErrors.summary },
     { scope: 'symbols', message: loadErrors.symbols },
     { scope: 'detail', message: loadErrors.detail },
+    { scope: 'timeline', message: loadErrors.timeline },
   ].filter((item) => item.message)
 ))
 const activeDataQualityWarnings = computed(() => {
@@ -947,16 +954,50 @@ const loadSummary = async ({ refresh = false } = {}) => {
   }
 }
 
+const isTimelineEndpointUnavailable = (error) => Number(error?.response?.status) === 404
+
+const loadSymbolTimeline = async (symbol) => {
+  const normalizedSymbol = String(symbol || '').trim()
+  const requestId = ++timelineRequestId
+  if (!normalizedSymbol) {
+    selectedTimeline.value = null
+    loadErrors.timeline = ''
+    loading.timeline = false
+    return
+  }
+  loading.timeline = true
+  loadErrors.timeline = ''
+  selectedTimeline.value = null
+  try {
+    const response = await positionReviewApi.getSymbolTimeline(normalizedSymbol)
+    if (requestId !== timelineRequestId) return
+    selectedTimeline.value = response
+    loadErrors.timeline = ''
+  } catch (error) {
+    if (requestId !== timelineRequestId) return
+    selectedTimeline.value = null
+    // Old API deployments do not yet expose the projection. The detail payload
+    // remains a compatible timeline fallback until that endpoint is available.
+    loadErrors.timeline = isTimelineEndpointUnavailable(error)
+      ? ''
+      : errorMessage(`加载 ${normalizedSymbol} 订单复盘时间轴失败`, error)
+  } finally {
+    if (requestId === timelineRequestId) loading.timeline = false
+  }
+}
+
 const loadSymbolDetail = async (symbol) => {
   const normalizedSymbol = String(symbol || '').trim()
   const requestId = ++detailRequestId
   if (!normalizedSymbol) {
     selectedDetail.value = null
+    await loadSymbolTimeline('')
     loading.detail = false
     return
   }
   loading.detail = true
   loadErrors.detail = ''
+  void loadSymbolTimeline(normalizedSymbol)
   try {
     const response = await positionReviewApi.getSymbolReview(normalizedSymbol)
     if (requestId !== detailRequestId) return
@@ -1077,13 +1118,16 @@ const handleChartClick = async (params) => {
   const eventId = String(
     params?.data?.eventId ||
     params?.data?.requestId ||
+    params?.data?.internalOrderId ||
+    params?.data?.orderKey ||
     '',
   ).trim()
   if (!eventId || !selectedDetail.value) return
   const row = selectedDetail.value.reviews.find((item) => (
     item.id === eventId ||
     item.reviewId === eventId ||
-    item.requestId === eventId
+    item.requestId === eventId ||
+    item.internalOrderId === eventId
   ))
   if (!row) return
   await nextTick()
@@ -1108,6 +1152,10 @@ const retryLoadError = async (scope) => {
   }
   if (scope === 'detail') {
     await loadSymbolDetail(selectedSymbol.value)
+    return
+  }
+  if (scope === 'timeline') {
+    await loadSymbolTimeline(selectedSymbol.value)
   }
 }
 

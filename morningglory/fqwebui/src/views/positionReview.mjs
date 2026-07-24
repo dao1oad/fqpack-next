@@ -732,6 +732,15 @@ export const normalizePositionReviewDetail = (response = {}) => {
   )
   const summaryPayload = payload.summary || {}
   const charts = payload.charts || {}
+  const orderTimeline = (
+    payload.order_timeline ||
+    payload.orderTimeline ||
+    payload.timeline_projection ||
+    payload.timelineProjection ||
+    (!Array.isArray(payload.timeline) && payload.timeline && typeof payload.timeline === 'object'
+      ? payload.timeline
+      : {})
+  )
   const reviews = toArray(payload.reviews || payload.orders || payload.events)
     .map(normalizeReviewRow)
     .sort((left, right) => (parseTimestampMs(left.time) || 0) - (parseTimestampMs(right.time) || 0))
@@ -879,7 +888,8 @@ export const normalizePositionReviewDetail = (response = {}) => {
     initialPositionSource,
     initialPositionFormula: dataQuality.initialPositionFormula,
     initialPositionAssumption: dataQuality.initialPositionAssumption,
-    timeline: normalizeTimelineRows(payload.timeline),
+    orderTimeline,
+    timeline: normalizeTimelineRows(Array.isArray(payload.timeline) ? payload.timeline : []),
     positionPoints,
     pricePoints,
     quantityCompare: quantityCompare.length ? quantityCompare : fallbackQuantityCompare,

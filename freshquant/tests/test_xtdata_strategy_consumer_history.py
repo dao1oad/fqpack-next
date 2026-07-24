@@ -170,7 +170,16 @@ def test_load_window_from_db_applies_single_qfq_to_raw_stock_realtime(
 ):
     _disable_quantaxis_import(monkeypatch)
 
-    now_dt = datetime.now(tz=cfg.TZ).replace(second=0, microsecond=0)
+    now_dt = cfg.TZ.localize(datetime(2026, 7, 6, 10, 0, 0))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return now_dt
+            return now_dt.astimezone(tz)
+
+    monkeypatch.setattr(sc, "datetime", FrozenDateTime)
     hist_bar = now_dt - timedelta(minutes=10)
     rt_bar = now_dt - timedelta(minutes=5)
 
