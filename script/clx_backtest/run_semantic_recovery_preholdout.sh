@@ -91,7 +91,12 @@ run_python() {
     -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
     -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
     -e "POLARS_MAX_THREADS=$polars_threads" \
+    # Source contracts retain absolute paths for their frozen configs and
+    # finalization evidence. Mount the runtime at both identities: writable
+    # only through /runtime for child outputs, read-only at the sealed
+    # contract identity for source verification.
     -v "$repo_root:/workspace:ro" -v "$runtime_root:/runtime" \
+    -v "$runtime_root:$runtime_root:ro" \
     -v "$source_root:$source_c:ro" -v "$snapshot_dir:$snapshot_c:ro" \
     -w /opt/clx-src --entrypoint python "$image" \
     -m freshquant.backtest.clx.run_verified_engine_python "$stage" "$@"
