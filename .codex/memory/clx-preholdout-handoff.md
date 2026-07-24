@@ -125,3 +125,27 @@ http://127.0.0.1:18098/clx-backtest?run_id=01KBYC7REC0V3RY99634853AAB&tab=result
 ## 完整目标的后续分界
 
 本 preview 只解决“尽快查看 pre-HOLDOUT 结果”。后续只有在用户明确授权后才进入 HOLDOUT 单次 reveal、portfolio、真实研究结论、PR #466 CI/review/merge、latest remote `main` formal deploy、health/runtime 验收和 cleanup。
+
+
+## 2026-07-24 20:5x +08:00 接手复核与网关启动记录
+
+- SSH 已恢复：私钥位于 `D:/fqpack/runtime/compare-vm/20260722/autoinstall/fqcompare_ed25519`；Windows OpenSSH 客户端在本机自动化环境下无输出退出（code 255），实际使用 paramiko（`.codex/remote_win.py` / `.codex/tunnel_win.py`）。
+- 只读审计（未触及 HOLDOUT）：
+  - `run-contract.json` 与 handoff 一致：`holdout_state=LOCKED`、run_id `01KBYC7REC0V3RY99634853AAB`。
+  - manifest SHA 实测：event `89676bcc…`、ranking `40554a30…`、facts/signal `1d85bc3b…`，与 runs 文档一致。
+  - `semantic-recovery-preholdout/` 存在 `event-study.passed` 等 sealed proof；`.runner/` 有 `complete`、`finalized`。
+- Mongo 复查结果与 handoff 记录不同：投影已完成（runs 文档 `status=COMPLETE`，created_at 2026-07-24T10:33:32Z）。counts（按 run_id）：runs=1、manifests=1、combo_definitions=27、combo_metrics=54（TRAIN 27 + VALIDATION 27）、model_heatmap=24（VALIDATION）、其余 0。VALIDATION 的 27 条 `discovery_score` 均为 null（即 `5d0a4e3d` 修复语义已生效），HOLDOUT 相关文档为 0。因此未执行任何 delete，也未重投影。
+- 临时只读网关已启动：VM 容器 `clx-readonly-preview-gw`（nginx:alpine，network `freshquant-2026718_default`，仅绑定 `127.0.0.1:18098:80`，config `/home/fqcompare/clx-readonly-preview/nginx.conf`）。
+- 本机 tunnel：paramiko 端口转发脚本 `.codex/tunnel_win.py`（后台 PID 28964），本机 `127.0.0.1:18098` -> VM `127.0.0.1:18098`。注意：初版脚本 EOF 时直接 close 导致部分响应 10054 reset，已改为半关闭（shutdown write）。
+- 页面验收（经本机 tunnel 实测）：`/clx-backtest?run_id=…&tab=results` 200；`/api/clx-backtest/health` 200；rankings TRAIN/VALIDATION 200；rankings HOLDOUT 423 HOLDOUT_LOCKED；manifest/quality/model-heatmap 200；`POST /runs`、`DELETE` 等写操作 405；仅 `POST /api/clx-backtest/compare` 放行（空参数返回 400 属预期校验）。
+- 残留限制：portfolio_* 为空（portfolio_dirs={}），资金曲线/成交为空属预期；该入口仍是 preview，非 formal deploy。用户确认后再停止 gateway/tunnel。
+
+
+## 2026-07-24 CLX 回测完成记录（用户已授权 HOLDOUT）
+
+- TRAIN/VALIDATION portfolio 已用不可变 engine image `fq_clx_preview:99634853`（sha256:c54011fdf3f7）按官方链参数构建并 verify（`portfolios/clx-preview-99634853b/{TRAIN,VALIDATION}`）。
+- HOLDOUT 单次 reveal 已执行：ledger `holdout-ledger/d4e3b38c...`，`logical_reveals=1`，`ledger_complete_records=1`，reveal_id `sha256:4723f7a9...`；HOLDOUT portfolio 使用 reveal artifact 构建并 verify。
+- V2 portfolio gate（v2_portfolio_real.sh）在真实 artifact 上 `status=verified`。
+- Mongo 最终投影完成：manifests 含 portfolios + holdout attachment，combo_metrics 81（27x3 split），portfolio_summaries 24，freeze_records 1（state=REVEALED, reveal_count=1，api_freeze_id `sha256:70511fd3...`）。
+- 发现并修复真实缺陷：`portfolio_summary_unique` 索引未含 split_id，导致同一组合跨 split 投影冲突；已提交 `fix: scope portfolio summary uniqueness by split`（075b8981），并在派生库执行了索引迁移（drop 旧索引后由 ensure_indexes 重建）。
+- preview 网关/tunnel 仍在运行，正式 deploy 后清理。
