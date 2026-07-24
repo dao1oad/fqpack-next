@@ -87,15 +87,15 @@ run_python() {
   verify_child_contract "before $stage"
   verify_engine_image "before $stage"
   verify_runtime_paths "before $stage"
+  # Sealed contracts retain host-absolute paths. The container must use the
+  # same identity while keeping the runtime parent read-only and exposing
+  # only child-owned output roots as writable submounts.
   docker run --rm --network none --user "$(id -u):$(id -g)" \
     --name "clx-semantic-${CLX_RECOVERY_RUN_ID}-${stage}" \
     --cpus "$cpus" --memory "$memory" --memory-swap "$memory" --pids-limit 4096 \
     -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
     -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
     -e "POLARS_MAX_THREADS=$polars_threads" \
-    # Sealed contracts retain host-absolute paths. The container must use the
-    # same identity while keeping the runtime parent read-only and exposing
-    # only child-owned output roots as writable submounts.
     -v "$repo_root:/workspace:ro" \
     -v "$runtime_root:$runtime_root:ro" \
     -v "$target_root:$target_c" -v "$audit_dir:$audit_c" \

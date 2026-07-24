@@ -92,6 +92,7 @@ def test_semantic_recovery_preholdout_is_contract_pinned_before_writes() -> None
     docker_run = script.index("docker run --rm --network none", run_python_start)
     after_stage = script.index('verify_runtime_paths "after $stage"', run_python_start)
     assert child_check < engine_check < runtime_check < docker_run < after_stage
+    assert script.index("# Sealed contracts retain host-absolute paths.") < docker_run
     assert "refresh_runtime_container_paths" in script
     assert "printf '%s' \"$root\"" in script
     assert "printf '%s' \"$path\"" in script
