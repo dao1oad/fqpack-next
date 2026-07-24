@@ -93,10 +93,16 @@ def test_semantic_recovery_preholdout_is_contract_pinned_before_writes() -> None
     after_stage = script.index('verify_runtime_paths "after $stage"', run_python_start)
     assert child_check < engine_check < runtime_check < docker_run < after_stage
     assert "refresh_runtime_container_paths" in script
+    assert "printf '%s' \"$root\"" in script
+    assert "printf '%s' \"$path\"" in script
+    assert '-v "$runtime_root:/runtime"' not in script
     assert '-v "$runtime_root:$runtime_root:ro"' in script
+    assert '-v "$target_root:$target_c"' in script
+    assert '-v "$audit_dir:$audit_c"' in script
+    assert '-v "$evidence_root:$evidence_c"' in script
     assert script.index('-v "$runtime_root:$runtime_root:ro"') < script.index(
-        '-v "$source_root:$source_c:ro"'
-    )
+        '-v "$target_root:$target_c"'
+    ) < script.index('-v "$source_root:$source_c:ro"')
     assert 'verify_runtime_paths "before mkdir $directory"' in script
     assert 'mkdir -p -m 700 "$directory"' in script
     assert 'verify_runtime_paths "after mkdir $directory"' in script

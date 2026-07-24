@@ -56,9 +56,9 @@ to_runtime_path() {
   root="$(realpath -m "$runtime_root")"
   path="$(realpath -m "$1")"
   if [[ "$path" == "$root" ]]; then
-    printf '/runtime'
+    printf '%s' "$root"
   elif [[ "$path" == "$root/"* ]]; then
-    printf '/runtime/%s' "${path#"$root/"}"
+    printf '%s' "$path"
   else
     echo "CLX semantic recovery path is outside runtime root: $path" >&2
     return 1
@@ -74,6 +74,8 @@ refresh_runtime_container_paths() {
   ranking_c="$(to_runtime_path "$ranking_dir")"
   ranking_access_c="$(to_runtime_path "$ranking_access_log")"
   state_c="$(to_runtime_path "$state_dir")"
+  audit_c="$(to_runtime_path "$audit_dir")"
+  evidence_c="$(to_runtime_path "$evidence_root")"
   split_c="$(to_runtime_path "$split_plan")"
   ranking_config_c="$(to_runtime_path "$ranking_config")"
   calendar_c="$(to_runtime_path "$snapshot_dir/calendar/part-00000.parquet")"
@@ -91,12 +93,13 @@ run_python() {
     -e PYTHONPATH=/opt/clx-src:/opt/clx-engine:/workspace \
     -e CLX_EXPECTED_ENGINE_SHA256="$CLX_EXPECTED_ENGINE_SHA256" \
     -e "POLARS_MAX_THREADS=$polars_threads" \
-    # Source contracts retain absolute paths for their frozen configs and
-    # finalization evidence. Mount the runtime at both identities: writable
-    # only through /runtime for child outputs, read-only at the sealed
-    # contract identity for source verification.
-    -v "$repo_root:/workspace:ro" -v "$runtime_root:/runtime" \
+    # Sealed contracts retain host-absolute paths. The container must use the
+    # same identity while keeping the runtime parent read-only and exposing
+    # only child-owned output roots as writable submounts.
+    -v "$repo_root:/workspace:ro" \
     -v "$runtime_root:$runtime_root:ro" \
+    -v "$target_root:$target_c" -v "$audit_dir:$audit_c" \
+    -v "$evidence_root:$evidence_c" \
     -v "$source_root:$source_c:ro" -v "$snapshot_dir:$snapshot_c:ro" \
     -w /opt/clx-src --entrypoint python "$image" \
     -m freshquant.backtest.clx.run_verified_engine_python "$stage" "$@"
