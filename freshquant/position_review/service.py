@@ -2443,6 +2443,22 @@ def _replay_timeline_positions(
             series_point["order_event_ids"] = point["order_event_ids"]
             series_point["position_ordering"] = point["position_ordering"]
         series.append(series_point)
+    if end_time is not None and (
+        not series or series[-1]["time"] != _epoch_iso(end_time)
+    ):
+        series.append(
+            {
+                "time": _epoch_iso(end_time),
+                "value": _timeline_position_value_at(
+                    replayed,
+                    initial_position_quantity=initial_position_quantity,
+                    at_time=end_time,
+                ),
+                "point_type": "window_end",
+                "assumption": True,
+                "source": initial_position_source,
+            }
+        )
     return series
 
 

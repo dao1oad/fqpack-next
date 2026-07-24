@@ -152,7 +152,7 @@ python -m freshquant.rear.api_server --port 5000
   - 当前为 `/position-review` 的订单级三轨图和 `/kline-slim` 可选交易复盘模式提供窗口化只读投影；支持 `start / end / refresh` 查询参数
   - 返回 `events / position_series / range / data_quality`；每个 `events[]` 是按 `account_partition + internal_order_id`（缺少内部订单时使用安全回退键）聚合的一笔订单，而不是逐笔 fill
   - 未传窗口时，`events[].actual` 返回订单级总成交量、加权成交均价、成交笔数和首末成交时点；传入 `start` 或 `end` 时只统计窗口内成交，`events[].data_quality.actual_scope` 固定为 `window`，避免与窗口内 `position_series` 混用不同成交口径
-  - `position_series` 按真实成交时点连续回放，并在窗口起点提供仓位基线；同秒跨订单、缺少可证明先后关系时，订单事件以 `data_quality` 明示仓位归属不确定，不承诺任一订单的确定前后仓位
+  - `position_series` 按真实成交时点连续回放，并在窗口起点和终点提供仓位锚点；即使窗口内没有成交，持仓阶梯线也覆盖整个请求时间窗。同秒跨订单、缺少可证明先后关系时，订单事件以 `data_quality` 明示仓位归属不确定，不承诺任一订单的确定前后仓位
   - 当一个策略请求拆分为多个订单或账户分区、但没有可用分配证据时，相关 `expected_quantity` 返回 `null` 并附带 `expected_quantity_ambiguous_across_orders` warning，避免在数量轨重复计算策略应有量
   - `events[].signal` 只在存在 `request_id / internal_order_id / trace_id / intent_id` 等明确关联键时返回；不以时间邻近规则伪造信号与订单关联
 - `/api/stock_fills`

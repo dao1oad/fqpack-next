@@ -1055,11 +1055,19 @@ function isWithinOrderReviewWindow(timestamp, realMainWindow) {
 
 function projectOrderReviewPoint({ item, time, tradingAxis, realMainWindow } = {}) {
   const timestamp = toTimestamp(time || item?.time)
-  if (!isWithinOrderReviewWindow(timestamp, realMainWindow)) {
+  const isWindowEnd = item?.pointType === 'window_end'
+  const isInWindow = isWindowEnd
+    ? Number.isFinite(timestamp) && timestamp >= realMainWindow.startTs && timestamp <= realMainWindow.endTs
+    : isWithinOrderReviewWindow(timestamp, realMainWindow)
+  if (!isInWindow) {
     return null
   }
 
-  const slot = tradingAxis.mapPointTsToSlot(timestamp)
+  // A terminal position anchor represents a time-window boundary, not a trade
+  // marker. Mapping it to the boundary keeps it inside the last candle's edge.
+  const slot = isWindowEnd
+    ? tradingAxis.mapBoundaryTsToSlot(timestamp)
+    : tradingAxis.mapPointTsToSlot(timestamp)
   return Number.isFinite(slot)
     ? { ...item, timestamp, slot }
     : null
@@ -1919,7 +1927,7 @@ export function buildKlineSlimChartOption({
         id: 'kline-slim-inside-zoom',
         type: 'inside',
         xAxisIndex: reviewXAxisIndexes,
-        filterMode: 'filter',
+        filterMode: orderReviewVisible ? 'none' : 'filter',
         start: viewport?.xRange?.start,
         end: viewport?.xRange?.end,
         throttle: 0,
@@ -1932,7 +1940,7 @@ export function buildKlineSlimChartOption({
         id: 'kline-slim-slider-zoom',
         type: 'slider',
         xAxisIndex: reviewXAxisIndexes,
-        filterMode: 'filter',
+        filterMode: orderReviewVisible ? 'none' : 'filter',
         start: viewport?.xRange?.start,
         end: viewport?.xRange?.end,
         throttle: 0,

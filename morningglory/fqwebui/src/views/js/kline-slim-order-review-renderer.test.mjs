@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import * as echarts from 'echarts'
 
 import {
   ORDER_REVIEW_LEGEND_NAMES,
@@ -77,12 +78,28 @@ const makeTimeline = () => ({
     },
   ],
   position_series: [
-    { time: '2026-03-16T09:30:00+08:00', value: 100 },
+    { time: '2026-03-16T09:30:00+08:00', value: 100, point_type: 'window_start' },
     { time: '2026-03-16T09:34:00+08:00', value: 500 },
     { time: '2026-03-16T09:35:00+08:00', value: 900 },
-    { time: '2026-03-16T09:35:10+08:00', value: 600 },
+    { time: '2026-03-16T09:49:59+08:00', value: 600, point_type: 'window_end' },
   ],
 })
+
+const countRenderedSeriesData = (option, seriesId) => {
+  const chart = echarts.init(null, null, {
+    renderer: 'svg',
+    ssr: true,
+    width: 960,
+    height: 520,
+  })
+  try {
+    chart.setOption(option)
+    const series = chart.getModel().getSeries().find((item) => item.id === seriesId)
+    return series?.getData().count() ?? 0
+  } finally {
+    chart.dispose()
+  }
+}
 
 test('order review extends the existing K-line into aligned order, quantity, and position tracks', () => {
   const scene = buildKlineSlimChartScene({
@@ -125,8 +142,43 @@ test('order review extends the existing K-line into aligned order, quantity, and
     option.series.find((item) => item.id === 'order-review-fill-markers').data[0].value[0],
     option.series.find((item) => item.id === 'order-review-fill-markers').data[1].value[0],
   )
-  assert.equal(option.series.find((item) => item.id === 'order-review-position').step, 'end')
-  assert.equal(option.series.find((item) => item.id === 'order-review-position').data.length, 4)
+  const position = option.series.find((item) => item.id === 'order-review-position')
+  assert.equal(position.step, 'end')
+  assert.equal(position.data.length, 4)
+  assert.equal(scene.orderReview.positionPoints.at(-1).pointType, 'window_end')
+  assert.equal(
+    scene.orderReview.positionPoints.at(-1).timestamp,
+    scene.realMainWindow.endTs - 1000,
+  )
+  assert.equal(position.data.at(-1).value[0] <= option.xAxis[2].max, true)
+  assert.equal(position.data.at(-1).value[1], 600)
+})
+
+test('keeps holding-window anchors through ECharts zoom filtering', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: makeMainData(),
+    currentPeriod: '5m',
+    visiblePeriods: ['5m'],
+    orderReviewVisible: true,
+    orderReviewTimeline: {
+      events: [],
+      position_series: [
+        { time: '2026-03-16T09:30:00+08:00', value: 600, point_type: 'window_start' },
+        { time: '2026-03-16T09:50:00+08:00', value: 600, point_type: 'window_end' },
+      ],
+    },
+  })
+  const option = buildKlineSlimChartOption({
+    scene,
+    viewport: { xRange: { start: 25, end: 75 }, yRange: null },
+  })
+  const position = option.series.find((item) => item.id === 'order-review-position')
+
+  assert.equal(option.dataZoom[0].filterMode, 'none')
+  assert.equal(option.dataZoom[1].filterMode, 'none')
+  assert.equal(position.data.length, 2)
+  assert.equal(position.data.at(-1).value[0], option.xAxis[2].max)
+  assert.equal(countRenderedSeriesData(option, 'order-review-position'), 2)
 })
 
 test('keeps a review legend selection through a subsequent scene redraw', () => {

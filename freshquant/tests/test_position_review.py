@@ -517,6 +517,31 @@ def test_order_timeline_aggregates_fills_preserves_real_position_steps_and_links
     assert [(point["time"], point["value"]) for point in window["position_series"]] == [
         ("2026-04-29T10:14:08+08:00", 28100),
         ("2026-04-29T10:14:09+08:00", 26800),
+        ("2026-04-29T10:14:10+08:00", 26800),
+    ]
+    assert window["position_series"][-1]["point_type"] == "window_end"
+
+
+def test_order_timeline_keeps_position_visible_across_an_empty_window():
+    service = PositionReviewService(
+        repository=FakePositionReviewRepository(),
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+    )
+
+    window = service.get_symbol_timeline(
+        "002262",
+        start="2026-04-29T10:20:00+08:00",
+        end="2026-04-29T10:21:00+08:00",
+    )
+
+    assert window["events"] == []
+    assert [
+        (point["time"], point["value"], point["point_type"])
+        for point in window["position_series"]
+    ] == [
+        ("2026-04-29T10:20:00+08:00", 26800, "window_start"),
+        ("2026-04-29T10:21:00+08:00", 26800, "window_end"),
     ]
 
 
