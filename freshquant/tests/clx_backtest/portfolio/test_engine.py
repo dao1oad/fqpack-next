@@ -332,7 +332,17 @@ def test_replacement_sells_weakest_holding_before_buying_stronger_signal() -> No
     assert final_equity.cash >= 0
 
 
-def test_replacement_keeps_holdings_when_new_signal_is_not_stronger() -> None:
+def test_replacement_rotates_oldest_holding_on_equal_scores() -> None:
+    result = _replacement_result("1")
+
+    assert [(fill.side, fill.trade_date, fill.code) for fill in result.fills] == [
+        (Side.BUY, D2, "600001"),
+        (Side.SELL, D3, "600001"),
+        (Side.BUY, D3, "600002"),
+    ]
+
+
+def test_replacement_keeps_holdings_when_new_signal_is_weaker() -> None:
     result = _replacement_result("0.5")
 
     assert [(fill.side, fill.trade_date, fill.code) for fill in result.fills] == [

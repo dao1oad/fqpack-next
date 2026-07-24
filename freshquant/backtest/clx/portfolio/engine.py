@@ -339,6 +339,7 @@ def _portfolio_coroutine(
     buys_by_date: dict[date, list[_PendingOrder]] = {}
     pending_sells: list[_PendingOrder] = []
     entry_scores: dict[str, Decimal] = {}
+    entry_dates: dict[str, date] = {}
     marks: dict[str, tuple[Decimal, int]] = {}
     order_sequence = 0
     fill_sequence = 0
@@ -569,6 +570,7 @@ def _portfolio_coroutine(
                 )
             )
             entry_scores[order.decision.code] = order.score
+            entry_dates.setdefault(order.decision.code, trade_date)
         else:
             lot_events.extend(
                 ledger.sell(
@@ -581,6 +583,7 @@ def _portfolio_coroutine(
             )
             if ledger.quantity(order.decision.code) == 0:
                 entry_scores.pop(order.decision.code, None)
+                entry_dates.pop(order.decision.code, None)
         order_attempts.append(
             OrderAttempt(
                 portfolio_id,
@@ -880,12 +883,16 @@ def _portfolio_coroutine(
                 )
                 if projected >= config.max_holdings:
                     candidates = sorted(
-                        (entry_scores.get(item, Decimal("0")), item)
+                        (
+                            entry_scores.get(item, Decimal("0")),
+                            entry_dates.get(item, session),
+                            item,
+                        )
                         for item in held
                         if item not in pending_exit_codes
                     )
-                    if candidates and candidates[0][0] < chosen.score:
-                        weakest_code = candidates[0][1]
+                    if candidates and candidates[0][0] <= chosen.score:
+                        weakest_code = candidates[0][2]
                         replacement = SignalDecision(
                             decision_id=(
                                 f"replacement:{chosen.decision_id}:{weakest_code}"
