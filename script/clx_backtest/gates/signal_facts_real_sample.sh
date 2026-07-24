@@ -203,11 +203,15 @@ assert manifest_one["counts"]["signal_revisions"] > 0
 assert manifest_one["counts"]["tradable_signal_facts"] > 0
 
 registry = json.loads((one / "model_registry.json").read_text(encoding="utf-8"))
-override = registry["semantic_overrides"][0]
-assert override["model_code"] == "S0002"
-assert override["entrypoint"] == 3
-assert override["legacy_semantic"] == "S0002_NORMAL_FRACTAL_LEGACY_3"
-assert override["ranking_dimension"] == "primary_trigger_semantic"
+overrides = {
+    item["entrypoint"]: item
+    for item in registry["semantic_overrides"]
+    if item["model_code"] == "S0002"
+}
+assert overrides[3]["legacy_semantic"] == "S0002_NORMAL_FRACTAL_LEGACY_3"
+assert overrides[3]["ranking_dimension"] == "primary_trigger_semantic"
+assert overrides[4]["model_primary_semantic"] == "S0002_STRONG_SWING_FRACTAL"
+assert overrides[4]["ranking_dimension"] == "primary_trigger_semantic"
 
 for first, second in zip(manifest_one["artifacts"], manifest_two["artifacts"], strict=True):
     assert first == second
@@ -256,6 +260,10 @@ for row in revisions.sort(["reveal_date", "expected_model_id", "signal_date"]).i
             else "S0002_NORMAL_FRACTAL_LEGACY_3"
         )
         assert row["primary_trigger_semantic"] == semantic
+    if row["expected_model_id"] == 2 and row["primary_entrypoint"] == 4:
+        assert row["primary_trigger_semantic"] == "S0002_STRONG_SWING_FRACTAL"
+        assert row["primary_trigger_semantic_source"] == "S0002_MODEL_STRONG_SWING_PRIMARY"
+        assert row["primary_entrypoint_overloaded"] is True
 
 checkpoint_paths = list((one / "code_buckets").glob("code_bucket=*/checkpoint.json"))
 assert len(checkpoint_paths) == 2

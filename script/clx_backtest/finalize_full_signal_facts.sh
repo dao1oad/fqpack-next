@@ -192,6 +192,67 @@ if verify.get("tradable_signal_facts") != manifest["counts"][
     "tradable_signal_facts"
 ]:
     raise SystemExit("deep verification tradable fact count differs")
+derivation = manifest.get("derivation")
+recovery = contract.get("recovery")
+if recovery is not None and not isinstance(recovery, dict):
+    raise SystemExit("semantic recovery run contract recovery section is invalid")
+if recovery is not None and derivation is None:
+    raise SystemExit("semantic recovery run contract requires a derivation manifest")
+if derivation is not None:
+    if not isinstance(derivation, dict):
+        raise SystemExit("semantic derivation manifest section is invalid")
+    complete_path = run_root / ".runner" / "complete"
+    try:
+        complete_mode = os.lstat(complete_path).st_mode
+    except OSError as exc:
+        raise SystemExit("semantic derivation complete marker is unavailable") from exc
+    if not stat.S_ISREG(complete_mode) or stat.S_IMODE(complete_mode) & 0o222:
+        raise SystemExit("semantic derivation complete marker is not immutable")
+    try:
+        complete_marker = json.loads(complete_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit("semantic derivation complete marker is invalid") from exc
+    if not isinstance(recovery, dict):
+        raise SystemExit("semantic derivation run contract recovery section is missing")
+    for key in (
+        "migration_id",
+        "source_run_id",
+        "source_signal_set_id",
+        "source_manifest_sha256",
+        "source_evidence_sha256",
+        "source_run_contract_sha256",
+    ):
+        if derivation.get(key) != recovery.get(key):
+            raise SystemExit(f"semantic derivation contract mismatch: {key}")
+    if derivation.get("target_run_contract_sha256") != contract_actual:
+        raise SystemExit("semantic derivation target run contract differs")
+    if derivation.get("native_prefix_calls_this_run") != 0:
+        raise SystemExit("semantic derivation unexpectedly replayed native prefixes")
+    if derivation.get("source_prefix_calls") != manifest["counts"].get("prefix_calls"):
+        raise SystemExit("semantic derivation source prefix coverage differs")
+    for key in (
+        "run_id",
+        "signal_set_id",
+        "manifest_sha256",
+        "target_run_contract_sha256",
+        "migration_id",
+        "source_run_id",
+        "source_signal_set_id",
+        "source_manifest_sha256",
+        "source_evidence_sha256",
+        "native_prefix_calls_this_run",
+    ):
+        expected = actual if key == "manifest_sha256" else derivation.get(key)
+        if key in ("run_id", "signal_set_id"):
+            expected = manifest[key]
+        if key == "target_run_contract_sha256":
+            expected = contract_actual
+        if complete_marker.get(key) != expected:
+            raise SystemExit(f"semantic derivation complete marker differs: {key}")
+    if complete_marker.get("status") != "COMPLETE":
+        raise SystemExit("semantic derivation complete marker is not COMPLETE")
+    if complete_marker.get("schema_version") != "clx-semantic-derivation-complete-v1":
+        raise SystemExit("semantic derivation complete marker schema differs")
 files = [path for path in facts.rglob("*") if path.is_file()]
 directories = [facts, *[path for path in facts.rglob("*") if path.is_dir()]]
 if not files or any(path.stat().st_mode & 0o222 for path in files):
@@ -211,6 +272,25 @@ evidence = {
     "completed_buckets": len(manifest["completed_buckets"]),
     "deep_verify": verify,
 }
+if derivation is not None:
+    evidence["derivation"] = {
+        key: derivation[key]
+        for key in (
+            "schema_version",
+            "migration_id",
+            "source_run_id",
+            "source_signal_set_id",
+            "source_manifest_sha256",
+            "source_evidence_sha256",
+            "source_run_contract_sha256",
+            "target_run_contract_sha256",
+            "native_prefix_calls_this_run",
+            "source_prefix_calls",
+            "rewritten_current_rows",
+            "rewritten_previous_rows",
+            "e4_synthetic_rows",
+        )
+    }
 evidence_bytes = (
     json.dumps(evidence, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
 ).encode("utf-8")

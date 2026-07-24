@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from datetime import date, timedelta
@@ -17,6 +18,9 @@ from freshquant.backtest.clx.combo_dsl import (
     make_combo,
 )
 from freshquant.backtest.clx.event_study import SplitPlan, SplitWindow
+from freshquant.backtest.clx.model_registry import (
+    S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,
+)
 from freshquant.backtest.clx.ranking import (
     HOLDOUT_LOCKED,
     HOLDOUT_REVEALED,
@@ -306,6 +310,89 @@ def test_base_synthetic_and_concurrent_sources_are_not_conflated() -> None:
         )
         == 4
     )
+
+
+def test_s0002_strong_swing_candidates_keep_primary_and_mask_dimensions_separate() -> (
+    None
+):
+    calendar = _calendar()
+    frame = pl.DataFrame(
+        [
+            _event(
+                "s0002-synthetic",
+                calendar,
+                2,
+                "TRAIN",
+                code="000001",
+                model_id=2,
+                primary_entrypoint=4,
+                semantic=S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,
+                base_mask=0,
+                synthetic_mask=8,
+            ),
+            _event(
+                "s0002-shared",
+                calendar,
+                3,
+                "TRAIN",
+                code="000001",
+                model_id=2,
+                primary_entrypoint=4,
+                semantic=S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,
+                base_mask=8,
+                synthetic_mask=0,
+            ),
+        ]
+    )
+    candidates = generate_single_model_candidates(frame, _config(), ModelRelations())
+
+    def nodes(value: object) -> list[dict[str, object]]:
+        if isinstance(value, dict):
+            output = [value]
+            for child in value.values():
+                output.extend(nodes(child))
+            return output
+        if isinstance(value, list):
+            return [node for child in value for node in nodes(child)]
+        return []
+
+    by_stage = {
+        stage: [
+            json.loads(item.definition.canonical_json)
+            for item in candidates
+            if item.discovery_stage == stage
+        ]
+        for stage in ("A2", "A3", "B")
+    }
+    for stage in ("A2", "A3"):
+        primary_nodes = [
+            node
+            for document in by_stage[stage]
+            for node in nodes(document)
+            if node.get("op") == "signal"
+            and node.get("model") == {"in": ["S0002"]}
+            and node.get("primary_entrypoint") == {"in": [4]}
+        ]
+        assert primary_nodes
+        assert {
+            tuple(node["primary_trigger_semantic"]["in"])
+            for node in primary_nodes
+            if "primary_trigger_semantic" in node
+        } == {(S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,)}
+
+    trigger_sources = {
+        node["source"]
+        for document in by_stage["B"]
+        for node in nodes(document)
+        if node.get("op") == "trigger_mask"
+        and node.get("event_filter", {}).get("model") == {"in": ["S0002"]}
+        and node.get("ids") == [4]
+    }
+    assert trigger_sources == {
+        "direction_base",
+        "synthetic_primary",
+        "concurrent",
+    }
 
 
 def test_within_and_sequence_are_strictly_backward_from_reveal_session() -> None:

@@ -143,6 +143,8 @@ def test_finalizer_contract_uses_exclusive_immutable_publication() -> None:
     assert 'verify.get("signal_set_id") != signal_set_id' in source
     assert 'contract_source.get("image_source_commit") != image_source_commit' in source
     assert 'run_root / ".runner" / "finalized"' in source
+    assert "complete marker is not immutable" in source
+    assert 'complete_marker.get("schema_version")' in source
     assert 'f"v2-causal-signal-{run_id}-{signal_digest}.json"' in source
     assert 'target.with_name(f"{target.name}.sha256")' in source
 
@@ -266,4 +268,30 @@ def test_finalizer_rejects_cross_identity_manifest_contract_or_verify(
     mismatched_verify = _run_inline(env)
     assert mismatched_verify.returncode != 0
     assert "signal_set_id differs" in mismatched_verify.stderr
+    assert not list(evidence_root.iterdir())
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="The finalizer is a Linux artifact-runtime contract.",
+)
+def test_finalizer_rejects_recovery_contract_without_derivation_manifest(
+    tmp_path: Path,
+) -> None:
+    env, evidence_root = _fixture_environment(tmp_path)
+    contract_path = Path(env["RUN_ROOT"]) / "run-contract.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["recovery"] = {
+        "migration_id": "s0002-entrypoint4-strong-swing-v1",
+    }
+    contract_payload = (json.dumps(contract, sort_keys=True) + "\n").encode("utf-8")
+    contract_path.write_bytes(contract_payload)
+    contract_path.with_name("run-contract.sha256").write_text(
+        hashlib.sha256(contract_payload).hexdigest() + "\n", encoding="ascii"
+    )
+
+    result = _run_inline(env)
+
+    assert result.returncode != 0
+    assert "requires a derivation manifest" in result.stderr
     assert not list(evidence_root.iterdir())

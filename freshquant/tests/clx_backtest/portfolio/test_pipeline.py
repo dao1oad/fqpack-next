@@ -16,6 +16,7 @@ import freshquant.backtest.clx.portfolio.pipeline as portfolio_pipeline
 from freshquant.backtest.clx.combo_dsl import ComboDefinition, EventIndex, make_combo
 from freshquant.backtest.clx.event_study import SplitPlan, SplitWindow
 from freshquant.backtest.clx.model_registry import (
+    S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,
     canonical_json_bytes,
     model_registry_sha256,
 )
@@ -521,6 +522,81 @@ def test_decision_sources_are_the_causal_sequence_members_only() -> None:
     assert len(decisions) == 1
     assert decisions[0].reveal_date == days[2]
     assert decisions[0].source_signal_fact_ids == ("anchor", "prior")
+
+
+def test_event_index_keeps_s0002_strong_swing_primary_distinct_from_mask_sources() -> (
+    None
+):
+    days = (date(2024, 1, 2), date(2024, 1, 3))
+    calendar = pl.DataFrame({"trade_date": days, "session_no": (1, 2)})
+    synthetic = _event("s0002-synthetic", days[0], "VALIDATION", 1)
+    synthetic.update(
+        expected_model_id=2,
+        model_code="S0002",
+        primary_entrypoint=4,
+        primary_trigger_semantic=S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,
+        direction_base_trigger_mask=0,
+        synthetic_primary_mask=8,
+        concurrent_trigger_mask=8,
+    )
+    shared = _event("s0002-shared", days[1], "VALIDATION", 1)
+    shared.update(
+        expected_model_id=2,
+        model_code="S0002",
+        primary_entrypoint=4,
+        primary_trigger_semantic=S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,
+        direction_base_trigger_mask=8,
+        synthetic_primary_mask=0,
+        concurrent_trigger_mask=8,
+    )
+    index = EventIndex(pl.DataFrame([synthetic, shared]), calendar)
+
+    primary = make_combo(
+        {
+            "op": "signal",
+            "model": "S0002",
+            "direction": 1,
+            "primary_entrypoint": {"in": [4]},
+            "primary_trigger_semantic": {
+                "in": [S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC]
+            },
+        },
+        target_direction=1,
+    )
+    generic_shared = make_combo(
+        {
+            "op": "signal",
+            "model": "S0002",
+            "direction": 1,
+            "primary_entrypoint": {"in": [4]},
+            "primary_trigger_semantic": {"in": ["STRONG_FRACTAL"]},
+        },
+        target_direction=1,
+    )
+    assert index.matches(primary, "600001", days[0])
+    assert index.matches(primary, "600001", days[1])
+    assert not index.matches(generic_shared, "600001", days[0])
+    assert not index.matches(generic_shared, "600001", days[1])
+
+    def mask(source: str) -> ComboDefinition:
+        return make_combo(
+            {
+                "op": "trigger_mask",
+                "source": source,
+                "mode": "all",
+                "ids": [4],
+                "model": "S0002",
+                "direction": 1,
+            },
+            target_direction=1,
+        )
+
+    assert not index.matches(mask("direction_base"), "600001", days[0])
+    assert index.matches(mask("direction_base"), "600001", days[1])
+    assert index.matches(mask("synthetic_primary"), "600001", days[0])
+    assert not index.matches(mask("synthetic_primary"), "600001", days[1])
+    assert index.matches(mask("concurrent"), "600001", days[0])
+    assert index.matches(mask("concurrent"), "600001", days[1])
 
 
 def test_portfolio_rejects_a_source_free_negative_match() -> None:

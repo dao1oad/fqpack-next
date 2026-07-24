@@ -7,8 +7,10 @@ import hashlib
 import json
 from typing import Any
 
-MODEL_REGISTRY_VERSION = "clx-18-v1"
+MODEL_REGISTRY_VERSION = "clx-18-v2"
 S0002_LEGACY_ENTRYPOINT3_SEMANTIC = "S0002_NORMAL_FRACTAL_LEGACY_3"
+S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC = "S0002_STRONG_SWING_FRACTAL"
+S0002_STRONG_SWING_ENTRYPOINT4_SOURCE = "S0002_MODEL_STRONG_SWING_PRIMARY"
 
 ENTRYPOINT_SEMANTICS: dict[int, str] = {
     1: "MODEL_STRUCTURAL",
@@ -126,7 +128,42 @@ _REGISTRY: dict[str, Any] = {
                 "morningglory/fqcopilot/cpp/copilot/signal_utils.h",
                 "morningglory/fqcopilot/cpp/indicator/engulfing.cpp",
             ],
-        }
+        },
+        {
+            "model_id": 2,
+            "model_code": "S0002",
+            "entrypoint": 4,
+            "default_semantic": "STRONG_FRACTAL",
+            "model_primary_semantic": S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC,
+            "overload": True,
+            "source_control_flow": (
+                "S0002 encodes entrypoint 4 from its swing strong-fractal "
+                "factors, while the shared detailed base mask's bit 4 is "
+                "computed from wave strong-fractal factors"
+            ),
+            "row_resolution": (
+                "Every S0002 entrypoint-4 row resolves to "
+                "S0002_STRONG_SWING_FRACTAL, whether or not the independent "
+                "shared wave bit 4 is concurrently present"
+            ),
+            "mask_provenance": (
+                "The native base mask remains the unmodified shared wave "
+                "predicate. A missing base bit 4 is completed with the "
+                "synthetic-primary mask; a present base bit 4 remains a "
+                "concurrent shared fact and never changes the model-primary "
+                "semantic"
+            ),
+            "ranking_dimension": "primary_trigger_semantic",
+            "ranking_rule": (
+                "S0002_STRONG_SWING_FRACTAL is distinct from shared "
+                "STRONG_FRACTAL for ranking and canonical DSL matching"
+            ),
+            "source_refs": [
+                "morningglory/fqcopilot/cpp/copilot/S0002.cpp",
+                "morningglory/fqcopilot/cpp/copilot/batch_calculator.cpp",
+                "morningglory/fqcopilot/cpp/copilot/signal_utils.h",
+            ],
+        },
     ],
 }
 
@@ -148,10 +185,12 @@ def model_registry_sha256() -> str:
 
 
 def primary_trigger_semantic(model_id: int, entrypoint: int) -> str:
-    """Return the default semantic; S0002/3 needs prefix-level resolution."""
+    """Return the fixed semantic; S0002/3 needs prefix-level resolution."""
 
     if model_id == 2 and entrypoint == 3:
         return "S0002_ENTRYPOINT3_REQUIRES_PREFIX_RESOLUTION"
+    if model_id == 2 and entrypoint == 4:
+        return S0002_STRONG_SWING_ENTRYPOINT4_SEMANTIC
     try:
         return ENTRYPOINT_SEMANTICS[entrypoint]
     except KeyError as exc:

@@ -662,6 +662,21 @@ def test_deep_verification_publishes_sealed_event_proof(tmp_path: Path) -> None:
     assert repeated["event_preverification"] == reference
 
 
+def test_event_preverification_rejects_wrong_expected_child_contract(
+    tmp_path: Path,
+) -> None:
+    output, reference, _, _ = _build_event_preverification(tmp_path)
+
+    with pytest.raises(
+        EventStudyError, match="event preverification run contract differs"
+    ):
+        verify_event_preverification(
+            output,
+            reference,
+            expected_run_contract_sha256="a" * 64,
+        )
+
+
 def test_preverification_path_only_publication_recovers_without_deep_verify(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

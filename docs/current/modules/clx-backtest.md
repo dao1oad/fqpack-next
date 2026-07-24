@@ -99,7 +99,7 @@ CLX 计算排除 `EXCLUDED_CLX` 行；撮合排除 `EXCLUDED_MATCHING` 行。当
 6. `PRICE_VOLUME_CONFIRMATION`
 7. `MACD_CROSS`
 
-`occurrence` 是模型本地计数，从该标的快照中第一根可参与 CLX 的 bar 起，在“从头计算到当前 as-of”的前缀内统计；它不在不同模型之间直接比较。`S0002` 的 entrypoint 3 还会按原生基础谓词区分 `ENGULFING` 与 `S0002_NORMAL_FRACTAL_LEGACY_3`。
+`occurrence` 是模型本地计数，从该标的快照中第一根可参与 CLX 的 bar 起，在“从头计算到当前 as-of”的前缀内统计；它不在不同模型之间直接比较。`S0002` 有两个模型专属边界：entrypoint 3 按原生基础谓词区分 `ENGULFING` 与 `S0002_NORMAL_FRACTAL_LEGACY_3`；entrypoint 4 固定为 `S0002_STRONG_SWING_FRACTAL`。后者来自 `S0002` 的 swing strong-fractal 条件，shared base mask 的 bit 4 仍只表示独立的 wave `STRONG_FRACTAL` 事实。无论 shared bit 4 是否同时存在，S0002 的 primary semantic 都不变。
 
 ### 同 K 线并发触发
 
@@ -120,6 +120,8 @@ CLX 计算排除 `EXCLUDED_CLX` 行；撮合排除 `EXCLUDED_MATCHING` 行。当
 - `REMOVE`：历史信号消失，只保留修订事实，不生成新入场
 
 `signal_date` 是模型标记的历史 K 线日期，`reveal_date/as_of_date` 是当时实际可观察到该版本的日期。研究、分段和 T+1 撮合统一以 `reveal_date` 为时钟，不把完整历史回看后的最终图形冒充当时已知信号。
+
+历史 `clx-18-v1` facts 中的 `S0002/e4` 曾按 shared wave bit 4 误标为 `STRONG_FRACTAL`，并在 bit 缺失时写入 `UNEXPECTED_SYNTHETIC_PRIMARY`。历史树只作为冻结证据保留，不能原地改写或与新 artifact 混用。唯一允许的修复是从已 finalized、`HOLDOUT=LOCKED` 的 v1 source 生成新的 child run：`derive-semantics` 逐 bucket 重写模型主语义、source、overload 标记、previous semantic、quality flag、run/signal/fact identity，原始信号、三类 mask、日期、revision 与 occurrence 均逐值保留。派生配置绑定 source signal manifest、finalization evidence、run contract、迁移 ID、目标 registry 和 adapter identity；evidence 必须与 source run contract 的 SHA-256 相符。本次 native prefix 调用固定为 `0`。
 
 ## 单模型与组合搜索
 
@@ -186,6 +188,16 @@ HOLDOUT 使用物理访问边界，不只是在查询层隐藏：
 - `holdout/<run_tag>` + `holdout-ledger`（全量链），或 `runs/<run_id>/holdout` + `holdout-ledgers/<run_id>`（worker 链）
 - `portfolios/<run_tag>/<split>` 或 `runs/<run_id>/portfolios/<split>`
 - `exports/<run_id>`
+
+已封存 v1 S0002/e4 facts 的恢复入口为：
+
+```bash
+python -m freshquant.backtest.clx.signal_facts prepare-semantic-recovery-run ...
+python -m freshquant.backtest.clx.signal_facts derive-semantics \
+  --migration-id s0002-entrypoint4-strong-swing-v1 ...
+```
+
+prepare 阶段创建新的不可变 run contract，并固定 child run 的 image/source/native/online identity、snapshot、frozen configs 和 parent evidence。derive 阶段拒绝 source/target 路径重叠、symlink、可写 source facts、source/target hash 或 contract 不一致、未知 registry、额外 synthetic-primary 异常及任何 out-of-scope 字段变化；resume 会重新物化并逐帧比较既有 bucket，核对 source checkpoint/artifact lineage、允许变化字段与 `native_prefix_calls_this_run=0`，不把旧或漂移 checkpoint 计为本次无 native 重放。它重新物化两类 facts Parquet、checkpoint、manifest 与 `signal_fact_id`，不重放 native prefix。`run_semantic_recovery_preholdout.sh` 在任何写入前校验 runtime containment、child output 互斥、immutable image 和 contract；split/ranking 输入只取 child contract 的冻结路径及 SHA-256，环境变量仅可重复该路径。脚本只执行 child facts finalization、causal V2、event、VALIDATION ranking 和 ranking V2，并在 `holdout_rows_read=0` 时停止；旧 event/ranking/freeze/portfolio 与新 child run 不可复用。后续 HOLDOUT 仍使用 child run 的新 ledger 与显式揭示授权。
 
 全量因果信号由 `finalize_full_signal_facts.sh` 先把 facts 树固定为只读，再深度校验并交叉绑定 verify 输出、manifest 与 run contract 的 run、snapshot、engine、source commit、config、signal identity 和计数。在 `CLX_EVIDENCE_ROOT` 排他发布 `v2-causal-signal-<run_id>-<signal_sha256>.json` 及同名 `.json.sha256`，并发布确定性的 `.runner/finalized` 身份 marker。文件名同时绑定 run 身份和内容寻址的 `signal_set_id`；三类文件都执行内容 `fsync`、原子 hard-link、权限 `0444` 和 parent-directory `fsync`。同一名称重跑只接受逐字节完全一致的内容，任一已有文件内容不同都会停止链路，不覆盖或改写既有证据。
 
