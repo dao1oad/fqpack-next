@@ -1,6 +1,6 @@
 # CLX 信号研究 Handoff 手册（供后续 agent 接手）
 
-最后更新：2026-07-25（第三次更新：新增 模型×触发条件 闭环回测 vs 上证指数）。配套进展总结：`2026-07-25-clx-research-progress-summary.md`。
+最后更新：2026-07-25（第四次更新：新增 重点候选（模型×触发）深研）。配套进展总结：`2026-07-25-clx-research-progress-summary.md`。
 
 ## 1. 环境与访问拓扑
 
@@ -41,12 +41,21 @@
 | `strategy_allm.py` | 18 模型「买入→任一模型卖出」闭环 QFQ 回测 + 上证基准（输出 /tmp/strategy_allm.json） |
 | `top5_scan.py` | 18 模型 Top5% 交易画像 |
 | `trig_allm.py` | 模型×触发条件 闭环 QFQ 回测 + 上证基准（输出 /tmp/trig_allm.json；本机 helper `C:\Users\Administrator\xn.ps1`，脚本亦在 `D:\fqpack\tmp\`） |
+| `cand_deep.py` | 11 个重点候选（模型×触发）深研：TRAIN/VAL、逐年、价格分层、回踩次数（输出 /tmp/cand_deep.json） |
 
 ### 4.1 实盘候选策略 QFQ 回测（2026-07-25，报告 `2026-07-25-clx-live-strategy-qfq-backtest.md`）
 
 - 规则：S0016+S0006 买入；触发 ∈ {ENGULFING, STRONG_FRACTAL}；occurrence=1；全市场 18 模型卖出信号 20 日密度 > expanding 80 分位（min_periods=250）时暂停开仓；T+1 qfq_open 入场；第 20 个交易日 qfq_open 退出；扣 0.4%。
 - 结果：4,458 笔，均值 +3.65%（中位 +2.27%），胜率 59.5%；VAL +5.83%/胜率 67.8%（n=686）；19 年仅 2 年为负；20 槽组合示意净值 8.29。
 - ⚠️ 停牌陷阱：「第 20 个交易日」按个股实际交易日计，39 笔跨长期停牌（最大 000650 股改停牌一年 +1288%）；剔除后均值 +2.99%（VAL 不受影响）。QFQ 口径高于 RAW 口径（+2.82%）。
+
+### 4.4 重点候选深研（2026-07-25，报告 `2026-07-25-clx-candidate-deep-dive.md`）
+
+- 从 90 组中选 11 个候选（均值高、n≥500、VAL 为正、剔除弱模型）做深研（59,952 笔）。
+- VAL 不衰减（最值得深入）：S0006×吞没（VAL +2.46%/62.5%）、S0016×吞没（+2.20%/59.4%）、S0006×强分型、S0016×强分型、S0000×吞没（n 大）。
+- VAL 衰减需警惕：S0011×吞没（主要靠 2006 单年 +108%）、S0013×MACD、S0000×MACD。
+- 低价股放大效应显著但 5-20 元层仍为正；首次触发规律在多数候选成立。
+- 前端新增 ⑫ 页（数据 `cand.js`，常量 CAND）：候选总览/净值 vs 上证/逐年/价格分层/回踩次数。
 
 ### 4.3 模型×触发条件 闭环 vs 上证指数（2026-07-25，报告 `2026-07-25-clx-trigger-split-vs-index.md`）
 
@@ -65,8 +74,8 @@
 
 - 页面源：`C:\Users\Administrator\fq\clx_viz\`（index.html / data.js / echarts.min.js），部署目标：项目主机 `D:\fqpack\tmp\clx_viz\`（/xn/put 两个文件），服务 `D:\fqpack\tmp\start_viz.ps1` → http://127.0.0.1:18099/（项目主机本机）。agent 本机验证：本地 `python -m http.server 18099 --directory C:\Users\Administrator\fq\clx_viz`。
 - data.js 内嵌常量：MD（事件统计）、COMBO（冻结组合）、S16/S16SUB、GRID（条件筛选）、PAIR（20日闭环）、PURE（纯信号，前复权）、TOP5（Top5% 画像）。
-- 额外数据文件：`strat.js`（常量 STRAT，⑨ 页策略回测 + 4,458 笔逐笔明细）、`allm.js`（常量 ALLM，⑩ 页 18 模型闭环 + sh_index 月度基准）、`trig.js`（常量 TRIG，⑪ 页 模型×触发条件闭环 + sh_index），部署时（index.html/strat.js/allm.js/trig.js）都要 /xn/put。
-- 页面：①~⑧ 既有；⑨ 实盘候选策略回测(QFQ)：指标卡 + 5 视图（年度/组合净值/模型×触发/月度/逐笔明细带筛选排序分页）；⑩ 18模型闭环 vs 上证：曲线（对数/线性/相对指数三种坐标 + dataZoom 缩放 + 无交易月持平连续化）/柱图/明细表；⑪ 模型×触发条件 vs 上证：模型+触发选择器、曲线（三种坐标）/柱图/90 组明细表。
+- 额外数据文件：`strat.js`（常量 STRAT，⑨ 页策略回测 + 4,458 笔逐笔明细）、`allm.js`（常量 ALLM，⑩ 页 18 模型闭环 + sh_index 月度基准）、`trig.js`（常量 TRIG，⑪ 页 模型×触发条件闭环 + sh_index）、`cand.js`（常量 CAND，⑫ 页 重点候选深研），部署时（index.html/strat.js/allm.js/trig.js/cand.js）都要 /xn/put。
+- 页面：①~⑧ 既有；⑨ 实盘候选策略回测(QFQ)：指标卡 + 5 视图（年度/组合净值/模型×触发/月度/逐笔明细带筛选排序分页）；⑩ 18模型闭环 vs 上证：曲线（对数/线性/相对指数三种坐标 + dataZoom 缩放 + 无交易月持平连续化）/柱图/明细表；⑪ 模型×触发条件 vs 上证：模型+触发选择器、曲线（三种坐标）/柱图/90 组明细表；⑫ 重点候选深研：候选总览（TRAIN vs VAL）/净值 vs 上证/逐年/价格分层/回踩次数。
 
 ## 6. 已确立的结论（勿重复推导，勿反转）
 
