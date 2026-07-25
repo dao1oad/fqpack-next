@@ -2,6 +2,8 @@
 
 日期：2026-07-24。方案见 `docs/plans/2026-07-24-clx-18-model-evaluation-plan.md`。
 
+> **⚠️ 重大更正（2026-07-24）**：本报告对**卖出（direction=-1）方向的边际符号解读有误**——排行 `mean_return` 本身已是方向调整后收益（正=预测正确），本报告又乘了一次方向导致卖出侧符号反转。修正后：负向组合三段边际均为负，即**卖出信号发出后股价平均不跌反涨**，"卖出侧是主要价值（逃顶/避险）"的结论不成立，应更正为"卖出信号是稳定的反向（超卖反弹）指标"。买入方向结论不受影响。详见 `2026-07-24-clx-conditional-screening-results.md` 第 0 节。
+
 ## 数据身份（可复核）
 
 - Run：`01KBYC7REC0V3RY99634853AAB`（SEMANTIC_RECOVERY_PRE_HOLDOUT，status=COMPLETE）

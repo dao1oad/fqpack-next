@@ -2,6 +2,8 @@
 
 日期：2026-07-24。前置报告：`docs/plans/2026-07-24-clx-18-model-evaluation-report.md`（27 个冻结组合口径）。本报告把口径扩展为 **全部 18 个模型 × 买入(+1)/卖出(-1) 两个方向共 36 个单元**，不限于通过门槛的冻结组合。
 
+> **⚠️ 重大更正（2026-07-24）**：本报告对**卖出（-1）方向的边际与胜率做了多余的方向翻转**——`event_metrics.mean`/`win_rate` 本身已按 `direction_adjusted_return` 计算（正=预测正确）。修正后：全部 18 个模型的卖出信号在 TRAIN/VALIDATION 方向调整边际均为负（信号后股价平均不跌反涨），本报告中"卖出侧普遍有效/显著"的表述应反向理解为"卖出信号是显著的反向（超卖反弹）指标"。买入（+1）方向数字不受影响。详见 `2026-07-24-clx-conditional-screening-results.md` 第 0 节。
+
 ## 数据来源与口径
 
 - 来源：run `01KBYC7REC0V3RY99634853AAB` 已封存 event-study artifact 的 `event_metrics` 数据集（14,890 行，file SHA `85b3a900…`），取 `segment_type=MODEL_X_DIRECTION` 全部 360 行（18 模型 × 2 方向 × 2 split × 5 horizon）。
