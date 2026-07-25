@@ -1,6 +1,6 @@
 # CLX 信号研究 Handoff 手册（供后续 agent 接手）
 
-最后更新：2026-07-25（第五次更新：新增 四大候选利润来源归因）。配套进展总结：`2026-07-25-clx-research-progress-summary.md`。
+最后更新：2026-07-25（第六次更新：新增 S0000/S0006×吞没 收敛深研）。配套进展总结：`2026-07-25-clx-research-progress-summary.md`。
 
 ## 1. 环境与访问拓扑
 
@@ -43,12 +43,20 @@
 | `trig_allm.py` | 模型×触发条件 闭环 QFQ 回测 + 上证基准（输出 /tmp/trig_allm.json；本机 helper `C:\Users\Administrator\xn.ps1`，脚本亦在 `D:\fqpack\tmp\`） |
 | `cand_deep.py` | 11 个重点候选（模型×触发）深研：TRAIN/VAL、逐年、价格分层、回踩次数（输出 /tmp/cand_deep.json） |
 | `profit_src.py` | 四大候选（S0011/S0006/S0000/S0009×吞没）利润来源归因：α/β、集中度、持有期/逐年/价格带贡献额（输出 /tmp/profit_src.json） |
+| `deep06.py` | S0000/S0006×吞没 收敛深研：大赢/大亏单画像、大盘环境、过滤器模拟（30天时间止损/首次/5-20元）、重叠度（输出 /tmp/deep06.json） |
 
 ### 4.1 实盘候选策略 QFQ 回测（2026-07-25，报告 `2026-07-25-clx-live-strategy-qfq-backtest.md`）
 
 - 规则：S0016+S0006 买入；触发 ∈ {ENGULFING, STRONG_FRACTAL}；occurrence=1；全市场 18 模型卖出信号 20 日密度 > expanding 80 分位（min_periods=250）时暂停开仓；T+1 qfq_open 入场；第 20 个交易日 qfq_open 退出；扣 0.4%。
 - 结果：4,458 笔，均值 +3.65%（中位 +2.27%），胜率 59.5%；VAL +5.83%/胜率 67.8%（n=686）；19 年仅 2 年为负；20 槽组合示意净值 8.29。
 - ⚠️ 停牌陷阱：「第 20 个交易日」按个股实际交易日计，39 笔跨长期停牌（最大 000650 股改停牌一年 +1288%）；剔除后均值 +2.99%（VAL 不受影响）。QFQ 口径高于 RAW 口径（+2.82%）。
+
+### 4.6 S0000/S0006×吞没 收敛深研（2026-07-25，报告 `2026-07-25-clx-s0000-s0006-deep-dive.md`）
+
+- S0006×吞没 98.1% 信号与 S0000×吞没重叠（精选子集，非互补；宜分层仓位而非双策略）。
+- 逆向抓反转型：入场前大盘 20 日下跌时信号显著更赚（S0000 VAL +2.10% vs −0.10%），可作入场过滤。
+- 大亏单集中在持有 31-90 天；「仅 5-20 元」过滤 VAL 双升（S0006 VAL +2.64%/65.8%）；「仅首次触发」对 S0000 有害；30 天时间止损以均值换风控。
+- 前端新增 ⑭ 页（数据 `d06.js`，常量 D06）。
 
 ### 4.5 四大候选利润来源归因（2026-07-25，报告 `2026-07-25-clx-profit-attribution.md`）
 
@@ -82,8 +90,8 @@
 
 - 页面源：`C:\Users\Administrator\fq\clx_viz\`（index.html / data.js / echarts.min.js），部署目标：项目主机 `D:\fqpack\tmp\clx_viz\`（/xn/put 两个文件），服务 `D:\fqpack\tmp\start_viz.ps1` → http://127.0.0.1:18099/（项目主机本机）。agent 本机验证：本地 `python -m http.server 18099 --directory C:\Users\Administrator\fq\clx_viz`。
 - data.js 内嵌常量：MD（事件统计）、COMBO（冻结组合）、S16/S16SUB、GRID（条件筛选）、PAIR（20日闭环）、PURE（纯信号，前复权）、TOP5（Top5% 画像）。
-- 额外数据文件：`strat.js`（常量 STRAT，⑨ 页策略回测 + 4,458 笔逐笔明细）、`allm.js`（常量 ALLM，⑩ 页 18 模型闭环 + sh_index 月度基准）、`trig.js`（常量 TRIG，⑪ 页 模型×触发条件闭环 + sh_index）、`cand.js`（常量 CAND，⑫ 页 重点候选深研）、`psrc.js`（常量 PSRC，⑬ 页 利润来源），部署时（index.html/strat.js/allm.js/trig.js/cand.js/psrc.js）都要 /xn/put。
-- 页面：①~⑧ 既有；⑨ 实盘候选策略回测(QFQ)：指标卡 + 5 视图（年度/组合净值/模型×触发/月度/逐笔明细带筛选排序分页）；⑩ 18模型闭环 vs 上证：曲线（对数/线性/相对指数三种坐标 + dataZoom 缩放 + 无交易月持平连续化）/柱图/明细表；⑪ 模型×触发条件 vs 上证：模型+触发选择器、曲线（三种坐标）/柱图/90 组明细表；⑫ 重点候选深研：候选总览（TRAIN vs VAL）/净值 vs 上证/逐年/价格分层/回踩次数；⑬ 四大候选利润来源：α/β 分解/集中度/持有期·逐年·价格带贡献额。
+- 额外数据文件：`strat.js`（常量 STRAT，⑨ 页策略回测 + 4,458 笔逐笔明细）、`allm.js`（常量 ALLM，⑩ 页 18 模型闭环 + sh_index 月度基准）、`trig.js`（常量 TRIG，⑪ 页 模型×触发条件闭环 + sh_index）、`cand.js`（常量 CAND，⑫ 页 重点候选深研）、`psrc.js`（常量 PSRC，⑬ 页 利润来源）、`d06.js`（常量 D06，⑭ 页 收敛深研），部署时（index.html/strat.js/allm.js/trig.js/cand.js/psrc.js/d06.js）都要 /xn/put。
+- 页面：①~⑧ 既有；⑨ 实盘候选策略回测(QFQ)：指标卡 + 5 视图（年度/组合净值/模型×触发/月度/逐笔明细带筛选排序分页）；⑩ 18模型闭环 vs 上证：曲线（对数/线性/相对指数三种坐标 + dataZoom 缩放 + 无交易月持平连续化）/柱图/明细表；⑪ 模型×触发条件 vs 上证：模型+触发选择器、曲线（三种坐标）/柱图/90 组明细表；⑫ 重点候选深研：候选总览（TRAIN vs VAL）/净值 vs 上证/逐年/价格分层/回踩次数；⑬ 四大候选利润来源：α/β 分解/集中度/持有期·逐年·价格带贡献额；⑭ S0000/S0006 收敛深研：过滤器模拟/大赢·大亏单画像/大盘环境/净值变体/重叠度。
 
 ## 6. 已确立的结论（勿重复推导，勿反转）
 
