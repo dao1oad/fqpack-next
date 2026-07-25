@@ -1,6 +1,6 @@
 # CLX 信号研究 Handoff 手册（供后续 agent 接手）
 
-最后更新：2026-07-25。配套进展总结：`2026-07-25-clx-research-progress-summary.md`。
+最后更新：2026-07-25（第二次更新：新增 QFQ 实盘候选策略回测与 18 模型闭环 vs 上证指数回测）。配套进展总结：`2026-07-25-clx-research-progress-summary.md`。
 
 ## 1. 环境与访问拓扑
 
@@ -36,11 +36,30 @@
 | `qfq_pure.py` | 纯信号闭环前复权版（最新，含 snapshot qfq join 模板） |
 | `cmd*.txt` + `vmrun.ps1` | 远程执行命令模板 |
 | `add_pure.py` / `add_pair.py` | 结果 JSON 注入前端 data.js |
+| `strategy_sim.py` / `strategy_sim2.py` | 实盘候选策略逐层过滤验证（RAW 口径） |
+| `strategy_qfq.py` | 实盘候选策略 QFQ 回测（含逐笔明细，输出 /tmp/strategy_qfq.json） |
+| `strategy_allm.py` | 18 模型「买入→任一模型卖出」闭环 QFQ 回测 + 上证基准（输出 /tmp/strategy_allm.json） |
+| `top5_scan.py` | 18 模型 Top5% 交易画像 |
+
+### 4.1 实盘候选策略 QFQ 回测（2026-07-25，报告 `2026-07-25-clx-live-strategy-qfq-backtest.md`）
+
+- 规则：S0016+S0006 买入；触发 ∈ {ENGULFING, STRONG_FRACTAL}；occurrence=1；全市场 18 模型卖出信号 20 日密度 > expanding 80 分位（min_periods=250）时暂停开仓；T+1 qfq_open 入场；第 20 个交易日 qfq_open 退出；扣 0.4%。
+- 结果：4,458 笔，均值 +3.65%（中位 +2.27%），胜率 59.5%；VAL +5.83%/胜率 67.8%（n=686）；19 年仅 2 年为负；20 槽组合示意净值 8.29。
+- ⚠️ 停牌陷阱：「第 20 个交易日」按个股实际交易日计，39 笔跨长期停牌（最大 000650 股改停牌一年 +1288%）；剔除后均值 +2.99%（VAL 不受影响）。QFQ 口径高于 RAW 口径（+2.82%）。
+
+### 4.2 18 模型闭环 vs 上证指数（2026-07-25，报告 `2026-07-25-clx-18-models-closedloop-vs-index.md`）
+
+- 规则：每模型自身买入信号（不过滤）T+1 qfq_open 入场；18 模型任一卖出信号（union）后 T+1 qfq_open 卖出；扣 0.4%；无卖出信号则剔除（9,418 笔 / 0.5%）。共 1,961,508 笔，均持仓约 3 周。
+- 上证基准：Mongo `quantaxis.index_day` code=000001（fq_mongodb:27017，容器内可达），月收盘 2005-01 归一化，2023-12 约 2.50。
+- 结果（月度复利等权示意净值）：跑赢——S0006 19.0、S0011 17.1、S0016 11.0、S0000 8.2、S0013 6.1、S0008 4.8；跑输/亏损——S0012 0.22、S0003 0.64、S0007 0.96。胜率普遍 43%~52%，靠少数大肉。
+- 结论：「任一模型卖出」每笔均值（最高 ≈+0.6%）低于纯 20 日时间退出，再次印证卖出信号平仓截断利润。
 
 ## 5. 可视化
 
 - 页面源：`C:\Users\Administrator\fq\clx_viz\`（index.html / data.js / echarts.min.js），部署目标：项目主机 `D:\fqpack\tmp\clx_viz\`（/xn/put 两个文件），服务 `D:\fqpack\tmp\start_viz.ps1` → http://127.0.0.1:18099/（项目主机本机）。agent 本机验证：本地 `python -m http.server 18099 --directory C:\Users\Administrator\fq\clx_viz`。
-- data.js 内嵌常量：MD（事件统计）、COMBO（冻结组合）、S16/S16SUB、GRID（条件筛选）、PAIR（20日闭环）、PURE（纯信号，当前为**前复权**数据）。
+- data.js 内嵌常量：MD（事件统计）、COMBO（冻结组合）、S16/S16SUB、GRID（条件筛选）、PAIR（20日闭环）、PURE（纯信号，前复权）、TOP5（Top5% 画像）。
+- 额外数据文件：`strat.js`（常量 STRAT，⑨ 页策略回测 + 4,458 笔逐笔明细）、`allm.js`（常量 ALLM，⑩ 页 18 模型闭环 + sh_index 月度基准），部署时三个文件（index.html/strat.js/allm.js）都要 /xn/put。
+- 页面：①~⑧ 既有；⑨ 实盘候选策略回测(QFQ)：指标卡 + 5 视图（年度/组合净值/模型×触发/月度/逐笔明细带筛选排序分页）；⑩ 18模型闭环 vs 上证：曲线（对数/线性/相对指数三种坐标 + dataZoom 缩放 + 无交易月持平连续化）/柱图/明细表。
 
 ## 6. 已确立的结论（勿重复推导，勿反转）
 
@@ -49,6 +68,9 @@
 3. 普适放大器：低价 × 第 1 次触发 × 强确认。
 4. S0004/S0007/S0014/S0015 纯信号操作系统性亏损。
 5. 高单笔收益 ≈ 长持有 + 2020-23 小盘 β，单位时间收益低（S0016 ≈0.06%/天）。
+6. 实盘候选策略已收敛（`2026-07-25-clx-live-strategy-candidate.md`）：S0016+S0006 × 强触发 × 首次回踩 × 卖出密度开关 × 20 日时间退出；QFQ 口径 +3.65%/笔（剔停牌异常 +2.99%）。
+7. 退出方式结论：时间退出 > 任一模型卖出退出 > 自身模型卖出退出；紧止损（-8%）会杀死策略，宽止损 -12%~-15% 可选。
+8. 18 模型闭环口径下仅约 1/3 模型（S0006/S0016/S0008/S0011/S0013/S0000）显著跑赢上证指数；S0012/S0003/S0007 实盘必须剔除。
 
 ## 7. 研究边界（硬约束）
 
