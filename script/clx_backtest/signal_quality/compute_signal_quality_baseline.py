@@ -17,6 +17,7 @@ The script only reads sealed artifacts and writes a single JSON document.
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import math
 import os
@@ -58,7 +59,7 @@ SLIPPAGE_PER_SIDE = 0.0005
 ROUND_TRIP_COST = 2 * (FEE_PER_SIDE + SLIPPAGE_PER_SIDE)
 MIN_CELL_STAT_N = 30
 MIN_BOOTSTRAP_N = 100
-BOOTSTRAP_REPS = 300
+BOOTSTRAP_REPS = 1000
 SHIFT_REPS = 200
 BOOTSTRAP_SAMPLE_CAP = 2000
 SHIFT_RANGE = (20, 60)
@@ -109,24 +110,27 @@ def load_events() -> pd.DataFrame:
     return events
 
 
-def load_bars(codes: set[str]) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+def load_bars(
+    codes: set[str],
+) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
     dataset = ds.dataset(glob.glob(SNAPSHOT_GLOB)[0], format="parquet")
     table = dataset.to_table(
-        columns=["code", "trade_date", "qfq_open", "qfq_close"],
+        columns=["code", "trade_date", "qfq_open", "raw_open", "raw_close"],
         filter=(ds.field("trade_year") >= START_YEAR - 1)
         & (ds.field("trade_year") <= END_YEAR + 1),
     )
     bars = table.to_pandas()
     bars = bars[bars["code"].isin(codes)]
     bars["trade_date"] = pd.to_datetime(bars["trade_date"].astype(str))
-    bars = bars.dropna(subset=["qfq_open", "qfq_close"]).sort_values(
+    bars = bars.dropna(subset=["qfq_open", "raw_open", "raw_close"]).sort_values(
         ["code", "trade_date"]
     )
     return {
         code: (
             frame["trade_date"].values,
             frame["qfq_open"].to_numpy(dtype=float),
-            frame["qfq_close"].to_numpy(dtype=float),
+            frame["raw_open"].to_numpy(dtype=float),
+            frame["raw_close"].to_numpy(dtype=float),
         )
         for code, frame in bars.groupby("code", sort=False)
     }
@@ -179,13 +183,13 @@ def benjamini_hochberg(p_values: list[float]) -> list[float]:
 
 
 def build_forward_excess(
-    code_bars: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]],
+    code_bars: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]],
     index_dates: np.ndarray,
     index_opens: np.ndarray,
 ) -> dict[str, dict[int, np.ndarray]]:
     """Per code and horizon: excess open-to-open forward return per bar index."""
     result: dict[str, dict[int, np.ndarray]] = {}
-    for code, (dates, opens, _closes) in code_bars.items():
+    for code, (dates, opens, _raw_opens, _raw_closes) in code_bars.items():
         idx_open = np.empty(len(dates))
         offsets = np.searchsorted(index_dates, dates, side="right") - 1
         valid = offsets >= 0
@@ -232,14 +236,14 @@ def main() -> None:
         if bar_data is None:
             blocked_counts[(*cell_key, split)] += 1
             continue
-        dates, opens, closes = bar_data
+        dates, _qfq_opens, raw_opens, raw_closes = bar_data
         reveal = row.reveal_date.to_datetime64()
         entry_index = int(np.searchsorted(dates, reveal, side="right"))
         if entry_index >= len(dates) or entry_index == 0:
             blocked_counts[(*cell_key, split)] += 1
             continue
-        entry_open = float(opens[entry_index])
-        prior_close = float(closes[entry_index - 1])
+        entry_open = float(raw_opens[entry_index])
+        prior_close = float(raw_closes[entry_index - 1])
         if not (np.isfinite(entry_open) and entry_open > 0 and prior_close > 0):
             blocked_counts[(*cell_key, split)] += 1
             continue
@@ -464,10 +468,22 @@ def main() -> None:
     for cell_doc in cells:
         status_counts[cell_doc["qualification"]["status"]] += 1
 
+    event_files = sorted(glob.glob(EVENT_GLOB))
+    manifest = hashlib.sha256()
+    for filename in event_files:
+        stat = os.stat(filename)
+        manifest.update(f"{filename}|{stat.st_size}\n".encode())
+
     output = {
         "schema_version": "1.0",
         "run_id": RUN_ID,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "artifacts": {
+            "event_glob": EVENT_GLOB,
+            "snapshot_glob": SNAPSHOT_GLOB,
+            "event_file_count": len(event_files),
+            "event_manifest_sha256": manifest.hexdigest(),
+        },
         "methodology": {
             "primary_horizon": PRIMARY_HORIZON,
             "horizons": list(HORIZONS),
