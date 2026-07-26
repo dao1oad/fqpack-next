@@ -1,0 +1,73 @@
+{
+  "study_id": "clx-regime-trigger-v1",
+  "run_id": "01KBYC7REC0V3RY99634853AAB",
+  "script_sha256": "8ed5eab89ec3ecbd4ee43484da92824c0a412c04983e038e130a75937a8dc454",
+  "candidate_inputs": [
+    {
+      "path": "/tmp/clx_trigger_filter_dev_candidates.parquet",
+      "size": 315066121,
+      "sha256": "69729c83686a35887b9dd2a0c8b4030675a729031837e8902f7aefeb873f5a59"
+    },
+    {
+      "path": "/tmp/clx_trigger_filter_holdout_candidates.parquet",
+      "size": 84689805,
+      "sha256": "7edb566a189f458dcc5f8ac2dc0bdf38390dd1cff70df9cfa8727ef13babd590"
+    }
+  ],
+  "snapshot_root": "/opt/clx-backtest/snapshots/cf579f3b0c081b7097de19eca8103c27f6643b64e5fa9ca6d7cb3e99491feec4/bars",
+  "snapshot_manifest_sha256": "e12b898e325e4573ebd156a49ddfed17036004d47aff29bc11fcc47a97db6e22",
+  "outputs": {
+    "market_segments": {
+      "path": "market_segments.csv",
+      "size": 9142,
+      "sha256": "8035e5d5351334be32fa591ac21ea801814ebc614260c39ac71a39e163a745dd"
+    },
+    "regime_win_rates": {
+      "path": "regime_win_rates.csv",
+      "size": 127031,
+      "sha256": "cda1ef7223af9081abae0c7b564dd04bd102b17ab6489386b9e79968de2d436f"
+    },
+    "filter_recommendations": {
+      "path": "filter_recommendations.csv",
+      "size": 9281,
+      "sha256": "6581a21268b958184d713c284d59052eb1941d34a61a4dbd14bd95eba2f8fe72"
+    },
+    "filter_search_audit": {
+      "path": "filter_search_audit.json",
+      "size": 308986,
+      "sha256": "46ff8c4c4920e51384ebc8279342df1a7b22d31255d9f2502de5735e554e04d5"
+    },
+    "summary": {
+      "path": "summary.json",
+      "size": 31694,
+      "sha256": "7a2732b8c1ba6144dc87f76870a5e30a6eedc1c6769c26c6980e7b2955c8f256"
+    }
+  },
+  "summary_invariants": {
+    "model_count": 18,
+    "models": [
+      "S0000",
+      "S0001",
+      "S0002",
+      "S0003",
+      "S0004",
+      "S0005",
+      "S0006",
+      "S0007",
+      "S0008",
+      "S0009",
+      "S0010",
+      "S0011",
+      "S0012",
+      "S0013",
+      "S0014",
+      "S0015",
+      "S0016",
+      "S0017"
+    ],
+    "target_trigger_count": 2,
+    "future_index_joins": 0,
+    "win_rate_table_rows": 1296,
+    "expected_win_rate_table_rows": 1296
+  }
+}

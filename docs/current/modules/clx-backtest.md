@@ -11,6 +11,9 @@ CLX 回测模块把同一份不可变行情快照依次转换为：
 当前 500 万/40 仓的模型×主触发过滤研究结果见
 [`CLX 模型×触发条件过滤回测`](../reference/clx-trigger-filter-backtest.md)。
 
+当前上证三类行情下吞没/强分型的 30/60/90 日研究结果见
+[`CLX 上证行情分段×双形态回测`](../reference/clx-regime-trigger-backtest.md)。
+
 ## 入口
 
 - 前端路由：`/clx-backtest`
