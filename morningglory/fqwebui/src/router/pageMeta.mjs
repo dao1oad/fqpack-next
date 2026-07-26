@@ -97,6 +97,7 @@ export const ROUTE_TITLES_BY_NAME = {
   'gantt-shouban30': '首板选股',
   'daily-screening': '每日选股',
   'clx-backtest': 'CLX回测',
+  'signal-quality': '信号质量基准',
   'gantt-stocks': '板块趋势',
   'position-management': '仓位管理',
   'position-review': '持仓复盘',

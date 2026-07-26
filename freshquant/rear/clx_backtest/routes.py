@@ -16,6 +16,7 @@ from .artifacts import (
 )
 from .errors import ApiError, invalid_request, not_found
 from .service import ClxBacktestService, Page
+from .signal_quality import filter_cells, load_baseline, summarize_baseline
 from .store import DERIVED_DATABASE_NAME, ClxBacktestStore, MongoClxBacktestStore
 from .utils import (
     json_safe,
@@ -455,6 +456,66 @@ def create_clx_backtest_blueprint(
                 {"combo": definition, "metrics": metrics[0] if metrics else None}
             )
         return success({"run_id": run_id, "split_id": split_id, "items": items})
+
+    @blueprint.get("/runs/<run_id>/signal-quality")
+    def signal_quality_summary(run_id: str):
+        reject_query(set())
+        run_id = validated_id(run_id, field="run_id")
+        service().require_run(run_id)
+        document = load_baseline(export_root, run_id)
+        return success(summarize_baseline(document))
+
+    @blueprint.get("/runs/<run_id>/signal-quality/cells")
+    def signal_quality_cells(run_id: str):
+        reject_query(
+            {
+                "split_id",
+                "direction",
+                "model_id",
+                "trigger",
+                "status",
+                "min_executable",
+            }
+        )
+        run_id = validated_id(run_id, field="run_id")
+        service().require_run(run_id)
+        document = load_baseline(export_root, run_id)
+        split_id = request.args.get("split_id")
+        direction = request.args.get("direction")
+        model_id = request.args.get("model_id")
+        min_executable = request.args.get("min_executable")
+        model_code = None
+        if model_id is not None:
+            model_code = (
+                model_id
+                if model_id.startswith("S")
+                else f"S{integer(model_id, 'model_id', minimum=0, maximum=17):04d}"
+            )
+        items = filter_cells(
+            document,
+            split_id=split_id,
+            direction=(
+                integer(direction, "direction", allowed={-1, 1})
+                if direction is not None
+                else None
+            ),
+            model_code=model_code,
+            trigger=request.args.get("trigger"),
+            status=request.args.get("status"),
+            min_executable=(
+                integer(min_executable, "min_executable", minimum=0)
+                if min_executable is not None
+                else None
+            ),
+        )
+        return success(
+            {
+                "run_id": run_id,
+                "generated_at": document.get("generated_at"),
+                "cell_count": len(items),
+                "items": items,
+            }
+        )
 
     @blueprint.get("/runs/<run_id>/manifest")
     def manifest(run_id: str):
