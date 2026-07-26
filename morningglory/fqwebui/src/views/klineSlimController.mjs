@@ -395,7 +395,9 @@ export const klineSlimController = {
           .map((period) => this.chanlunVersionMap[period] || '')
           .concat(JSON.stringify(this.periodLegendSelected))
           .concat(JSON.stringify(this.priceGuideLegendSelected))
+          .concat(JSON.stringify(this.orderReviewLegendSelected))
           .concat(this.priceGuideRenderVersion || '')
+          .concat(this.showOrderReview ? `order-review:${this.orderReviewVersion || 0}` : 'order-review:off')
           .join('__')
         if (
           renderVersion === this.lastRenderedVersion &&
@@ -416,12 +418,15 @@ export const klineSlimController = {
           visiblePeriods: extraPeriods,
           legendSelected: {
             ...this.periodLegendSelected,
-            ...this.priceGuideLegendSelected
+            ...this.priceGuideLegendSelected,
+            ...this.orderReviewLegendSelected
           },
           priceGuides: this.draftChartPriceGuides,
           editablePriceGuides: this.editablePriceGuides,
           priceGuideEditMode: this.priceGuideEditMode,
-          priceGuideEditLocked: this.priceGuideEditLocked
+          priceGuideEditLocked: this.priceGuideEditLocked,
+          orderReviewTimeline: this.orderReviewTimeline,
+          orderReviewVisible: this.showOrderReview
         })
         if (!scene) {
           return
@@ -485,6 +490,9 @@ export const klineSlimController = {
       }
       this.fetchMainData(this.routeToken)
       this.refreshVisibleChanlunPeriods(this.routeToken)
+      if (this.showOrderReview) {
+        this.loadOrderReviewTimeline({ force: true })
+      }
     },
     resetChartViewport() {
       this.chartViewport = createKlineSlimViewportState()

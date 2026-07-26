@@ -1,53 +1,64 @@
-import sys
 import types
 from datetime import datetime
 from typing import Any
 
+import pytest
 from flask import Flask
 
-import freshquant
-import freshquant.data as freshquant_data
+from freshquant.rear.gantt import routes as gantt_routes
 
-svc_module: Any = types.ModuleType("freshquant.data.gantt_readmodel")
-svc_module.DBGantt = {}
-svc_module.get_trade_dates_between = lambda start_date, end_date: []
-svc_module.query_gantt_plate_matrix = lambda **kwargs: {}
-svc_module.query_gantt_plate_reason_map = lambda **kwargs: {}
-svc_module.query_gantt_stock_matrix = lambda **kwargs: {}
-svc_module.query_stock_hot_reason_rows = lambda **kwargs: []
-svc_module.query_shouban30_plate_rows = lambda **kwargs: []
-svc_module.query_shouban30_stock_rows = lambda **kwargs: []
-svc_module._load_shouban30_credit_subject_lookup = lambda *args, **kwargs: {}
-svc_module._load_shouban30_quality_subject_lookup = lambda *args, **kwargs: {}
-svc_module._resolve_shouban30_extra_filter_result = lambda *args, **kwargs: {
-    "tag": None,
-    "matches": {},
-}
-sys.modules["freshquant.data.gantt_readmodel"] = svc_module
-setattr(freshquant_data, "gantt_readmodel", svc_module)
 
-shouban_module: Any = types.ModuleType("freshquant.shouban30_pool_service")
-shouban_module.SHOUBAN30_PRE_POOL_CATEGORY = "三十涨停Pro预选"
-shouban_module.SHOUBAN30_STOCK_POOL_CATEGORY = "三十涨停Pro自选"
-shouban_module.SHOUBAN30_BLK_FILENAME = "30RYZT.blk"
-shouban_module.replace_pre_pool = lambda items, context=None: {}
-shouban_module.append_pre_pool = lambda items, context=None: {}
-shouban_module.list_pre_pool = lambda: []
-shouban_module.add_pre_pool_item_to_stock_pool = lambda code6: "created"
-shouban_module.sync_pre_pool_to_stock_pool = lambda: {}
-shouban_module.sync_pre_pool_to_blk = lambda: {}
-shouban_module.clear_pre_pool = lambda: {}
-shouban_module.delete_pre_pool_item = lambda code6: {}
-shouban_module.list_stock_pool = lambda: []
-shouban_module.add_stock_pool_item_to_must_pool = lambda code6: "created"
-shouban_module.sync_stock_pool_to_must_pool = lambda: {}
-shouban_module.sync_stock_pool_to_blk = lambda: {}
-shouban_module.clear_stock_pool = lambda: {}
-shouban_module.delete_stock_pool_item = lambda code6: {}
-shouban_module.sync_must_pool_to_blk = lambda: {}
-shouban_module.clear_must_pool = lambda: {}
-sys.modules["freshquant.shouban30_pool_service"] = shouban_module
-setattr(freshquant, "shouban30_pool_service", shouban_module)
+def _build_readmodel_stub() -> Any:
+    svc_module: Any = types.ModuleType("freshquant.data.gantt_readmodel")
+    svc_module.DBGantt = {}
+    svc_module.get_trade_dates_between = lambda start_date, end_date: []
+    svc_module.query_gantt_plate_matrix = lambda **kwargs: {}
+    svc_module.query_gantt_plate_reason_map = lambda **kwargs: {}
+    svc_module.query_gantt_stock_matrix = lambda **kwargs: {}
+    svc_module.query_stock_hot_reason_rows = lambda **kwargs: []
+    svc_module.query_shouban30_plate_rows = lambda **kwargs: []
+    svc_module.query_shouban30_stock_rows = lambda **kwargs: []
+    svc_module._load_shouban30_credit_subject_lookup = lambda *args, **kwargs: {}
+    svc_module._load_shouban30_quality_subject_lookup = lambda *args, **kwargs: {}
+    svc_module._resolve_shouban30_extra_filter_result = lambda *args, **kwargs: {
+        "tag": None,
+        "matches": {},
+    }
+    return svc_module
+
+
+def _build_shouban30_stub() -> Any:
+    shouban_module: Any = types.ModuleType("freshquant.shouban30_pool_service")
+    shouban_module.SHOUBAN30_PRE_POOL_CATEGORY = "三十涨停Pro预选"
+    shouban_module.SHOUBAN30_STOCK_POOL_CATEGORY = "三十涨停Pro自选"
+    shouban_module.SHOUBAN30_BLK_FILENAME = "30RYZT.blk"
+    shouban_module.replace_pre_pool = lambda items, context=None: {}
+    shouban_module.append_pre_pool = lambda items, context=None: {}
+    shouban_module.list_pre_pool = lambda: []
+    shouban_module.add_pre_pool_item_to_stock_pool = lambda code6: "created"
+    shouban_module.sync_pre_pool_to_stock_pool = lambda: {}
+    shouban_module.sync_pre_pool_to_blk = lambda: {}
+    shouban_module.clear_pre_pool = lambda: {}
+    shouban_module.delete_pre_pool_item = lambda code6: {}
+    shouban_module.list_stock_pool = lambda: []
+    shouban_module.add_stock_pool_item_to_must_pool = lambda code6: "created"
+    shouban_module.sync_stock_pool_to_must_pool = lambda: {}
+    shouban_module.sync_stock_pool_to_blk = lambda: {}
+    shouban_module.clear_stock_pool = lambda: {}
+    shouban_module.delete_stock_pool_item = lambda code6: {}
+    shouban_module.sync_must_pool_to_blk = lambda: {}
+    shouban_module.clear_must_pool = lambda: {}
+    return shouban_module
+
+
+@pytest.fixture(autouse=True)
+def _stub_gantt_route_dependencies(monkeypatch):
+    monkeypatch.setattr(gantt_routes, "svc", _build_readmodel_stub())
+    monkeypatch.setattr(
+        gantt_routes,
+        "shouban30_pool_service",
+        _build_shouban30_stub(),
+    )
 
 
 class FakeCollection:

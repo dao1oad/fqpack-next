@@ -17,6 +17,7 @@
   - `/api/order-management/stoploss/bind`
   - `/api/tpsl/takeprofit/<symbol>`
   - `/api/tpsl/takeprofit/<symbol>/rearm`
+  - `/api/position-review/symbols/<symbol>/timeline`
 
 ## 当前订单相关语义
 
@@ -45,6 +46,10 @@
   - entry stoploss
   - entry row hover slice 明细
 - 缠论结构浮层
+- 可选交易复盘模式
+  - 主 K 线保留为唯一价格图；关联信号和订单聚合成交标记叠加在价格层
+  - 策略应有量、实际成交量和连续持仓在同一时间轴的下方轨道显示
+  - 可跳转到 `/position-review?symbol=<symbol>` 查看完整复盘工作台
 
 ## 当前数据流
 
@@ -55,12 +60,19 @@
 - `保存标的设置`
   - Guardian 配置
   - takeprofit profile / rearm
+- `交易复盘模式`
+  - K 线加载完成后，按当前主图时间窗请求 `/api/position-review/symbols/<symbol>/timeline`
+  - 前端只消费订单级 `events` 和连续 `position_series`；成交笔数和均价仅作为订单聚合字段，不渲染逐笔 fill。窗口请求中的实际成交量只代表当前主图窗口内成交
+  - 服务未部署或返回 `404` 时，复盘层显示明确的不可用状态，不会退回旧请求级 `reviews` 并伪装为订单级复盘
 
 ## 当前边界
 
 - `KlineSlim` 继续负责 Guardian / takeprofit 的编辑入口
 - `entry stoploss` 当前合并在同一个标的设置浮层里编辑
 - 图表页不再直接展示长 `buy_lot_id`
+- 交易复盘是可选只读覆盖层，不改变 K 线主图、订单账本、持仓真值或策略执行逻辑
+- 信号仅在后端给出明确关联时显示；无关联信号不依据时间或价格补配
+- 同一策略请求无法把应有量可靠分给多个订单时，数量轨显示证据不足而非重复的策略数量；同秒跨订单的仓位先后无法证实时也明确标记为不确定
 
 ## 排障
 
