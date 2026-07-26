@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-from script.clx_backtest.research.clx_regime_trigger_study import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from script.clx_backtest.research.clx_regime_trigger_study import (  # isort: skip
     HORIZONS,
     RULE_BY_NAME,
     build_market_segments,
