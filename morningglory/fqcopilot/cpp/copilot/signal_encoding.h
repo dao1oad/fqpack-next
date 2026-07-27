@@ -4,6 +4,8 @@ namespace ClxSignalEncoding
 {
     constexpr int MIN_OCCURRENCE = 1;
     constexpr int MAX_OCCURRENCE = 99;
+    constexpr int TDX_TRIGGER_MASK_BASE = 1 << 7;
+    constexpr int TDX_TRIGGER_MASK_LIMIT = TDX_TRIGGER_MASK_BASE - 1;
 
     // occurrence <= 0 is invalid and produces no signal. Values above the
     // two-digit wire limit saturate at 99; 99 therefore means "99 or more".
@@ -50,4 +52,43 @@ namespace ClxSignalEncoding
             occurrence_for_model(signal, source_model_id),
             signed_entrypoint);
     }
+
+    // Float32 exactly represents every packed CLX value:
+    // max abs(signal)=26907, so max packed value is 3,444,223 (<2^24).
+    constexpr int pack_tdx_signal_and_base_mask(int signal, int base_mask)
+    {
+        if (signal == 0)
+        {
+            return 0;
+        }
+        const int primary_entrypoint = magnitude(signal) % 100;
+        const int primary_bit =
+            primary_entrypoint >= 1 && primary_entrypoint <= 7
+                ? 1 << (primary_entrypoint - 1)
+                : 0;
+        const int completed_mask =
+            (base_mask | primary_bit) & TDX_TRIGGER_MASK_LIMIT;
+        const int packed_magnitude =
+            magnitude(signal) * TDX_TRIGGER_MASK_BASE + completed_mask;
+        return signal > 0 ? packed_magnitude : -packed_magnitude;
+    }
+
+    constexpr int unpack_tdx_signal(int packed)
+    {
+        const int unpacked =
+            magnitude(packed) / TDX_TRIGGER_MASK_BASE;
+        return packed >= 0 ? unpacked : -unpacked;
+    }
+
+    constexpr int unpack_tdx_trigger_mask(int packed)
+    {
+        return magnitude(packed) % TDX_TRIGGER_MASK_BASE;
+    }
+
+    static_assert(
+        unpack_tdx_signal(pack_tdx_signal_and_base_mask(104, 4)) == 104,
+        "TDX packed signal must round-trip");
+    static_assert(
+        unpack_tdx_trigger_mask(pack_tdx_signal_and_base_mask(104, 4)) == 12,
+        "TDX packed mask must include the primary trigger bit");
 }

@@ -82,10 +82,48 @@ std::vector<std::vector<int>> BatchCalculator::calc_all()
     return results;
 }
 
+std::vector<int> BatchCalculator::calc_model(int model_id)
+{
+    switch (model_id)
+    {
+    case 0: return F_S0000_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 1: return F_S0001_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 2: return F_S0002_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 3: return F_S0003_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 4: return F_S0004_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 5: return F_S0005_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 6: return F_S0006_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 7: return F_S0007_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 8: return F_S0008_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 9: return F_S0009_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 10: return F_S0010_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 11: return F_S0011_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 12: return F_S0012_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 13: return F_S0013_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 14: return F_S0014_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 15: return F_S0015_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 16: return F_S0016_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    case 17: return F_S0017_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    default: return F_S0001_ctx(high, low, open, close, vol, switch_opt, options, ctx);
+    }
+}
+
 DetailedBatchResult BatchCalculator::calc_all_detailed()
 {
     DetailedBatchResult result;
     result.signals = calc_all();
+    std::tie(result.buy_base_trigger_masks, result.sell_base_trigger_masks) =
+        SignalUtils::calc_base_trigger_masks(
+            high, low, open, close, vol,
+            ctx.ma5, ctx.macd, ctx.strong_factors);
+
+    return result;
+}
+
+DetailedModelResult BatchCalculator::calc_model_detailed(int model_id)
+{
+    DetailedModelResult result;
+    result.signals = calc_model(model_id);
     std::tie(result.buy_base_trigger_masks, result.sell_base_trigger_masks) =
         SignalUtils::calc_base_trigger_masks(
             high, low, open, close, vol,
