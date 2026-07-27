@@ -1,6 +1,7 @@
 ﻿#include "stdafx.h"
 #include "TCalcFuncSets.h"
 #include "copilot/copilot.h"
+#include "copilot/signal_encoding.h"
 #include "common/log.h"
 #include "func_set.h"
 #include <thread>
@@ -47,7 +48,7 @@ void Func3(int count, float *out, float *high, float *low, float *close)
         if (calcTypeMap.find(modelOptInt) != calcTypeMap.end())
         {
             modelOpt = calcTypeMap[modelOptInt];
-        }  
+        }
     }
 
     std::vector<int> result = copilotProxy.Calc(modelOpt);
@@ -92,7 +93,7 @@ void Func4(int count, float *out_values, float *high_values, float *low_values, 
         if (tailoredCalcTypeMap.find(modelOptInt) != tailoredCalcTypeMap.end())
         {
             modelOpt = tailoredCalcTypeMap[modelOptInt];
-        }  
+        }
     }
 
     std::vector<int> result = copilotProxy.TailoredCalc(modelOpt);
@@ -116,11 +117,90 @@ void Func4(int count, float *out_values, float *high_values, float *low_values, 
     copilotProxy.Reset();
 }
 
+//=============================================================================
+// 输出函数5号：单模型信号 + 完整并发触发掩码（通达信主图）
+//
+// packed = sign(signal) * (abs(signal) * 128 + trigger_mask)
+// trigger_mask bits 0..6 correspond to entrypoints 1..7 and always include
+// the selected model's primary entrypoint bit.
+//=============================================================================
+void Func5(int count, float *out, float *high, float *low, float *close)
+{
+    if (count == 0) return;
+    memset(out, 0, count * sizeof(float));
+    CopilotProxy &copilotProxy = CopilotProxy::GetInstance();
+
+    std::vector<float> open =
+        copilotProxy.ExistParam(ParamType::PARAM_OPEN)
+            ? copilotProxy.GetParam(ParamType::PARAM_OPEN)
+            : std::vector<float>();
+    std::vector<float> volume =
+        copilotProxy.ExistParam(ParamType::PARAM_VOLUME)
+            ? copilotProxy.GetParam(ParamType::PARAM_VOLUME)
+            : std::vector<float>();
+    if (open.size() != static_cast<size_t>(count) ||
+        volume.size() != static_cast<size_t>(count))
+    {
+        copilotProxy.Reset();
+        return;
+    }
+
+    const int waveOpt =
+        copilotProxy.ExistParam(ParamType::PARAM_WAVE_OPT)
+            ? static_cast<int>(
+                  copilotProxy.GetParam(ParamType::PARAM_WAVE_OPT)[0])
+            : 0;
+    const int stretchOpt =
+        copilotProxy.ExistParam(ParamType::PARAM_STRETCH_OPT)
+            ? static_cast<int>(
+                  copilotProxy.GetParam(ParamType::PARAM_STRETCH_OPT)[0])
+            : 0;
+    const int extOpt =
+        copilotProxy.ExistParam(ParamType::PARAM_EXT_OPT)
+            ? static_cast<int>(
+                  copilotProxy.GetParam(ParamType::PARAM_EXT_OPT)[0])
+            : 0;
+    const int modelOpt =
+        copilotProxy.ExistParam(ParamType::PARAM_MODEL_OPT)
+            ? static_cast<int>(
+                  copilotProxy.GetParam(ParamType::PARAM_MODEL_OPT)[0])
+            : static_cast<int>(CalcType::CALC_S0001);
+
+    std::vector<float> highValues(high, high + count);
+    std::vector<float> lowValues(low, low + count);
+    std::vector<float> closeValues(close, close + count);
+    DetailedModelResult detailed = clxs_model_detailed(
+        count, highValues, lowValues, open, closeValues, volume,
+        waveOpt, stretchOpt, extOpt, modelOpt);
+
+    const int length = (std::min)(
+        count, static_cast<int>(detailed.signals.size()));
+    for (int i = 0; i < length; ++i)
+    {
+        const int signal = detailed.signals[i];
+        if (signal == 0)
+        {
+            continue;
+        }
+        const std::vector<int> &masks =
+            signal > 0
+                ? detailed.buy_base_trigger_masks
+                : detailed.sell_base_trigger_masks;
+        const int baseMask =
+            i < static_cast<int>(masks.size()) ? masks[i] : 0;
+        out[i] = static_cast<float>(
+            ClxSignalEncoding::pack_tdx_signal_and_base_mask(
+                signal, baseMask));
+    }
+    copilotProxy.Reset();
+}
+
 PluginTCalcFuncInfo g_CalcFuncSets[] = {
     {1, (pPluginFUNC)&Func1},
     {2, (pPluginFUNC)&Func2},
     {3, (pPluginFUNC)&Func3},
     {4, (pPluginFUNC)&Func4},
+    {5, (pPluginFUNC)&Func5},
     {0, NULL},
 };
 

@@ -106,3 +106,26 @@ std::vector<std::vector<int>> clxs_all_detailed(
     result[19] = std::move(detailed.sell_base_trigger_masks);
     return result;
 }
+
+DetailedModelResult clxs_model_detailed(
+    int length,
+    std::vector<float> &high, std::vector<float> &low,
+    std::vector<float> &open, std::vector<float> &close,
+    std::vector<float> &vol,
+    int wave_opt, int stretch_opt, int trend_opt, int model_opt)
+{
+    DetailedModelResult result;
+    if (length == 0) return result;
+
+    ChanOptions options;
+    options.bi_mode = wave_opt / 10 % 10;
+    options.force_wave_stick_count = wave_opt / 100 % 100;
+    options.merge_non_complehensive_wave = wave_opt / 10000 % 10;
+    options.ext_opt = trend_opt;
+
+    const int model_id = model_opt % 10000;
+    const int switch_opt = model_opt / 10000;
+    BatchCalculator batch(
+        high, low, open, close, vol, switch_opt, options);
+    return batch.calc_model_detailed(model_id);
+}

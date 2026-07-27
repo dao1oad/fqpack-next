@@ -65,6 +65,46 @@ python -m freshquant.cli stock screening --model clxs
   - 止损价
   - 标签或中枢数量
 
+## 通达信 CLX18 插件接口
+
+32 位通达信插件由 `morningglory/fqcopilot` 的 `tdx` target 构建。
+现有函数槽位 `1～4` 保持兼容，其中 CLX18 专家回测继续使用：
+
+```text
+TDXDLL7(3,HIGH,LOW,CLOSE)
+```
+
+它返回选定模型唯一的主触发编码，交易规则不读取并发掩码。
+
+CLX18 三层主图使用：
+
+```text
+TDXDLL7(5,HIGH,LOW,CLOSE)
+```
+
+5 号函数只计算 `PARAM_MODEL_OPT` 指定的一个模型，同时返回主信号和完整并发触发
+掩码：
+
+```text
+packed = sign(signal) * (abs(signal) * 128 + trigger_mask)
+```
+
+- `trigger_mask` 的 `1/2/4/8/16/32/64` 分别表示
+  `模型结构/Pin Bar/吞没/强分型/MA5拐头/量价齐升/MACD金叉`。
+- 完整掩码等于方向基础掩码与主触发位按位或，因此主触发位始终存在。
+- 最大 packed 值小于 `2^24`，在通达信 float32 插件协议中可精确往返。
+- 主图在信号后的可执行开盘 K 线上区分“原始未增强”和“增强”，并把同 K 线
+  全部触发按固定顺序纵向显示；专家回测仍只使用增强入场条件。
+
+当前通达信运行 DLL 路径是：
+
+```text
+D:\new_tdx\T0002\dlls\fqcopilot.dll
+```
+
+部署时先关闭 `D:\new_tdx\tdxw.exe`，备份旧 DLL 和公式数据库，再替换 DLL、重新
+登记 18 个主图公式并执行逐 K 线 parity 与公式编译检查。
+
 ## 当前排查
 
 ### CLXS 结果总是空

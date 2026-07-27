@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include "copilot/batch_calculator.h"
 
 std::vector<float> clxs(
     int length,
@@ -24,3 +25,11 @@ std::vector<std::vector<int>> clxs_all_detailed(
     std::vector<float> &open, std::vector<float> &close,
     std::vector<float> &vol,
     int wave_opt, int stretch_opt, int trend_opt);
+
+// 通达信主图接口：只计算一个模型，同时返回方向基础触发掩码。
+DetailedModelResult clxs_model_detailed(
+    int length,
+    std::vector<float> &high, std::vector<float> &low,
+    std::vector<float> &open, std::vector<float> &close,
+    std::vector<float> &vol,
+    int wave_opt, int stretch_opt, int trend_opt, int model_opt);

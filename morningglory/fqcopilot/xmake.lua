@@ -177,3 +177,11 @@ target("fullcalc_py")
 
     add_defines("MAKE_X64")
     add_cxflags("/EHsc", "/d2SSAOptimizer-", "/Od")
+
+-- 通达信 packed signal/mask wire contract.
+target("tdx_trigger_pack_test")
+    set_kind("binary")
+    set_default(false)
+    set_languages("cxx17")
+    set_targetdir("build/tests")
+    add_files("tests/tdx_trigger_pack_test.cpp")
