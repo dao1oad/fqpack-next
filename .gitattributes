@@ -16,3 +16,6 @@ Dockerfile* text eol=lf
 *.cmd text eol=crlf
 
 morningglory/fqwebui/web/index.html text eol=lf
+
+script/clx_backtest/research/results/2026-07-26-clx-regime-trigger-v1/*.csv text eol=lf
+script/clx_backtest/research/results/2026-07-26-clx-regime-trigger-v1/*.json text eol=lf

@@ -107,7 +107,11 @@ std::vector<Pivot> locate_pivots(std::vector<float> &vertexes, std::vector<float
 std::vector<Bar> recognise_bars(int length, std::vector<float> &high, std::vector<float> &low);
 std::vector<StdBar> recognise_std_bars(int length, std::vector<float> &high, std::vector<float> &low);
 std::vector<float> recognise_swing(int length, std::vector<float> &high, std::vector<float> &low);
-std::vector<float> recognise_bi(int length, std::vector<float> &high, std::vector<float> &low, ChanOptions &options);
+std::vector<float> recognise_swing_from_std_bars(int length, const std::vector<StdBar> &std_bars);
+std::vector<float> recognise_bi(int length, std::vector<float> &high, std::vector<float> &low, const std::vector<float> &close, ChanOptions &options);
+std::vector<float> recognise_bi_from_precomputed(
+    int length, const std::vector<float> &close, ChanOptions &options,
+    std::vector<Bar> &raw_bars, std::vector<StdBar> &std_bars);
 std::vector<float> recognise_duan(int length, std::vector<float> &bi, std::vector<float> &high, std::vector<float> &low);
 std::vector<Pivot> recognise_pivots(
     int length, std::vector<float> &higher_level_sigs, std::vector<float> &sigs,

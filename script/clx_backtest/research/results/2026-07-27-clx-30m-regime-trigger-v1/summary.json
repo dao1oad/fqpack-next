@@ -1,0 +1,1034 @@
+{
+  "aggregate_overview": [
+    {
+      "horizon_trading_days": 30,
+      "market_regime": "UP",
+      "mean_net_return": 0.015906,
+      "median_net_return": -0.014006,
+      "sample_count": 66703,
+      "trigger": "ENGULFING",
+      "win_count": 30120,
+      "win_rate": 0.451554,
+      "win_rate_ci_high": 0.455333,
+      "win_rate_ci_low": 0.44778
+    },
+    {
+      "horizon_trading_days": 60,
+      "market_regime": "UP",
+      "mean_net_return": 0.042065,
+      "median_net_return": -0.00925,
+      "sample_count": 66700,
+      "trigger": "ENGULFING",
+      "win_count": 31631,
+      "win_rate": 0.474228,
+      "win_rate_ci_high": 0.478019,
+      "win_rate_ci_low": 0.47044
+    },
+    {
+      "horizon_trading_days": 90,
+      "market_regime": "UP",
+      "mean_net_return": 0.051628,
+      "median_net_return": -0.010143,
+      "sample_count": 64819,
+      "trigger": "ENGULFING",
+      "win_count": 31000,
+      "win_rate": 0.478255,
+      "win_rate_ci_high": 0.482102,
+      "win_rate_ci_low": 0.474411
+    },
+    {
+      "horizon_trading_days": 30,
+      "market_regime": "DOWN",
+      "mean_net_return": 0.246753,
+      "median_net_return": 0.207282,
+      "sample_count": 14511,
+      "trigger": "ENGULFING",
+      "win_count": 12455,
+      "win_rate": 0.858314,
+      "win_rate_ci_high": 0.863894,
+      "win_rate_ci_low": 0.852546
+    },
+    {
+      "horizon_trading_days": 60,
+      "market_regime": "DOWN",
+      "mean_net_return": 0.36183,
+      "median_net_return": 0.296066,
+      "sample_count": 14511,
+      "trigger": "ENGULFING",
+      "win_count": 13817,
+      "win_rate": 0.952174,
+      "win_rate_ci_high": 0.955528,
+      "win_rate_ci_low": 0.948581
+    },
+    {
+      "horizon_trading_days": 90,
+      "market_regime": "DOWN",
+      "mean_net_return": 0.319058,
+      "median_net_return": 0.234489,
+      "sample_count": 14511,
+      "trigger": "ENGULFING",
+      "win_count": 13469,
+      "win_rate": 0.928192,
+      "win_rate_ci_high": 0.932281,
+      "win_rate_ci_low": 0.923878
+    },
+    {
+      "horizon_trading_days": 30,
+      "market_regime": "SIDEWAYS",
+      "mean_net_return": 0.026934,
+      "median_net_return": 0.009124,
+      "sample_count": 86820,
+      "trigger": "ENGULFING",
+      "win_count": 45734,
+      "win_rate": 0.526768,
+      "win_rate_ci_high": 0.530088,
+      "win_rate_ci_low": 0.523446
+    },
+    {
+      "horizon_trading_days": 60,
+      "market_regime": "SIDEWAYS",
+      "mean_net_return": 0.080888,
+      "median_net_return": 0.035114,
+      "sample_count": 76020,
+      "trigger": "ENGULFING",
+      "win_count": 44014,
+      "win_rate": 0.578979,
+      "win_rate_ci_high": 0.582485,
+      "win_rate_ci_low": 0.575466
+    },
+    {
+      "horizon_trading_days": 90,
+      "market_regime": "SIDEWAYS",
+      "mean_net_return": 0.153441,
+      "median_net_return": 0.087505,
+      "sample_count": 64447,
+      "trigger": "ENGULFING",
+      "win_count": 42862,
+      "win_rate": 0.665074,
+      "win_rate_ci_high": 0.668708,
+      "win_rate_ci_low": 0.66142
+    },
+    {
+      "horizon_trading_days": 30,
+      "market_regime": "UP",
+      "mean_net_return": 0.017554,
+      "median_net_return": -0.014848,
+      "sample_count": 132675,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 59939,
+      "win_rate": 0.451773,
+      "win_rate_ci_high": 0.454452,
+      "win_rate_ci_low": 0.449097
+    },
+    {
+      "horizon_trading_days": 60,
+      "market_regime": "UP",
+      "mean_net_return": 0.047698,
+      "median_net_return": -0.007967,
+      "sample_count": 132668,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 63459,
+      "win_rate": 0.478329,
+      "win_rate_ci_high": 0.481018,
+      "win_rate_ci_low": 0.475642
+    },
+    {
+      "horizon_trading_days": 90,
+      "market_regime": "UP",
+      "mean_net_return": 0.064974,
+      "median_net_return": -0.002066,
+      "sample_count": 128564,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 63813,
+      "win_rate": 0.496352,
+      "win_rate_ci_high": 0.499085,
+      "win_rate_ci_low": 0.493619
+    },
+    {
+      "horizon_trading_days": 30,
+      "market_regime": "DOWN",
+      "mean_net_return": 0.196508,
+      "median_net_return": 0.158561,
+      "sample_count": 37927,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 29975,
+      "win_rate": 0.790334,
+      "win_rate_ci_high": 0.794401,
+      "win_rate_ci_low": 0.786208
+    },
+    {
+      "horizon_trading_days": 60,
+      "market_regime": "DOWN",
+      "mean_net_return": 0.337168,
+      "median_net_return": 0.282163,
+      "sample_count": 37927,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 34795,
+      "win_rate": 0.91742,
+      "win_rate_ci_high": 0.920148,
+      "win_rate_ci_low": 0.914608
+    },
+    {
+      "horizon_trading_days": 90,
+      "market_regime": "DOWN",
+      "mean_net_return": 0.310228,
+      "median_net_return": 0.230292,
+      "sample_count": 37927,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 34437,
+      "win_rate": 0.907981,
+      "win_rate_ci_high": 0.910849,
+      "win_rate_ci_low": 0.905031
+    },
+    {
+      "horizon_trading_days": 30,
+      "market_regime": "SIDEWAYS",
+      "mean_net_return": 0.022169,
+      "median_net_return": -0.000336,
+      "sample_count": 195604,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 97630,
+      "win_rate": 0.499121,
+      "win_rate_ci_high": 0.501336,
+      "win_rate_ci_low": 0.496905
+    },
+    {
+      "horizon_trading_days": 60,
+      "market_regime": "SIDEWAYS",
+      "mean_net_return": 0.079702,
+      "median_net_return": 0.027229,
+      "sample_count": 170660,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 95655,
+      "win_rate": 0.5605,
+      "win_rate_ci_high": 0.562854,
+      "win_rate_ci_low": 0.558144
+    },
+    {
+      "horizon_trading_days": 90,
+      "market_regime": "SIDEWAYS",
+      "mean_net_return": 0.155074,
+      "median_net_return": 0.080421,
+      "sample_count": 148222,
+      "trigger": "STRONG_FRACTAL",
+      "win_count": 96679,
+      "win_rate": 0.652258,
+      "win_rate_ci_high": 0.654679,
+      "win_rate_ci_low": 0.64983
+    }
+  ],
+  "available_stock_30m_period": [
+    "2024-04-15",
+    "2026-07-24"
+  ],
+  "confirmed_filters": [],
+  "contracts": {
+    "causality": "exact from-zero prefix replay at every actual 30min bar",
+    "entry": "first actual stock 30min bar strictly after reveal_at",
+    "execution_price_domain": "RAW open vs prior stock_day close",
+    "exit": "entry stock-session +30/+60/+90, same bar slot open; missing slot or limit-down advances to the next actual bar",
+    "feature_bar_windows": {
+      "20d": 160,
+      "5d": 40,
+      "60d": 480
+    },
+    "fee_per_side": 0.002,
+    "limit_move": 0.095,
+    "market_regime": {
+      "clock": "latest index session strictly before reveal trade date",
+      "confirmation_sessions": 5,
+      "down": "return_60<=-5% and close<=MA60",
+      "sideways": "otherwise",
+      "source": "quantaxis.index_day/code=000001",
+      "up": "return_60>=5% and close>=MA60"
+    },
+    "max_filter_conditions": 2,
+    "purge": "for each horizon, an outcome crossing its split end is excluded from that split; maximum purge horizon is 90 stock trading days",
+    "return_price_domain": "QFQ raw_price * stock_adj.adj",
+    "splits": {
+      "HOLDOUT": [
+        "2026-01-01",
+        "2026-12-31"
+      ],
+      "TRAIN": [
+        "2024-07-01",
+        "2024-12-31"
+      ],
+      "VALIDATION": [
+        "2025-01-01",
+        "2025-12-31"
+      ]
+    },
+    "target_trigger_membership": "BUY actionable fact and concurrent_trigger_mask bits 0x04/0x08; one fact may expand into both trigger groups"
+  },
+  "coverage": {
+    "candidate_rows": 575749,
+    "missing_codes": [],
+    "model_count": 18,
+    "models": [
+      "S0000",
+      "S0001",
+      "S0002",
+      "S0003",
+      "S0004",
+      "S0005",
+      "S0006",
+      "S0007",
+      "S0008",
+      "S0009",
+      "S0010",
+      "S0011",
+      "S0012",
+      "S0013",
+      "S0014",
+      "S0015",
+      "S0016",
+      "S0017"
+    ],
+    "partial_aggregate": false,
+    "replayed_codes": 5201,
+    "snapshot_codes": 5201,
+    "target_trigger_count": 2,
+    "unique_signal_facts": 564157
+  },
+  "evidence_grade": "SHORT_HISTORY_PROVISIONAL",
+  "filter_status_counts": {
+    "FILTER_SELECTED": 31,
+    "INSUFFICIENT_SAMPLE": 5
+  },
+  "history_gap": "QuantAxis stock_min/type=30min begins on 2024-04-15; the 2015-present stock study requires an older source backfill",
+  "holdout_status_counts": {
+    "INSUFFICIENT_HOLDOUT": 4,
+    "INSUFFICIENT_SAMPLE": 5,
+    "MIXED_POSITIVE": 5,
+    "NOT_CONFIRMED": 22
+  },
+  "invariants": {
+    "expected_win_rate_table_rows": 1296,
+    "future_or_same_session_index_joins": 0,
+    "win_rate_table_rows": 1296
+  },
+  "market_segment_counts": {
+    "DOWN": 1,
+    "SIDEWAYS": 5,
+    "UP": 5
+  },
+  "requested_research_period": [
+    "2015-01-01",
+    "LATEST"
+  ],
+  "signal_period": [
+    "2024-05-08",
+    "2026-07-24"
+  ],
+  "source_quality": {
+    "complete_sessions": 2549067,
+    "cross_source_excluded_session_count": 24,
+    "duplicate_extra_docs": 2307224,
+    "excluded_session_count": 35,
+    "excluded_sessions": [
+      {
+        "code": "000014",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "000014",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "000068",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "000068",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "000811",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "000811",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "000821",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "000821",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "001335",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "001335",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "001359",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "001359",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002036",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002093",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002093",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002199",
+        "date": "2026-07-22",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002199",
+        "date": "2026-07-23",
+        "labels": [
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 7,
+        "reasons": [
+          "UNIQUE_BAR_COUNT",
+          "BAR_SLOT_SET"
+        ],
+        "unique_bars": 7
+      },
+      {
+        "code": "002215",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002215",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002273",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002273",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002284",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002284",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002755",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "002755",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "300242",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "300452",
+        "date": "2026-07-23",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "300452",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "MISSING_ADJ_FACTOR",
+          "MISSING_STOCK_DAY"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "300955",
+        "date": "2026-07-24",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "301234",
+        "date": "2026-07-21",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "301234",
+        "date": "2026-07-22",
+        "labels": [
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 7,
+        "reasons": [
+          "UNIQUE_BAR_COUNT",
+          "BAR_SLOT_SET"
+        ],
+        "unique_bars": 7
+      },
+      {
+        "code": "688237",
+        "date": "2026-07-22",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "688237",
+        "date": "2026-07-23",
+        "labels": [
+          "10:30",
+          "11:00",
+          "11:30",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 7,
+        "reasons": [
+          "UNIQUE_BAR_COUNT",
+          "BAR_SLOT_SET"
+        ],
+        "unique_bars": 7
+      },
+      {
+        "code": "688277",
+        "date": "2026-07-22",
+        "labels": [
+          "10:00",
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 8,
+        "reasons": [
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 8
+      },
+      {
+        "code": "688277",
+        "date": "2026-07-24",
+        "labels": [
+          "10:30",
+          "11:00",
+          "13:00",
+          "13:30",
+          "14:00",
+          "14:30",
+          "15:00"
+        ],
+        "raw_docs": 7,
+        "reasons": [
+          "UNIQUE_BAR_COUNT",
+          "BAR_SLOT_SET",
+          "NON_TRADING_PLACEHOLDER"
+        ],
+        "unique_bars": 7
+      }
+    ],
+    "raw_docs": 22700036,
+    "source_sessions": 2549102,
+    "standard_sessions": 2549091,
+    "unique_bars": 20392812
+  },
+  "study_id": "clx-30m-regime-trigger-v1"
+}

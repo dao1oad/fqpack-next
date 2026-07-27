@@ -5,6 +5,7 @@ const sharedGlobals = {
   Headers: 'readonly',
   Image: 'readonly',
   FormData: 'readonly',
+  EventSource: 'readonly',
   Request: 'readonly',
   Response: 'readonly',
   ResizeObserver: 'readonly',

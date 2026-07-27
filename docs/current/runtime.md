@@ -27,6 +27,7 @@
 - ClickHouse HTTP：`18123 -> 8123`
 - ClickHouse native：`19000 -> 9000`
 - API Server：`15000 -> 5000`
+- CLX 回测 worker：`fq_clx_backtest_worker`
 - TDXHQ：`15001 -> 5001`
 - Dagster Webserver：`11003 -> 10003`
 - QAWebServer：`18010 -> 8010`
@@ -55,6 +56,8 @@
 - memory context pack 产物根目录：`D:/fqpack/runtime/artifacts/memory/context-packs`
 - 冷记忆目录：`.codex/memory`
 - 热记忆 Mongo database：`fq_memory`
+- CLX artifact 宿主机根目录：`FQ_CLX_BACKTEST_HOST_ROOT`，默认 `D:/fqpack/runtime/clx-backtest`
+- CLX 容器内 artifact 根目录：`/opt/clx-backtest`
 
 ## 会话与记忆口径
 
@@ -97,6 +100,38 @@
 - Web UI
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
+
+当目标是运行或查看 CLX 回测时，至少需要：
+
+- `fq_mongodb`
+- `fq_apiserver`
+- `fq_clx_backtest_worker`
+- `fq_webui`
+- 已发布的 immutable snapshot 和 causal signal artifact
+- API/worker 共同指向同一 `CLX_BACKTEST_ARTIFACT_ROOT`；API 挂载只读，worker 挂载可写
+
+## CLX 回测运行口径
+
+- API 健康入口：`GET /api/clx-backtest/health`
+- worker 入口：`python -m freshquant.rear.clx_backtest.worker run`
+- worker 健康入口：`python -m freshquant.rear.clx_backtest.worker health --max-heartbeat-age 90`
+- 默认 worker identity：`CLX_WORKER_ID=fq_clx_backtest_worker`
+- 默认资源上限：`FQ_CLX_WORKER_CPUS=4`、`FQ_CLX_WORKER_MEM=12G`
+- Mongo 派生库：`freshquant_clx_backtest`
+
+run 的控制面是 Mongo `runs / jobs / workers / progress_events`。外部 worker 以 45 秒 lease 原子 claim 任务，执行期间持续写心跳和 stage checkpoint；API 进程不内联执行长回测。
+
+普通 BACKTEST 任务依次执行/验证 event、ranking、TRAIN/VALIDATION portfolio，并投影结果。HOLDOUT 任务只在 immutable freeze 已存在后执行；API 先发布查询不可见的 `REVEALING`，worker 使用 persistent ledger claim 一次揭示，生成并校验 HOLDOUT ranking/portfolio、完成 Mongo 投影与 attachment 后，先写幂等终态审计，再发布查询可见的 `REVEALED`。job/freeze/run 身份、投影 SHA-256 或审计写入校验失败时保持不可见并记录为 `REVEAL_FAILED`。
+
+全量基线 artifact 链使用 `script/clx_backtest/run_full_artifact_chain.sh`，固定顺序是：
+
+`causal signal finalization -> event study -> ranking freeze -> V2 ranking gate -> unique HOLDOUT reveal -> TRAIN/VALIDATION/HOLDOUT portfolio -> V2 portfolio gate`
+
+Gate 执行器由 `CLX_GATE_RUNNER=direct|governance` 显式选择，默认 `direct`，直接运行仓库内三个 `script/clx_backtest/gates/v2_*_real.sh`，因此普通正式 checkout 不依赖仓库外的治理运行时。仅保留 `.governance` 状态和 `tools/governance.py` 的治理 VM 使用 `CLX_GATE_RUNNER=governance`；配置值非法或所选执行器缺文件时立即失败，不在两种模式间自动切换。
+
+全量脚本不带可回退的 engine pin：运行时必须显式注入不可变 `CLX_ENGINE_IMAGE_ID`、native `CLX_EXPECTED_ENGINE_SHA256` 与启动前冻结的在线模块基线 `CLX_EXPECTED_ONLINE_ENGINE_SHA256`。在线基线同时写入不可变 `run-contract.json` 的 `engine.online_module_sha256`；causal V2 Gate 要求环境 pin、run contract 与 Gate 时在线模块三者一致，不从 Gate 时的在线值隐式生成基线。artifact 链通过后，`v2_frontend_real.sh` 验证已部署真实 F1～F3，`v2_e2e_real.sh` 再对账 artifact、唯一 HOLDOUT ledger、Mongo 投影、API/Web、容器镜像、健康检查和治理 Gate 证据。
+
+详细信号、价格域、冻结和页面口径见 [CLX 大规模回测](./modules/clx-backtest.md)。
 
 ## Runtime Observability 页面口径
 

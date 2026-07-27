@@ -145,6 +145,28 @@
 - `FQ_RUNTIME_LOG_DIR` 可以覆盖 `runtime.log_dir`
 - `XTQUANT_PORT` 可以覆盖 `xtdata.port`
 
+### CLX 回测
+
+CLX 启动与挂载配置：
+
+- `FQ_CLX_BACKTEST_HOST_ROOT`
+  - compose 宿主机 artifact 根目录
+  - 默认 `D:/fqpack/runtime/clx-backtest`
+- `CLX_BACKTEST_ARTIFACT_ROOT`
+  - API/worker 进程看到的 artifact 根目录
+  - compose 内固定 `/opt/clx-backtest`
+- `CLX_WORKER_ID`
+  - 默认 `fq_clx_backtest_worker`
+- `CLX_WORKER_LOG_LEVEL`
+- `FQ_CLX_WORKER_CPUS`
+  - 默认 `4`
+- `FQ_CLX_WORKER_MEM`
+  - 默认 `12G`
+
+正式研究参数不进入 Mongo `params`。每个 run 的不可变 config、共享 `split-plan-v1.json / ranking-config-v1.json / portfolio-config-v1.json`、snapshot manifest 和 signal manifest 共同定义计算合同；config hash 在 run 启动、排行、冻结和投影阶段持续校验。
+
+当前固定基线是 `S0000..S0017`、`wave_opt=1560 / stretch_opt=0 / trend_opt=0`、20-session purge/embargo、VALIDATION 正向前 20（不足时取全部）、1000 万初始资金、单票 10%、最多 10 持仓。完整口径见 [CLX 大规模回测](./modules/clx-backtest.md)。
+
 ## Mongo 系统设置
 
 ### `params`

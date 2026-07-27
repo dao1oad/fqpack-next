@@ -34,11 +34,14 @@ private:
                 break;
             }
             EntrypointType signal = SignalUtils::is_buy_signal(
-                i, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd);
+                i, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd, strong_factors);
 
             if (signal != EntrypointType::ENTRYPOINT_UNKNOWN)
             {
-                inner_result[i] = 100 + static_cast<int>(signal);
+                // 买点触发于向下笔终点(pos)，wave_dir = -1
+                int occurrence = SignalUtils::calc_occurrence(
+                    wave_sigs, stretch_sigs, high, low, pos, -1);
+                inner_result[i] = encode_signal(0, occurrence, signal);
                 break;
             }
         }
@@ -53,11 +56,14 @@ private:
                 break;
             }
             EntrypointType signal = SignalUtils::is_sell_signal(
-                i, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd);
+                i, high, low, open, close, vol, wave_sigs, std_bars, ma5, macd, strong_factors);
 
             if (signal != EntrypointType::ENTRYPOINT_UNKNOWN)
             {
-                inner_result[i] = -100 - static_cast<int>(signal);
+                // 卖点触发于向上笔终点(pos)，wave_dir = +1
+                int occurrence = SignalUtils::calc_occurrence(
+                    wave_sigs, stretch_sigs, high, low, pos, 1);
+                inner_result[i] = encode_signal(0, occurrence, signal);
                 break;
             }
         }
@@ -71,6 +77,15 @@ public:
     {
         calculate();
     }
+
+    S0000_Calculator(
+        const std::vector<float> &high, const std::vector<float> &low, const std::vector<float> &open, const std::vector<float> &close,
+        const std::vector<float> &vol,
+        int switch_opt, const ChanOptions &options,
+        const ChanContext &ctx) : BaseCalculator(high, low, open, close, vol, switch_opt, options, ctx)
+    {
+        calculate();
+    }
 };
 
 std::vector<int> F_S0000(
@@ -79,4 +94,15 @@ std::vector<int> F_S0000(
 {
     S0000_Calculator calculator(high, low, open, close, vol, switch_opt, options);
     return calculator.result();
+}
+
+REGISTER_CALC(0, F_S0000)
+
+std::vector<int> F_S0000_ctx(
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol, int switch_opt,
+    const ChanOptions &options, const ChanContext &ctx)
+{
+    return S0000_Calculator(high, low, open, close, vol, switch_opt, options, ctx).result();
 }

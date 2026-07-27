@@ -409,6 +409,10 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
                 "State": {"Status": "running", "Health": {"Status": "healthy"}},
             },
             {
+                "Name": "fq_clx_backtest_worker",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
                 "Name": "fq_webui",
                 "State": {"Status": "running", "Health": {"Status": "healthy"}},
             },

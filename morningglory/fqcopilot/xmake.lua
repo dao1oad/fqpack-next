@@ -175,10 +175,5 @@ target("fullcalc_py")
     add_files("fullcalc/*.cpp")
     add_files_recursive("cpp")
 
-    -- Use fqchan04 chanlun sources (keep algorithm consistent with project)
-    remove_files("cpp/chanlun/*.cpp")
-    add_files("../fqchan04/cpp/chanlun/*.cpp")
-    add_includedirs("../fqchan04/cpp", {public = true})
-
     add_defines("MAKE_X64")
     add_cxflags("/EHsc", "/d2SSAOptimizer-", "/Od")

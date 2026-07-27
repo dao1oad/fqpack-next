@@ -75,6 +75,7 @@ services:
       FRESHQUANT_REDIS__HOST: fq_redis
       FRESHQUANT_REDIS__PORT: "6379"
       FQ_TRADE_CALENDAR_STATE_DIR: /freshquant/state/trade-calendar
+      CLX_BACKTEST_ARTIFACT_ROOT: /opt/clx-backtest
       MONGODB: fq_mongodb
       MONGODB_PORT: "27017"
     command: ["/freshquant/.venv/bin/python", "-m", "freshquant.rear.api_server", "--port", "5000"]
@@ -86,6 +87,10 @@ services:
       - type: bind
         source: ${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}
         target: /opt/tdx
+      - type: bind
+        source: ${FQ_CLX_BACKTEST_HOST_ROOT:-D:/fqpack/runtime/clx-backtest}
+        target: /opt/clx-backtest
+        read_only: true
     depends_on:
       fq_mongodb:
         condition: service_healthy
@@ -93,6 +98,44 @@ services:
         condition: service_healthy
       fq_runtime_clickhouse:
         condition: service_healthy
+    restart: unless-stopped
+
+  fq_clx_backtest_worker:
+    image: ${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}
+    env_file:
+      - ${FQ_COMPOSE_ENV_FILE:?Set FQ_COMPOSE_ENV_FILE to the primary worktree .env}
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+      FRESHQUANT_MONGODB__HOST: fq_mongodb
+      FRESHQUANT_MONGODB__PORT: "27017"
+      FRESHQUANT_REDIS__HOST: fq_redis
+      FRESHQUANT_REDIS__PORT: "6379"
+      MONGODB: fq_mongodb
+      MONGODB_PORT: "27017"
+      CLX_BACKTEST_ARTIFACT_ROOT: /opt/clx-backtest
+      CLX_WORKER_ID: fq_clx_backtest_worker
+    command: ["/freshquant/.venv/bin/python", "-m", "freshquant.rear.clx_backtest.worker", "run"]
+    volumes:
+      - type: bind
+        source: ${FQ_CLX_BACKTEST_HOST_ROOT:-D:/fqpack/runtime/clx-backtest}
+        target: /opt/clx-backtest
+    depends_on:
+      fq_mongodb:
+        condition: service_healthy
+      fq_redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/freshquant/.venv/bin/python", "-m", "freshquant.rear.clx_backtest.worker", "health", "--max-heartbeat-age", "90"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${FQ_CLX_WORKER_MEM:-12G}
+          cpus: "${FQ_CLX_WORKER_CPUS:-4}"
     restart: unless-stopped
 
   fq_runtime_indexer:

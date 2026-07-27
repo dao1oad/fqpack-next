@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "bar_count": 1400,
+  "buy_masks_sha256": "f8f769faec269762d11d1dc717dbd6be42091e181eda30e295699f8182fd5d99",
+  "sell_masks_sha256": "fbcfcbcebcdafa1ad0ae38f7c995fd02e0052080c7afe450574104e94308b818",
+  "buy_nonzero_bars": 144,
+  "sell_nonzero_bars": 163,
+  "buy_concurrent_bars": 11,
+  "sell_concurrent_bars": 8,
+  "concurrent_signal_count": 27,
+  "primary_entrypoint_counts": {
+    "1": 29,
+    "2": 61,
+    "3": 6,
+    "4": 8,
+    "5": 147,
+    "6": 0,
+    "7": 35
+  }
+}

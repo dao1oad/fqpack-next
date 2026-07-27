@@ -44,7 +44,7 @@ SURFACE_ALIASES = {
 }
 
 DOCKER_SERVICE_MAP = {
-    "api": ["fq_apiserver"],
+    "api": ["fq_apiserver", "fq_clx_backtest_worker"],
     "web": ["fq_webui"],
     "dagster": ["fq_dagster_webserver", "fq_dagster_daemon"],
     "qa": ["fq_qawebserver"],
@@ -80,6 +80,7 @@ HEALTH_CHECK_MAP = {
         "http://127.0.0.1:15000/api/runtime/components",
         "http://127.0.0.1:15000/api/runtime/health/summary",
         "http://127.0.0.1:15000/api/gantt/plates?provider=xgb",
+        "http://127.0.0.1:15000/api/clx-backtest/health",
     ],
     "web": [
         "http://127.0.0.1:18080/",
@@ -115,6 +116,7 @@ DOCKER_PARALLEL_ALL_SERVICES = (
     "fq_redis",
     "fq_runtime_clickhouse",
     "fq_apiserver",
+    "fq_clx_backtest_worker",
     "fq_runtime_indexer",
     "fq_tdxhq",
     "fq_dagster_webserver",
@@ -154,6 +156,22 @@ class ExactRule(PathRule):
 
 
 PATH_RULES: tuple[PathRule, ...] = (
+    PrefixRule(
+        label="clx-backtest-engine",
+        prefix="freshquant/backtest/clx/",
+        surfaces=("api",),
+        notes=(
+            "CLX engine changes require rebuilding the shared rear image and restarting its external worker.",
+        ),
+    ),
+    PrefixRule(
+        label="clx-native-engine",
+        prefix="morningglory/fqcopilot/",
+        surfaces=("api",),
+        notes=(
+            "CLX native engine changes require rebuilding the shared rear image and restarting its external worker.",
+        ),
+    ),
     PrefixRule(
         label="freshquant-rear",
         prefix="freshquant/rear/",

@@ -36,6 +36,7 @@ def test_resolve_check_urls_uses_surface_targets_and_deduplicates() -> None:
         "http://127.0.0.1:15000/api/runtime/components",
         "http://127.0.0.1:15000/api/runtime/health/summary",
         "http://127.0.0.1:15000/api/gantt/plates?provider=xgb",
+        "http://127.0.0.1:15000/api/clx-backtest/health",
         "http://127.0.0.1:18080/",
         "http://127.0.0.1:18080/gantt/shouban30",
         "http://127.0.0.1:18080/runtime-observability",

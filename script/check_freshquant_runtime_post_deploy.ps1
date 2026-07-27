@@ -214,7 +214,7 @@ $knownDeploymentSurfaces = @(
 )
 
 $dockerSurfaceMap = @{
-    api = @('fq_apiserver')
+    api = @('fq_apiserver', 'fq_clx_backtest_worker')
     web = @('fq_webui')
     dagster = @('fq_dagster_webserver', 'fq_dagster_daemon')
     qa = @('fq_qawebserver')

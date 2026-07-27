@@ -98,6 +98,40 @@
 - `module_status`
 - `context_packs`
 
+### `freshquant_clx_backtest`
+
+CLX 回测专用派生库，源行情库在这条链上保持只读：
+
+- 控制面
+  - `runs`
+  - `jobs`
+  - `workers`
+  - `progress_events`
+  - `freeze_records`
+- 血缘与审计
+  - `manifests`
+  - `audit_findings`
+  - `model_registry`
+- 排行与组合
+  - `combo_definitions`
+  - `combo_metrics`
+  - `model_heatmap`
+  - `portfolio_summaries`
+  - `portfolio_equity`
+  - `portfolio_trades`
+  - `combo_signals`
+
+该库是已验证 artifact 的查询投影。immutable projector 对相同身份执行幂等 upsert；同一 `_id` 的不同内容会被判为冲突，而不是覆盖既有研究事实。
+
+## CLX Artifact 存储
+
+- 宿主机默认根目录：`D:/fqpack/runtime/clx-backtest`
+- 容器路径：`/opt/clx-backtest`
+- API：只读挂载
+- `fq_clx_backtest_worker`：可写挂载
+
+主要目录为 `snapshots / events / rankings / holdout / holdout-ledger / holdout-ledgers / portfolios / runs / exports`。其中全量链使用 `holdout-ledger`，API worker 的 run 级链使用 `holdout-ledgers/<run_id>`。每层用 `manifest.json + manifest.sha256 + 文件哈希 + 上游 lineage` 定义身份；HOLDOUT persistent ledger 与访问审计按长期单次揭示证据保留，与普通缓存采用不同清理口径。
+
 ## 当前真值边界
 
 - 当前券商仓位真值
