@@ -14,6 +14,9 @@ CLX 回测模块把同一份不可变行情快照依次转换为：
 当前上证三类行情下吞没/强分型的 30/60/90 日研究结果见
 [`CLX 上证行情分段×双形态回测`](../reference/clx-regime-trigger-backtest.md)。
 
+当前独立的 30 分钟因果前缀重放、上证三类行情胜率和过滤稳定性结果见
+[`CLX 30分钟上证行情分段×双形态回测`](../reference/clx-30m-regime-trigger-backtest.md)。
+
 ## 入口
 
 - 前端路由：`/clx-backtest`

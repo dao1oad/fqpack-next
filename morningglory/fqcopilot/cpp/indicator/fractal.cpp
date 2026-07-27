@@ -1,5 +1,4 @@
 #include <vector>
-#include <map>
 #include "indicator.h"
 #include "../chanlun/czsc.h"
 
@@ -8,14 +7,14 @@ std::vector<float> STRONG_FACTAL(
     const std::vector<float> &bi, const std::vector<StdBar> &std_bars)
 {
     auto result = std::vector<float>(high.size(), 0);
-    // 创建一个map，保存每个原始K线的索引对应到哪个标准K线的索引
-    std::map<int, int> raw_to_std_map;
+    // 原始K线索引是稠密的0..N-1；数组保留map::operator[]缺失时返回0的语义。
+    std::vector<int> raw_to_std_index(high.size(), 0);
     int std_bars_num = static_cast<int>(std_bars.size());
     for (int i = 0; i < std_bars_num; i++)
     {
         for (int j = std_bars[i].start; j <= std_bars[i].end; j++)
         {
-            raw_to_std_map[j] = i;
+            raw_to_std_index[j] = i;
         }
     }
     int size = static_cast<int>(high.size());
@@ -24,7 +23,7 @@ std::vector<float> STRONG_FACTAL(
     {
         if (bi[i] == 1)
         {
-            int std_bar_index = raw_to_std_map[i];
+            int std_bar_index = raw_to_std_index[i];
             if (std_bar_index > 0 && i + 1 < size)
             {
                 float prev_low = std_bars[std_bar_index - 1].low;
@@ -36,7 +35,7 @@ std::vector<float> STRONG_FACTAL(
         }
         else if (bi[i] == -1)
         {
-            int std_bar_index = raw_to_std_map[i];
+            int std_bar_index = raw_to_std_index[i];
             if (std_bar_index > 0 && i + 1 < size)
             {
                 float prev_high = std_bars[std_bar_index - 1].high;
@@ -55,14 +54,13 @@ std::vector<float> NORMAL_FACTAL(
     const std::vector<float> &bi, const std::vector<StdBar> &std_bars)
 {
     auto result = std::vector<float>(high.size(), 0);
-    // 创建一个map，保存每个原始K线的索引对应到哪个标准K线的索引
-    std::map<int, int> raw_to_std_map;
+    std::vector<int> raw_to_std_index(high.size(), 0);
     int std_bars_num = static_cast<int>(std_bars.size());
     for (int i = 0; i < std_bars_num; i++)
     {
         for (int j = std_bars[i].start; j <= std_bars[i].end; j++)
         {
-            raw_to_std_map[j] = i;
+            raw_to_std_index[j] = i;
         }
     }
     int size = static_cast<int>(high.size());
@@ -71,7 +69,7 @@ std::vector<float> NORMAL_FACTAL(
     {
         if (bi[i] == 1)
         {
-            int std_bar_index = raw_to_std_map[i];
+            int std_bar_index = raw_to_std_index[i];
             if (std_bar_index > 0 && i + 1 < size)
             {
                 float prev_low = std_bars[std_bar_index].low;
@@ -83,7 +81,7 @@ std::vector<float> NORMAL_FACTAL(
         }
         else if (bi[i] == -1)
         {
-            int std_bar_index = raw_to_std_map[i];
+            int std_bar_index = raw_to_std_index[i];
             if (std_bar_index > 0 && i + 1 < size)
             {
                 float prev_high = std_bars[std_bar_index].high;

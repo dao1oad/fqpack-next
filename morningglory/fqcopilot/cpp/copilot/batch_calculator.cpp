@@ -89,7 +89,7 @@ DetailedBatchResult BatchCalculator::calc_all_detailed()
     std::tie(result.buy_base_trigger_masks, result.sell_base_trigger_masks) =
         SignalUtils::calc_base_trigger_masks(
             high, low, open, close, vol,
-            ctx.wave_sigs, ctx.std_bars, ctx.ma5, ctx.macd);
+            ctx.ma5, ctx.macd, ctx.strong_factors);
 
     return result;
 }

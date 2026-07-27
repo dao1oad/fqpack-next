@@ -17,10 +17,9 @@ public:
                             const std::vector<float>& open,
                             const std::vector<float>& close,
                             const std::vector<float>& vol,
-                            const std::vector<float>& wave_sigs,
-                            const std::vector<StdBar>& std_bars,
                             const std::vector<float>& ma5,
-                            const std::vector<float>& macd)
+                            const std::vector<float>& macd,
+                            const std::vector<float>& strong_factors)
     {
         const int length = static_cast<int>(high.size());
         std::vector<int> buy_masks(length, 0);
@@ -29,12 +28,6 @@ public:
         {
             return {buy_masks, sell_masks};
         }
-
-        // STRONG_FACTAL evaluates the complete series.  Keeping it outside
-        // the bar loop is important: the legacy primary-selector calls it on
-        // demand, whereas detailed research output needs only one evaluation.
-        const auto strong_factors = STRONG_FACTAL(
-            high, low, open, close, wave_sigs, std_bars);
 
         constexpr int ENTRYPOINT_2_BIT = 1 << (2 - 1);
         constexpr int ENTRYPOINT_3_BIT = 1 << (3 - 1);
