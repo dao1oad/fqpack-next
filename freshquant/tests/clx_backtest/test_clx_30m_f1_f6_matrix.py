@@ -14,6 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from script.clx_backtest.research.clx_30m_f1_f6_matrix import (
     FILTER_SUBSET_COUNT,
     TRIGGER_SELECTORS,
+    _development_identity,
+    _index_source_label,
+    _iter_model_candidate_groups,
+    _load_lock_for_reveal,
+    _study_config,
+    _validate_reveal_lineage,
     attach_index_benchmark,
     build_exact_detail_tables,
     build_matrix_chunk,
@@ -31,6 +37,129 @@ SPLITS = {
     "VALIDATION": ["2024-04-01", "2024-06-30"],
     "AUDIT": ["2024-07-01", "2024-12-31"],
 }
+
+
+def _write_index_snapshot_contract(root: Path) -> tuple[Path, Path, Path]:
+    snapshot_dir = root / "snapshot"
+    audit_dir = root / "audit"
+    snapshot_dir.mkdir(parents=True)
+    audit_dir.mkdir(parents=True)
+    index_path = snapshot_dir / "index_day.parquet"
+    pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-01-03", "2024-01-08"]),
+            "close": [100.0, 110.0],
+        }
+    ).to_parquet(index_path, index=False)
+    index_identity = {
+        "source_kind": "SHANGHAI_COMPOSITE_ETF_PROXY",
+        "source_code": "510980",
+        "source_name": "上证综合",
+        "logical_path": "snapshot/index_day.parquet",
+        "file_size": index_path.stat().st_size,
+        "file_sha256": sha256_file(index_path),
+        "rows": 2,
+    }
+    snapshot_manifest_path = snapshot_dir / "manifest.json"
+    write_json_atomic(
+        snapshot_manifest_path,
+        {
+            "snapshot_id": "sha256:fixture",
+            "index": dict(index_identity),
+        },
+    )
+    config_path = audit_dir / "study_config.json"
+    write_json_atomic(
+        config_path,
+        {
+            "index_source": dict(index_identity),
+            "time_splits": SPLITS,
+        },
+    )
+    return config_path, snapshot_manifest_path, index_path
+
+
+def _write_reveal_lineage_fixture(root: Path) -> tuple[Path, dict[str, object]]:
+    config_path, snapshot_manifest_path, index_path = _write_index_snapshot_contract(
+        root
+    )
+    features_path = root / "features" / "candidate_events.parquet"
+    features_path.parent.mkdir()
+    features_path.write_bytes(b"candidate-events-fixture")
+    matrix_dir = root / "matrix"
+    matrix_dir.mkdir()
+    candidates_path = matrix_dir / "development_lock_candidates.parquet"
+    common = {
+        "model_code": "S0016",
+        "trigger_id": "ALL",
+        "trigger_selector_kind": "ALL",
+        "trigger_selector_value": pd.NA,
+        "trigger_selector_name": "all non-zero trigger masks",
+        "filter_mask": 3,
+        "filter_names": "F1+F2",
+        "filter_count": 2,
+        "eligible_for_lock": True,
+        "development_score": 0.60,
+        "train_sample_count": 100,
+        "train_net_win_rate": 0.55,
+        "train_net_win_rate_ci_low": 0.50,
+        "train_net_win_rate_ci_high": 0.60,
+        "train_mean_net_return": 0.02,
+        "train_profit_factor": 1.2,
+        "train_mean_net_excess_return": 0.01,
+        "validation_sample_count": 80,
+        "validation_net_win_rate": 0.54,
+        "validation_net_win_rate_ci_low": 0.48,
+        "validation_net_win_rate_ci_high": 0.60,
+        "validation_mean_net_return": 0.01,
+        "validation_profit_factor": 1.1,
+        "validation_mean_net_excess_return": 0.005,
+    }
+    pd.DataFrame(
+        [
+            {
+                **common,
+                "horizon_trading_days": horizon,
+            }
+            for horizon in HORIZONS
+        ]
+    ).to_parquet(candidates_path, index=False)
+    development_stage_id, development_identity = _development_identity(
+        features_path=features_path,
+        config_path=config_path,
+        index_path=index_path,
+        snapshot_manifest_path=snapshot_manifest_path,
+        min_train_samples=1,
+        min_validation_samples=1,
+        top_per_model=1,
+    )
+    development_manifest_path = matrix_dir / "development_manifest.json"
+    write_json_atomic(
+        development_manifest_path,
+        {
+            "study_id": "clx-30m-full-trigger-f1-f6-v1",
+            "stage": "development",
+            "stage_id": development_stage_id,
+            "identity": development_identity,
+            "data_access_contract": {
+                "candidate_event_scopes_physically_read": [
+                    "TRAIN",
+                    "VALIDATION",
+                ],
+                "audit_used_in_score": False,
+            },
+            "outputs": {
+                "lock_candidates": {
+                    "path": str(candidates_path.resolve()),
+                    "file_size": candidates_path.stat().st_size,
+                    "file_sha256": sha256_file(candidates_path),
+                }
+            },
+        },
+    )
+    run_lock(argparse.Namespace(root=root, force=False))
+    lock_path, locked = _load_lock_for_reveal(root)
+    return lock_path, locked
 
 
 def _event(
@@ -81,6 +210,26 @@ def test_trigger_contract_covers_every_requested_population() -> None:
     }
     assert sum(selector.kind == "SINGLE_BIT" for selector in TRIGGER_SELECTORS) == 7
     assert sum(selector.kind == "EXACT_MASK" for selector in TRIGGER_SELECTORS) == 127
+
+
+def test_detailed_candidate_grouping_preserves_every_retained_row() -> None:
+    candidates = pd.DataFrame(
+        {
+            "candidate_id": ["a", "b", "c", "d", "e"],
+            "model_code": ["S0001", "S0000", "S0001", "S0000", "S0000"],
+            "horizon_trading_days": [5, 5, 30, 30, 30],
+        }
+    )
+
+    groups = list(_iter_model_candidate_groups(candidates))
+    grouped_rows = pd.concat(
+        [model_candidates for _, model_candidates in groups],
+        ignore_index=True,
+    )
+
+    assert [model_code for model_code, _ in groups] == ["S0000", "S0001"]
+    assert len(grouped_rows) == len(candidates)
+    assert set(grouped_rows["candidate_id"]) == set(candidates["candidate_id"])
 
 
 def test_matrix_has_64_subsets_and_masks_away_the_seventh_source_bit() -> None:
@@ -166,6 +315,148 @@ def test_index_benchmark_is_strictly_prior_and_uses_exit_day_close() -> None:
     assert audit["future_or_same_day_feature_count"] == 0
 
 
+def test_index_benchmark_labels_default_and_etf_proxy_sources() -> None:
+    assert _index_source_label() == "上证指数（000001）"
+
+    proxy = {
+        "source_kind": "SHANGHAI_COMPOSITE_ETF_PROXY",
+        "source_code": "510980",
+        "source_name": "上证综合",
+    }
+    assert _index_source_label(proxy) == "510980上证综合ETF代理"
+
+    events = pd.DataFrame([_event(code="600000", trigger_mask=1, filter_pass_mask=0)])
+    index = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2024-01-03", "2024-01-08"]),
+            "close": [100.0, 110.0],
+        }
+    )
+    _, audit = attach_index_benchmark(events, index, index_source=proxy)
+
+    assert audit["index_source"] == {
+        **proxy,
+        "source_label": "510980上证综合ETF代理",
+        "is_proxy": True,
+    }
+    assert audit["formula"].startswith("510980上证综合ETF代理 close")
+
+
+def test_study_config_accepts_bound_index_snapshot_and_manifest_changes_stage_id(
+    tmp_path: Path,
+) -> None:
+    config_path, snapshot_manifest_path, index_path = _write_index_snapshot_contract(
+        tmp_path
+    )
+    features_path = tmp_path / "candidate_events.parquet"
+    features_path.write_bytes(b"fixture")
+
+    _, config = _study_config(tmp_path)
+    first_stage_id, first_identity = _development_identity(
+        features_path=features_path,
+        config_path=config_path,
+        index_path=index_path,
+        snapshot_manifest_path=snapshot_manifest_path,
+        min_train_samples=1,
+        min_validation_samples=1,
+        top_per_model=1,
+    )
+    snapshot_manifest = json.loads(snapshot_manifest_path.read_text(encoding="utf-8"))
+    snapshot_manifest["snapshot_id"] = "sha256:changed"
+    write_json_atomic(snapshot_manifest_path, snapshot_manifest)
+    _study_config(tmp_path)
+    second_stage_id, second_identity = _development_identity(
+        features_path=features_path,
+        config_path=config_path,
+        index_path=index_path,
+        snapshot_manifest_path=snapshot_manifest_path,
+        min_train_samples=1,
+        min_validation_samples=1,
+        top_per_model=1,
+    )
+
+    assert config["index_source"]["source_code"] == "510980"
+    assert first_stage_id != second_stage_id
+    assert (
+        first_identity["snapshot_manifest_sha256"]
+        != second_identity["snapshot_manifest_sha256"]
+    )
+
+
+def test_study_config_rejects_index_identity_drift_in_snapshot_manifest(
+    tmp_path: Path,
+) -> None:
+    _, snapshot_manifest_path, _ = _write_index_snapshot_contract(tmp_path)
+    snapshot_manifest = json.loads(snapshot_manifest_path.read_text(encoding="utf-8"))
+    snapshot_manifest["index"]["source_code"] = "000001"
+    write_json_atomic(snapshot_manifest_path, snapshot_manifest)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"index_source\.source_code disagrees",
+    ):
+        _study_config(tmp_path)
+
+
+def test_study_config_rejects_index_parquet_file_drift(tmp_path: Path) -> None:
+    _, _, index_path = _write_index_snapshot_contract(tmp_path)
+    with index_path.open("ab") as stream:
+        stream.write(b"drift")
+
+    with pytest.raises(RuntimeError, match="file size disagrees"):
+        _study_config(tmp_path)
+
+
+def test_reveal_lineage_accepts_lock_bound_to_current_inputs(tmp_path: Path) -> None:
+    lock_path, locked = _write_reveal_lineage_fixture(tmp_path)
+
+    config_path, config = _validate_reveal_lineage(
+        tmp_path,
+        lock_path=lock_path,
+        locked=locked,
+    )
+
+    assert config_path == tmp_path / "audit" / "study_config.json"
+    assert config["index_source"]["source_code"] == "510980"
+
+
+def test_reveal_lineage_rejects_stale_lock_after_development_manifest_drift(
+    tmp_path: Path,
+) -> None:
+    lock_path, locked = _write_reveal_lineage_fixture(tmp_path)
+    development_manifest_path = tmp_path / "matrix" / "development_manifest.json"
+    development_manifest = json.loads(
+        development_manifest_path.read_text(encoding="utf-8")
+    )
+    development_manifest["drift"] = True
+    write_json_atomic(development_manifest_path, development_manifest)
+
+    with pytest.raises(RuntimeError, match="stale lock"):
+        _validate_reveal_lineage(
+            tmp_path,
+            lock_path=lock_path,
+            locked=locked,
+        )
+
+
+def test_reveal_lineage_rejects_current_candidate_event_input_drift(
+    tmp_path: Path,
+) -> None:
+    lock_path, locked = _write_reveal_lineage_fixture(tmp_path)
+    features_path = tmp_path / "features" / "candidate_events.parquet"
+    features_path.write_bytes(features_path.read_bytes() + b"-drift")
+
+    with pytest.raises(
+        RuntimeError,
+        match="stale lock/input drift.*candidate_events_sha256",
+    ):
+        _validate_reveal_lineage(
+            tmp_path,
+            lock_path=lock_path,
+            locked=locked,
+        )
+
+
 def test_available_matched90_and_purged_use_frozen_maturity_status() -> None:
     event = _event(code="600000", trigger_mask=1, filter_pass_mask=0)
     event["h5_exit_trade_date"] = pd.Timestamp("2024-04-01")
@@ -205,6 +496,48 @@ def test_available_matched90_and_purged_use_frozen_maturity_status() -> None:
             time_splits=SPLITS,
             hypothesis_family_size=100,
             min_train_samples=1,
+        )
+
+
+def test_available_boundary_status_must_exactly_match_recomputed_maturity() -> None:
+    valid = _event(code="600000", trigger_mask=1, filter_pass_mask=0)
+
+    matrix = build_matrix_chunk(
+        pd.DataFrame([valid]),
+        model_code="S0000",
+        horizon=5,
+        scope="AVAILABLE",
+        time_splits=SPLITS,
+        hypothesis_family_size=100,
+        min_reveal_samples=1,
+    )
+    selected = matrix.loc[matrix["trigger_id"].eq("ALL") & matrix["filter_mask"].eq(0)]
+    assert int(selected.iloc[0]["sample_count"]) == 1
+
+    missing_maturity = dict(valid)
+    missing_maturity["h5_result_maturity_at"] = pd.NaT
+    with pytest.raises(RuntimeError, match="AVAILABLE.*maturity"):
+        build_matrix_chunk(
+            pd.DataFrame([missing_maturity]),
+            model_code="S0000",
+            horizon=5,
+            scope="AVAILABLE",
+            time_splits=SPLITS,
+            hypothesis_family_size=100,
+            min_reveal_samples=1,
+        )
+
+    incorrectly_unavailable = dict(valid)
+    incorrectly_unavailable["h5_split_boundary_status"] = "UNAVAILABLE"
+    with pytest.raises(RuntimeError, match="AVAILABLE.*maturity"):
+        build_matrix_chunk(
+            pd.DataFrame([incorrectly_unavailable]),
+            model_code="S0000",
+            horizon=5,
+            scope="AVAILABLE",
+            time_splits=SPLITS,
+            hypothesis_family_size=100,
+            min_reveal_samples=1,
         )
 
 

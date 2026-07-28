@@ -122,25 +122,25 @@ def _select_strictly_new_minute_rows(data, latest_datetime):
     """
     if data is None or getattr(data, 'empty', False):
         return data
-    fetched_at = pd.to_datetime(data['datetime'], errors='coerce')
+    working = data.copy()
+    working['_qa_bar_datetime'] = pd.to_datetime(
+        working['datetime'],
+        errors='coerce'
+    ).to_numpy()
     if latest_datetime is None:
-        selected = data.loc[fetched_at.notna()]
+        keep = working['_qa_bar_datetime'].notna().to_numpy()
     else:
         cutoff = pd.Timestamp(latest_datetime)
-        selected = data.loc[fetched_at > cutoff]
-    time_key = (
-        'time_stamp'
-        if 'time_stamp' in selected.columns
-        else 'datetime' if 'datetime' in selected.columns else None
-    )
+        keep = (working['_qa_bar_datetime'] > cutoff).to_numpy()
+    selected = working.iloc[keep].copy()
     dedupe_keys = [
         key
-        for key in ('code', 'type', time_key)
-        if key is not None and key in selected.columns
+        for key in ('code', 'type')
+        if key in selected.columns
     ]
-    if dedupe_keys:
-        selected = selected.drop_duplicates(dedupe_keys, keep='last')
-    return selected
+    dedupe_keys.append('_qa_bar_datetime')
+    selected = selected.drop_duplicates(dedupe_keys, keep='last')
+    return selected.drop(columns=['_qa_bar_datetime'])
 
 
 def _insert_new_minute_rows(collection, data, latest_datetime):

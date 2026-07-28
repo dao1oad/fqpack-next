@@ -11,9 +11,11 @@ Every one of the 64 required subsets is evaluated.  Trigger selectors cover
 the seven inclusive native bits, all 127 exact masks, exactly two concurrent
 bits, at least three concurrent bits, and the complete signal population.
 
-Returns relative to the Shanghai index use an explicitly approximate daily
-benchmark: the last completed index close before entry to the index close on
-the stock exit trade date (backward-asof only when that date is absent).
+Returns relative to the configured market benchmark use an explicitly
+approximate daily close-to-close calculation: the last completed benchmark
+close before entry to the benchmark close on the stock exit trade date
+(backward-asof only when that date is absent).  The benchmark identity is
+frozen in ``audit/study_config.json`` and may be an explicitly labelled proxy.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from statistics import NormalDist
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -70,6 +72,17 @@ DEFAULT_MIN_VALIDATION_SAMPLES = 30
 DEFAULT_MIN_REVEAL_SAMPLES = 30
 DEFAULT_TOP_PER_MODEL = 5
 NOMINAL_ALPHA = 0.05
+DEFAULT_INDEX_SOURCE = {
+    "source_kind": "SHANGHAI_COMPOSITE",
+    "source_code": "000001",
+    "source_name": "上证指数",
+}
+SUPPORTED_INDEX_SOURCE_KINDS = frozenset(
+    {
+        "SHANGHAI_COMPOSITE",
+        "SHANGHAI_COMPOSITE_ETF_PROXY",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -414,7 +427,7 @@ def _asof_index_close(
     *,
     strict: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
-    side = "left" if strict else "right"
+    side: Literal["left", "right"] = "left" if strict else "right"
     positions = np.searchsorted(index_dates, targets, side=side) - 1
     valid_target = ~np.isnat(targets)
     valid = valid_target & (positions >= 0)
@@ -425,15 +438,155 @@ def _asof_index_close(
     return closes, mapped_dates
 
 
+def _validated_index_source(
+    index_source: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
+    """Return the frozen benchmark identity or the direct-call default."""
+
+    raw: Mapping[str, Any] = (
+        DEFAULT_INDEX_SOURCE if index_source is None else index_source
+    )
+    validated: dict[str, str] = {}
+    for field in ("source_kind", "source_code", "source_name"):
+        value = raw.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise RuntimeError(f"index_source.{field} must be a non-empty string")
+        validated[field] = value.strip()
+    if validated["source_kind"] not in SUPPORTED_INDEX_SOURCE_KINDS:
+        raise RuntimeError(
+            f"unsupported index_source.source_kind: {validated['source_kind']}"
+        )
+    source_code = validated["source_code"]
+    if len(source_code) != 6 or not source_code.isdigit():
+        raise RuntimeError("index_source.source_code must be a six-digit code")
+    if (
+        validated["source_kind"] == "SHANGHAI_COMPOSITE"
+        and source_code != DEFAULT_INDEX_SOURCE["source_code"]
+    ):
+        raise RuntimeError(
+            "SHANGHAI_COMPOSITE index_source must use source_code 000001"
+        )
+    return validated
+
+
+def _index_source_label(index_source: Mapping[str, Any] | None = None) -> str:
+    """Build an audit label that never presents a proxy as the real index."""
+
+    source = _validated_index_source(index_source)
+    if source["source_kind"] == "SHANGHAI_COMPOSITE_ETF_PROXY":
+        proxy_name = source["source_name"]
+        if "ETF" not in proxy_name.upper():
+            proxy_name += "ETF"
+        return f"{source['source_code']}{proxy_name}代理"
+    return f"{source['source_name']}（{source['source_code']}）"
+
+
+def _validate_index_snapshot_contract(
+    root: Path,
+    index_source: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fail closed unless config, snapshot manifest, and Parquet identities agree."""
+
+    snapshot_manifest_path = root / "snapshot" / "manifest.json"
+    snapshot_manifest = read_json(snapshot_manifest_path)
+    manifest_index = snapshot_manifest.get("index")
+    if not isinstance(manifest_index, Mapping):
+        raise TypeError("snapshot/manifest.json index must be an object")
+
+    config_identity = _validated_index_source(index_source)
+    manifest_identity = _validated_index_source(manifest_index)
+    for field in ("source_kind", "source_code", "source_name"):
+        if config_identity[field] != manifest_identity[field]:
+            raise RuntimeError(f"index_source.{field} disagrees with snapshot manifest")
+
+    for field in ("logical_path", "file_sha256", "rows"):
+        if field not in index_source or field not in manifest_index:
+            raise RuntimeError(
+                f"index_source.{field} must exist in config and snapshot manifest"
+            )
+        if index_source[field] != manifest_index[field]:
+            raise RuntimeError(f"index_source.{field} disagrees with snapshot manifest")
+
+    logical_path = index_source["logical_path"]
+    if not isinstance(logical_path, str) or logical_path != (
+        "snapshot/index_day.parquet"
+    ):
+        raise RuntimeError(
+            "index_source.logical_path must be snapshot/index_day.parquet"
+        )
+    declared_sha256 = index_source["file_sha256"]
+    if (
+        not isinstance(declared_sha256, str)
+        or len(declared_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in declared_sha256)
+    ):
+        raise RuntimeError("index_source.file_sha256 must be lowercase SHA-256")
+    declared_rows = index_source["rows"]
+    if (
+        not isinstance(declared_rows, int)
+        or isinstance(declared_rows, bool)
+        or declared_rows < 0
+    ):
+        raise RuntimeError("index_source.rows must be a non-negative integer")
+
+    config_has_size = "file_size" in index_source
+    manifest_has_size = "file_size" in manifest_index
+    if config_has_size != manifest_has_size:
+        raise RuntimeError(
+            "index_source.file_size presence disagrees with snapshot manifest"
+        )
+    declared_size: int | None = None
+    if config_has_size:
+        raw_size = index_source["file_size"]
+        if not isinstance(raw_size, int) or isinstance(raw_size, bool) or raw_size < 0:
+            raise RuntimeError("index_source.file_size must be a non-negative integer")
+        if raw_size != manifest_index["file_size"]:
+            raise RuntimeError(
+                "index_source.file_size disagrees with snapshot manifest"
+            )
+        declared_size = raw_size
+
+    index_path = (root / logical_path).resolve()
+    expected_index_path = (root / "snapshot" / "index_day.parquet").resolve()
+    if index_path != expected_index_path:
+        raise RuntimeError("index snapshot resolved outside its frozen logical path")
+    if not index_path.is_file():
+        raise FileNotFoundError(index_path)
+    actual_size = index_path.stat().st_size
+    if declared_size is not None and actual_size != declared_size:
+        raise RuntimeError("index snapshot file size disagrees with declared identity")
+    actual_sha256 = sha256_file(index_path)
+    if actual_sha256 != declared_sha256:
+        raise RuntimeError("index snapshot SHA-256 disagrees with declared identity")
+    parquet_metadata = pq.ParquetFile(index_path).metadata
+    actual_rows = parquet_metadata.num_rows
+    if actual_rows != declared_rows:
+        raise RuntimeError("index snapshot row count disagrees with declared identity")
+
+    return {
+        "snapshot_manifest_path": snapshot_manifest_path,
+        "snapshot_manifest_sha256": sha256_file(snapshot_manifest_path),
+        "index_path": index_path,
+        "logical_path": logical_path,
+        "file_size": actual_size,
+        "file_sha256": actual_sha256,
+        "rows": actual_rows,
+        **config_identity,
+    }
+
+
 def attach_index_benchmark(
     events: pd.DataFrame,
     index: pd.DataFrame,
     *,
     horizons: Sequence[int] = HORIZONS,
+    index_source: Mapping[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Attach causal daily close-to-close index returns to stock outcomes."""
+    """Attach causal daily returns for the configured index or labelled proxy."""
 
     frame = events.copy()
+    benchmark_source = _validated_index_source(index_source)
+    benchmark_label = _index_source_label(benchmark_source)
     required_index = {"date", "close"}
     if not required_index.issubset(index.columns):
         raise RuntimeError("index snapshot must contain date and close")
@@ -487,9 +640,17 @@ def attach_index_benchmark(
     frame["benchmark_entry_index_date"] = pd.to_datetime(base_date)
     frame["benchmark_entry_index_close"] = base_close
     audit: dict[str, Any] = {
+        "index_source": {
+            **benchmark_source,
+            "source_label": benchmark_label,
+            "is_proxy": (
+                benchmark_source["source_kind"] == "SHANGHAI_COMPOSITE_ETF_PROXY"
+            ),
+        },
         "formula": (
-            "Shanghai index close on the last completed day before entry "
-            "to close on stock exit trade date; arithmetic excess="
+            f"{benchmark_label} close on the last completed day before entry "
+            "to the same benchmark close on stock exit trade date; "
+            "arithmetic excess="
             "stock net return-index return"
         ),
         "frequency": "daily close-to-close approximation",
@@ -569,6 +730,13 @@ def _scope_masks(
         & ~np.isnat(split_end)
         & (maturity_days > split_end)
     )
+    expected_available = (
+        research
+        & status_ok
+        & ~np.isnat(maturity_days)
+        & ~np.isnat(split_end)
+        & (maturity_days <= split_end)
+    )
     declared_boundary = (
         frame[f"h{horizon}_split_boundary_status"].fillna("").astype(str)
     )
@@ -585,6 +753,11 @@ def _scope_masks(
     if not np.array_equal(recomputed_purged, declared_purged):
         raise RuntimeError(
             f"h{horizon} split boundary status disagrees with maturity timestamp"
+        )
+    if not np.array_equal(expected_available, declared_available):
+        raise RuntimeError(
+            f"h{horizon} AVAILABLE split boundary status disagrees with "
+            "maturity timestamp"
         )
 
     if scope in ("TRAIN", "VALIDATION", "AUDIT"):
@@ -1126,6 +1299,12 @@ def select_locked_config(
 def _study_config(root: Path) -> tuple[Path, dict[str, Any]]:
     path = root / "audit" / "study_config.json"
     config = read_json(path)
+    if "index_source" not in config:
+        raise TypeError("study_config.json misses index_source")
+    if not isinstance(config["index_source"], Mapping):
+        raise TypeError("study_config.json index_source must be an object")
+    _validated_index_source(config["index_source"])
+    _validate_index_snapshot_contract(root, config["index_source"])
     time_splits = config.get("time_splits")
     if not isinstance(time_splits, dict):
         raise TypeError("study_config.json misses time_splits")
@@ -1149,6 +1328,7 @@ def _development_identity(
     features_path: Path,
     config_path: Path,
     index_path: Path,
+    snapshot_manifest_path: Path,
     min_train_samples: int,
     min_validation_samples: int,
     top_per_model: int,
@@ -1159,6 +1339,7 @@ def _development_identity(
         "candidate_events_sha256": sha256_file(features_path),
         "study_config_sha256": sha256_file(config_path),
         "index_snapshot_sha256": sha256_file(index_path),
+        "snapshot_manifest_sha256": sha256_file(snapshot_manifest_path),
         "scopes": list(DEVELOPMENT_SCOPES),
         "models": list(MODEL_CODES),
         "horizons": list(HORIZONS),
@@ -1188,12 +1369,26 @@ def _top_development_rows(
     return _candidate_sort(eligible).head(limit).reset_index(drop=True)
 
 
+def _iter_model_candidate_groups(
+    candidates: pd.DataFrame,
+) -> Iterable[tuple[str, pd.DataFrame]]:
+    """Yield every retained candidate while reusing each model's event slice."""
+
+    for model_code, model_candidates in candidates.groupby(
+        "model_code",
+        sort=True,
+        observed=True,
+    ):
+        yield str(model_code), model_candidates
+
+
 def run_development(args: argparse.Namespace) -> dict[str, Any]:
     root = Path(args.root).resolve()
     matrix_dir = root / "matrix"
     matrix_dir.mkdir(parents=True, exist_ok=True)
     features_path = root / "features" / "candidate_events.parquet"
     index_path = root / "snapshot" / "index_day.parquet"
+    snapshot_manifest_path = root / "snapshot" / "manifest.json"
     config_path, config = _study_config(root)
     if not features_path.is_file():
         raise FileNotFoundError(features_path)
@@ -1204,6 +1399,7 @@ def run_development(args: argparse.Namespace) -> dict[str, Any]:
         features_path=features_path,
         config_path=config_path,
         index_path=index_path,
+        snapshot_manifest_path=snapshot_manifest_path,
         min_train_samples=args.min_train_samples,
         min_validation_samples=args.min_validation_samples,
         top_per_model=args.top_per_model,
@@ -1244,7 +1440,11 @@ def run_development(args: argparse.Namespace) -> dict[str, Any]:
     if set(events["split_id"].unique()) - set(DEVELOPMENT_SCOPES):
         raise RuntimeError("development input contains non-development rows")
     index = pd.read_parquet(index_path, columns=["date", "close"])
-    events, benchmark_audit = attach_index_benchmark(events, index)
+    events, benchmark_audit = attach_index_benchmark(
+        events,
+        index,
+        index_source=config["index_source"],
+    )
     time_splits = config["time_splits"]
     family_size = len(MODEL_CODES) * len(TRIGGER_SELECTORS) * FILTER_SUBSET_COUNT
 
@@ -1317,26 +1517,27 @@ def run_development(args: argparse.Namespace) -> dict[str, Any]:
 
     detailed_frames: list[pd.DataFrame] = []
     group_frames: list[pd.DataFrame] = []
-    for row in lock_candidates.to_dict(orient="records"):
-        selection = _development_row_selection(row)
-        model_events = events.loc[events["model_code"].eq(selection["model_code"])]
-        overview, groups = build_exact_detail_tables(
-            model_events,
-            selection=selection,
-            scopes=DEVELOPMENT_SCOPES,
-            time_splits=time_splits,
-            model_populations=("SELECTED_MODEL",),
-            minimum_sample={
-                "TRAIN": args.min_train_samples,
-                "VALIDATION": args.min_validation_samples,
-            },
-            source_kind="DEVELOPMENT_TOP",
-        )
-        overview["development_score"] = float(row["development_score"])
-        groups["development_score"] = float(row["development_score"])
-        detailed_frames.append(overview)
-        if not groups.empty:
-            group_frames.append(groups)
+    for model_code, model_candidates in _iter_model_candidate_groups(lock_candidates):
+        model_events = events.loc[events["model_code"].eq(model_code)]
+        for row in model_candidates.to_dict(orient="records"):
+            selection = _development_row_selection(row)
+            overview, groups = build_exact_detail_tables(
+                model_events,
+                selection=selection,
+                scopes=DEVELOPMENT_SCOPES,
+                time_splits=time_splits,
+                model_populations=("SELECTED_MODEL",),
+                minimum_sample={
+                    "TRAIN": args.min_train_samples,
+                    "VALIDATION": args.min_validation_samples,
+                },
+                source_kind="DEVELOPMENT_TOP",
+            )
+            overview["development_score"] = float(row["development_score"])
+            groups["development_score"] = float(row["development_score"])
+            detailed_frames.append(overview)
+            if not groups.empty:
+                group_frames.append(groups)
 
     # Preserve a meaningful 18-model Macro/Union view for the eventual global
     # champion of each horizon without opening the sealed AUDIT rows.
@@ -1663,12 +1864,152 @@ def _load_lock_for_reveal(root: Path) -> tuple[Path, dict[str, Any]]:
     return path, locked
 
 
+def _validate_manifest_artifact(
+    metadata: object,
+    expected_path: Path,
+    *,
+    label: str,
+) -> None:
+    if not isinstance(metadata, Mapping):
+        raise TypeError(f"{label} artifact metadata is missing")
+    declared_path = Path(str(metadata.get("path", ""))).resolve()
+    if declared_path != expected_path.resolve():
+        raise RuntimeError(f"{label} artifact path mismatch")
+    if not expected_path.is_file():
+        raise FileNotFoundError(expected_path)
+    if metadata.get("file_sha256") != sha256_file(expected_path):
+        raise RuntimeError(f"{label} artifact SHA-256 mismatch")
+    if (
+        "file_size" in metadata
+        and metadata["file_size"] != expected_path.stat().st_size
+    ):
+        raise RuntimeError(f"{label} artifact file size mismatch")
+
+
+def _validate_reveal_lineage(
+    root: Path,
+    *,
+    lock_path: Path,
+    locked: Mapping[str, Any],
+) -> tuple[Path, dict[str, Any]]:
+    """Bind the sealed lock to its development stage and every current input."""
+
+    matrix_dir = root / "matrix"
+    lock_manifest_path = matrix_dir / "lock_manifest.json"
+    development_manifest_path = matrix_dir / "development_manifest.json"
+    candidates_path = matrix_dir / "development_lock_candidates.parquet"
+    features_path = root / "features" / "candidate_events.parquet"
+    index_path = root / "snapshot" / "index_day.parquet"
+    snapshot_manifest_path = root / "snapshot" / "manifest.json"
+
+    lock_manifest = read_json(lock_manifest_path)
+    if (
+        lock_manifest.get("study_id") != STUDY_ID
+        or lock_manifest.get("stage") != "lock"
+    ):
+        raise RuntimeError("lock manifest study/stage mismatch")
+    lock_identity = lock_manifest.get("identity")
+    if not isinstance(lock_identity, Mapping):
+        raise TypeError("lock manifest identity is missing")
+    if lock_manifest.get("stage_id") != _stage_identity(lock_identity):
+        raise RuntimeError("lock manifest stage identity mismatch")
+    if lock_manifest.get("lock_id") != locked.get("lock_id"):
+        raise RuntimeError("lock manifest lock_id mismatch")
+    if lock_manifest.get("stage_id") != locked.get("lock_stage_id"):
+        raise RuntimeError("locked_config lock stage mismatch")
+    lock_outputs = lock_manifest.get("outputs")
+    if not isinstance(lock_outputs, Mapping):
+        raise TypeError("lock manifest outputs are missing")
+    _validate_manifest_artifact(
+        lock_outputs.get("locked_config"),
+        lock_path,
+        label="locked_config",
+    )
+
+    development_manifest = read_json(development_manifest_path)
+    if (
+        development_manifest.get("study_id") != STUDY_ID
+        or development_manifest.get("stage") != "development"
+    ):
+        raise RuntimeError("development manifest study/stage mismatch")
+    development_identity = development_manifest.get("identity")
+    if not isinstance(development_identity, Mapping):
+        raise TypeError("development manifest identity is missing")
+    development_stage_id = development_manifest.get("stage_id")
+    if development_stage_id != _stage_identity(development_identity):
+        raise RuntimeError("development manifest stage identity mismatch")
+    if locked.get("development_stage_id") != development_stage_id:
+        raise RuntimeError("stale lock: development stage reference mismatch")
+    if lock_identity.get("development_manifest_sha256") != sha256_file(
+        development_manifest_path
+    ):
+        raise RuntimeError("stale lock: development manifest identity drift")
+
+    development_outputs = development_manifest.get("outputs")
+    if not isinstance(development_outputs, Mapping):
+        raise TypeError("development manifest outputs are missing")
+    _validate_manifest_artifact(
+        development_outputs.get("lock_candidates"),
+        candidates_path,
+        label="development lock candidates",
+    )
+    candidates_sha256 = sha256_file(candidates_path)
+    if lock_identity.get("development_candidates_sha256") != candidates_sha256:
+        raise RuntimeError("stale lock: development candidate identity drift")
+
+    current_lock_stage_id, current_lock_identity = _lock_identity(
+        development_manifest_path,
+        candidates_path,
+    )
+    if (
+        dict(lock_identity) != current_lock_identity
+        or lock_manifest.get("stage_id") != current_lock_stage_id
+    ):
+        raise RuntimeError("stale lock: current lock identity drift")
+
+    config_path, config = _study_config(root)
+    if not features_path.is_file():
+        raise FileNotFoundError(features_path)
+    minimum_samples = development_identity.get("minimum_samples")
+    if not isinstance(minimum_samples, Mapping):
+        raise TypeError("development identity minimum_samples is missing")
+    try:
+        min_train_samples = int(minimum_samples["TRAIN"])
+        min_validation_samples = int(minimum_samples["VALIDATION"])
+        top_per_model = int(development_identity["top_per_model"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("development identity selection inputs are invalid") from exc
+    current_development_stage_id, current_development_identity = _development_identity(
+        features_path=features_path,
+        config_path=config_path,
+        index_path=index_path,
+        snapshot_manifest_path=snapshot_manifest_path,
+        min_train_samples=min_train_samples,
+        min_validation_samples=min_validation_samples,
+        top_per_model=top_per_model,
+    )
+    if (
+        dict(development_identity) != current_development_identity
+        or development_stage_id != current_development_stage_id
+    ):
+        drift_fields = sorted(
+            key
+            for key in set(development_identity) | set(current_development_identity)
+            if development_identity.get(key) != current_development_identity.get(key)
+        )
+        raise RuntimeError(
+            "stale lock/input drift in development lineage: " + ",".join(drift_fields)
+        )
+    return config_path, config
+
+
 def _reveal_identity(
     *,
     lock_path: Path,
     features_path: Path,
     config_path: Path,
     index_path: Path,
+    snapshot_manifest_path: Path,
     min_reveal_samples: int,
 ) -> tuple[str, dict[str, Any]]:
     payload = {
@@ -1678,6 +2019,7 @@ def _reveal_identity(
         "candidate_events_sha256": sha256_file(features_path),
         "study_config_sha256": sha256_file(config_path),
         "index_snapshot_sha256": sha256_file(index_path),
+        "snapshot_manifest_sha256": sha256_file(snapshot_manifest_path),
         "scopes": list(REVEAL_SCOPES),
         "models": list(MODEL_CODES),
         "horizons": list(HORIZONS),
@@ -2192,22 +2534,24 @@ def build_exact_detail_tables(
 def run_reveal(args: argparse.Namespace) -> dict[str, Any]:
     root = Path(args.root).resolve()
 
-    # Keep this before _study_config, hashing, index reads, and event reads.
+    # Validate the lock itself before opening any current research input.
     lock_path, locked = _load_lock_for_reveal(root)
 
     matrix_dir = root / "matrix"
     features_path = root / "features" / "candidate_events.parquet"
     index_path = root / "snapshot" / "index_day.parquet"
-    config_path, config = _study_config(root)
-    if not features_path.is_file():
-        raise FileNotFoundError(features_path)
-    if not index_path.is_file():
-        raise FileNotFoundError(index_path)
+    snapshot_manifest_path = root / "snapshot" / "manifest.json"
+    config_path, config = _validate_reveal_lineage(
+        root,
+        lock_path=lock_path,
+        locked=locked,
+    )
     stage_id, identity = _reveal_identity(
         lock_path=lock_path,
         features_path=features_path,
         config_path=config_path,
         index_path=index_path,
+        snapshot_manifest_path=snapshot_manifest_path,
         min_reveal_samples=args.min_reveal_samples,
     )
     matrix_path = matrix_dir / "reveal_matrix.parquet"
@@ -2232,7 +2576,11 @@ def run_reveal(args: argparse.Namespace) -> dict[str, Any]:
 
     events = load_feature_events(features_path)
     index = pd.read_parquet(index_path, columns=["date", "close"])
-    events, benchmark_audit = attach_index_benchmark(events, index)
+    events, benchmark_audit = attach_index_benchmark(
+        events,
+        index,
+        index_source=config["index_source"],
+    )
     time_splits = config["time_splits"]
     family_size = len(MODEL_CODES) * len(TRIGGER_SELECTORS) * FILTER_SUBSET_COUNT
     writer = AtomicParquetWriter(matrix_path)

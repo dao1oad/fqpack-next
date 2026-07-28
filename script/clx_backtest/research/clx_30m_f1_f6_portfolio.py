@@ -33,6 +33,16 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
+
+if __package__:
+    from . import clx_30m_f1_f6_matrix as _matrix_contract
+else:
+    import clx_30m_f1_f6_matrix as _matrix_contract  # type: ignore[no-redef]
+
+_matrix_load_lock_for_reveal = _matrix_contract._load_lock_for_reveal
+_matrix_reveal_identity = _matrix_contract._reveal_identity
+_matrix_validate_reveal_lineage = _matrix_contract._validate_reveal_lineage
 
 STUDY_ID = "clx-30m-full-trigger-f1-f6-v1"
 PORTFOLIO_CONTRACT_VERSION = 1
@@ -42,6 +52,11 @@ SLOT_CAPITAL = 125_000.0
 FEE_PER_SIDE = 0.0002
 DAILY_ENTRY_LIMITS: tuple[int | None, ...] = (1, 3, 5, 10, 20, None)
 HORIZONS = (5, 30, 60, 90)
+CHECKPOINT_SCOPE_TOKENS = {
+    "AVAILABLE": "available",
+    "AUDIT": "audit",
+    "MATCHED90": "matched90",
+}
 FILTER_NAMES = tuple(f"F{offset}" for offset in range(1, 7))
 FILTER_DESCRIPTIONS = {
     "F1": "未复权原始开盘价1～6元",
@@ -49,7 +64,7 @@ FILTER_DESCRIPTIONS = {
     "F3": "距近20个交易日高点回撤≥10%",
     "F4": "近20个交易日非年化日等效波动率≥3%",
     "F5": "收盘价≤MA60日等效均线",
-    "F6": "上证指数近20个完整交易日收益≤0",
+    "F6": "冻结市场基准近20个完整交易日收益≤0",
 }
 TRIGGER_BITS = {
     "MODEL_STRUCTURAL": 0x01,
@@ -73,6 +88,35 @@ BAR_CLOCKS = (
 SHANGHAI_TIMEZONE = "Asia/Shanghai"
 DEFAULT_ROOT = Path(
     "D:/fqpack/runtime/clx-backtest/studies/clx-30m-full-trigger-f1-f6-v1"
+)
+REPRODUCE_SCRIPT = (
+    r"<REPO_ROOT>\script\clx_backtest\research\clx_30m_f1_f6_portfolio.py"
+)
+PORTFOLIO_FRAME_NAMES = (
+    "portfolio_summary",
+    "random_order_runs",
+    "random_order_sensitivity",
+    "period_metrics",
+    "equity_30m",
+    "equity_daily",
+    "chart_curves",
+    "trades",
+    "decision_summary",
+    "locked_selections",
+    "daily_baseline_comparison",
+)
+REQUIRED_LOGICAL_OUTPUTS = frozenset(
+    {
+        *(
+            f"portfolio/{name}.{suffix}"
+            for name in PORTFOLIO_FRAME_NAMES
+            for suffix in ("parquet", "csv")
+        ),
+        "portfolio/clx_30m_portfolio_report.xlsx",
+        "portfolio/report.md",
+        "portfolio/portfolio_config.json",
+        "portfolio/reproduce_command.txt",
+    }
 )
 
 DAILY_BASELINES = {
@@ -285,11 +329,49 @@ def _normalise_model_codes(value: object) -> tuple[str, ...]:
     return tuple(items)
 
 
+def _validated_matrix_lineage(
+    root: Path,
+) -> tuple[Path, dict[str, Any], Path, dict[str, Any]]:
+    """Translate the Matrix fail-closed lineage contract for Portfolio callers."""
+
+    try:
+        lock_path, locked = _matrix_load_lock_for_reveal(root)
+        config_path, study_config = _matrix_validate_reveal_lineage(
+            root,
+            lock_path=lock_path,
+            locked=locked,
+        )
+    except (KeyError, OSError, TypeError, ValueError, RuntimeError) as exc:
+        raise PortfolioContractError(f"matrix lock lineage mismatch: {exc}") from exc
+    return lock_path, locked, config_path, study_config
+
+
 def load_locked_selections(path: Path) -> list[LockedSelection]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise PortfolioContractError(f"locked config is missing: {path}") from exc
+    if not isinstance(payload, Mapping) or payload.get("study_id") != STUDY_ID:
+        raise PortfolioContractError("locked_config.json study_id mismatch")
+    if path.name != "locked_config.json" or path.parent.name != "matrix":
+        raise PortfolioContractError("locked_config.json path is outside matrix/")
+    root = path.resolve().parents[1]
+    validated_path, validated, _, _ = _validated_matrix_lineage(root)
+    if validated_path.resolve() != path.resolve() or dict(payload) != validated:
+        raise PortfolioContractError("locked_config.json lineage payload mismatch")
+    return _parse_locked_selections(payload)
+
+
+def _parse_locked_selections(payload: Mapping[str, Any]) -> list[LockedSelection]:
+    filter_contract = payload.get("filter_contract")
+    if isinstance(filter_contract, Mapping) and (
+        int(filter_contract.get("subset_count", -1)) != 64
+        or list(filter_contract.get("mask_range", [])) != [0, 63]
+        or list(filter_contract.get("filters", [])) != list(FILTER_NAMES)
+    ):
+        raise PortfolioContractError(
+            "locked_config.json F1-F6 filter contract mismatch"
+        )
     raw = payload.get("selections") if isinstance(payload, Mapping) else None
     if not isinstance(raw, list):
         raise PortfolioContractError("locked_config.json must contain selections[]")
@@ -367,6 +449,77 @@ def load_locked_selections(path: Path) -> list[LockedSelection]:
     return sorted(selections, key=lambda item: item.horizon)
 
 
+def validate_reveal_inputs(root: Path, lock_path: Path) -> dict[str, tuple[Path, str]]:
+    paths = {
+        "matrix": root / "matrix" / "reveal_matrix.parquet",
+        "summary": root / "matrix" / "reveal_summary.csv",
+        "locked_detailed": root / "matrix" / "reveal_locked_detailed.parquet",
+        "group_detail": root / "matrix" / "reveal_locked_group_detail.parquet",
+    }
+    manifest_path = root / "matrix" / "reveal_manifest.json"
+    if not manifest_path.is_file() or any(
+        not path.is_file() for path in paths.values()
+    ):
+        raise PortfolioContractError(
+            "portfolio requires the completed matrix reveal summary, locked "
+            "detail, group detail, and reveal manifest"
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise PortfolioContractError("matrix reveal contract is unreadable") from exc
+    validated_lock_path, lock, config_path, _ = _validated_matrix_lineage(root)
+    if (
+        validated_lock_path.resolve() != lock_path.resolve()
+        or manifest.get("study_id") != STUDY_ID
+        or manifest.get("stage") != "reveal"
+        or manifest.get("lock_id") != lock.get("lock_id")
+    ):
+        raise PortfolioContractError("matrix reveal identity mismatch")
+    identity = manifest.get("identity")
+    if not isinstance(identity, Mapping):
+        raise PortfolioContractError("matrix reveal identity payload is missing")
+    try:
+        minimum_reveal_samples = int(identity["minimum_reveal_samples"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PortfolioContractError(
+            "matrix reveal minimum_reveal_samples is invalid"
+        ) from exc
+    current_stage_id, current_identity = _matrix_reveal_identity(
+        lock_path=lock_path,
+        features_path=root / "features" / "candidate_events.parquet",
+        config_path=config_path,
+        index_path=root / "snapshot" / "index_day.parquet",
+        snapshot_manifest_path=root / "snapshot" / "manifest.json",
+        min_reveal_samples=minimum_reveal_samples,
+    )
+    if (
+        dict(identity) != current_identity
+        or manifest.get("stage_id") != current_stage_id
+    ):
+        raise PortfolioContractError("matrix reveal stage/input identity mismatch")
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, Mapping) or set(outputs) != set(paths):
+        raise PortfolioContractError("matrix reveal frozen output set mismatch")
+    validated: dict[str, tuple[Path, str]] = {}
+    for key, path in paths.items():
+        expected = outputs.get(key)
+        if not isinstance(expected, Mapping):
+            raise PortfolioContractError(
+                f"matrix reveal {key} metadata must be an object"
+            )
+        digest = sha256_file(path)
+        if (
+            expected.get("file_sha256") != digest
+            or Path(str(expected.get("path", ""))).resolve() != path.resolve()
+            or expected.get("file_size") != path.stat().st_size
+        ):
+            raise PortfolioContractError(f"matrix reveal {key} identity mismatch")
+        validated[key] = (path, digest)
+    validated["manifest"] = (manifest_path, sha256_file(manifest_path))
+    return validated
+
+
 def _trigger_mask(frame: pd.DataFrame, selection: LockedSelection) -> pd.Series:
     masks = (
         pd.to_numeric(frame["concurrent_trigger_mask"], errors="coerce")
@@ -425,6 +578,7 @@ def select_locked_candidates(
     required = {
         "code",
         "model_code",
+        "split_id",
         "reveal_at",
         "entry_at",
         "qfq_entry_open",
@@ -433,19 +587,19 @@ def select_locked_candidates(
         f"h{selection.horizon}_status",
         f"h{selection.horizon}_exit_at",
         f"h{selection.horizon}_gross_return",
+        f"h{selection.horizon}_split_boundary_status",
     }
     missing = sorted(required - set(events.columns))
     if missing:
         raise PortfolioContractError(f"candidate events miss columns: {missing}")
-    frame = events.copy()
+    wildcard = bool(set(selection.model_codes) & {"ALL", "*", "UNION"})
+    frame = (
+        events.copy()
+        if wildcard
+        else events.loc[events["model_code"].isin(selection.model_codes)].copy()
+    )
     for column in ("reveal_at", "entry_at", f"h{selection.horizon}_exit_at"):
         frame[column] = _as_shanghai(frame[column])
-    wildcard = bool(set(selection.model_codes) & {"ALL", "*", "UNION"})
-    model_pass = (
-        pd.Series(True, index=frame.index)
-        if wildcard
-        else frame["model_code"].isin(selection.model_codes)
-    )
     pass_masks = (
         pd.to_numeric(frame["filter_pass_mask"], errors="coerce")
         .fillna(0)
@@ -456,15 +610,27 @@ def select_locked_candidates(
         frame.get("entry_executable", pd.Series(True, index=frame.index))
         .fillna(False)
         .astype(bool)
-        & frame.get("entry_status", pd.Series("OK", index=frame.index)).eq("OK")
-        & frame[f"h{selection.horizon}_status"].eq("OK")
+        & frame.get("entry_status", pd.Series("OK", index=frame.index))
+        .astype("string")
+        .eq("OK")
+        .fillna(False)
+        & frame[f"h{selection.horizon}_status"].astype("string").eq("OK").fillna(False)
+        & frame[f"h{selection.horizon}_split_boundary_status"]
+        .astype("string")
+        .eq("AVAILABLE")
+        .fillna(False)
     )
-    mask = model_pass & filters_pass & executable & _trigger_mask(frame, selection)
-    if scope.upper() == "AUDIT":
-        if "split_id" not in frame:
-            raise PortfolioContractError("AUDIT portfolio requires split_id")
-        mask &= frame["split_id"].eq("AUDIT")
-    elif scope.upper() != "AVAILABLE":
+    scope_name = scope.upper()
+    split_ids = frame["split_id"].astype("string")
+    mask = (
+        filters_pass
+        & executable
+        & _trigger_mask(frame, selection)
+        & split_ids.isin(("TRAIN", "VALIDATION", "AUDIT")).fillna(False)
+    )
+    if scope_name == "AUDIT":
+        mask &= split_ids.eq("AUDIT").fillna(False)
+    elif scope_name != "AVAILABLE":
         raise PortfolioContractError(f"unsupported portfolio scope: {scope}")
     frame = frame.loc[mask].copy()
     if frame.empty:
@@ -515,6 +681,7 @@ class MarkStore:
     def __init__(self, root: Path):
         self.root = root
         self._values: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self._aligned: dict[tuple[str, int], np.ndarray] = {}
         self.source_rows = 0
 
     def load(self, codes: Iterable[str]) -> None:
@@ -549,6 +716,21 @@ class MarkStore:
         times, closes = self._values[code]
         offset = int(np.searchsorted(times, timestamp.value, side="right") - 1)
         return float(closes[offset]) if offset >= 0 else float(fallback)
+
+    def aligned_closes(self, code: str, clock: pd.DatetimeIndex) -> np.ndarray:
+        """Carry the last observed QFQ close across one immutable clock."""
+
+        key = (code, id(clock))
+        cached = self._aligned.get(key)
+        if cached is not None:
+            return cached
+        times, closes = self._values[code]
+        offsets = np.searchsorted(times, clock.asi8, side="right") - 1
+        output = np.full(len(clock), np.nan, dtype=float)
+        valid = offsets >= 0
+        output[valid] = closes[offsets[valid]]
+        self._aligned[key] = output
+        return output
 
     def all_timestamps(self, codes: Iterable[str]) -> pd.DatetimeIndex:
         arrays = [self._values[str(code)][0] for code in sorted(set(codes))]
@@ -641,7 +823,32 @@ def _stable_order(frame: pd.DataFrame, policy: str, seed: int | None) -> pd.Data
     )
 
 
-def _max_consecutive_losses(returns: Sequence[float]) -> int:
+def prepare_ordered_entries(
+    candidates: pd.DataFrame,
+    *,
+    ranking_policy: str,
+    random_seed: int | None = None,
+) -> dict[int, list[dict[str, Any]]]:
+    """Freeze one causal within-timestamp ordering for reuse across six caps."""
+
+    columns = (
+        "candidate_id",
+        "code",
+        "qfq_entry_open",
+        "qfq_exit_open",
+        "exit_at",
+        "market_regime",
+    )
+    output: dict[int, list[dict[str, Any]]] = {}
+    for timestamp, group in candidates.groupby("entry_at", sort=False):
+        ordered = _stable_order(group, ranking_policy, random_seed)
+        output[pd.Timestamp(timestamp).value] = ordered.loc[:, columns].to_dict(
+            orient="records"
+        )
+    return output
+
+
+def _max_consecutive_losses(returns: Iterable[float]) -> int:
     longest = current = 0
     for value in returns:
         if value < 0:
@@ -684,11 +891,18 @@ def simulate_portfolio(
     daily_entry_limit: int | None,
     ranking_policy: str,
     random_seed: int | None = None,
+    ordered_entries: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+    record_decisions: bool = False,
 ) -> SimulationResult:
-    entries = {
-        int(pd.Timestamp(timestamp).value): group
-        for timestamp, group in candidates.groupby("entry_at", sort=False)
-    }
+    entries = (
+        ordered_entries
+        if ordered_entries is not None
+        else prepare_ordered_entries(
+            candidates,
+            ranking_policy=ranking_policy,
+            random_seed=random_seed,
+        )
+    )
     cash = INITIAL_CAPITAL
     positions: dict[str, dict[str, Any]] = {}
     opened_by_day: dict[object, int] = {}
@@ -698,7 +912,8 @@ def simulate_portfolio(
     peak_positions = 0
     decisions: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
-    curve: list[dict[str, Any]] = []
+    cash_values = np.empty(len(clock), dtype=float)
+    position_counts = np.empty(len(clock), dtype=np.int16)
     rejected = {
         "occupied": 0,
         "daily_limit": 0,
@@ -708,22 +923,23 @@ def simulate_portfolio(
 
     def reject(row: Mapping[str, Any], timestamp: pd.Timestamp, reason: str) -> None:
         rejected[reason] += 1
-        decisions.append(
-            {
-                "selection_id": selection.selection_id,
-                "horizon_trading_days": selection.horizon,
-                "scope": scope,
-                "daily_entry_limit": _limit_label(daily_entry_limit),
-                "ranking_policy": ranking_policy,
-                "random_seed": random_seed,
-                "candidate_id": row["candidate_id"],
-                "code": row["code"],
-                "entry_at": timestamp,
-                "decision": f"REJECT_{reason.upper()}",
-            }
-        )
+        if record_decisions:
+            decisions.append(
+                {
+                    "selection_id": selection.selection_id,
+                    "horizon_trading_days": selection.horizon,
+                    "scope": scope,
+                    "daily_entry_limit": _limit_label(daily_entry_limit),
+                    "ranking_policy": ranking_policy,
+                    "random_seed": random_seed,
+                    "candidate_id": row["candidate_id"],
+                    "code": row["code"],
+                    "entry_at": timestamp,
+                    "decision": f"REJECT_{reason.upper()}",
+                }
+            )
 
-    for timestamp in clock:
+    for clock_index, timestamp in enumerate(clock):
         timestamp = pd.Timestamp(timestamp)
         # Contract: every due exit is booked before any entry at the same bar.
         due = sorted(
@@ -765,15 +981,16 @@ def simulate_portfolio(
                     "net_pnl": net_pnl,
                     "net_return": net_return,
                     "entry_market_regime": position["market_regime"],
+                    "_entry_clock_index": position["entry_clock_index"],
+                    "_exit_clock_index": clock_index,
                 }
             )
             positions.pop(code)
 
         incoming = entries.get(timestamp.value)
         if incoming is not None:
-            ordered = _stable_order(incoming, ranking_policy, random_seed)
             day = timestamp.date()
-            for row in ordered.to_dict(orient="records"):
+            for row in incoming:
                 code = str(row["code"])
                 if code in positions:
                     reject(row, timestamp, "occupied")
@@ -808,61 +1025,91 @@ def simulate_portfolio(
                     "entry_fee": entry_fee,
                     "entry_cost": capital_budget,
                     "market_regime": str(row.get("market_regime", "UNKNOWN")),
+                    "entry_clock_index": clock_index,
                 }
                 opened_by_day[day] = opened_by_day.get(day, 0) + 1
-                decisions.append(
-                    {
-                        "selection_id": selection.selection_id,
-                        "horizon_trading_days": selection.horizon,
-                        "scope": scope,
-                        "daily_entry_limit": _limit_label(daily_entry_limit),
-                        "ranking_policy": ranking_policy,
-                        "random_seed": random_seed,
-                        "candidate_id": row["candidate_id"],
-                        "code": code,
-                        "entry_at": timestamp,
-                        "decision": "ACCEPT",
-                    }
-                )
-        invested = 0.0
-        for code, position in positions.items():
-            invested += position["units"] * marks.close(
-                code, timestamp, position["entry_price"]
-            )
-        equity = cash + invested
-        if cash < -0.01 or len(positions) > MAX_POSITIONS or equity <= 0:
+                if record_decisions:
+                    decisions.append(
+                        {
+                            "selection_id": selection.selection_id,
+                            "horizon_trading_days": selection.horizon,
+                            "scope": scope,
+                            "daily_entry_limit": _limit_label(daily_entry_limit),
+                            "ranking_policy": ranking_policy,
+                            "random_seed": random_seed,
+                            "candidate_id": row["candidate_id"],
+                            "code": code,
+                            "entry_at": timestamp,
+                            "decision": "ACCEPT",
+                        }
+                    )
+        if cash < -0.01 or len(positions) > MAX_POSITIONS:
             raise PortfolioContractError(
                 f"portfolio invariant failed at {timestamp}: "
-                f"cash={cash}, positions={len(positions)}, equity={equity}"
+                f"cash={cash}, positions={len(positions)}"
             )
         peak_positions = max(peak_positions, len(positions))
-        curve.append(
-            {
-                "selection_id": selection.selection_id,
-                "horizon_trading_days": selection.horizon,
-                "scope": scope,
-                "daily_entry_limit": _limit_label(daily_entry_limit),
-                "ranking_policy": ranking_policy,
-                "random_seed": random_seed,
-                "bar_at": timestamp,
-                "cash": cash,
-                "invested_value": invested,
-                "equity": equity,
-                "positions": len(positions),
-                "capital_utilization": invested / equity,
-            }
-        )
+        cash_values[clock_index] = cash
+        position_counts[clock_index] = len(positions)
     if positions:
         raise PortfolioContractError(
             f"{len(positions)} positions remain after the last mature exit"
         )
-    equity_frame = pd.DataFrame(curve)
+    invested_values = np.zeros(len(clock), dtype=float)
+    for trade in trades:
+        start = int(trade["_entry_clock_index"])
+        end = int(trade["_exit_clock_index"])
+        prices = marks.aligned_closes(str(trade["code"]), clock)[start:end]
+        if np.isnan(prices).any():
+            prices = np.where(np.isnan(prices), float(trade["entry_price"]), prices)
+        invested_values[start:end] += float(trade["units"]) * prices
+    equity_values = cash_values + invested_values
+    if (equity_values <= 0).any():
+        bad = int(np.flatnonzero(equity_values <= 0)[0])
+        raise PortfolioContractError(
+            f"portfolio equity invariant failed at {clock[bad]}: "
+            f"equity={equity_values[bad]}"
+        )
+    equity_frame = pd.DataFrame(
+        {
+            "selection_id": selection.selection_id,
+            "horizon_trading_days": selection.horizon,
+            "scope": scope,
+            "daily_entry_limit": _limit_label(daily_entry_limit),
+            "ranking_policy": ranking_policy,
+            "random_seed": random_seed,
+            "bar_at": clock,
+            "cash": cash_values,
+            "invested_value": invested_values,
+            "equity": equity_values,
+            "positions": position_counts,
+            "capital_utilization": invested_values / equity_values,
+        }
+    )
     equity_frame["normalized_equity"] = equity_frame["equity"] / INITIAL_CAPITAL
     equity_frame["drawdown"] = (
         equity_frame["equity"] / equity_frame["equity"].cummax() - 1
     )
     trade_frame = pd.DataFrame(trades)
-    decision_frame = pd.DataFrame(decisions)
+    if not trade_frame.empty:
+        trade_frame = trade_frame.drop(
+            columns=["_entry_clock_index", "_exit_clock_index"]
+        )
+    decision_frame = pd.DataFrame(
+        decisions,
+        columns=[
+            "selection_id",
+            "horizon_trading_days",
+            "scope",
+            "daily_entry_limit",
+            "ranking_policy",
+            "random_seed",
+            "candidate_id",
+            "code",
+            "entry_at",
+            "decision",
+        ],
+    )
     trade_returns = (
         trade_frame["net_return"].to_numpy(dtype=float)
         if not trade_frame.empty
@@ -1151,6 +1398,35 @@ def _daily_curves(equity: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def build_chart_data(daily_curves: pd.DataFrame) -> pd.DataFrame:
+    selected = daily_curves[
+        daily_curves["scope"].eq("AVAILABLE")
+        & daily_curves["daily_entry_limit"].eq("5")
+        & daily_curves["ranking_policy"].eq("quality")
+    ].copy()
+    if selected.empty:
+        return pd.DataFrame()
+    output: pd.DataFrame | None = None
+    for metric in ("normalized_equity", "drawdown"):
+        wide = selected.pivot_table(
+            index="trade_date",
+            columns="horizon_trading_days",
+            values=metric,
+            aggfunc="last",
+        )
+        wide = wide.rename(
+            columns={horizon: f"h{int(horizon)}_{metric}" for horizon in wide.columns}
+        ).reset_index()
+        output = (
+            wide
+            if output is None
+            else output.merge(wide, on="trade_date", how="outer", validate="one_to_one")
+        )
+    assert output is not None
+    output["trade_date"] = pd.to_datetime(output["trade_date"])
+    return output.sort_values("trade_date", kind="stable").reset_index(drop=True)
+
+
 def _write_excel(
     path: Path,
     *,
@@ -1158,10 +1434,135 @@ def _write_excel(
     random_summary: pd.DataFrame,
     period_metrics: pd.DataFrame,
     daily_curves: pd.DataFrame,
+    chart_data: pd.DataFrame,
     locked: pd.DataFrame,
     baseline: pd.DataFrame,
     reveal: pd.DataFrame,
+    reveal_detailed: pd.DataFrame,
+    reveal_groups: pd.DataFrame,
 ) -> None:
+    def column_kind(column: str) -> str:
+        name = column.lower()
+        if name == "trade_date" or name.endswith("_date"):
+            return "date"
+        if name.endswith("_at"):
+            return "datetime"
+        if (
+            "return" in name
+            or "win_rate" in name
+            or "cagr" in name
+            or "drawdown" in name
+            or "utilization" in name
+            or "utilisation" in name
+            or "acceptance_rate" in name
+            or "normalized_" in name
+            or name in {"average_win", "average_loss_abs"}
+        ):
+            return "percentage"
+        if any(
+            token in name
+            for token in ("capital", "equity", "cash", "notional", "total_fee")
+        ):
+            return "currency"
+        if (
+            name in {"n", "random_seed", "random_runs", "filter_mask", "trigger_value"}
+            or name.endswith(
+                ("_n", "_count", "_rows", "_signals", "_trades", "_positions")
+            )
+            or name.startswith(("rejected_", "unique_"))
+            or "horizon_trading_days" in name
+        ):
+            if name == "average_positions":
+                return "decimal"
+            return "integer"
+        if (
+            any(
+                token in name
+                for token in (
+                    "profit_factor",
+                    "payoff_ratio",
+                    "turnover",
+                    "average_loss",
+                )
+            )
+            or name == "longest_underwater_days"
+        ):
+            return "decimal"
+        if name.endswith("_id") or "sha256" in name:
+            return "identifier"
+        if any(
+            token in name
+            for token in (
+                "name",
+                "contract",
+                "description",
+                "warning",
+                "reason",
+                "comparability",
+                "model_code",
+                "filter_names",
+            )
+        ):
+            return "text"
+        return "general"
+
+    def style_worksheet(worksheet: Any) -> None:
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+
+        if worksheet.max_column < 1:
+            return
+        header_fill = PatternFill("solid", fgColor="1F4E78")
+        header_font = Font(color="FFFFFF", bold=True)
+        header_alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
+        worksheet.row_dimensions[1].height = 34
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+        for column_number, header in enumerate(worksheet[1], start=1):
+            name = str(header.value or "")
+            kind = column_kind(name)
+            if kind == "identifier":
+                width = 24
+            elif kind == "text":
+                sample_lengths = [
+                    len(str(worksheet.cell(row, column_number).value or ""))
+                    for row in range(2, min(worksheet.max_row, 101) + 1)
+                ]
+                width = min(
+                    42,
+                    max(16, len(name) + 2, max(sample_lengths, default=0) + 2),
+                )
+            elif kind == "datetime":
+                width = 20
+            elif kind == "date":
+                width = 13
+            elif kind == "currency":
+                width = 18
+            elif kind in {"percentage", "decimal"}:
+                width = 15
+            elif kind == "integer":
+                width = 14
+            else:
+                width = min(24, max(12, len(name) + 2))
+            worksheet.column_dimensions[get_column_letter(column_number)].width = width
+            number_format = {
+                "date": "yyyy-mm-dd",
+                "datetime": "yyyy-mm-dd hh:mm",
+                "percentage": "0.00%",
+                "currency": '"¥"#,##0.00',
+                "integer": "#,##0",
+                "decimal": "0.00",
+            }.get(kind)
+            if number_format is not None:
+                for row in range(2, worksheet.max_row + 1):
+                    worksheet.cell(row, column_number).number_format = number_format
+
     def excel_safe(frame: pd.DataFrame) -> pd.DataFrame:
         value = frame.copy()
         for column in value.columns:
@@ -1171,54 +1572,273 @@ def _write_excel(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.stem}.tmp{path.suffix}")
-    with pd.ExcelWriter(temporary, engine="openpyxl") as writer:
-        excel_safe(summary).to_excel(writer, sheet_name="Portfolio", index=False)
-        excel_safe(random_summary).to_excel(
-            writer, sheet_name="RandomSensitivity", index=False
-        )
-        excel_safe(period_metrics).to_excel(
-            writer, sheet_name="AnnualQuarterRegime", index=False
-        )
-        excel_safe(daily_curves).to_excel(
-            writer, sheet_name="NormalizedCurves", index=False
-        )
-        excel_safe(locked).to_excel(writer, sheet_name="LockedConfigs", index=False)
-        excel_safe(baseline).to_excel(writer, sheet_name="DailyBaseline", index=False)
-        if not reveal.empty:
-            excel_safe(reveal.iloc[:1_048_575]).to_excel(
-                writer, sheet_name="AuditReveal", index=False
+    temporary.unlink(missing_ok=True)
+    excel_chart_data = excel_safe(chart_data)
+    if "trade_date" in excel_chart_data:
+        excel_chart_data["trade_date_label"] = pd.to_datetime(
+            excel_chart_data["trade_date"],
+            errors="coerce",
+        ).dt.strftime("%Y-%m-%d")
+    try:
+        with pd.ExcelWriter(temporary, engine="openpyxl") as writer:
+            excel_safe(summary).to_excel(writer, sheet_name="Portfolio", index=False)
+            excel_safe(random_summary).to_excel(
+                writer, sheet_name="RandomSensitivity", index=False
             )
-        disclosure = pd.DataFrame(
-            {
-                "item": [
-                    "signal",
-                    "entry",
-                    "exit",
-                    "fee",
-                    "mark",
-                    "not_modelled",
-                ],
-                "contract": [
-                    "30分钟K线收盘揭示；只用当时及以前数据",
-                    "下一根实际存在的30分钟K线开盘",
-                    "第5/30/60/90个股票交易日同槽位，缺K线按候选事实的下一可交易K线",
-                    "买入、卖出各0.02%",
-                    "30分钟前复权收盘，缺当前K线时沿用此前最近收盘",
-                    "滑点、印花税、最低佣金、100股取整",
-                ],
-            }
-        )
-        disclosure.to_excel(writer, sheet_name="Contract", index=False)
-        for worksheet in writer.book.worksheets:
-            worksheet.freeze_panes = "A2"
-            worksheet.auto_filter.ref = worksheet.dimensions
-    os.replace(temporary, path)
+            excel_safe(period_metrics).to_excel(
+                writer, sheet_name="AnnualQuarterRegime", index=False
+            )
+            excel_safe(daily_curves).to_excel(
+                writer, sheet_name="NormalizedCurves", index=False
+            )
+            excel_chart_data.to_excel(writer, sheet_name="ChartData", index=False)
+            excel_safe(locked).to_excel(writer, sheet_name="LockedConfigs", index=False)
+            excel_safe(baseline).to_excel(
+                writer, sheet_name="DailyBaseline", index=False
+            )
+            if not reveal.empty:
+                excel_safe(reveal.iloc[:1_048_575]).to_excel(
+                    writer, sheet_name="AuditReveal", index=False
+                )
+            excel_safe(reveal_detailed.iloc[:1_048_575]).to_excel(
+                writer, sheet_name="RevealDetailed", index=False
+            )
+            excel_safe(reveal_groups.iloc[:1_048_575]).to_excel(
+                writer, sheet_name="RevealByPeriod", index=False
+            )
+            disclosure = pd.DataFrame(
+                {
+                    "item": [
+                        "signal",
+                        "entry",
+                        "exit",
+                        "fee",
+                        "mark",
+                        "not_modelled",
+                    ],
+                    "contract": [
+                        "30分钟K线收盘揭示；只用当时及以前数据",
+                        "下一根实际存在的30分钟K线开盘",
+                        "第5/30/60/90个股票交易日同槽位，缺K线按候选事实的下一可交易K线",
+                        "买入、卖出各0.02%",
+                        "30分钟前复权收盘，缺当前K线时沿用此前最近收盘",
+                        "滑点、印花税、最低佣金、100股取整",
+                    ],
+                }
+            )
+            disclosure.to_excel(writer, sheet_name="Contract", index=False)
+            charts = writer.book.create_sheet("Charts")
+            if not chart_data.empty:
+                from openpyxl.chart import LineChart, Reference
+                from openpyxl.chart.data_source import AxDataSource, StrRef
+                from openpyxl.chart.series import SeriesLabel
+
+                data_sheet = writer.book["ChartData"]
+                date_label_column = (
+                    excel_chart_data.columns.get_loc("trade_date_label") + 1
+                )
+                equity_columns = [
+                    offset
+                    for offset, name in enumerate(chart_data.columns, start=1)
+                    if str(name).endswith("_normalized_equity")
+                ]
+                drawdown_columns = [
+                    offset
+                    for offset, name in enumerate(chart_data.columns, start=1)
+                    if str(name).endswith("_drawdown")
+                ]
+                for title, columns, anchor, y_title in (
+                    (
+                        "5/30/60/90日归一净值（每日上限5）",
+                        equity_columns,
+                        "A1",
+                        "归一净值",
+                    ),
+                    (
+                        "5/30/60/90日回撤（每日上限5）",
+                        drawdown_columns,
+                        "A20",
+                        "回撤",
+                    ),
+                ):
+                    chart = LineChart()
+                    chart.title = title
+                    chart.y_axis.title = y_title
+                    chart.y_axis.numFmt = "0.00%"
+                    chart.x_axis.title = "交易日"
+                    chart.height = 8
+                    chart.width = 18
+                    for column in columns:
+                        column_name = str(chart_data.columns[column - 1])
+                        horizon = column_name.split("_", 1)[0].removeprefix("h")
+                        chart.add_data(
+                            Reference(
+                                data_sheet,
+                                min_col=column,
+                                max_col=column,
+                                min_row=1,
+                                max_row=len(chart_data) + 1,
+                            ),
+                            titles_from_data=True,
+                        )
+                        chart.series[-1].tx = SeriesLabel(v=f"{horizon}日")
+                    categories = Reference(
+                        data_sheet,
+                        min_col=date_label_column,
+                        min_row=2,
+                        max_row=len(chart_data) + 1,
+                    )
+                    for series in chart.series:
+                        series.cat = AxDataSource(strRef=StrRef(f=str(categories)))
+                    charts.add_chart(chart, anchor)
+            for worksheet in writer.book.worksheets:
+                style_worksheet(worksheet)
+                if worksheet.max_row > 1:
+                    worksheet.freeze_panes = "A2"
+                    worksheet.auto_filter.ref = worksheet.dimensions
+            from openpyxl.styles import Alignment
+
+            contract_sheet = writer.book["Contract"]
+            for row in range(2, contract_sheet.max_row + 1):
+                contract_sheet.cell(row, 2).alignment = Alignment(
+                    vertical="top",
+                    wrap_text=True,
+                )
+                contract_sheet.row_dimensions[row].height = 36
+            charts.sheet_view.showGridLines = False
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _fmt_pct(value: Any) -> str:
     if value is None or pd.isna(value):
         return "NA"
     return f"{float(value):.2%}"
+
+
+def _fmt_ratio(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    number = float(value)
+    return "∞" if np.isposinf(number) else f"{number:.2f}"
+
+
+def _portfolio_quality_statement(row: pd.Series) -> str:
+    total_return = float(row["total_return"])
+    raw_profit_factor = row["profit_factor"]
+    profit_factor = (
+        None
+        if raw_profit_factor is None or pd.isna(raw_profit_factor)
+        else float(raw_profit_factor)
+    )
+    if profit_factor is None:
+        interpretation = "PF缺少可计算的已平仓盈亏样本"
+    elif total_return > 0 and profit_factor > 1:
+        interpretation = "总收益与PF均高于各自基准"
+    elif total_return <= 0 and profit_factor <= 1:
+        interpretation = "总收益与PF均未高于各自基准"
+    else:
+        interpretation = "总收益方向与PF基准不一致"
+    return (
+        f"总收益 `{_fmt_pct(total_return)}`、PF `{_fmt_ratio(profit_factor)}`、"
+        f"平仓胜率 `{_fmt_pct(row['closed_win_rate'])}`；{interpretation}。"
+    )
+
+
+def _stability_statement(
+    available: pd.Series,
+    audit: pd.Series | None,
+) -> str:
+    if audit is None:
+        return (
+            f"AVAILABLE总收益 `{_fmt_pct(available['total_return'])}`、"
+            f"PF `{_fmt_ratio(available['profit_factor'])}`；资金AUDIT未执行。"
+        )
+    available_return = float(available["total_return"])
+    audit_return = float(audit["total_return"])
+    raw_profit_factor = audit["profit_factor"]
+    audit_profit_factor = (
+        None
+        if raw_profit_factor is None or pd.isna(raw_profit_factor)
+        else float(raw_profit_factor)
+    )
+    if available_return > 0 and audit_return > 0:
+        return_interpretation = "两段总收益均为正，资金方向一致"
+    elif available_return < 0 and audit_return < 0:
+        return_interpretation = "两段总收益均为负，资金方向一致"
+    elif available_return * audit_return < 0:
+        return_interpretation = "AVAILABLE与AUDIT总收益异号，资金方向不一致"
+    elif available_return == 0 and audit_return == 0:
+        return_interpretation = "两段总收益均为零"
+    else:
+        return_interpretation = "至少一段总收益为零，资金方向未完全一致"
+    if audit_profit_factor is None:
+        pf_interpretation = "AUDIT PF缺少可计算的已平仓盈亏样本"
+    elif audit_profit_factor > 1:
+        pf_interpretation = "AUDIT PF高于1"
+    elif audit_profit_factor == 1:
+        pf_interpretation = "AUDIT PF等于1"
+    else:
+        pf_interpretation = "AUDIT PF未高于1"
+    return (
+        f"AVAILABLE总收益 `{_fmt_pct(available_return)}`、"
+        f"AUDIT总收益 `{_fmt_pct(audit_return)}`、"
+        f"AUDIT PF `{_fmt_ratio(audit_profit_factor)}`、"
+        f"AUDIT平仓胜率 `{_fmt_pct(audit['closed_win_rate'])}`；"
+        f"{return_interpretation}；{pf_interpretation}。"
+    )
+
+
+def _audit_period_extrema(period_metrics: pd.DataFrame) -> pd.DataFrame:
+    required = {
+        "scope",
+        "daily_entry_limit",
+        "ranking_policy",
+        "horizon_trading_days",
+        "period_type",
+        "period_id",
+        "portfolio_return",
+        "closed_trades",
+        "closed_win_rate",
+    }
+    if period_metrics.empty or not required.issubset(period_metrics.columns):
+        return pd.DataFrame()
+    audit = period_metrics[
+        period_metrics["scope"].eq("AUDIT")
+        & period_metrics["daily_entry_limit"].eq("5")
+        & period_metrics["ranking_policy"].eq("quality")
+    ].copy()
+    audit["portfolio_return"] = pd.to_numeric(
+        audit["portfolio_return"], errors="coerce"
+    )
+    audit = audit.dropna(subset=["portfolio_return"])
+    rows: list[dict[str, Any]] = []
+    for identity, group in audit.groupby(
+        ["horizon_trading_days", "period_type"],
+        sort=True,
+    ):
+        horizon, period_type = identity
+        ordered = group.sort_values(
+            ["portfolio_return", "period_id"],
+            ascending=[False, True],
+            kind="stable",
+        )
+        best = ordered.iloc[0]
+        worst = ordered.iloc[-1]
+        rows.append(
+            {
+                "horizon_trading_days": int(horizon),
+                "period_type": str(period_type),
+                "best_period_id": str(best["period_id"]),
+                "best_return": float(best["portfolio_return"]),
+                "best_closed_trades": int(best["closed_trades"]),
+                "best_closed_win_rate": best["closed_win_rate"],
+                "worst_period_id": str(worst["period_id"]),
+                "worst_return": float(worst["portfolio_return"]),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def build_markdown_report(
@@ -1231,12 +1851,39 @@ def build_markdown_report(
     baseline: pd.DataFrame,
     feature_summary: Mapping[str, Any],
     reveal_summary: pd.DataFrame,
+    reveal_detailed: pd.DataFrame,
+    index_benchmark: Mapping[str, Any],
+    portfolio_logic_sha256: str,
 ) -> str:
     dates = summary[["start_at", "end_at"]].copy()
     minimum = pd.to_datetime(dates["start_at"]).min()
     maximum = pd.to_datetime(dates["end_at"]).max()
     short_sample = minimum.year >= 2024
     grade = "SHORT_SAMPLE（短样本）" if short_sample else "FULL_HISTORY"
+    random_run_counts = pd.to_numeric(
+        random_summary.get("random_runs", pd.Series(dtype=float)),
+        errors="coerce",
+    ).dropna()
+    unique_random_run_counts = sorted(
+        {int(value) for value in random_run_counts if value >= 0}
+    )
+    if not unique_random_run_counts:
+        random_contract_text = "本次未执行SHA确定性随机排序敏感性。"
+        random_output_text = "本次未生成SHA随机排序分位数"
+    else:
+        random_run_label = (
+            f"{unique_random_run_counts[0]}组"
+            if len(unique_random_run_counts) == 1
+            else (
+                f"{unique_random_run_counts[0]}至" f"{unique_random_run_counts[-1]}组"
+            )
+        )
+        random_contract_text = (
+            f"{random_run_label}敏感性用 " "`SHA256(seed|candidate_id)` 确定排序。"
+        )
+        random_output_text = f"{random_run_label}SHA随机排序分位数"
+    benchmark_label = str(index_benchmark["benchmark_label"])
+    benchmark_role = "ETF代理" if bool(index_benchmark["is_proxy"]) else "指数基准"
     lines = [
         "# CLX18 30分钟锁定组合真实资金回测",
         "",
@@ -1250,6 +1897,12 @@ def build_markdown_report(
         ),
         f"- AUDIT揭示摘要：`{'已读取' if not reveal_summary.empty else '本次报告未找到揭示产物'}`。",
         "- 30分钟数据由本地 MongoDB 冻结为不可变 snapshot；报告阶段不修改源数据。",
+        (
+            f"- 市场基准：**{benchmark_label}**（{benchmark_role}；"
+            f"`source_kind={index_benchmark['source_kind']}`，"
+            f"`source_name={index_benchmark['source_name']}`）；"
+            "报告内全部超额收益均相对此冻结基准计算。"
+        ),
         "",
         "## 二、冻结研究假设与资金合同",
         "",
@@ -1257,7 +1910,10 @@ def build_markdown_report(
         "- 过滤空间为 **F1-F6 共64个子集**，`filter_mask` 范围 `0..63`。",
         "- 初始资金500万元；40槽；每槽最多12.5万元（含买入费的资本预算）。",
         "- 同一时点先退出后入场；同股持有期间不加仓；每日新开上限分别为1/3/5/10/20/不限。",
-        "- 同一可交易时点内才做质量排序；不跨未来时点重排。100组敏感性用 `SHA256(seed|candidate_id)` 确定排序。",
+        (
+            "- 同一可交易时点内才做质量排序；不跨未来时点重排。"
+            f"{random_contract_text}"
+        ),
         "- 买卖各收0.02%；30分钟前复权收盘盯市，停牌时沿用此前最近可得前复权收盘。",
         "- 未计：**滑点、印花税、最低佣金、100股取整**。",
         "",
@@ -1278,7 +1934,10 @@ def build_markdown_report(
             "",
             "## 四、样本外 AUDIT 一次性揭示",
             "",
-            "|期限|n|净胜率|95% CI|平均净收益|中位净收益|PF|相对上证平均超额|提示|",
+            (
+                "|期限|n|净胜率|95% CI|平均净收益|中位净收益|PF|"
+                f"相对{benchmark_label}平均超额|提示|"
+            ),
             "|---:|---:|---:|---:|---:|---:|---:|---:|---|",
         ]
     )
@@ -1308,6 +1967,41 @@ def build_markdown_report(
                 f"{'NA' if pd.isna(row.profit_factor) else f'{row.profit_factor:.2f}'}|"
                 f"{_fmt_pct(row.mean_net_excess_return)}|{warning}|"
             )
+    exact_audit = (
+        reveal_detailed[reveal_detailed["scope"].eq("AUDIT")]
+        .sort_values(
+            ["horizon_trading_days", "model_population", "aggregation"],
+            kind="stable",
+        )
+        .copy()
+        if not reveal_detailed.empty
+        and {
+            "scope",
+            "model_population",
+            "aggregation",
+        }.issubset(reveal_detailed.columns)
+        else pd.DataFrame()
+    )
+    lines.extend(
+        [
+            "",
+            "### AUDIT多聚合口径",
+            "",
+            "|期限|模型总体|聚合|n|净胜率|平均净收益|平均超额|",
+            "|---:|---|---|---:|---:|---:|---:|",
+        ]
+    )
+    if exact_audit.empty:
+        lines.append("|—|—|—|—|—|—|揭示明细尚未产出|")
+    else:
+        for row in exact_audit.itertuples(index=False):
+            lines.append(
+                f"|{row.horizon_trading_days}|{row.model_population}|"
+                f"{row.aggregation}|{row.sample_count}|"
+                f"{_fmt_pct(row.net_win_rate)}|"
+                f"{_fmt_pct(row.mean_net_return)}|"
+                f"{_fmt_pct(row.mean_net_excess_return)}|"
+            )
     lines.extend(
         [
             "",
@@ -1333,10 +2027,77 @@ def build_markdown_report(
             f"{_fmt_pct(row.average_capital_utilization)}|"
             f"{_fmt_pct(row.candidate_acceptance_rate)}|"
         )
+    audit_main = summary[
+        summary["scope"].eq("AUDIT")
+        & summary["daily_entry_limit"].eq("5")
+        & summary["ranking_policy"].eq("quality")
+    ].sort_values("horizon_trading_days")
     lines.extend(
         [
             "",
-            "完整的每日容量限制、年度/季度/行情阶段、30分钟净值与回撤、100组SHA随机排序分位数见同目录 CSV/Parquet 和 Excel。",
+            "### 冻结配置的资金 AUDIT（质量排序、每日上限5）",
+            "",
+            "|期限|总收益|CAGR|最大回撤|交易数|胜率|PF|费用|资金占用|录取率|",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in audit_main.itertuples(index=False):
+        lines.append(
+            f"|{row.horizon_trading_days}|{_fmt_pct(row.total_return)}|"
+            f"{_fmt_pct(row.cagr)}|{_fmt_pct(row.max_drawdown)}|"
+            f"{row.closed_trades}|{_fmt_pct(row.closed_win_rate)}|"
+            f"{'NA' if pd.isna(row.profit_factor) else f'{row.profit_factor:.2f}'}|"
+            f"¥{row.total_fees:,.0f}|{_fmt_pct(row.average_capital_utilization)}|"
+            f"{_fmt_pct(row.candidate_acceptance_rate)}|"
+        )
+    lines.append("")
+    if audit_main.empty:
+        lines.append("- 本次运行未执行资金AUDIT。")
+    else:
+        for row in audit_main.itertuples(index=False):
+            lines.append(
+                f"- **{row.horizon_trading_days}日资金AUDIT**："
+                f"{_portfolio_quality_statement(pd.Series(row._asdict()))}"
+            )
+        audit_start = pd.to_datetime(audit_main["start_at"]).min()
+        audit_end = pd.to_datetime(audit_main["end_at"]).max()
+        lines.append(
+            f"- 资金AUDIT实际区间：`{audit_start.isoformat()}` 至 "
+            f"`{audit_end.isoformat()}`；季度收益包含跨季持仓盯市损益。"
+        )
+    extrema = _audit_period_extrema(period_metrics)
+    lines.extend(
+        [
+            "",
+            "### 资金AUDIT年度、季度与行情分期",
+            "",
+            "|期限|维度|收益最高分期|该期收益|交易数|平仓胜率|收益最低分期|该期收益|",
+            "|---:|---|---|---:|---:|---:|---|---:|",
+        ]
+    )
+    if extrema.empty:
+        lines.append("|—|—|—|—|—|—|—|资金AUDIT分期结果缺失|")
+    else:
+        period_labels = {"YEAR": "年度", "QUARTER": "季度", "REGIME": "行情"}
+        for row in extrema.sort_values(
+            ["horizon_trading_days", "period_type"],
+            kind="stable",
+        ).itertuples(index=False):
+            lines.append(
+                f"|{row.horizon_trading_days}|"
+                f"{period_labels.get(row.period_type, row.period_type)}|"
+                f"{row.best_period_id}|{_fmt_pct(row.best_return)}|"
+                f"{row.best_closed_trades}|{_fmt_pct(row.best_closed_win_rate)}|"
+                f"{row.worst_period_id}|{_fmt_pct(row.worst_return)}|"
+            )
+    lines.extend(
+        [
+            "",
+            (
+                "完整的每日容量限制、年度/季度/行情阶段、30分钟净值与回撤、"
+                f"{random_output_text}见同目录 CSV/Parquet；Excel 的 `Charts` "
+                "工作表内嵌5/30/60/90日归一净值与回撤图。"
+            ),
             "",
             "## 六、与日线基准直接对照（每日上限5）",
             "",
@@ -1369,40 +2130,51 @@ def build_markdown_report(
         row = main[main["horizon_trading_days"].eq(horizon)]
         if len(row):
             item = row.iloc[0]
-            audit_row = audit[audit["horizon_trading_days"].eq(horizon)]
-            audit_text = (
-                f"、AUDIT净胜率 `{_fmt_pct(audit_row.iloc[0].net_win_rate)}`"
-                f"、AUDIT平均净收益 `{_fmt_pct(audit_row.iloc[0].mean_net_return)}`"
-                if len(audit_row)
-                else ""
-            )
+            audit_row = audit_main[audit_main["horizon_trading_days"].eq(horizon)]
+            audit_item = audit_row.iloc[0] if len(audit_row) else None
             lines.append(
-                f"- **{horizon}日稳定性**：资金端净收益 `{_fmt_pct(item.total_return)}`、"
-                f"MDD `{_fmt_pct(item.max_drawdown)}`{audit_text}；"
-                "跨年/季度一致性须结合 `period_metrics.csv`，"
-                "不以单一胜率下结论。"
+                f"- **{horizon}日稳定性**：" f"{_stability_statement(item, audit_item)}"
             )
     five = main[main["horizon_trading_days"].eq(5)]
     if len(five):
         item = five.iloc[0]
-        audit_five = audit[audit["horizon_trading_days"].eq(5)]
+        audit_five = audit_main[audit_main["horizon_trading_days"].eq(5)]
         audit_five_text = (
-            f"30分钟AUDIT净胜率 `{_fmt_pct(audit_five.iloc[0].net_win_rate)}`、"
-            f"平均净收益 `{_fmt_pct(audit_five.iloc[0].mean_net_return)}`；"
+            _portfolio_quality_statement(audit_five.iloc[0])
             if len(audit_five)
-            else "30分钟AUDIT揭示摘要尚未产出；"
+            else "资金AUDIT未执行。"
         )
         lines.append(
-            f"- **5日样本外表现**：日线AUDIT胜率47.61%；{audit_five_text}"
-            "30分钟资金端总收益"
-            f"`{_fmt_pct(item.total_return)}`、CAGR `{_fmt_pct(item.cagr)}`。"
-            "失效判断同时看净收益、样本量和资金回撤。"
+            f"- **5日样本外表现**：日线AUDIT胜率47.61%；"
+            f"30分钟{audit_five_text} AVAILABLE总收益为 "
+            f"`{_fmt_pct(item.total_return)}`。"
         )
+    audit_ninety = audit_main[audit_main["horizon_trading_days"].eq(90)]
+    audit_ninety_text = (
+        _portfolio_quality_statement(audit_ninety.iloc[0])
+        if len(audit_ninety)
+        else "资金AUDIT未执行。"
+    )
+    ninety_periods = (
+        extrema[extrema["horizon_trading_days"].eq(90)]
+        if not extrema.empty
+        else extrema
+    )
+    ninety_best = (
+        "；".join(
+            f"{row.period_type}最高为{row.best_period_id}"
+            f"（{_fmt_pct(row.best_return)}）"
+            for row in ninety_periods.itertuples(index=False)
+        )
+        if not ninety_periods.empty
+        else "资金AUDIT分期结果缺失"
+    )
     lines.extend(
         [
             (
-                f"- **90日高胜率来源**：本轮证据等级为 `{grade}`；若数据始于2024，"
-                "则90日结论天然主要由2024年后行情贡献，不能外推到2015年以来。"
+                f"- **90日高胜率来源**：本轮证据等级为 `{grade}`，资金曲线实际始于"
+                f"`{minimum.year}`年；30分钟{audit_ninety_text}"
+                f" 分期中{ninety_best}。来源判断只适用于上述实际样本区间。"
             ),
             (
                 f"- **模型优先级**：锁定冠军中 S0006/S0016/S0000 命中为"
@@ -1425,6 +2197,10 @@ def build_markdown_report(
             "",
             f"- 结果目录：`{(root / 'portfolio').resolve()}`",
             "- 复现命令见 `portfolio/reproduce_command.txt`；输入与输出SHA256见 `portfolio/manifest.json`。",
+            (
+                "- 复现前须核对稳定仓库脚本的SHA256与 manifest 中"
+                f"`portfolio_logic_sha256={portfolio_logic_sha256}`一致。"
+            ),
             "- 数据事实、研究假设、样本内锁定、AUDIT揭示与资金模拟在本报告中分区呈现。",
             "",
         ]
@@ -1432,18 +2208,323 @@ def build_markdown_report(
     return "\n".join(lines)
 
 
-def _load_feature_summary(root: Path, events: pd.DataFrame) -> dict[str, Any]:
-    path = root / "features" / "summary.json"
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
+def _read_json_object(path: Path, label: str) -> dict[str, Any]:
+    if not path.is_file():
+        raise PortfolioContractError(f"required {label} is missing: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise PortfolioContractError(f"{label} is unreadable: {path}") from exc
+    if not isinstance(payload, Mapping):
+        raise PortfolioContractError(f"{label} must be a JSON object")
+    return dict(payload)
+
+
+def _load_feature_summary(root: Path) -> dict[str, Any]:
+    payload = _read_json_object(
+        root / "features" / "summary.json",
+        "features/summary.json",
+    )
+    if payload.get("study_id") != STUDY_ID:
+        raise PortfolioContractError("features/summary.json study_id mismatch")
+    return payload
+
+
+def validate_feature_inputs(root: Path) -> dict[str, Any]:
+    """Cross-check the frozen feature manifest, replay, snapshot, and Parquet."""
+
+    feature_manifest = _read_json_object(
+        root / "features" / "manifest.json",
+        "features/manifest.json",
+    )
+    feature_summary = _load_feature_summary(root)
+    snapshot_manifest = _read_json_object(
+        root / "snapshot" / "manifest.json",
+        "snapshot/manifest.json",
+    )
+    replay_manifest = _read_json_object(
+        root / "replay" / "manifest.json",
+        "replay/manifest.json",
+    )
+    for label, payload in (
+        ("features/manifest.json", feature_manifest),
+        ("snapshot/manifest.json", snapshot_manifest),
+        ("replay/manifest.json", replay_manifest),
+    ):
+        if payload.get("study_id") != STUDY_ID:
+            raise PortfolioContractError(f"{label} study_id mismatch")
+    if feature_manifest.get("summary") != feature_summary:
+        raise PortfolioContractError(
+            "features/manifest.json summary disagrees with features/summary.json"
+        )
+    snapshot_id = feature_manifest.get("snapshot_id")
+    if (
+        not isinstance(snapshot_id, str)
+        or not snapshot_id.startswith("sha256:")
+        or snapshot_manifest.get("snapshot_id") != snapshot_id
+        or replay_manifest.get("snapshot_id") != snapshot_id
+    ):
+        raise PortfolioContractError("features snapshot_id lineage mismatch")
+    signal_set_id = feature_manifest.get("signal_set_id")
+    if (
+        not isinstance(signal_set_id, str)
+        or len(signal_set_id) != 71
+        or not signal_set_id.startswith("sha256:")
+        or any(
+            character not in "0123456789abcdef"
+            for character in signal_set_id.removeprefix("sha256:")
+        )
+        or replay_manifest.get("signal_set_id") != signal_set_id
+    ):
+        raise PortfolioContractError("features signal_set_id lineage mismatch")
+
+    output = feature_summary.get("output")
+    if not isinstance(output, Mapping):
+        raise PortfolioContractError("features summary.output must be an object")
+    candidate_path = root / "features" / "candidate_events.parquet"
+    if Path(str(output.get("path", ""))).resolve() != candidate_path.resolve():
+        raise PortfolioContractError("features candidate output path mismatch")
+    candidate_identity = _verify_declared_snapshot_file(
+        path=candidate_path,
+        logical_path="features/candidate_events.parquet",
+        metadata=output,
+        label="features candidate_events.parquet",
+    )
+    declared_rows = feature_summary.get("candidate_event_rows")
+    if (
+        not isinstance(declared_rows, int)
+        or isinstance(declared_rows, bool)
+        or declared_rows < 0
+    ):
+        raise PortfolioContractError("features candidate_event_rows is invalid")
+    actual_rows = pq.ParquetFile(candidate_path).metadata.num_rows
+    if actual_rows != declared_rows:
+        raise PortfolioContractError(
+            "features candidate_events Parquet row count mismatch"
+        )
     return {
-        "candidate_event_rows": len(events),
-        "unique_union_signals": (
-            int(events["union_signal_id"].nunique())
-            if "union_signal_id" in events
-            else None
+        "status": "VERIFIED",
+        "study_id": STUDY_ID,
+        "snapshot_id": snapshot_id,
+        "signal_set_id": signal_set_id,
+        "candidate_event_rows": actual_rows,
+        "candidate_events": candidate_identity,
+    }
+
+
+def _load_index_benchmark(root: Path) -> dict[str, Any]:
+    payload = _read_json_object(
+        root / "audit" / "study_config.json",
+        "audit/study_config.json",
+    )
+    if payload.get("study_id") != STUDY_ID:
+        raise PortfolioContractError("audit/study_config.json study_id mismatch")
+    source = payload.get("index_source")
+    if not isinstance(source, Mapping):
+        raise PortfolioContractError(
+            "audit/study_config.json index_source must be an object"
+        )
+    source_kind = str(source.get("source_kind", "")).strip()
+    source_code = str(source.get("source_code", "")).strip()
+    source_name = str(source.get("source_name", "")).strip()
+    if not source_name:
+        raise PortfolioContractError("index_source source_name is missing")
+    if source_kind == "SHANGHAI_COMPOSITE_ETF_PROXY":
+        if source_code != "510980":
+            raise PortfolioContractError(
+                "Shanghai Composite ETF proxy must use source_code=510980"
+            )
+        benchmark_label = "510980上证综合ETF代理"
+        is_proxy = True
+    elif source_kind == "SHANGHAI_COMPOSITE":
+        if source_code != "000001":
+            raise PortfolioContractError(
+                "Shanghai Composite source must use source_code=000001"
+            )
+        benchmark_label = "000001上证指数"
+        is_proxy = False
+    else:
+        raise PortfolioContractError(
+            f"unsupported index_source source_kind: {source_kind or '<missing>'}"
+        )
+    return {
+        "source_kind": source_kind,
+        "source_code": source_code,
+        "source_name": source_name,
+        "benchmark_label": benchmark_label,
+        "is_proxy": is_proxy,
+    }
+
+
+def _verify_declared_snapshot_file(
+    *,
+    path: Path,
+    logical_path: str,
+    metadata: Mapping[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    if not path.is_file():
+        raise PortfolioContractError(f"{label} is missing: {path}")
+    expected_size = metadata.get("file_size")
+    if (
+        not isinstance(expected_size, int)
+        or isinstance(expected_size, bool)
+        or expected_size < 0
+    ):
+        raise PortfolioContractError(f"{label} has invalid declared file_size")
+    actual_size = path.stat().st_size
+    if actual_size != expected_size:
+        raise PortfolioContractError(
+            f"{label} size mismatch: expected {expected_size}, got {actual_size}"
+        )
+    expected_sha256 = metadata.get("file_sha256")
+    if not isinstance(expected_sha256, str) or len(expected_sha256) != 64:
+        raise PortfolioContractError(f"{label} has invalid declared file_sha256")
+    actual_sha256 = sha256_file(path)
+    if actual_sha256 != expected_sha256.lower():
+        raise PortfolioContractError(f"{label} SHA256 mismatch")
+    return {
+        "logical_path": logical_path,
+        "file_size": actual_size,
+        "sha256": actual_sha256,
+    }
+
+
+def validate_snapshot_inputs(
+    root: Path,
+    *,
+    index_benchmark: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Verify every immutable index/bar file declared by the snapshot manifest."""
+
+    manifest_path = root / "snapshot" / "manifest.json"
+    manifest = _read_json_object(manifest_path, "snapshot/manifest.json")
+    if manifest.get("study_id") != STUDY_ID:
+        raise PortfolioContractError("snapshot/manifest.json study_id mismatch")
+    snapshot_id = manifest.get("snapshot_id")
+    if not isinstance(snapshot_id, str) or not snapshot_id.startswith("sha256:"):
+        raise PortfolioContractError("snapshot/manifest.json snapshot_id is invalid")
+
+    index_meta = manifest.get("index")
+    if not isinstance(index_meta, Mapping):
+        raise PortfolioContractError("snapshot manifest index must be an object")
+    index_logical_path = "snapshot/index_day.parquet"
+    if index_meta.get("logical_path") != index_logical_path:
+        raise PortfolioContractError(
+            "snapshot index logical_path must be snapshot/index_day.parquet"
+        )
+    for field in ("source_kind", "source_code", "source_name"):
+        if index_meta.get(field) != index_benchmark.get(field):
+            raise PortfolioContractError(
+                f"snapshot index {field} disagrees with audit/study_config.json"
+            )
+    index_path = root / "snapshot" / "index_day.parquet"
+    if not index_path.resolve().is_relative_to(root.resolve()):
+        raise PortfolioContractError("snapshot index path escapes the study root")
+    index_identity = _verify_declared_snapshot_file(
+        path=index_path,
+        logical_path=index_logical_path,
+        metadata=index_meta,
+        label="snapshot index_day.parquet",
+    )
+
+    code_files = manifest.get("code_files")
+    if not isinstance(code_files, list) or not code_files:
+        raise PortfolioContractError(
+            "snapshot manifest code_files must be a non-empty list"
+        )
+    bars_dir = root / "snapshot" / "bars"
+    if not bars_dir.resolve().is_relative_to(root.resolve()):
+        raise PortfolioContractError("snapshot bars directory escapes the study root")
+    declared_codes: set[str] = set()
+    declared_logical_paths: set[str] = set()
+    bar_identities: list[dict[str, Any]] = []
+    bar_rows = 0
+    for offset, item in enumerate(code_files):
+        if not isinstance(item, Mapping):
+            raise PortfolioContractError(
+                f"snapshot code_files[{offset}] must be an object"
+            )
+        code = item.get("code")
+        if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
+            raise PortfolioContractError(
+                f"snapshot code_files[{offset}] has invalid code"
+            )
+        if code in declared_codes:
+            raise PortfolioContractError(
+                f"snapshot manifest has duplicate code: {code}"
+            )
+        declared_codes.add(code)
+        logical_path = f"snapshot/bars/{code}.parquet"
+        for path_field in ("logical_path", "path"):
+            supplied_path = item.get(path_field)
+            if supplied_path is not None and supplied_path != logical_path:
+                raise PortfolioContractError(
+                    f"snapshot bars/{code}.parquet {path_field} mismatch"
+                )
+        path = root / "snapshot" / "bars" / f"{code}.parquet"
+        if (
+            not path.resolve().is_relative_to(root.resolve())
+            or path.resolve().parent != bars_dir.resolve()
+        ):
+            raise PortfolioContractError(
+                f"snapshot bars/{code}.parquet path escapes the bars directory"
+            )
+        declared_logical_paths.add(logical_path)
+        identity = _verify_declared_snapshot_file(
+            path=path,
+            logical_path=logical_path,
+            metadata=item,
+            label=f"snapshot bars/{code}.parquet",
+        )
+        identity["code"] = code
+        rows = item.get("rows")
+        if not isinstance(rows, int) or isinstance(rows, bool) or rows < 0:
+            raise PortfolioContractError(
+                f"snapshot bars/{code}.parquet has invalid declared rows"
+            )
+        actual_rows = pq.ParquetFile(path).metadata.num_rows
+        if actual_rows != rows:
+            raise PortfolioContractError(
+                f"snapshot bars/{code}.parquet Parquet row count mismatch"
+            )
+        identity["rows"] = actual_rows
+        bar_identities.append(identity)
+        bar_rows += rows
+
+    actual_logical_paths = {
+        path.relative_to(root).as_posix()
+        for path in bars_dir.rglob("*.parquet")
+        if path.is_file()
+    }
+    if actual_logical_paths != declared_logical_paths:
+        missing = len(declared_logical_paths - actual_logical_paths)
+        extra = len(actual_logical_paths - declared_logical_paths)
+        raise PortfolioContractError(
+            "snapshot bars file set disagrees with manifest "
+            f"(missing={missing}, extra={extra})"
+        )
+
+    verified_identities = [index_identity, *bar_identities]
+    identities_sha256 = hashlib.sha256(
+        _canonical_bytes(verified_identities)
+    ).hexdigest()
+    return {
+        "status": "VERIFIED",
+        "study_id": STUDY_ID,
+        "snapshot_id": snapshot_id,
+        "all_declared_files_verified": True,
+        "verified_file_count": len(verified_identities),
+        "verified_bar_file_count": len(bar_identities),
+        "verified_bar_rows": bar_rows,
+        "verified_total_bytes": sum(
+            int(identity["file_size"]) for identity in verified_identities
         ),
-        "unique_stocks": int(events["code"].nunique()),
+        "verified_identities_sha256": identities_sha256,
+        "index_source": {
+            field: index_benchmark[field]
+            for field in ("source_kind", "source_code", "source_name")
+        },
     }
 
 
@@ -1455,6 +2536,225 @@ def _manifest_entry(
         "rows": rows,
         "file_size": path.stat().st_size,
         "sha256": sha256_file(path),
+    }
+
+
+def _required_input_identity(path: Path, root: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise PortfolioContractError(f"required portfolio input is missing: {path}")
+    return {
+        "logical_path": path.relative_to(root).as_posix(),
+        "file_size": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
+
+
+def _run_input_paths(root: Path) -> dict[str, Path]:
+    return {
+        "candidate_events": root / "features" / "candidate_events.parquet",
+        "features_manifest": root / "features" / "manifest.json",
+        "feature_summary": root / "features" / "summary.json",
+        "replay_manifest": root / "replay" / "manifest.json",
+        "market_segments": root / "features" / "market_segments.csv",
+        "locked_config": root / "matrix" / "locked_config.json",
+        "lock_manifest": root / "matrix" / "lock_manifest.json",
+        "development_manifest": root / "matrix" / "development_manifest.json",
+        "development_lock_candidates": (
+            root / "matrix" / "development_lock_candidates.parquet"
+        ),
+        "reveal_manifest": root / "matrix" / "reveal_manifest.json",
+        "reveal_matrix": root / "matrix" / "reveal_matrix.parquet",
+        "reveal_summary": root / "matrix" / "reveal_summary.csv",
+        "reveal_locked_detailed": (root / "matrix" / "reveal_locked_detailed.parquet"),
+        "reveal_locked_group_detail": (
+            root / "matrix" / "reveal_locked_group_detail.parquet"
+        ),
+        "study_config": root / "audit" / "study_config.json",
+        "snapshot_manifest": root / "snapshot" / "manifest.json",
+        "index_day": root / "snapshot" / "index_day.parquet",
+    }
+
+
+def _current_run_input_identities(root: Path) -> dict[str, dict[str, Any]]:
+    return {
+        name: _required_input_identity(path, root)
+        for name, path in _run_input_paths(root).items()
+    }
+
+
+def _validate_frozen_run_inputs(
+    root: Path,
+    run_contract: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    frozen = run_contract.get("input_identities")
+    if not isinstance(frozen, Mapping):
+        raise PortfolioContractError("frozen run_contract input_identities is missing")
+    current = _current_run_input_identities(root)
+    if set(frozen) != set(current):
+        raise PortfolioContractError("frozen run_contract input set mismatch")
+    for name, identity in current.items():
+        if frozen.get(name) != identity:
+            raise PortfolioContractError(
+                f"frozen run_contract external input drift: {name}"
+            )
+    return current
+
+
+def _checkpoint_key(
+    *,
+    selection: LockedSelection,
+    scope: str,
+    daily_entry_limit: int | None,
+    ranking_policy: str,
+    random_seed: int | None,
+) -> str:
+    seed = "n" if random_seed is None else f"{random_seed:03d}"
+    cap = "u" if daily_entry_limit is None else str(daily_entry_limit)
+    try:
+        scope_token = CHECKPOINT_SCOPE_TOKENS[scope]
+    except KeyError as exc:
+        raise PortfolioContractError(f"unsupported checkpoint scope: {scope}") from exc
+    return f"h{selection.horizon}_{scope_token}_c{cap}_" f"{ranking_policy[0]}_s{seed}"
+
+
+def _load_quality_checkpoint(path: Path, *, run_id: str) -> SimulationResult | None:
+    complete = path / "complete.json"
+    if not complete.is_file():
+        return None
+    try:
+        metadata = json.loads(complete.read_text(encoding="utf-8"))
+        if metadata.get("run_id") != run_id:
+            return None
+        equity_path = path / "equity.parquet"
+        trades_path = path / "trades.parquet"
+        if metadata.get("equity_sha256") != sha256_file(equity_path) or metadata.get(
+            "trades_sha256"
+        ) != sha256_file(trades_path):
+            return None
+        summary = dict(metadata["summary"])
+        for column in ("start_at", "end_at"):
+            if summary.get(column):
+                summary[column] = pd.Timestamp(summary[column])
+        return SimulationResult(
+            summary=summary,
+            equity=pd.read_parquet(equity_path),
+            trades=pd.read_parquet(trades_path),
+            decisions=pd.DataFrame(),
+        )
+    except (FileNotFoundError, KeyError, OSError, ValueError):
+        return None
+
+
+def _save_quality_checkpoint(
+    path: Path, *, run_id: str, result: SimulationResult
+) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    equity_path = path / "equity.parquet"
+    trades_path = path / "trades.parquet"
+    _atomic_parquet(result.equity, equity_path)
+    _atomic_parquet(result.trades, trades_path)
+    _atomic_json(
+        path / "complete.json",
+        {
+            "run_id": run_id,
+            "summary": result.summary,
+            "equity_sha256": sha256_file(equity_path),
+            "trades_sha256": sha256_file(trades_path),
+        },
+    )
+
+
+def _load_random_checkpoint(path: Path, *, run_id: str) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("run_id") != run_id:
+            return None
+        return dict(payload["summary"])
+    except (KeyError, OSError, ValueError):
+        return None
+
+
+def _save_random_checkpoint(
+    path: Path, *, run_id: str, summary: Mapping[str, Any]
+) -> None:
+    _atomic_json(path, {"run_id": run_id, "summary": dict(summary)})
+
+
+def _completed_result(root: Path, *, run_id: str) -> dict[str, Any] | None:
+    output = root / "portfolio"
+    manifest_path = output / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    manifest = _read_json_object(manifest_path, "portfolio/manifest.json")
+    if manifest.get("status") != "COMPLETE" or manifest.get("run_id") != run_id:
+        return None
+    if manifest.get("study_id") != STUDY_ID:
+        raise PortfolioContractError("completed portfolio study_id mismatch")
+    if manifest.get("portfolio_logic_sha256") != sha256_file(Path(__file__).resolve()):
+        raise PortfolioContractError("completed portfolio logic SHA256 mismatch")
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, list) or not outputs:
+        raise PortfolioContractError(
+            "completed portfolio outputs must be a non-empty list"
+        )
+    logical_paths: list[str] = []
+    for offset, item in enumerate(outputs):
+        if not isinstance(item, Mapping):
+            raise PortfolioContractError(
+                f"completed portfolio outputs[{offset}] must be an object"
+            )
+        logical_path = item.get("logical_path")
+        if not isinstance(logical_path, str) or not logical_path:
+            raise PortfolioContractError(
+                f"completed portfolio outputs[{offset}] logical_path is invalid"
+            )
+        logical_paths.append(logical_path)
+    if len(logical_paths) != len(set(logical_paths)):
+        raise PortfolioContractError(
+            "completed portfolio outputs contain duplicate logical_path values"
+        )
+    actual_outputs = set(logical_paths)
+    if actual_outputs != REQUIRED_LOGICAL_OUTPUTS:
+        raise PortfolioContractError(
+            "completed portfolio required logical outputs mismatch "
+            f"(missing={len(REQUIRED_LOGICAL_OUTPUTS - actual_outputs)}, "
+            f"extra={len(actual_outputs - REQUIRED_LOGICAL_OUTPUTS)})"
+        )
+    for item in outputs:
+        logical_path = str(item["logical_path"])
+        path = root / logical_path
+        expected_size = item.get("file_size")
+        expected_sha256 = item.get("sha256")
+        if (
+            not path.is_file()
+            or not isinstance(expected_size, int)
+            or isinstance(expected_size, bool)
+            or path.stat().st_size != expected_size
+            or not isinstance(expected_sha256, str)
+            or len(expected_sha256) != 64
+            or sha256_file(path) != expected_sha256.lower()
+        ):
+            raise PortfolioContractError(
+                f"completed portfolio output identity mismatch: {logical_path}"
+            )
+    try:
+        quality_portfolios = int(manifest["quality_portfolios"])
+        random_portfolios = int(manifest["random_portfolios"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PortfolioContractError("completed portfolio counts are invalid") from exc
+    return {
+        "study_id": STUDY_ID,
+        "run_id": run_id,
+        "root": str(root),
+        "portfolio_dir": str(output),
+        "quality_portfolios": quality_portfolios,
+        "random_portfolios": random_portfolios,
+        "report": str(output / "report.md"),
+        "workbook": str(output / "clx_30m_portfolio_report.xlsx"),
+        "manifest": str(manifest_path),
+        "reused": True,
     }
 
 
@@ -1472,6 +2772,62 @@ def run_portfolios(
     if not event_path.is_file():
         raise PortfolioContractError(f"candidate events are missing: {event_path}")
     selections = load_locked_selections(lock_path)
+    reveal_artifacts = validate_reveal_inputs(root, lock_path)
+    reveal_path, reveal_matrix_sha256 = reveal_artifacts["matrix"]
+    reveal_summary_path, reveal_summary_sha256 = reveal_artifacts["summary"]
+    reveal_detailed_path, reveal_detailed_sha256 = reveal_artifacts["locked_detailed"]
+    reveal_group_path, reveal_group_sha256 = reveal_artifacts["group_detail"]
+    _reveal_manifest_path, reveal_manifest_sha256 = reveal_artifacts["manifest"]
+    event_sha256 = sha256_file(event_path)
+    lock_sha256 = sha256_file(lock_path)
+    snapshot_manifest_path = root / "snapshot" / "manifest.json"
+    segment_path = root / "features" / "market_segments.csv"
+    feature_summary_path = root / "features" / "summary.json"
+    study_config_path = root / "audit" / "study_config.json"
+    snapshot_manifest_identity = _required_input_identity(
+        snapshot_manifest_path,
+        root,
+    )
+    market_segments_identity = _required_input_identity(segment_path, root)
+    feature_summary_identity = _required_input_identity(feature_summary_path, root)
+    study_config_identity = _required_input_identity(study_config_path, root)
+    feature_verification = validate_feature_inputs(root)
+    feature_summary = _load_feature_summary(root)
+    index_benchmark = _load_index_benchmark(root)
+    snapshot_verification = validate_snapshot_inputs(
+        root,
+        index_benchmark=index_benchmark,
+    )
+    input_identities = _current_run_input_identities(root)
+    run_contract = {
+        "study_id": STUDY_ID,
+        "contract_version": PORTFOLIO_CONTRACT_VERSION,
+        "portfolio_logic_sha256": sha256_file(Path(__file__).resolve()),
+        "candidate_events_sha256": event_sha256,
+        "locked_config_sha256": lock_sha256,
+        "reveal_manifest_sha256": reveal_manifest_sha256,
+        "reveal_matrix_sha256": reveal_matrix_sha256,
+        "reveal_summary_sha256": reveal_summary_sha256,
+        "reveal_locked_detailed_sha256": reveal_detailed_sha256,
+        "reveal_locked_group_detail_sha256": reveal_group_sha256,
+        "snapshot_manifest": snapshot_manifest_identity,
+        "market_segments": market_segments_identity,
+        "feature_summary": feature_summary_identity,
+        "study_config": study_config_identity,
+        "input_identities": input_identities,
+        "feature_verification": feature_verification,
+        "snapshot_verification": snapshot_verification,
+        "random_seed_count": random_seeds,
+        "include_audit_scope": include_audit_scope,
+        "checkpoint_scope_tokens": CHECKPOINT_SCOPE_TOKENS,
+    }
+    run_id = "sha256:" + hashlib.sha256(_canonical_bytes(run_contract)).hexdigest()
+    reusable = _completed_result(root, run_id=run_id)
+    if reusable is not None:
+        print(json.dumps(reusable, ensure_ascii=False), flush=True)
+        return reusable
+    output = root / "portfolio"
+    checkpoint_root = output / "ckpt" / run_id.removeprefix("sha256:")[:16]
     event_columns = [
         "signal_fact_id",
         "union_signal_id",
@@ -1498,9 +2854,25 @@ def run_portfolios(
                 f"h{horizon}_status",
                 f"h{horizon}_exit_at",
                 f"h{horizon}_gross_return",
+                f"h{horizon}_split_boundary_status",
             )
         )
-    events = pd.read_parquet(event_path, columns=event_columns)
+    locked_models = sorted(
+        {
+            model
+            for selection in selections
+            for model in selection.model_codes
+            if model not in {"ALL", "*", "UNION"}
+        }
+    )
+    wildcard_model = any(
+        set(selection.model_codes) & {"ALL", "*", "UNION"} for selection in selections
+    )
+    events = pd.read_parquet(
+        event_path,
+        columns=event_columns,
+        filters=(None if wildcard_model else [("model_code", "in", locked_models)]),
+    )
     scopes = ["AVAILABLE"]
     if (
         include_audit_scope
@@ -1510,9 +2882,13 @@ def run_portfolios(
         scopes.append("AUDIT")
     selected: dict[tuple[str, str], pd.DataFrame] = {}
     for selection in selections:
-        for scope in scopes:
-            selected[(selection.selection_id, scope)] = select_locked_candidates(
-                events, selection, scope=scope
+        available = select_locked_candidates(events, selection, scope="AVAILABLE")
+        selected[(selection.selection_id, "AVAILABLE")] = available
+        if "AUDIT" in scopes:
+            selected[(selection.selection_id, "AUDIT")] = select_locked_candidates(
+                events,
+                selection,
+                scope="AUDIT",
             )
     available_frames = [
         selected[(selection.selection_id, "AVAILABLE")] for selection in selections
@@ -1533,54 +2909,111 @@ def run_portfolios(
             scope_clocks["AUDIT"] = build_simulation_clock(root, audit_frames, marks)
         else:
             scope_clocks["AUDIT"] = scope_clocks["AVAILABLE"]
-    segment_path = root / "features" / "market_segments.csv"
-    segments = (
-        pd.read_csv(segment_path, encoding="utf-8-sig")
-        if segment_path.is_file()
-        else pd.DataFrame()
-    )
+    segments = pd.read_csv(segment_path, encoding="utf-8-sig")
     summaries: list[dict[str, Any]] = []
     random_summaries: list[dict[str, Any]] = []
     quality_equity: list[pd.DataFrame] = []
     quality_trades: list[pd.DataFrame] = []
-    quality_decisions: list[pd.DataFrame] = []
     periods: list[pd.DataFrame] = []
     for selection in selections:
         for scope in scopes:
             frame = selected[(selection.selection_id, scope)]
+            quality_entries: dict[int, list[dict[str, Any]]] | None = None
             for daily_limit in DAILY_ENTRY_LIMITS:
-                quality = simulate_portfolio(
-                    frame,
-                    selection=selection,
-                    scope=scope,
-                    clock=scope_clocks[scope],
-                    marks=marks,
-                    daily_entry_limit=daily_limit,
-                    ranking_policy="quality",
+                checkpoint_path = (
+                    checkpoint_root
+                    / "quality"
+                    / _checkpoint_key(
+                        selection=selection,
+                        scope=scope,
+                        daily_entry_limit=daily_limit,
+                        ranking_policy="quality",
+                        random_seed=None,
+                    )
                 )
+                quality = _load_quality_checkpoint(checkpoint_path, run_id=run_id)
+                if quality is None:
+                    if quality_entries is None:
+                        quality_entries = prepare_ordered_entries(
+                            frame,
+                            ranking_policy="quality",
+                        )
+                    quality = simulate_portfolio(
+                        frame,
+                        selection=selection,
+                        scope=scope,
+                        clock=scope_clocks[scope],
+                        marks=marks,
+                        daily_entry_limit=daily_limit,
+                        ranking_policy="quality",
+                        ordered_entries=quality_entries,
+                    )
+                    _save_quality_checkpoint(
+                        checkpoint_path,
+                        run_id=run_id,
+                        result=quality,
+                    )
                 summaries.append(quality.summary)
                 quality_equity.append(quality.equity)
                 quality_trades.append(quality.trades)
-                quality_decisions.append(quality.decisions)
                 periods.append(
                     build_period_metrics(quality.equity, quality.trades, segments)
                 )
-                # Random ordering is a capacity sensitivity on the full AVAILABLE
-                # sequence. AUDIT receives the frozen quality run but no duplicate
-                # 100-seed expansion.
-                if scope == "AVAILABLE":
-                    for seed in range(random_seeds):
-                        random = simulate_portfolio(
+            # Random ordering is a capacity sensitivity on the full AVAILABLE
+            # sequence. The order is independent of the daily cap, so one
+            # SHA ordering is reused by all six accounts for that seed.
+            if scope == "AVAILABLE":
+                for seed in range(random_seeds):
+                    pending: list[tuple[int | None, Path]] = []
+                    seed_summaries: dict[str, dict[str, Any]] = {}
+                    for daily_limit in DAILY_ENTRY_LIMITS:
+                        checkpoint_path = (
+                            checkpoint_root
+                            / "random"
+                            / (
+                                _checkpoint_key(
+                                    selection=selection,
+                                    scope=scope,
+                                    daily_entry_limit=daily_limit,
+                                    ranking_policy="sha_random",
+                                    random_seed=seed,
+                                )
+                                + ".json"
+                            )
+                        )
+                        cached = _load_random_checkpoint(checkpoint_path, run_id=run_id)
+                        if cached is None:
+                            pending.append((daily_limit, checkpoint_path))
+                        else:
+                            seed_summaries[_limit_label(daily_limit)] = cached
+                    if pending:
+                        random_entries = prepare_ordered_entries(
                             frame,
-                            selection=selection,
-                            scope=scope,
-                            clock=scope_clocks[scope],
-                            marks=marks,
-                            daily_entry_limit=daily_limit,
                             ranking_policy="sha_random",
                             random_seed=seed,
                         )
-                        random_summaries.append(random.summary)
+                        for daily_limit, checkpoint_path in pending:
+                            random = simulate_portfolio(
+                                frame,
+                                selection=selection,
+                                scope=scope,
+                                clock=scope_clocks[scope],
+                                marks=marks,
+                                daily_entry_limit=daily_limit,
+                                ranking_policy="sha_random",
+                                random_seed=seed,
+                                ordered_entries=random_entries,
+                            )
+                            _save_random_checkpoint(
+                                checkpoint_path,
+                                run_id=run_id,
+                                summary=random.summary,
+                            )
+                            seed_summaries[_limit_label(daily_limit)] = random.summary
+                    random_summaries.extend(
+                        seed_summaries[_limit_label(daily_limit)]
+                        for daily_limit in DAILY_ENTRY_LIMITS
+                    )
     summary_frame = pd.DataFrame(summaries)
     random_frame = pd.DataFrame(random_summaries)
     random_summary = summarise_random_runs(random_frame)
@@ -1590,11 +3023,23 @@ def run_portfolios(
         if any(not frame.empty for frame in quality_trades)
         else pd.DataFrame()
     )
-    decision_frame = (
-        pd.concat(quality_decisions, ignore_index=True)
-        if any(not frame.empty for frame in quality_decisions)
-        else pd.DataFrame()
-    )
+    decision_frame = summary_frame.loc[
+        :,
+        [
+            "selection_id",
+            "horizon_trading_days",
+            "scope",
+            "daily_entry_limit",
+            "ranking_policy",
+            "candidate_signals",
+            "closed_trades",
+            "candidate_acceptance_rate",
+            "rejected_occupied",
+            "rejected_daily_limit",
+            "rejected_slots",
+            "rejected_cash",
+        ],
+    ].copy()
     period_frame = (
         pd.concat(periods, ignore_index=True)
         if any(not frame.empty for frame in periods)
@@ -1603,6 +3048,7 @@ def run_portfolios(
     locked_frame = pd.DataFrame([selection.as_row() for selection in selections])
     baseline_frame = build_daily_baseline_comparison(summary_frame)
     daily_curve_frame = _daily_curves(equity_frame)
+    chart_frame = build_chart_data(daily_curve_frame)
     reveal_path = root / "matrix" / "reveal_matrix.parquet"
     reveal_summary_path = root / "matrix" / "reveal_summary.csv"
     reveal_frame = (
@@ -1610,8 +3056,8 @@ def run_portfolios(
         if reveal_summary_path.is_file()
         else pd.DataFrame()
     )
-    feature_summary = _load_feature_summary(root, events)
-
+    reveal_detailed_frame = pd.read_parquet(reveal_detailed_path)
+    reveal_group_frame = pd.read_parquet(reveal_group_path)
     output = root / "portfolio"
     output.mkdir(parents=True, exist_ok=True)
     frames = {
@@ -1621,11 +3067,14 @@ def run_portfolios(
         "period_metrics": period_frame,
         "equity_30m": equity_frame,
         "equity_daily": daily_curve_frame,
+        "chart_curves": chart_frame,
         "trades": trade_frame,
-        "decisions": decision_frame,
+        "decision_summary": decision_frame,
         "locked_selections": locked_frame,
         "daily_baseline_comparison": baseline_frame,
     }
+    if set(frames) != set(PORTFOLIO_FRAME_NAMES):
+        raise PortfolioContractError("portfolio logical output frame set drifted")
     written: list[Path] = []
     output_rows: dict[Path, int] = {}
     for name, frame in frames.items():
@@ -1643,9 +3092,12 @@ def run_portfolios(
         random_summary=random_summary,
         period_metrics=period_frame,
         daily_curves=daily_curve_frame,
+        chart_data=chart_frame,
         locked=locked_frame,
         baseline=baseline_frame,
         reveal=reveal_frame,
+        reveal_detailed=reveal_detailed_frame,
+        reveal_groups=reveal_group_frame,
     )
     written.append(workbook)
     report = build_markdown_report(
@@ -1657,12 +3109,17 @@ def run_portfolios(
         baseline=baseline_frame,
         feature_summary=feature_summary,
         reveal_summary=reveal_frame,
+        reveal_detailed=reveal_detailed_frame,
+        index_benchmark=index_benchmark,
+        portfolio_logic_sha256=str(run_contract["portfolio_logic_sha256"]),
     )
     report_path = output / "report.md"
     report_path.write_text(report, encoding="utf-8")
     written.append(report_path)
     config = {
         "study_id": STUDY_ID,
+        "run_id": run_id,
+        "run_contract": run_contract,
         "contract_version": PORTFOLIO_CONTRACT_VERSION,
         "filter_contract": "F1_F6_64_SUBSETS_ONLY",
         "initial_capital": INITIAL_CAPITAL,
@@ -1679,6 +3136,13 @@ def run_portfolios(
             "sensitivity": "SHA256(seed|candidate_id)",
             "random_seed_count": random_seeds,
         },
+        "execution": {
+            "candidate_read": "Parquet projection plus locked-model predicate",
+            "ordering_reuse": "one ordering per selection/scope/seed shared by six caps",
+            "mark_to_market": "vectorised trade slices over cached clock-aligned QFQ closes",
+            "checkpoint": "immutable run-id quality Parquet and random-summary JSON",
+            "completed_rerun": "verify output SHA256 and return REUSED",
+        },
         "clock": "30-minute QFQ close; carry prior close through missing bars",
         "metric_formulas": {
             "one_way_turnover": "(buy_notional+sell_notional)/(2*mean_equity)",
@@ -1686,7 +3150,13 @@ def run_portfolios(
             "profit_factor": "sum(positive_net_pnl)/abs(sum(negative_net_pnl))",
             "capital_utilization": "marked_position_value/equity",
         },
-        "filter_descriptions": FILTER_DESCRIPTIONS,
+        "filter_descriptions": {
+            **FILTER_DESCRIPTIONS,
+            "F6": (f"{index_benchmark['benchmark_label']}" "近20个完整交易日收益≤0"),
+        },
+        "index_benchmark": index_benchmark,
+        "feature_verification": feature_verification,
+        "snapshot_verification": snapshot_verification,
         "omitted_costs": [
             "slippage",
             "stamp_duty",
@@ -1694,32 +3164,43 @@ def run_portfolios(
             "100_share_rounding",
         ],
         "scopes": scopes,
-        "candidate_events_sha256": sha256_file(event_path),
-        "locked_config_sha256": sha256_file(lock_path),
+        "input": {
+            "snapshot_manifest": snapshot_manifest_identity,
+            "market_segments": market_segments_identity,
+            "feature_summary": feature_summary_identity,
+            "study_config": study_config_identity,
+            "all_frozen_inputs": input_identities,
+        },
+        "candidate_events_sha256": event_sha256,
+        "locked_config_sha256": lock_sha256,
     }
     config_path = output / "portfolio_config.json"
     _atomic_json(config_path, config)
     written.append(config_path)
     command = (
-        f'& "<PYTHON>" "{Path(__file__).resolve()}" --root "{root}" '
+        f'& "<PYTHON>" "{REPRODUCE_SCRIPT}" --root "{root}" '
         f"run --random-seeds {random_seeds}"
     )
+    if not include_audit_scope:
+        command += " --no-audit-scope"
     reproduce = output / "reproduce_command.txt"
     reproduce.write_text(command + "\n", encoding="utf-8")
     written.append(reproduce)
     manifest = {
         "study_id": STUDY_ID,
+        "run_id": run_id,
         "status": "COMPLETE",
+        "portfolio_logic_sha256": run_contract["portfolio_logic_sha256"],
         "input": {
             "candidate_events": {
                 "logical_path": "features/candidate_events.parquet",
                 "file_size": event_path.stat().st_size,
-                "sha256": sha256_file(event_path),
+                "sha256": event_sha256,
             },
             "locked_config": {
                 "logical_path": "matrix/locked_config.json",
                 "file_size": lock_path.stat().st_size,
-                "sha256": sha256_file(lock_path),
+                "sha256": lock_sha256,
             },
             "reveal_matrix": (
                 {
@@ -1739,10 +3220,41 @@ def run_portfolios(
                 if reveal_summary_path.is_file()
                 else None
             ),
+            "reveal_locked_detailed": {
+                "logical_path": "matrix/reveal_locked_detailed.parquet",
+                "file_size": reveal_detailed_path.stat().st_size,
+                "sha256": reveal_detailed_sha256,
+            },
+            "reveal_locked_group_detail": {
+                "logical_path": "matrix/reveal_locked_group_detail.parquet",
+                "file_size": reveal_group_path.stat().st_size,
+                "sha256": reveal_group_sha256,
+            },
+            "snapshot_manifest": snapshot_manifest_identity,
+            "market_segments": market_segments_identity,
+            "feature_summary": feature_summary_identity,
+            "study_config": study_config_identity,
         },
+        "index_benchmark": index_benchmark,
+        "feature_verification": feature_verification,
+        "snapshot_verification": snapshot_verification,
         "selection_count": len(selections),
+        "loaded_locked_model_event_rows": len(events),
+        "selected_candidate_rows": {
+            f"h{selection.horizon}_{scope}": len(
+                selected[(selection.selection_id, scope)]
+            )
+            for selection in selections
+            for scope in scopes
+        },
         "quality_portfolios": len(summary_frame),
         "random_portfolios": len(random_frame),
+        "ordering_builds": {
+            "quality": len(selections) * len(scopes),
+            "sha_random": len(selections) * random_seeds,
+            "six_daily_caps_share_each_ordering": True,
+        },
+        "checkpoint_root": checkpoint_root.relative_to(root).as_posix(),
         "mark_source_codes": len(codes),
         "mark_source_rows": marks.source_rows,
         "clock_rows": {
@@ -1756,6 +3268,7 @@ def run_portfolios(
     _atomic_json(manifest_path, manifest)
     result = {
         "study_id": STUDY_ID,
+        "run_id": run_id,
         "root": str(root),
         "portfolio_dir": str(output),
         "quality_portfolios": len(summary_frame),
@@ -1763,6 +3276,7 @@ def run_portfolios(
         "report": str(report_path),
         "workbook": str(workbook),
         "manifest": str(manifest_path),
+        "reused": False,
     }
     print(json.dumps(result, ensure_ascii=False), flush=True)
     return result
@@ -1771,20 +3285,68 @@ def run_portfolios(
 def rebuild_report(root: Path) -> dict[str, Any]:
     resolved = root.resolve()
     output = resolved / "portfolio"
+    config = _read_json_object(
+        output / "portfolio_config.json",
+        "portfolio/portfolio_config.json",
+    )
+    if config.get("study_id") != STUDY_ID:
+        raise PortfolioContractError("portfolio config study_id mismatch")
+    run_contract = config.get("run_contract")
+    if not isinstance(run_contract, Mapping):
+        raise PortfolioContractError("portfolio config run_contract is missing")
+    frozen_logic_sha256 = run_contract.get("portfolio_logic_sha256")
+    current_logic_sha256 = sha256_file(Path(__file__).resolve())
+    if frozen_logic_sha256 != current_logic_sha256:
+        raise PortfolioContractError("rebuild-report portfolio logic SHA256 mismatch")
+    manifest = _read_json_object(
+        output / "manifest.json",
+        "portfolio/manifest.json",
+    )
+    run_id = config.get("run_id")
+    if (
+        not isinstance(run_id, str)
+        or manifest.get("run_id") != run_id
+        or run_contract.get("study_id") != STUDY_ID
+        or "sha256:" + hashlib.sha256(_canonical_bytes(run_contract)).hexdigest()
+        != run_id
+    ):
+        raise PortfolioContractError("rebuild-report run identity mismatch")
+    if _completed_result(resolved, run_id=run_id) is None:
+        raise PortfolioContractError("rebuild-report requires a COMPLETE portfolio")
+
+    _validate_frozen_run_inputs(resolved, run_contract)
+    lock_path = resolved / "matrix" / "locked_config.json"
+    load_locked_selections(lock_path)
+    validate_reveal_inputs(resolved, lock_path)
+    feature_verification = validate_feature_inputs(resolved)
+    if run_contract.get("feature_verification") != feature_verification:
+        raise PortfolioContractError("rebuild-report feature verification drift")
+    feature_summary = _load_feature_summary(resolved)
+    index_benchmark = _load_index_benchmark(resolved)
+    if config.get("index_benchmark") != index_benchmark:
+        raise PortfolioContractError("rebuild-report index benchmark mismatch")
+    snapshot_verification = validate_snapshot_inputs(
+        resolved,
+        index_benchmark=index_benchmark,
+    )
+    if run_contract.get("snapshot_verification") != snapshot_verification:
+        raise PortfolioContractError("rebuild-report snapshot verification drift")
+
     summary = pd.read_parquet(output / "portfolio_summary.parquet")
     random_summary = pd.read_parquet(output / "random_order_sensitivity.parquet")
     period_metrics = pd.read_parquet(output / "period_metrics.parquet")
     locked = pd.read_parquet(output / "locked_selections.parquet")
     baseline = pd.read_parquet(output / "daily_baseline_comparison.parquet")
-    event_path = resolved / "features" / "candidate_events.parquet"
-    try:
-        events = pd.read_parquet(event_path, columns=["code", "union_signal_id"])
-    except (KeyError, ValueError):
-        events = pd.read_parquet(event_path, columns=["code"])
     reveal_summary_path = resolved / "matrix" / "reveal_summary.csv"
     reveal_summary = (
         pd.read_csv(reveal_summary_path, encoding="utf-8-sig")
         if reveal_summary_path.is_file()
+        else pd.DataFrame()
+    )
+    reveal_detailed_path = resolved / "matrix" / "reveal_locked_detailed.parquet"
+    reveal_detailed = (
+        pd.read_parquet(reveal_detailed_path)
+        if reveal_detailed_path.is_file()
         else pd.DataFrame()
     )
     text = build_markdown_report(
@@ -1794,11 +3356,21 @@ def rebuild_report(root: Path) -> dict[str, Any]:
         period_metrics=period_metrics,
         locked=locked,
         baseline=baseline,
-        feature_summary=_load_feature_summary(resolved, events),
+        feature_summary=feature_summary,
         reveal_summary=reveal_summary,
+        reveal_detailed=reveal_detailed,
+        index_benchmark=index_benchmark,
+        portfolio_logic_sha256=str(frozen_logic_sha256),
     )
     path = output / "report.md"
     path.write_text(text, encoding="utf-8")
+    manifest_path = output / "manifest.json"
+    for item in manifest["outputs"]:
+        if item["logical_path"] == "portfolio/report.md":
+            item["file_size"] = path.stat().st_size
+            item["sha256"] = sha256_file(path)
+            break
+    _atomic_json(manifest_path, manifest)
     result = {"report": str(path), "sha256": sha256_file(path)}
     print(json.dumps(result, ensure_ascii=False), flush=True)
     return result
@@ -1813,6 +3385,12 @@ def status(root: Path) -> dict[str, Any]:
         "locked_config": (root / "matrix" / "locked_config.json").is_file(),
         "reveal_matrix": (root / "matrix" / "reveal_matrix.parquet").is_file(),
         "reveal_summary": (root / "matrix" / "reveal_summary.csv").is_file(),
+        "reveal_locked_detailed": (
+            root / "matrix" / "reveal_locked_detailed.parquet"
+        ).is_file(),
+        "reveal_locked_group_detail": (
+            root / "matrix" / "reveal_locked_group_detail.parquet"
+        ).is_file(),
         "portfolio_complete": (root / "portfolio" / "manifest.json").is_file(),
     }
     print(json.dumps(result, ensure_ascii=False), flush=True)
