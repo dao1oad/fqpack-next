@@ -1,5 +1,9 @@
 report.json
 *.csv
 *.parquet
+*.json
+!checks.json
+!run_state.json
 server*.log
 server.pid
+repro_scripts/

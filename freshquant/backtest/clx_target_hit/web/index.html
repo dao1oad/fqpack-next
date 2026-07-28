@@ -5,16 +5,114 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CLX18 目标收益触达率</title>
   <style>
-    :root{color-scheme:dark;--bg:#08101c;--panel:#111d2d;--line:#26364b;--text:#edf4ff;--muted:#91a3ba;--cyan:#42d3c8;--amber:#ffbd59}
-    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#173452 0,transparent 34%),var(--bg);color:var(--text);font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif}
-    header,main{max-width:1500px;margin:auto;padding:22px}.eyebrow{color:var(--cyan);letter-spacing:.14em;font-weight:700}h1{font-size:30px;margin:4px 0}h2{font-size:18px;margin:0 0 14px}.muted{color:var(--muted)}
-    .banner{border:1px solid #795f28;background:#312817;padding:10px 14px;border-radius:8px;color:#ffe0a3;margin-top:14px}
-    .cards,.grid2{display:grid;gap:14px}.cards{grid-template-columns:repeat(4,1fr);margin:18px 0}.grid2{grid-template-columns:2fr 1fr}
-    .card,.panel{background:rgba(17,29,45,.94);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 12px 30px #0004}.metric{font-size:26px;font-weight:750}.label{color:var(--muted);font-size:12px}
-    .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}label{color:var(--muted);font-size:12px}select{display:block;margin-top:4px;background:#0a1422;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 24px 7px 9px}
-    .heat{overflow:auto}.heat table{border-collapse:separate;border-spacing:3px;min-width:1100px}.heat th{color:var(--muted);font-size:11px;position:sticky}.heat td{height:42px;min-width:51px;text-align:center;border-radius:5px;font-size:10px;cursor:pointer}.heat td:hover{outline:2px solid white}.heat strong{display:block;font-size:12px}
-    .bar{display:flex;height:18px;border-radius:5px;overflow:hidden;background:#1d2a3d}.bar span{background:var(--cyan)}.list{display:grid;gap:9px}.row{border-bottom:1px solid var(--line);padding-bottom:8px}.status{color:var(--cyan);font-weight:700}
-    a{color:var(--cyan)}footer{max-width:1500px;margin:auto;padding:0 22px 30px;color:var(--muted)}@media(max-width:900px){.cards{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}}
+    :root{
+      color-scheme:dark;--bg:#07101c;--panel:#101c2c;--panel2:#0b1725;
+      --line:#26384e;--text:#edf5ff;--muted:#93a7bf;--cyan:#45d8ca;
+      --blue:#64a8ff;--amber:#ffc361;--red:#ff7385;--green:#52d68b
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;background:
+        radial-gradient(circle at 82% -5%,#1a4263 0,transparent 32%),
+        radial-gradient(circle at 0 35%,#102e3c 0,transparent 25%),var(--bg);
+      color:var(--text);font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif
+    }
+    header,main,footer{max-width:1540px;margin:auto;padding:22px}
+    .eyebrow{color:var(--cyan);letter-spacing:.14em;font-weight:750}
+    h1{font-size:clamp(25px,3vw,34px);margin:4px 0}
+    h2{font-size:18px;margin:0 0 12px}
+    h3{font-size:14px;margin:0 0 8px;color:#cbdcf1}
+    .muted,.label{color:var(--muted)}
+    .label{font-size:12px}
+    .banner{
+      border:1px solid #745b2a;background:#302716;padding:10px 14px;
+      border-radius:9px;color:#ffe0a3;margin-top:14px
+    }
+    .banner.ok{border-color:#23684e;background:#102c26;color:#a7f3d4}
+    .cards,.grid2,.grid3,.mini-cards{display:grid;gap:14px}
+    .cards{grid-template-columns:repeat(5,1fr);margin:18px 0}
+    .grid2{grid-template-columns:1fr 1fr}
+    .grid3{grid-template-columns:repeat(3,1fr)}
+    .mini-cards{grid-template-columns:repeat(4,1fr)}
+    .card,.panel{
+      background:rgba(16,28,44,.95);border:1px solid var(--line);
+      border-radius:12px;padding:16px;box-shadow:0 12px 30px #0004
+    }
+    .panel{margin-top:14px}
+    .metric{font-size:25px;font-weight:760;overflow-wrap:anywhere}
+    .metric.small{font-size:18px}
+    .filters{
+      display:flex;align-items:end;gap:10px;flex-wrap:wrap;
+      padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)
+    }
+    label{color:var(--muted);font-size:12px}
+    select,button{
+      display:block;margin-top:4px;background:#091523;color:var(--text);
+      border:1px solid var(--line);border-radius:7px;padding:8px 10px;
+      font:inherit
+    }
+    button{cursor:pointer}
+    button:hover,button:focus-visible{border-color:var(--cyan);outline:none}
+    select:disabled,button:disabled{opacity:.55;cursor:progress}
+    .heat{overflow:auto;max-height:760px}
+    .heat table{border-collapse:separate;border-spacing:3px;min-width:1360px}
+    .heat th{
+      color:var(--muted);font-size:11px;position:sticky;top:0;
+      background:var(--panel);z-index:2
+    }
+    .heat th:first-child{left:0;z-index:3}
+    .heat td{height:58px;min-width:59px;text-align:center;border-radius:5px}
+    .heat-cell{
+      width:100%;height:58px;margin:0;padding:3px;border:0;border-radius:5px;
+      line-height:1.15;background:var(--panel2)
+    }
+    .heat-cell:hover,.heat-cell.active{outline:2px solid white}
+    .heat-cell strong{display:block;font-size:12px}
+    .heat-cell small{display:block;font-size:9px;opacity:.9;margin-top:2px}
+    .table-wrap{overflow:auto;max-height:430px}
+    table.data{border-collapse:collapse;width:100%;min-width:650px}
+    table.data th,table.data td{
+      border-bottom:1px solid var(--line);padding:8px;text-align:left;
+      white-space:nowrap
+    }
+    table.data th{
+      color:var(--muted);font-size:11px;position:sticky;top:0;
+      background:var(--panel);z-index:1
+    }
+    .bar{display:flex;height:18px;border-radius:5px;overflow:hidden;background:#1d2a3d}
+    .bar span{background:linear-gradient(90deg,var(--blue),var(--cyan))}
+    .list{display:grid;gap:9px}
+    .row{border-bottom:1px solid var(--line);padding-bottom:8px}
+    .status{color:var(--cyan);font-weight:700}
+    .good{color:var(--green)}.bad{color:var(--red)}.warn{color:var(--amber)}
+    .pill{
+      display:inline-block;border:1px solid var(--line);border-radius:999px;
+      padding:2px 8px;margin:2px;color:#c8d8eb;background:#0a1624
+    }
+    .empty{
+      min-height:90px;display:grid;place-items:center;border:1px dashed #31465f;
+      border-radius:8px;color:var(--muted);padding:18px;text-align:center
+    }
+    .chart{min-height:220px;overflow:auto}
+    .chart svg{display:block;width:100%;min-width:480px;height:auto}
+    .chart text{fill:var(--muted);font-size:11px}
+    .chart .axis{stroke:#425873;stroke-width:1}
+    .chart .grid{stroke:#24364b;stroke-width:1}
+    .chart .line{fill:none;stroke:var(--cyan);stroke-width:2.4}
+    .chart .area{fill:#45d8ca20}
+    .chart .frontier{fill:none;stroke:var(--amber);stroke-width:2}
+    .section-note{margin:-6px 0 12px;color:var(--muted);font-size:12px}
+    .provenance{word-break:break-all}
+    a{color:var(--cyan)}
+    footer{color:var(--muted);padding-top:8px;padding-bottom:30px}
+    @media(max-width:1050px){
+      .cards,.mini-cards{grid-template-columns:1fr 1fr}
+      .grid2,.grid3{grid-template-columns:1fr}
+    }
+    @media(max-width:560px){
+      header,main,footer{padding:15px}.cards,.mini-cards{grid-template-columns:1fr}
+    }
   </style>
 </head>
 <body>
@@ -22,57 +120,1042 @@
   <div class="eyebrow">FRESHQUANT · CLX RESEARCH</div>
   <h1>CLX18 日线目标收益触达率</h1>
   <div class="muted">H 5–90 × R 2%–30% · T+1 开盘 · 双向各 0.02% · EXACT 主视图 / CONTAINS 稳健性</div>
-  <div class="banner" id="statusBanner">正在读取报告血缘…</div>
+  <div class="banner" id="statusBanner">正在读取聚合报告与血缘信息…</div>
 </header>
 <main>
-  <section class="cards">
+  <section class="cards" aria-label="报告总览">
     <div class="card"><div class="label">数据状态</div><div class="metric status" id="dataStatus">—</div></div>
-    <div class="card"><div class="label">当前模型</div><div class="metric" id="modelCount">—</div></div>
-    <div class="card"><div class="label">H×R 单元</div><div class="metric">522</div></div>
+    <div class="card"><div class="label">模型覆盖</div><div class="metric" id="modelCount">—</div></div>
+    <div class="card"><div class="label">完整聚合网格</div><div class="metric" id="gridTotalRows">—</div></div>
+    <div class="card"><div class="label">当前分析单元</div><div class="metric" id="activeCell">—</div></div>
     <div class="card"><div class="label">合同检查</div><div class="metric" id="checkStatus">—</div></div>
   </section>
+
+  <section class="panel" id="championsPanel">
+    <h2>总览与冠军</h2>
+    <div class="section-note">同时承载字面最高、R≥5% 实用稳健、18 模型各自、按 R 最短期限、按 H 最高目标与资金组合冠军。</div>
+    <div id="championCards" class="mini-cards"></div>
+    <div id="championTable" class="table-wrap" style="margin-top:12px"></div>
+  </section>
+
   <section class="panel">
-    <div class="filters">
+    <div class="filters" aria-label="报告筛选器">
       <label>模型<select id="model"></select></label>
-      <label>阶段<select id="stage"></select></label>
-      <label>触发视图<select id="view"></select></label>
-      <label>触发组合<select id="trigger"></select></label>
-      <label>过滤条件<select id="filter"></select></label>
+      <label>数据阶段<select id="stage"></select></label>
+      <label>触发视图<select id="triggerView"></select></label>
+      <label>触发类型 / 组合<select id="trigger"></select></label>
+      <label>Raw / F7 / 增强组合<select id="filterKey"></select></label>
+      <label>期限 H<select id="horizon"></select></label>
+      <label>收益目标 R<select id="target"></select></label>
+      <button id="resetFilters" type="button">恢复推荐视图</button>
+      <button id="exportCurrent" type="button">导出当前筛选 CSV</button>
     </div>
     <h2>H × R 触达率热力图</h2>
-    <div class="muted">单元格：触达率 / n；悬停查看 Wilson 下限、首次触达中位数与未触达收益。</div>
+    <div class="section-note" id="heatSummary">单元格显示触达率、样本数 n 与 Wilson 置信下限；点击单元格联动下方分析。</div>
     <div class="heat" id="heat"></div>
+    <div id="cellDetails" class="mini-cards" style="margin-top:14px"></div>
   </section>
-  <section class="grid2" style="margin-top:14px">
-    <div class="panel"><h2>稳定性与筛选漏斗</h2><div id="stability" class="list"></div></div>
-    <div class="panel"><h2>可追溯与导出</h2>
-      <div class="list">
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>Raw 与 F7 增量</h2>
+      <div class="section-note">同模型、阶段、触发与 H×R 的配对比较；样本保留率以 n(F7) / n(Raw) 计算。</div>
+      <div id="rawF7"></div>
+    </div>
+    <div class="panel">
+      <h2>Pareto 前沿</h2>
+      <div class="section-note" id="paretoSource">优先读取锁定候选前沿；缺失时由当前聚合网格即时计算。</div>
+      <div id="paretoChart" class="chart"></div>
+      <div id="paretoTable" class="table-wrap"></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>TRAIN / VALIDATION / AUDIT 稳定性</h2>
+      <div class="section-note">固定当前模型、触发、过滤器和 H×R，仅横向比较数据阶段。</div>
+      <div id="stability"></div>
+    </div>
+    <div class="panel">
+      <h2>单条件与组合过滤器晋级漏斗</h2>
+      <div class="section-note">展示阶段 2 单条件挑战与阶段 3 少量组合的保留、方向一致性和晋级状态。</div>
+      <div id="filterFunnel"></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>首次触达天数分布</h2>
+      <div id="firstHitChart" class="chart"></div>
+    </div>
+    <div class="panel">
+      <h2>未触达收益分布</h2>
+      <div id="unhitChart" class="chart"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>年度、季度与市场阶段</h2>
+    <div class="grid3">
+      <div><h3>年度</h3><div id="yearly"></div></div>
+      <div><h3>季度</h3><div id="quarterly"></div></div>
+      <div><h3>市场阶段</h3><div id="marketRegimes"></div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>500 万元 · 40 等额仓资金组合</h2>
+    <div id="portfolioSummary" class="mini-cards"></div>
+    <div class="grid2" style="margin-top:14px">
+      <div><h3>资金净值与回撤</h3><div id="equityChart" class="chart"></div></div>
+      <div><h3>容量与资金占用</h3><div id="capacity"></div></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>数据合同与检查</h2>
+      <div id="contract"></div>
+      <div id="checks" style="margin-top:14px"></div>
+    </div>
+    <div class="panel">
+      <h2>可追溯与导出</h2>
+      <div class="list provenance">
         <div class="row"><span class="label">生成时间</span><div id="generated">—</div></div>
-        <div class="row"><span class="label">聚合哈希</span><div id="hash" style="word-break:break-all">—</div></div>
-        <div><a href="/exports/s0000_fixture_grid.csv">导出当前 CSV</a> · <a href="/exports/checks.json">检查 JSON</a> · <a href="/exports/run_state.json">运行状态</a></div>
+        <div class="row"><span class="label">聚合哈希</span><div id="hash">—</div></div>
+        <div class="row"><span class="label">血缘说明</span><div id="provenanceWarning">—</div></div>
       </div>
+      <div id="exports" class="table-wrap" style="margin-top:12px"></div>
     </div>
   </section>
 </main>
-<footer>固定地址 http://127.0.0.1:18765 · 健康检查 GET /health · 聚合接口 GET /api/report</footer>
+<footer>
+  本地固定地址 <a href="/">http://127.0.0.1:18765</a> ·
+  健康检查 <a href="/healthz">GET /healthz</a> ·
+  聚合接口 <a href="/api/report">GET /api/report</a> ·
+  筛选枚举 <a href="/api/facets">GET /api/facets</a> ·
+  网格切片 <a id="gridApiLink" href="/api/grid">GET /api/grid</a> ·
+  导出清单 <a href="/api/manifest">GET /api/manifest</a>
+</footer>
+
 <script>
-let report, rows;
-const uniq=(key)=>[...new Set(report.grid.map(x=>String(x[key])))];
-function options(id,key){const e=document.getElementById(id);e.innerHTML=uniq(key).map(x=>`<option>${x}</option>`).join("");e.onchange=render}
-const colour=p=>{const v=Math.max(0,Math.min(1,(p-.15)/.75));return `hsl(${190-v*155} 65% ${19+v*29}%)`}
-function render(){
- const pick={model_code:model.value,stage:stage.value,trigger_view:view.value,trigger_key:trigger.value,filter_key:filter.value};
- rows=report.grid.filter(r=>Object.entries(pick).every(([k,v])=>String(r[k])===v));
- const by=new Map(rows.map(r=>[`${r.horizon}-${r.target_bps}`,r]));
- let html="<table><thead><tr><th>H \\ R</th>"+report.contract.targets_pct.map(r=>`<th>${r}%</th>`).join("")+"</tr></thead><tbody>";
- for(const h of report.contract.horizons){html+=`<tr><th>${h}日</th>`;for(const r of report.contract.targets_pct){const x=by.get(`${h}-${r*100}`);if(!x){html+="<td>—</td>";continue}const pct=(x.hit_rate*100).toFixed(1);const tip=`Wilson下限 ${(x.wilson_lower*100).toFixed(1)}% · 首触中位 ${x.first_hit_median??"—"}日 · 未触达均值 ${x.unhit_mean_return==null?"—":(x.unhit_mean_return*100).toFixed(2)+"%"}`;html+=`<td style="background:${colour(x.hit_rate)}" title="${tip}"><strong>${pct}%</strong>n=${x.n}</td>`}html+="</tr>"}heat.innerHTML=html+"</tbody></table>";
- stability.innerHTML=["TRAIN","VALIDATION","AUDIT"].map(s=>{const g=report.grid.filter(x=>x.stage===s);const avg=g.reduce((a,x)=>a+x.hit_rate,0)/(g.length||1);return `<div class="row"><b>${s}</b><div class="bar"><span style="width:${avg*100}%"></span></div><span class="muted">平均触达率 ${(avg*100).toFixed(1)}%</span></div>`}).join("");
+"use strict";
+let report = null;
+let manifest = {exports: []};
+let gridRows = [];
+let activeKey = "";
+let recommendedSelection = {};
+let gridSource = "report.grid";
+let gridLoadToken = 0;
+const rawF7Cache = new Map();
+
+const $ = id => document.getElementById(id);
+const escapeHtml = value => String(value ?? "—").replace(/[&<>"']/g, char => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+}[char]));
+const finite = value =>
+  value !== null && value !== undefined && value !== "" &&
+  Number.isFinite(Number(value));
+const number = (value, digits=2) => finite(value) ? Number(value).toLocaleString("zh-CN", {maximumFractionDigits: digits}) : "—";
+const pct = (value, digits=1) => finite(value) ? `${(Number(value) * 100).toFixed(digits)}%` : "—";
+const signedPct = (value, digits=2) => finite(value) ? `${Number(value) >= 0 ? "+" : ""}${(Number(value) * 100).toFixed(digits)}%` : "—";
+const readableText = value => {
+  const text = String(value ?? "—");
+  const chars = [...text];
+  const highByteRatio = chars.filter(char => {
+    const code = char.charCodeAt(0);
+    return code >= 128 && code <= 255;
+  }).length / Math.max(1, chars.length);
+  const hasCjk = /[\u3400-\u9fff]/.test(text);
+  if (hasCjk || highByteRatio < .18 || chars.some(char => char.charCodeAt(0) > 255) || typeof TextDecoder === "undefined") return text;
+  try {
+    return new TextDecoder("gbk").decode(Uint8Array.from(chars, char => char.charCodeAt(0)));
+  } catch {
+    return text;
+  }
+};
+const unique = (rows, key) => [...new Set(rows.map(row => String(row[key])).filter(value => value !== "undefined" && value !== "null"))]
+  .sort((a, b) => a.localeCompare(b, "zh-CN", {numeric: true}));
+const empty = text => `<div class="empty">${escapeHtml(text)}</div>`;
+const targetBps = row => finite(row.target_bps) ? Number(row.target_bps) : finite(row.target_pct) ? Number(row.target_pct) * 100 : finite(row.target) ? Number(row.target) * (Number(row.target) <= 1 ? 10000 : 100) : NaN;
+const horizonValue = row => Number(row.horizon ?? row.h ?? row.H);
+const rowKey = row => `${horizonValue(row)}-${targetBps(row)}`;
+
+const labels = {
+  TRAIN: "TRAIN 训练", VALIDATION: "VALIDATION 验证", AUDIT: "AUDIT 封存审计",
+  EXACT: "EXACT 精确并发", CONTAINS: "CONTAINS 包含稳健性",
+  RAW: "Raw 原始", F7: "F7 · MA250"
+};
+const fieldDefs = [
+  {id: "model", key: "model_code", preferred: "S0000"},
+  {id: "stage", key: "stage", preferred: "VALIDATION"},
+  {id: "triggerView", key: "trigger_view", preferred: "EXACT"},
+  {id: "trigger", key: "trigger_key"},
+  {id: "filterKey", key: "filter_key", preferred: "RAW"}
+];
+
+function formatOption(key, value) {
+  if (labels[value]) return labels[value];
+  if (key === "model_code") return value;
+  if (key === "trigger_key") return `触发 ${value}`;
+  return value;
 }
-fetch("/api/report").then(r=>r.json()).then(data=>{
- report=data; dataStatus.textContent=data.data_status; modelCount.textContent=uniq("model_code").length+"/18"; checkStatus.textContent=data.checks.passed?"通过":"失败";
- statusBanner.textContent=data.provenance.warning;generated.textContent=data.generated_at;hash.textContent=data.provenance.grid_sha256;
- options("model","model_code");options("stage","stage");options("view","trigger_view");options("trigger","trigger_key");options("filter","filter_key");render();
-}).catch(e=>statusBanner.textContent="报告接口读取失败："+e);
+
+function setSelect(element, values, preferred, includeAll=false, formatter=value => value) {
+  const previous = element.value;
+  element.replaceChildren();
+  if (includeAll) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "全部";
+    element.append(option);
+  }
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = formatter(String(value));
+    element.append(option);
+  }
+  const wanted = values.map(String).includes(previous) ? previous :
+    values.map(String).includes(String(preferred)) ? String(preferred) : includeAll ? "" : String(values[0] ?? "");
+  element.value = wanted;
+}
+
+function legacyRecommendedSelection() {
+  let rows = report.grid || [];
+  const selection = {};
+  for (const field of fieldDefs) {
+    const values = unique(rows, field.key);
+    let preferred = field.preferred;
+    if (field.key === "trigger_key") {
+      preferred = values.find(value => {
+        const filters = new Set(rows
+          .filter(row => String(row.trigger_key) === value)
+          .map(row => String(row.filter_key).toUpperCase()));
+        return filters.has("RAW") && filters.has("F7");
+      });
+    }
+    const selected = values.includes(String(preferred)) ? String(preferred) : String(values[0] ?? "");
+    selection[field.key] = selected;
+    rows = rows.filter(row => String(row[field.key]) === selected);
+  }
+  return selection;
+}
+
+function facetValues(key) {
+  const values = report.facets?.[key];
+  return Array.isArray(values) && values.length ? values.map(String) : unique(report.grid || [], key);
+}
+
+function triggerValuesForView(view=$("triggerView").value) {
+  const values = report.trigger_keys_by_view?.[view];
+  if (Array.isArray(values) && values.length) return values.map(String);
+  return unique(
+    (report.grid || []).filter(row => String(row.trigger_view) === String(view)),
+    "trigger_key"
+  );
+}
+
+function rebuildTriggerForView() {
+  const view = $("triggerView").value;
+  const values = triggerValuesForView(view);
+  const preferred = recommendedSelection.trigger_view === view
+    ? recommendedSelection.trigger_key : values[0];
+  $("trigger").value = "";
+  setSelect(
+    $("trigger"),
+    values,
+    preferred,
+    false,
+    value => formatOption("trigger_key", value)
+  );
+}
+
+function initializeSelectors() {
+  recommendedSelection = Object.keys(report.recommended_selection || {}).length
+    ? Object.fromEntries(Object.entries(report.recommended_selection).map(([key,value]) => [key,String(value)]))
+    : legacyRecommendedSelection();
+  for (const field of fieldDefs) {
+    const values = field.key === "trigger_key"
+      ? triggerValuesForView($("triggerView").value)
+      : facetValues(field.key);
+    setSelect(
+      $(field.id),
+      values,
+      recommendedSelection[field.key] ?? field.preferred,
+      false,
+      value => formatOption(field.key, value)
+    );
+  }
+}
+
+function visibleRows() {
+  return gridRows;
+}
+
+function currentSelection() {
+  return Object.fromEntries(fieldDefs.map(field => [field.key, $(field.id).value]));
+}
+
+function gridQuery(overrides={}) {
+  const params = new URLSearchParams({...currentSelection(), ...overrides});
+  const horizon = $("horizon").value;
+  const target = $("target").value;
+  if (horizon) params.set("horizon", horizon);
+  if (target) params.set("target_bps", target);
+  return params;
+}
+
+function setGridLoading(loading) {
+  for (const field of fieldDefs) $(field.id).disabled = loading;
+  $("horizon").disabled = loading;
+  $("target").disabled = loading;
+  $("resetFilters").disabled = loading;
+  $("exportCurrent").disabled = loading;
+  $("heat").setAttribute?.("aria-busy", String(loading));
+  if (loading) {
+    $("heatSummary").textContent = `${formatSelection()} · 正在从本地聚合网格读取切片…`;
+  }
+}
+
+async function loadGridSlice() {
+  const token = ++gridLoadToken;
+  activeKey = "";
+  rawF7Cache.clear();
+  if (!report.grid_export) {
+    const filters = Object.entries(currentSelection());
+    const horizon = $("horizon").value;
+    const target = $("target").value;
+    gridRows = (report.grid || []).filter(row =>
+      filters.every(([key,value]) => String(row[key]) === value) &&
+      (!horizon || String(horizonValue(row)) === horizon) &&
+      (!target || String(targetBps(row)) === target)
+    );
+    gridSource = "report.grid · fixture";
+    renderAll();
+    return;
+  }
+  setGridLoading(true);
+  window.__CLX_GRID_REQUESTS__ = (window.__CLX_GRID_REQUESTS__ || 0) + 1;
+  try {
+    const response = await fetch(`/api/grid?${gridQuery()}`, {cache:"no-store"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    if (!Array.isArray(payload.rows) || payload.rows.length > 522) throw new Error("网格切片响应违反 522 行上限");
+    if (token !== gridLoadToken) return;
+    gridRows = payload.rows;
+    gridSource = payload.source || "api/grid";
+    renderAll();
+  } catch (error) {
+    if (token !== gridLoadToken) return;
+    gridRows = [];
+    $("heat").innerHTML = empty(`网格切片读取失败：${error.message}`);
+    $("heatSummary").textContent = `${formatSelection()} · 本地网格接口错误`;
+    renderCellDetails();
+  } finally {
+    if (token === gridLoadToken) setGridLoading(false);
+  }
+}
+
+function bestRow(rows) {
+  const practical = rows.filter(row => targetBps(row) >= 500);
+  return [...(practical.length ? practical : rows)].sort((a, b) =>
+    Number(b.wilson_lower ?? -1) - Number(a.wilson_lower ?? -1) ||
+    targetBps(b) - targetBps(a) ||
+    horizonValue(a) - horizonValue(b) ||
+    Number(b.n ?? 0) - Number(a.n ?? 0)
+  )[0];
+}
+
+function activeRow() {
+  const rows = visibleRows();
+  let row = rows.find(item => rowKey(item) === activeKey);
+  if (!row) {
+    row = bestRow(rows);
+    activeKey = row ? rowKey(row) : "";
+  }
+  return row;
+}
+
+function heatColour(rate, lower) {
+  const score = Math.max(0, Math.min(1, Number(rate ?? 0) * .68 + Number(lower ?? 0) * .32));
+  return `hsl(${205 - score * 165} 62% ${17 + score * 31}%)`;
+}
+
+function renderHeat() {
+  const rows = visibleRows();
+  $("gridApiLink").href = `/api/grid?${gridQuery()}`;
+  const horizons = $("horizon").value ? [Number($("horizon").value)] : report.contract.horizons;
+  const targets = $("target").value ? [Number($("target").value) / 100] : report.contract.targets_pct;
+  const byCell = new Map(rows.map(row => [rowKey(row), row]));
+  $("heatSummary").textContent = `${formatSelection()} · ${rows.length} 个聚合单元 · ${gridSource}；点击单元格联动稳定性、分布和阶段分析。`;
+  if (!rows.length) {
+    $("heat").innerHTML = empty("当前筛选没有 H×R 聚合单元");
+    return;
+  }
+  let html = "<table><thead><tr><th>H \\ R</th>";
+  html += targets.map(target => `<th>${escapeHtml(target)}%</th>`).join("");
+  html += "</tr></thead><tbody>";
+  for (const horizon of horizons) {
+    html += `<tr><th>${escapeHtml(horizon)}日</th>`;
+    for (const target of targets) {
+      const row = byCell.get(`${horizon}-${Number(target) * 100}`);
+      if (!row) {
+        html += "<td>—</td>";
+        continue;
+      }
+      const title = `触达率 ${pct(row.hit_rate)}；n=${number(row.n, 0)}；Wilson 95% CI ${pct(row.wilson_lower)}–${pct(row.wilson_upper)}；首次触达中位 ${number(row.first_hit_median, 1)} 日；未触达均值 ${signedPct(row.unhit_mean_return)}`;
+      html += `<td><button class="heat-cell${rowKey(row) === activeKey ? " active" : ""}" type="button" data-key="${escapeHtml(rowKey(row))}" style="background:${heatColour(row.hit_rate, row.wilson_lower)}" title="${escapeHtml(title)}"><strong>${pct(row.hit_rate)}</strong><small>n=${number(row.n, 0)}</small><small>LB ${pct(row.wilson_lower)}</small></button></td>`;
+    }
+    html += "</tr>";
+  }
+  $("heat").innerHTML = `${html}</tbody></table>`;
+  $("heat").querySelectorAll(".heat-cell").forEach(button => {
+    button.addEventListener("click", () => {
+      activeKey = button.dataset.key;
+      renderAll();
+      $("cellDetails").scrollIntoView({behavior: "smooth", block: "nearest"});
+    });
+  });
+}
+
+function formatSelection() {
+  const selection = currentSelection();
+  return `${selection.model_code} · ${selection.stage} · ${selection.trigger_view} · 触发 ${selection.trigger_key} · ${selection.filter_key}`;
+}
+
+function metricCard(label, value, detail="") {
+  return `<div class="card"><div class="label">${escapeHtml(label)}</div><div class="metric small">${escapeHtml(value)}</div>${detail ? `<div class="muted">${escapeHtml(detail)}</div>` : ""}</div>`;
+}
+
+function renderCellDetails() {
+  const row = activeRow();
+  if (!row) {
+    $("cellDetails").innerHTML = empty("请选择有数据的 H×R 单元");
+    $("activeCell").textContent = "—";
+    return;
+  }
+  $("activeCell").textContent = `H${horizonValue(row)} · R${targetBps(row) / 100}%`;
+  $("cellDetails").innerHTML = [
+    metricCard("触达率 / 样本", `${pct(row.hit_rate)} / ${number(row.n, 0)}`, `命中 ${number(row.hit_n, 0)}`),
+    metricCard("Wilson 95% 区间", `${pct(row.wilson_lower)} – ${pct(row.wilson_upper)}`),
+    metricCard("首次触达中位数", finite(row.first_hit_median) ? `${number(row.first_hit_median, 1)} 日` : "—", `未触达均值 ${signedPct(row.unhit_mean_return)}`),
+    metricCard("净均值 / 利润因子", `${signedPct(row.net_mean_return)} / ${number(row.profit_factor, 2)}`)
+  ].join("");
+}
+
+function findFilterRow(filterKey, horizon, target) {
+  const selection = currentSelection();
+  return [...gridRows, ...(report.grid || [])].find(row =>
+    String(row.model_code) === selection.model_code &&
+    String(row.stage) === selection.stage &&
+    String(row.trigger_view) === selection.trigger_view &&
+    String(row.trigger_key) === selection.trigger_key &&
+    String(row.filter_key).toUpperCase() === filterKey &&
+    horizonValue(row) === horizon && targetBps(row) === target
+  );
+}
+
+function rawF7Key(active) {
+  const selection = currentSelection();
+  return [
+    selection.model_code, selection.stage, selection.trigger_view,
+    selection.trigger_key, horizonValue(active), targetBps(active)
+  ].join("|");
+}
+
+async function fetchRawF7Pair(active, key) {
+  const available = new Set(facetValues("filter_key").map(value => value.toUpperCase()));
+  try {
+    const rows = [];
+    for (const filterKey of ["RAW","F7"]) {
+      if (!available.has(filterKey)) continue;
+      const params = new URLSearchParams({...currentSelection(), filter_key:filterKey});
+      params.set("horizon", String(horizonValue(active)));
+      params.set("target_bps", String(targetBps(active)));
+      const response = await fetch(`/api/grid?${params}`, {cache:"no-store"});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      rows.push(...(payload.rows || []));
+    }
+    rawF7Cache.set(key, {rows});
+  } catch (error) {
+    rawF7Cache.set(key, {error:error.message});
+  }
+  if (activeRow() && rawF7Key(activeRow()) === key) renderRawF7();
+}
+
+function renderRawF7() {
+  const active = activeRow();
+  if (!active) {
+    $("rawF7").innerHTML = empty("当前没有可配对单元");
+    return;
+  }
+  let raw = findFilterRow("RAW", horizonValue(active), targetBps(active));
+  let f7 = findFilterRow("F7", horizonValue(active), targetBps(active));
+  if ((!raw || !f7) && report.grid_export) {
+    const key = rawF7Key(active);
+    const cached = rawF7Cache.get(key);
+    if (!cached) {
+      rawF7Cache.set(key, {loading:true});
+      $("rawF7").innerHTML = empty("正在读取 Raw / F7 配对切片…");
+      fetchRawF7Pair(active, key);
+      return;
+    }
+    if (cached.loading) {
+      $("rawF7").innerHTML = empty("正在读取 Raw / F7 配对切片…");
+      return;
+    }
+    if (cached.error) {
+      $("rawF7").innerHTML = empty(`Raw / F7 配对读取失败：${cached.error}`);
+      return;
+    }
+    raw = cached.rows.find(row => String(row.filter_key).toUpperCase() === "RAW");
+    f7 = cached.rows.find(row => String(row.filter_key).toUpperCase() === "F7");
+  }
+  if (!raw || !f7) {
+    $("rawF7").innerHTML = empty("当前 H×R 缺少 Raw 或 F7 配对聚合数据");
+    return;
+  }
+  const retention = Number(raw.n) > 0 ? Number(f7.n) / Number(raw.n) : NaN;
+  const rows = [
+    ["Raw", raw.n, pct(raw.hit_rate), pct(raw.wilson_lower), signedPct(raw.net_mean_return), number(raw.profit_factor, 2)],
+    ["F7", f7.n, pct(f7.hit_rate), pct(f7.wilson_lower), signedPct(f7.net_mean_return), number(f7.profit_factor, 2)],
+    ["F7 − Raw", `保留 ${pct(retention)}`, `${((Number(f7.hit_rate) - Number(raw.hit_rate)) * 100).toFixed(2)} pp`, `${((Number(f7.wilson_lower) - Number(raw.wilson_lower)) * 100).toFixed(2)} pp`, signedPct(Number(f7.net_mean_return) - Number(raw.net_mean_return)), "—"]
+  ];
+  $("rawF7").innerHTML = `<div class="section-note">H${horizonValue(active)} · R${targetBps(active) / 100}%</div>
+    <div class="table-wrap"><table class="data"><thead><tr><th>版本</th><th>n / 保留率</th><th>触达率</th><th>Wilson 下限</th><th>净均值</th><th>利润因子</th></tr></thead>
+    <tbody>${rows.map(row => `<tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+function looksLikeRecord(value) {
+  const keys = Object.keys(value || {});
+  return keys.some(key => [
+    "model", "model_code", "horizon", "h", "H", "target", "target_bps",
+    "hit_rate", "n", "status", "passed", "period", "year", "quarter",
+    "date", "equity", "net_value", "count", "value"
+  ].includes(key));
+}
+
+function flattenSection(value, path=[]) {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value.flatMap((item, index) =>
+    typeof item === "object" && item !== null
+      ? [{...item, _category: item._category ?? path.join(" / ")}]
+      : [{_category: path.join(" / "), label: String(index + 1), value: item}]
+  );
+  if (typeof value !== "object") return [{_category: path.slice(0, -1).join(" / "), label: path.at(-1), value}];
+  if (looksLikeRecord(value)) return [{...value, _category: path.join(" / ")}];
+  return Object.entries(value).flatMap(([key, item]) => flattenSection(item, [...path, key]));
+}
+
+function knownMatch(row, includeStage=true) {
+  const selection = currentSelection();
+  const aliases = [
+    ["model_code", selection.model_code],
+    ["trigger_view", selection.trigger_view],
+    ["trigger_key", selection.trigger_key],
+    ["filter_key", selection.filter_key]
+  ];
+  if (includeStage) aliases.push(["stage", selection.stage]);
+  return aliases.every(([key, value]) => row[key] == null || String(row[key]) === value);
+}
+
+function pointMatch(row, point=activeRow()) {
+  if (!point) return true;
+  const h = horizonValue(row);
+  const target = targetBps(row);
+  return (!finite(h) || h === horizonValue(point)) &&
+    (!finite(target) || target === targetBps(point));
+}
+
+function categoryLabel(category) {
+  const text = String(category || "冠军");
+  const map = {
+    literal: "字面最高触达率", literal_highest: "字面最高触达率",
+    practical: "R≥5% 实用稳健", practical_robust: "R≥5% 实用稳健",
+    models: "模型各自冠军", by_model: "模型各自冠军",
+    shortest_by_target: "每个 R 的最短期限", by_target: "每个 R 的最短期限",
+    max_target_by_horizon: "每个 H 的最高目标", by_horizon: "每个 H 的最高目标",
+    portfolio: "真实资金组合"
+  };
+  return map[text] || text.replaceAll("_", " ");
+}
+
+function stageSummary(row, stage) {
+  const lower = stage.toLowerCase();
+  const nested = row[lower] ?? row[stage];
+  const source = nested && typeof nested === "object" ? nested : row;
+  const prefix = source === row ? `${lower}_` : "";
+  const n = source[`${prefix}n`];
+  const rate = source[`${prefix}hit_rate`] ?? source[`${prefix}rate`];
+  const bootstrapLo = source[`${prefix}bootstrap_lower`];
+  const bootstrapHi = source[`${prefix}bootstrap_upper`];
+  const wilsonLo = source[`${prefix}wilson_lower`];
+  const wilsonHi = source[`${prefix}wilson_upper`];
+  const genericLo = source[`${prefix}confidence_lower`] ?? source[`${prefix}ci_lower`];
+  const genericHi = source[`${prefix}confidence_upper`] ?? source[`${prefix}ci_upper`];
+  let lo = genericLo, hi = genericHi, ciLabel = "95% CI";
+  if (finite(bootstrapLo) && finite(bootstrapHi)) {
+    lo = bootstrapLo;
+    hi = bootstrapHi;
+    ciLabel = "Bootstrap 95% CI";
+  } else if (finite(wilsonLo) && finite(wilsonHi)) {
+    lo = wilsonLo;
+    hi = wilsonHi;
+    ciLabel = "Wilson 95% CI";
+  }
+  if (![n, rate, lo, hi].some(finite)) return "—";
+  const firstHit = source[`${prefix}first_hit_median`];
+  const unhit = source[`${prefix}unhit_mean_return`];
+  const netMean = source[`${prefix}net_mean_return`];
+  const profitFactor = source[`${prefix}profit_factor`];
+  return `n=${number(n, 0)} · ${pct(rate)} · ${ciLabel} ${pct(lo)}–${pct(hi)} · 首触 ${number(firstHit, 1)}日 · 未触 ${signedPct(unhit)} · 净均 ${signedPct(netMean)} · PF ${number(profitFactor, 2)}`;
+}
+
+function renderChampions() {
+  const champions = flattenSection(report.champions);
+  if (!champions.length) {
+    $("championCards").innerHTML = metricCard("阶段状态", "待真实全量产出", "当前聚合报告尚未写入 champions");
+    $("championTable").innerHTML = empty("字面、实用、分模型、按 R、按 H 与资金组合冠军将在候选锁定后写入");
+    return;
+  }
+  $("championCards").innerHTML = champions.slice(0, 4).map(row =>
+    metricCard(
+      categoryLabel(row._category || row.category || row.type),
+      `${row.model_code ?? row.model ?? "组合"} · H${number(horizonValue(row), 0)} · R${finite(targetBps(row)) ? targetBps(row) / 100 : "—"}%`,
+      `${row.filter_key ?? row.filter ?? "—"} · ${pct(row.hit_rate ?? row.validation_hit_rate)}`
+    )
+  ).join("");
+  const body = champions.map(row => `<tr>
+    <td>${escapeHtml(categoryLabel(row._category || row.category || row.type))}</td>
+    <td>${escapeHtml(row.model_code ?? row.model)}</td>
+    <td>${escapeHtml(row.trigger_key ?? row.trigger ?? row.condition)}</td>
+    <td>${escapeHtml(row.filter_key ?? row.filter ?? row.filters)}</td>
+    <td>${escapeHtml(number(horizonValue(row), 0))}</td>
+    <td>${escapeHtml(finite(targetBps(row)) ? `${targetBps(row) / 100}%` : "—")}</td>
+    <td>${escapeHtml(stageSummary(row, "TRAIN"))}</td>
+    <td>${escapeHtml(stageSummary(row, "VALIDATION"))}</td>
+    <td>${escapeHtml(stageSummary(row, "AUDIT"))}</td>
+  </tr>`).join("");
+  $("championTable").innerHTML = `<table class="data"><thead><tr><th>冠军类别</th><th>模型</th><th>触发</th><th>过滤</th><th>H</th><th>R</th><th>TRAIN</th><th>VALIDATION</th><th>AUDIT</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function paretoFront(rows) {
+  const candidates = rows.filter(row => finite(horizonValue(row)) && finite(targetBps(row)) && finite(row.wilson_lower));
+  return candidates.filter(row => !candidates.some(other =>
+    horizonValue(other) <= horizonValue(row) &&
+    targetBps(other) >= targetBps(row) &&
+    Number(other.wilson_lower) >= Number(row.wilson_lower) &&
+    (horizonValue(other) < horizonValue(row) ||
+      targetBps(other) > targetBps(row) ||
+      Number(other.wilson_lower) > Number(row.wilson_lower))
+  )).sort((a, b) => horizonValue(a) - horizonValue(b) || targetBps(a) - targetBps(b));
+}
+
+function renderPareto() {
+  let candidates = flattenSection(report.pareto).filter(row => knownMatch(row));
+  let source = "报告候选前沿";
+  if (!candidates.length) {
+    candidates = paretoFront(gridRows);
+    source = "当前聚合网格即时计算（仅作交互参考）";
+  } else {
+    candidates = candidates.filter(row => row.is_pareto !== false && row.dominated !== true);
+  }
+  $("paretoSource").textContent = source;
+  if (!candidates.length) {
+    $("paretoChart").innerHTML = empty("待真实全量产出 Pareto 候选");
+    $("paretoTable").innerHTML = "";
+    return;
+  }
+  const width = 760, height = 280, left = 48, right = 18, top = 15, bottom = 36;
+  const hs = candidates.map(horizonValue), rs = candidates.map(row => targetBps(row) / 100);
+  const minH = Math.min(...hs), maxH = Math.max(...hs), minR = Math.min(...rs), maxR = Math.max(...rs);
+  const x = value => left + (value - minH) / Math.max(1, maxH - minH) * (width - left - right);
+  const y = value => height - bottom - (value - minR) / Math.max(1, maxR - minR) * (height - top - bottom);
+  const points = [...candidates].sort((a, b) => horizonValue(a) - horizonValue(b));
+  const path = points.map((row, index) => `${index ? "L" : "M"}${x(horizonValue(row)).toFixed(1)},${y(targetBps(row) / 100).toFixed(1)}`).join(" ");
+  const circles = candidates.map(row => `<circle cx="${x(horizonValue(row))}" cy="${y(targetBps(row) / 100)}" r="${4 + Math.min(5, Math.sqrt(Number(row.n ?? 0)) / 8)}" fill="${heatColour(row.hit_rate, row.wilson_lower)}"><title>H${horizonValue(row)} R${targetBps(row) / 100}% · 触达 ${pct(row.hit_rate)} · LB ${pct(row.wilson_lower)} · n=${number(row.n, 0)}</title></circle>`).join("");
+  $("paretoChart").innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Pareto 前沿，横轴期限，纵轴收益目标">
+    <line class="axis" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"/>
+    <line class="axis" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"/>
+    <path class="frontier" d="${path}"/>${circles}
+    <text x="${width/2}" y="${height-7}" text-anchor="middle">期限 H（交易日）</text>
+    <text x="14" y="${height/2}" transform="rotate(-90 14 ${height/2})" text-anchor="middle">目标 R（%）</text>
+    <text x="${left}" y="${height-bottom+17}">${number(minH, 0)}</text>
+    <text x="${width-right}" y="${height-bottom+17}" text-anchor="end">${number(maxH, 0)}</text>
+    <text x="${left-7}" y="${y(minR)+4}" text-anchor="end">${number(minR, 0)}%</text>
+    <text x="${left-7}" y="${y(maxR)+4}" text-anchor="end">${number(maxR, 0)}%</text>
+  </svg>`;
+  $("paretoTable").innerHTML = `<table class="data"><thead><tr><th>模型</th><th>过滤</th><th>H</th><th>R</th><th>触达率</th><th>Wilson 下限</th><th>n</th></tr></thead><tbody>${candidates.slice(0, 12).map(row => `<tr><td>${escapeHtml(row.model_code ?? $("model").value)}</td><td>${escapeHtml(row.filter_key ?? $("filterKey").value)}</td><td>${number(horizonValue(row), 0)}</td><td>${number(targetBps(row)/100, 0)}%</td><td>${pct(row.hit_rate)}</td><td>${pct(row.wilson_lower)}</td><td>${number(row.n, 0)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function stabilityRows() {
+  const active = activeRow();
+  let rows = flattenSection(report.stability).filter(row => knownMatch(row, false) && pointMatch(row, active));
+  if (rows.length) return rows;
+  const selection = currentSelection();
+  return gridRows.filter(row =>
+    String(row.model_code) === selection.model_code &&
+    String(row.trigger_view) === selection.trigger_view &&
+    String(row.trigger_key) === selection.trigger_key &&
+    String(row.filter_key) === selection.filter_key &&
+    pointMatch(row, active)
+  );
+}
+
+function renderStability() {
+  const rows = stabilityRows().sort((a, b) => ["TRAIN", "VALIDATION", "AUDIT"].indexOf(a.stage) - ["TRAIN", "VALIDATION", "AUDIT"].indexOf(b.stage));
+  if (!rows.length) {
+    $("stability").innerHTML = empty("待真实全量产出阶段稳定性");
+    return;
+  }
+  $("stability").innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th>阶段</th><th>n</th><th>触达率</th><th>95% CI</th><th>首触中位</th><th>未触达均值</th><th>净均值</th><th>利润因子</th></tr></thead><tbody>${rows.map(row => `<tr>
+    <td>${escapeHtml(row.stage ?? row.period ?? row._category)}</td><td>${number(row.n, 0)}</td><td>${pct(row.hit_rate)}</td>
+    <td>${pct(row.wilson_lower)}–${pct(row.wilson_upper)}</td><td>${number(row.first_hit_median, 1)}</td>
+    <td>${signedPct(row.unhit_mean_return)}</td><td>${signedPct(row.net_mean_return)}</td><td>${number(row.profit_factor, 2)}</td>
+  </tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderFunnel() {
+  const rows = flattenSection(report.filter_funnel).filter(row => knownMatch(row));
+  if (!rows.length) {
+    $("filterFunnel").innerHTML = empty("待真实全量产出：阶段 2/3 过滤器挑战尚未写入 filter_funnel");
+    return;
+  }
+  $("filterFunnel").innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th>阶段</th><th>条件 / 组合</th><th>n</th><th>保留率</th><th>Wilson 改善</th><th>净均值变化</th><th>状态</th></tr></thead><tbody>${rows.map(row => `<tr>
+    <td>${escapeHtml(row.phase ?? row.stage ?? row._category)}</td>
+    <td>${escapeHtml(row.condition ?? row.name ?? row.filter ?? row.filter_key)}</td>
+    <td>${number(row.n ?? row.validation_n, 0)}</td><td>${pct(row.retention_rate)}</td>
+    <td>${finite(row.wilson_delta) ? `${(Number(row.wilson_delta)*100).toFixed(2)} pp` : "—"}</td>
+    <td>${signedPct(row.net_mean_delta)}</td>
+    <td class="${row.promoted || row.passed ? "good" : "warn"}">${escapeHtml(row.status ?? (row.promoted || row.passed ? "晋级" : "未晋级"))}</td>
+  </tr>`).join("")}</tbody></table></div>`;
+}
+
+function subsection(object, names) {
+  for (const name of names) if (object && object[name] != null) return object[name];
+  return null;
+}
+
+function barChart(containerId, rawRows, labelKeys, valueKeys, pendingText) {
+  const rows = flattenSection(rawRows).filter(row => knownMatch(row) && pointMatch(row)).slice(0, 60);
+  if (!rows.length) {
+    $(containerId).innerHTML = empty(pendingText);
+    return;
+  }
+  const normalized = rows.map((row, index) => ({
+    label: labelKeys.map(key => row[key]).find(value => value != null) ?? row.label ?? row._category ?? index + 1,
+    value: Number(valueKeys.map(key => row[key]).find(finite) ?? 0)
+  }));
+  const width = 760, height = 250, left = 46, right = 14, top = 14, bottom = 48;
+  const max = Math.max(1, ...normalized.map(row => row.value));
+  const slot = (width-left-right) / normalized.length;
+  const bars = normalized.map((row, index) => {
+    const barHeight = row.value / max * (height-top-bottom);
+    const x = left + index * slot + slot * .12;
+    const label = normalized.length <= 18 || index % Math.ceil(normalized.length / 12) === 0
+      ? `<text x="${x + slot*.38}" y="${height-bottom+15}" text-anchor="middle">${escapeHtml(row.label)}</text>` : "";
+    return `<rect x="${x}" y="${height-bottom-barHeight}" width="${Math.max(2, slot*.76)}" height="${barHeight}" fill="#45d8ca"><title>${escapeHtml(row.label)}：${number(row.value, 0)}</title></rect>${label}`;
+  }).join("");
+  $(containerId).innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img">
+    <line class="axis" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"/>
+    <line class="axis" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"/>
+    ${bars}<text x="${left-7}" y="${top+4}" text-anchor="end">${number(max, 0)}</text>
+    <text x="${left-7}" y="${height-bottom+4}" text-anchor="end">0</text>
+  </svg>`;
+}
+
+function renderDistributions() {
+  const distributions = report.distributions || {};
+  barChart("firstHitChart", subsection(distributions, ["first_hit_days", "first_hit", "time_to_hit"]), ["day", "bin", "label"], ["count", "n", "value"], "待真实全量产出首次触达天数分布");
+  barChart("unhitChart", subsection(distributions, ["unhit_returns", "unhit_return", "unhit"]), ["return_bin", "bin", "label"], ["count", "n", "value"], "待真实全量产出未触达收益分布");
+}
+
+function periodTable(containerId, rawRows, pendingText) {
+  const rows = flattenSection(rawRows).filter(row => knownMatch(row) && pointMatch(row));
+  if (!rows.length) {
+    $(containerId).innerHTML = empty(pendingText);
+    return;
+  }
+  $(containerId).innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th>区间</th><th>n</th><th>触达率</th><th>Wilson 下限</th><th>净均值</th><th>利润因子</th></tr></thead><tbody>${rows.map(row => `<tr>
+    <td>${escapeHtml(row.period ?? row.year ?? row.quarter ?? row.market_regime ?? row.regime ?? row.label ?? row._category)}</td>
+    <td>${number(row.n, 0)}</td><td>${pct(row.hit_rate)}</td><td>${pct(row.wilson_lower)}</td>
+    <td>${signedPct(row.net_mean_return)}</td><td>${number(row.profit_factor, 2)}</td>
+  </tr>`).join("")}</tbody></table></div>`;
+}
+
+function renderPeriods() {
+  const periods = report.periods || {};
+  periodTable("yearly", subsection(periods, ["yearly", "annual"]), "待真实全量产出年度统计");
+  periodTable("quarterly", subsection(periods, ["quarterly", "quarters"]), "待真实全量产出季度统计");
+  periodTable("marketRegimes", subsection(periods, ["market_regimes", "market_phases", "regimes"]), "待真实全量产出市场阶段统计");
+}
+
+const summaryLabels = {
+  total_return: "总收益", annualized_return: "年化收益", max_drawdown: "最大回撤",
+  profit_factor: "利润因子", max_losing_streak: "最大连续亏损",
+  capacity: "容量", utilization: "资金占用", initial_capital: "初始资金",
+  trades: "交易数", win_rate: "胜率"
+};
+
+function renderLineChart(containerId, rows, rawDrawdowns=null) {
+  const points = flattenSection(rows).filter(row => finite(row.equity ?? row.net_value ?? row.value));
+  if (!points.length) {
+    $(containerId).innerHTML = empty("待真实全量产出资金净值、回撤和容量");
+    return;
+  }
+  const values = points.map(row => Number(row.equity ?? row.net_value ?? row.value));
+  const width=760, height=280, left=50, right=15, top=15, bottom=35;
+  const min=Math.min(...values), max=Math.max(...values);
+  const x=index => left + index / Math.max(1, values.length-1) * (width-left-right);
+  const y=value => top + (max-value) / Math.max(1e-9, max-min) * (height-top-bottom);
+  const path=values.map((value,index)=>`${index ? "L":"M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
+  const area=`${path} L${x(values.length-1)},${height-bottom} L${x(0)},${height-bottom} Z`;
+  let drawdowns = points.map(row => row.drawdown).filter(finite).map(Number);
+  if (!drawdowns.length) {
+    drawdowns = flattenSection(rawDrawdowns)
+      .map(row => row.drawdown ?? row.value)
+      .filter(finite)
+      .map(Number);
+  }
+  let drawdownPath = "";
+  let drawdownLabels = "";
+  if (drawdowns.length) {
+    const minDrawdown = Math.min(...drawdowns, 0);
+    const yDrawdown = value => top + (0 - value) / Math.max(1e-9, 0 - minDrawdown) * (height-top-bottom);
+    drawdownPath = `<path d="${drawdowns.map((value,index)=>`${index ? "L":"M"}${x(index * (values.length - 1) / Math.max(1, drawdowns.length - 1)).toFixed(1)},${yDrawdown(value).toFixed(1)}`).join(" ")}" fill="none" stroke="#ff7385" stroke-width="1.8"/>`;
+    drawdownLabels = `<text x="${width-right}" y="${top+11}" text-anchor="end" fill="#ff7385">回撤 0%</text><text x="${width-right}" y="${height-bottom-5}" text-anchor="end" fill="#ff7385">${pct(minDrawdown)}</text>`;
+  }
+  $(containerId).innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="资金净值曲线">
+    <line class="axis" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"/>
+    <path class="area" d="${area}"/><path class="line" d="${path}"/>${drawdownPath}
+    <text x="${left-7}" y="${y(max)+4}" text-anchor="end">${number(max, 2)}</text>
+    <text x="${left-7}" y="${y(min)+4}" text-anchor="end">${number(min, 2)}</text>
+    <text x="${left}" y="${height-8}">${escapeHtml(points[0].date ?? points[0].period ?? "")}</text>
+    <text x="${width-right}" y="${height-8}" text-anchor="end">${escapeHtml(points.at(-1).date ?? points.at(-1).period ?? "")}</text>
+    ${drawdownLabels}
+  </svg>`;
+}
+
+function renderPortfolio() {
+  const portfolio = report.portfolio;
+  if (!portfolio) {
+    $("portfolioSummary").innerHTML = metricCard("阶段状态", "待真实全量产出", "候选锁定后执行资金组合仿真");
+    $("equityChart").innerHTML = empty("待真实全量产出资金净值与回撤");
+    $("capacity").innerHTML = empty("待真实全量产出容量与资金占用");
+    return;
+  }
+  const summary = portfolio.summary || portfolio.metrics || portfolio;
+  const metricOrder = [
+    "total_return", "annualized_return", "max_drawdown", "profit_factor",
+    "max_losing_streak", "capacity", "utilization", "initial_capital",
+    "trades", "win_rate"
+  ];
+  const percentMetrics = new Set([
+    "total_return", "annualized_return", "max_drawdown", "utilization", "win_rate"
+  ]);
+  const integerMetrics = new Set(["max_losing_streak", "capacity", "trades"]);
+  const metricEntries = metricOrder
+    .filter(key => Object.hasOwn(summary, key) && typeof summary[key] !== "object")
+    .map(key => [key, summary[key]]);
+  $("portfolioSummary").innerHTML = metricEntries.length ? metricEntries.map(([key,value]) => {
+    let display = number(value, 2);
+    if (percentMetrics.has(key)) display = pct(value, 2);
+    if (integerMetrics.has(key)) display = number(value, 0);
+    if (key === "initial_capital") display = `¥${number(value, 0)}`;
+    return metricCard(summaryLabels[key] || key, display);
+  }).join("") : metricCard("阶段状态", "待真实全量产出");
+  renderLineChart(
+    "equityChart",
+    subsection(portfolio, ["equity_curve","equity","net_value"]),
+    subsection(portfolio, ["drawdown_curve","drawdowns"])
+  );
+  const capacityRows = flattenSection(subsection(portfolio, ["capacity","capacity_table","utilization"]));
+  if (!capacityRows.length) {
+    $("capacity").innerHTML = empty("待真实全量产出容量与资金占用");
+  } else {
+    $("capacity").innerHTML = `<div class="table-wrap"><table class="data"><thead><tr><th>区间</th><th>信号</th><th>成交</th><th>占用</th><th>去重</th></tr></thead><tbody>${capacityRows.map(row => `<tr><td>${escapeHtml(row.period ?? row.date ?? row.label ?? row._category)}</td><td>${number(row.signals,0)}</td><td>${number(row.trades,0)}</td><td>${pct(row.utilization ?? row.capital_utilization)}</td><td>${number(row.deduplicated ?? row.overlap_removed,0)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+}
+
+function renderContractAndChecks() {
+  const contractLabels = {
+    horizons: "期限 H", targets_pct: "目标 R", fee_each_side: "单边手续费",
+    entry: "入场", primary_trigger: "主触发", robustness_trigger: "稳健性触发"
+  };
+  $("contract").innerHTML = `<div class="list">${Object.entries(report.contract || {}).map(([key,value]) => {
+    let display = Array.isArray(value) ? `${value[0]} … ${value.at(-1)}（${value.length} 档）` : key === "fee_each_side" ? pct(value, 2) : value;
+    return `<div class="row"><span class="label">${escapeHtml(contractLabels[key] || key)}</span><div>${escapeHtml(display)}</div></div>`;
+  }).join("")}</div>`;
+  const checkRows = [];
+  const walk = (value, path=[]) => {
+    if (!value || typeof value !== "object") return;
+    if (Object.hasOwn(value, "passed")) checkRows.push({name:path.join(" / ") || "全部检查", ...value});
+    for (const [key,item] of Object.entries(value)) if (item && typeof item === "object") walk(item,[...path,key]);
+  };
+  walk(report.checks);
+  $("checks").innerHTML = checkRows.length ? `<div class="table-wrap"><table class="data"><thead><tr><th>检查</th><th>结果</th><th>失败数</th></tr></thead><tbody>${checkRows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td class="${row.passed ? "good":"bad"}">${row.passed ? "通过":"失败"}</td><td>${number(row.failure_count ?? row.violations,0)}</td></tr>`).join("")}</tbody></table></div>` : empty("报告未提供机器检查明细");
+}
+
+function formatBytes(bytes) {
+  const units=["B","KB","MB","GB"]; let value=Number(bytes)||0, index=0;
+  while(value>=1024 && index<units.length-1){value/=1024;index++;}
+  return `${value.toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
+function renderExports() {
+  const files = [...(manifest.exports || [])];
+  const declaredExports = flattenSection(report.exports);
+  if (report.grid_export) declaredExports.push({name:report.grid_export});
+  for (const declared of declaredExports) {
+    const name = declared.name ?? declared.file ?? declared.path ?? declared.label;
+    if (!name || files.some(file => file.name === name)) continue;
+    files.push({
+      name,
+      size: declared.size,
+      sha256: declared.sha256 ?? declared.hash,
+      url: String(declared.url || "").startsWith("/exports/")
+        ? declared.url : `/exports/${encodeURIComponent(String(name))}`
+    });
+  }
+  if (!files.length) {
+    $("exports").innerHTML = empty("输出目录暂无可导出文件");
+    return;
+  }
+  const suffixes = new Set(files.map(file => String(file.name).split(".").at(-1).toLowerCase()));
+  const formats = `<div class="section-note"><span class="pill">CSV ${suffixes.has("csv") ? "可用" : "待产出"}</span><span class="pill">Parquet ${suffixes.has("parquet") ? "可用" : "待产出"}</span><span class="pill">JSON ${suffixes.has("json") ? "可用" : "待产出"}</span></div>`;
+  $("exports").innerHTML = `${formats}<table class="data"><thead><tr><th>文件</th><th>大小</th><th>SHA-256</th><th>操作</th></tr></thead><tbody>${files.map(file => `<tr><td>${escapeHtml(file.name)}</td><td>${escapeHtml(finite(file.size) ? formatBytes(file.size) : "—")}</td><td title="${escapeHtml(file.sha256)}">${file.sha256 ? `${escapeHtml(String(file.sha256).slice(0,16))}…` : "—"}</td><td><a href="${escapeHtml(file.url)}">导出</a></td></tr>`).join("")}</tbody></table>`;
+}
+
+function renderMetadata() {
+  const models = facetValues("model_code");
+  const rawStatus = report.data_status || "UNKNOWN";
+  const statusText = rawStatus === "CLX18_FULL_HISTORY_AUDIT_REVEALED"
+    ? "全历史 · AUDIT已揭示" : rawStatus;
+  $("dataStatus").textContent = statusText;
+  $("dataStatus").title = rawStatus;
+  $("dataStatus").className = `metric status${statusText !== rawStatus ? " small" : ""}`;
+  $("modelCount").textContent = `${models.length} / 18`;
+  $("gridTotalRows").textContent = number(report.grid_total_rows ?? report.grid?.length, 0);
+  const passed = report.checks?.passed === true;
+  $("checkStatus").textContent = passed ? "通过" : "失败 / 未完成";
+  $("checkStatus").className = `metric ${passed ? "good" : "bad"}`;
+  $("generated").textContent = report.generated_at || "—";
+  $("hash").textContent = report.provenance?.grid_sha256 || report.provenance?.sha256 || "—";
+  $("provenanceWarning").textContent = readableText(report.provenance?.warning);
+  const fixture = String(report.data_status || "").includes("FIXTURE");
+  $("statusBanner").textContent = report.provenance?.warning ? readableText(report.provenance.warning) : (fixture
+    ? "当前为合同小切片，仅用于验证报告链路。"
+    : "聚合报告已加载；请以检查状态、数据阶段和血缘哈希确认可用范围。");
+  $("statusBanner").className = `banner ${!fixture && passed ? "ok" : ""}`;
+}
+
+function renderAll() {
+  activeRow();
+  renderHeat();
+  renderCellDetails();
+  renderRawF7();
+  renderPareto();
+  renderStability();
+  renderFunnel();
+  renderDistributions();
+  renderPeriods();
+  renderPortfolio();
+}
+
+function csvValue(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"','""')}"` : text;
+}
+
+function exportCurrentCsv() {
+  const rows = visibleRows();
+  if (!rows.length) return;
+  const columns = ["model_code","stage","trigger_view","trigger_key","filter_key","horizon","target_bps","n","hit_n","hit_rate","wilson_lower","wilson_upper","first_hit_median","unhit_mean_return","net_mean_return","profit_factor"];
+  const csv = "\ufeff" + [columns.join(","), ...rows.map(row => columns.map(key => csvValue(row[key])).join(","))].join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], {type:"text/csv;charset=utf-8"}));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `clx18_${$("model").value}_${$("stage").value}_${Date.now()}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function load() {
+  try {
+    const [reportResponse, manifestResponse, facetsResponse] = await Promise.all([
+      fetch("/api/report", {cache:"no-store"}),
+      fetch("/api/manifest", {cache:"no-store"}).catch(() => null),
+      fetch("/api/facets", {cache:"no-store"}).catch(() => null)
+    ]);
+    if (!reportResponse.ok) throw new Error(`报告接口 HTTP ${reportResponse.status}`);
+    report = await reportResponse.json();
+    if (!Array.isArray(report.grid) || !report.contract) throw new Error("报告缺少 grid 或 contract");
+    if (manifestResponse?.ok) manifest = await manifestResponse.json();
+    if (facetsResponse?.ok) {
+      const facetsPayload = await facetsResponse.json();
+      if (facetsPayload.facets) report.facets = facetsPayload.facets;
+      if (facetsPayload.trigger_keys_by_view) report.trigger_keys_by_view = facetsPayload.trigger_keys_by_view;
+      if (facetsPayload.recommended_selection) report.recommended_selection = facetsPayload.recommended_selection;
+      if (finite(facetsPayload.grid_total_rows)) report.grid_total_rows = facetsPayload.grid_total_rows;
+      if (facetsPayload.grid_export) report.grid_export = facetsPayload.grid_export;
+    }
+    initializeSelectors();
+    const initialSelection = currentSelection();
+    gridRows = report.grid_export ? report.grid : report.grid.filter(row =>
+      Object.entries(initialSelection).every(([key,value]) => String(row[key]) === value)
+    );
+    gridSource = report.grid_export ? "report.json · 推荐切片" : "report.grid · fixture";
+    renderMetadata();
+    renderChampions();
+    renderContractAndChecks();
+    renderExports();
+    const horizons = report.contract.horizons || unique(report.grid, "horizon").map(Number);
+    const targets = report.contract.targets_pct || unique(report.grid, "target_bps").map(value => Number(value)/100);
+    setSelect($("horizon"), horizons, "", true, value => `${value} 日`);
+    setSelect($("target"), targets.map(value => Number(value)*100), "", true, value => `${Number(value)/100}%`);
+    fieldDefs.forEach(field => {
+      if (field.key === "trigger_view") {
+        $(field.id).addEventListener("change", () => {
+          rebuildTriggerForView();
+          loadGridSlice();
+        });
+      } else {
+        $(field.id).addEventListener("change", loadGridSlice);
+      }
+    });
+    $("horizon").addEventListener("change", loadGridSlice);
+    $("target").addEventListener("change", loadGridSlice);
+    $("resetFilters").addEventListener("click", () => {
+      fieldDefs.forEach(field => {
+        if (field.key === "trigger_key") return;
+        const preferred = recommendedSelection[field.key];
+        if (facetValues(field.key).includes(preferred)) {
+          $(field.id).value = preferred;
+        }
+      });
+      rebuildTriggerForView();
+      $("horizon").value = "";
+      $("target").value = "";
+      activeKey = "";
+      loadGridSlice();
+    });
+    $("exportCurrent").addEventListener("click", exportCurrentCsv);
+    renderAll();
+    window.__CLX_REPORT_READY__ = true;
+    window.__CLX_GRID_READY__ = true;
+  } catch (error) {
+    $("statusBanner").textContent = `报告加载失败：${error.message}`;
+    $("statusBanner").className = "banner";
+    $("dataStatus").textContent = "LOAD_ERROR";
+    $("heat").innerHTML = empty("请先生成 outputs/clx18_target_hit/report.json，再检查 /healthz");
+    window.__CLX_REPORT_READY__ = false;
+    window.__CLX_GRID_READY__ = false;
+  }
+}
+
+load();
 </script>
 </body>
 </html>

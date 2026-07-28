@@ -17,7 +17,6 @@ from freshquant.backtest.clx_target_hit.engine import (
     validate_monotonicity,
 )
 
-
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "outputs" / "clx18_target_hit"
 
@@ -36,7 +35,10 @@ def main() -> None:
                 "f7_pass": index % 3 != 0,
                 "entry_open": 10.0,
                 "future_highs": 10
-                * (1 + np.maximum.accumulate(np.linspace(-0.01, 0.34, 90) + index / 8000)),
+                * (
+                    1
+                    + np.maximum.accumulate(np.linspace(-0.01, 0.34, 90) + index / 8000)
+                ),
                 "future_closes": 10
                 * (1 + np.linspace(-0.015, 0.20, 90) + index / 10000),
             }

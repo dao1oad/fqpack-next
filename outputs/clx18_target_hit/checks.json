@@ -1,17 +1,147 @@
 {
-  "monotonicity": {
-    "passed": true,
-    "failure_count": 0,
-    "failures": []
+  "schema_version": "clx18-target-hit-local-acceptance-v1",
+  "generated_at": "2026-07-28T13:44:54.2207364+08:00",
+  "scope": {
+    "deployment": "LOCALHOST_ONLY",
+    "url": "http://127.0.0.1:18765",
+    "health_url": "http://127.0.0.1:18765/healthz",
+    "remote_web_deploy": "NOT_APPLICABLE",
+    "hosting_json_absent": true,
+    "loopback_guard_passed": true,
+    "non_loopback_exit_code": 2
   },
-  "f7_subset": {
+  "pipeline": {
     "passed": true,
-    "raw_n": 48,
-    "f7_n": 32,
-    "violations": 0
+    "data_status": "CLX18_FULL_HISTORY_AUDIT_REVEALED",
+    "models": 18,
+    "development_event_rows": 2020050,
+    "audit_event_rows": 583652,
+    "development_grid_rows": 2653181,
+    "audit_grid_rows": 1230876,
+    "final_grid_rows": 3884105,
+    "legacy_trigger_mask_drift_rows": 0,
+    "legacy_filter_mask_drift_rows": 0,
+    "candidate_count": 63,
+    "champion_category_count": 67,
+    "candidate_lock_sha256": "c5c195cfa3c21ea3dce72fe6ea40c4ca4daaaf579b64eba9dd82b1b0421e9ad2",
+    "portfolio_lock_sha256": "31ce6a9e6f1bba08ad7586faad0ae55e3b130547f80d7a18335a4c540584fa11",
+    "dual_lock_before_audit": true,
+    "report_checks_passed": true
   },
-  "grid_rows": 17748,
-  "event_grid_rows": 25056,
-  "expected_event_grid_rows": 25056,
+  "artifacts": {
+    "passed": true,
+    "inventory_files": 38,
+    "inventory_missing": 0,
+    "inventory_hash_mismatches": 0,
+    "manifest_outputs": 12,
+    "manifest_hash_mismatches": 0,
+    "repro_scripts": 6,
+    "report_sha256": "d0beb05941c2188bae79ead609b984f5dbd53bfb8b1611157883b8bc0ec2a7ff",
+    "final_grid_sha256": "939b9af8550c24138e9f07d5425e2873ddcad541380b32c0edfeb353352c9ced",
+    "remote_formal_copy_sha256_matches": true
+  },
+  "automated_checks": {
+    "passed": true,
+    "pytest": {
+      "passed": true,
+      "tests": 37
+    },
+    "black": {
+      "passed": true,
+      "files": 11
+    },
+    "py_compile": {
+      "passed": true
+    },
+    "inline_javascript_node_check": {
+      "passed": true,
+      "script_count": 1
+    },
+    "git_diff_check": {
+      "passed": true
+    }
+  },
+  "http": {
+    "passed": true,
+    "health_status": 200,
+    "healthz_status": 200,
+    "report_status": 200,
+    "report_grid_rows": 522,
+    "facet_trigger_counts": {
+      "ALL": 1,
+      "COUNT": 3,
+      "EXACT": 73,
+      "CONTAINS": 79
+    },
+    "count_trigger_keys": [
+      "1",
+      "2",
+      "3_PLUS"
+    ],
+    "full_slices_522": [
+      "ALL/ALL",
+      "COUNT/1",
+      "COUNT/2",
+      "COUNT/3_PLUS",
+      "EXACT/64",
+      "CONTAINS/2",
+      "CONTAINS/64"
+    ],
+    "h_only_rows": 29,
+    "r_only_rows": 18,
+    "h_and_r_rows": 1,
+    "manifest_exports": 36,
+    "checks_json_exported": true,
+    "champions_csv_sha256_matches": true,
+    "duplicate_parameter_rejected": true,
+    "unknown_parameter_rejected": true,
+    "invalid_facet_rejected": true,
+    "path_traversal_rejected": true,
+    "pid_export_rejected": true,
+    "content_security_policy_present": true
+  },
+  "browser": {
+    "passed": true,
+    "status_label": "全历史 · AUDIT已揭示",
+    "models_label": "18 / 18",
+    "grid_total_label": "3,884,105",
+    "default_heat_cells": 522,
+    "count_view_trigger_keys_correct": true,
+    "contains_view_heat_cells": 522,
+    "portfolio_slice": "S0013/AUDIT/EXACT/64/F7/H90/R27",
+    "portfolio_slice_heat_cells": 1,
+    "heat_cell_click_linked": true,
+    "stability_rows": 3,
+    "first_hit_distribution_bars": 60,
+    "unhit_distribution_bars": 12,
+    "yearly_rows": 3,
+    "quarterly_rows": 8,
+    "market_regime_rows": 3,
+    "portfolio_summary_cards": 10,
+    "portfolio_equity_chart_rendered": true,
+    "pareto_chart_rendered": true,
+    "missing_metrics_render_as_dash": true,
+    "reset_to_recommended_view": true,
+    "console_errors": 0
+  },
+  "lifecycle": {
+    "passed": true,
+    "stop_process_verified_before_action": true,
+    "port_closed_after_stop": true,
+    "health_failed_after_stop": true,
+    "health_recovered_after_restart": true,
+    "local_address": "127.0.0.1",
+    "port": 18765,
+    "service_pid": 53416,
+    "listener_pid": 43036
+  },
+  "cleanup": {
+    "passed": true,
+    "local_sync_removed": true,
+    "local_transfer_tar_removed": true,
+    "remote_v2_temp_directories_removed": true,
+    "remote_transfer_tars_removed": true,
+    "remote_formal_results_preserved": true
+  },
   "passed": true
 }
