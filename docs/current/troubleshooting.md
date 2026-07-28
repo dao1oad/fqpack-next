@@ -572,6 +572,7 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 - TDX 行情服务器列表由仓库内 `freshquant/gateway/tdx_ip_pool.json` 人工维护（`QUANTAXIS.QAUtil.QAIPPool` 加载，优先于 `~/.quantaxis/setting/*_ip.json` 缓存）；股票日线、分钟线与 ETF xdxr 都使用这份正式池，服务器批量失效时更新该 JSON 即可
 - 当前 `QATdx.ping` 已加 K 线接口探活并把连接超时放宽到 3 秒；`select_best_ip` 判定阈值同步放宽，坏 default 服务器会被自动淘汰重选
 - 当前股票日线/分钟线逐票抓取会在首选 host 返回异常、`None` 或源侧空响应时切换仓库 IP 池；旧 QASU 即使继续收集逐票错误，最终 ready asset 的跨集合审计也会阻断假成功 marker
+- 股票分钟线增量落库按 `datetime` 严格大于 Mongo 中该代码、该周期的高水位筛选，不再按位置无条件丢弃 TDX 返回的首行；因此源侧没有回传旧高水位 bar（例如库内最后一条是发行期占位）时，第一根真实新 bar 仍会保留，首次仅返回一根有效 bar 时也会正常写入
 - 当前 Dagster `stock_day` / `stock_min` asset 落库后仍做基础新鲜度断言；`stock_postclose_ready_asset` 写 marker 前还会交叉审计最近 15 个交易日的当前股票日线与 `1min/5min/15min/30min/60min` 覆盖，任一确定性缺口都会 fail
 - 全市场交叉审计会豁免 OHLC 同值且成交量/额为 TDX 浮点哨兵的停牌占位日线；这类日期源侧没有分钟 bar，不要伪造数据
 - TDX 会在首个历史 bar 出现前把发行期证券放进 `stock_list`。QASU 对这类空结果打印 `ERROR CODE`；Dagster 仅在代码没有任何历史日线且仍为 TDX 发行期占位（或盘中当天 `N` 股）时豁免，已有历史或应有数据的代码仍会令任务失败

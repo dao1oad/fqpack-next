@@ -112,6 +112,48 @@ def _insert_stock_day_rows(collection, data):
     collection.insert_many(documents)
     return len(documents)
 
+
+def _select_strictly_new_minute_rows(data, latest_datetime):
+    """Keep fetched minute bars strictly newer than the Mongo high-water mark.
+
+    TDX does not always return the requested starting bar (for example when
+    Mongo contains a pre-listing placeholder).  Dropping ``data.iloc[0]``
+    therefore loses the first real bar.  Compare timestamps instead.
+    """
+    if data is None or getattr(data, 'empty', False):
+        return data
+    fetched_at = pd.to_datetime(data['datetime'], errors='coerce')
+    if latest_datetime is None:
+        selected = data.loc[fetched_at.notna()]
+    else:
+        cutoff = pd.Timestamp(latest_datetime)
+        selected = data.loc[fetched_at > cutoff]
+    time_key = (
+        'time_stamp'
+        if 'time_stamp' in selected.columns
+        else 'datetime' if 'datetime' in selected.columns else None
+    )
+    dedupe_keys = [
+        key
+        for key in ('code', 'type', time_key)
+        if key is not None and key in selected.columns
+    ]
+    if dedupe_keys:
+        selected = selected.drop_duplicates(dedupe_keys, keep='last')
+    return selected
+
+
+def _insert_new_minute_rows(collection, data, latest_datetime):
+    selected = _select_strictly_new_minute_rows(data, latest_datetime)
+    if selected is None or getattr(selected, 'empty', False):
+        return 0
+    documents = QA_util_to_json_from_pandas(selected)
+    if not documents:
+        return 0
+    collection.insert_many(documents)
+    return len(documents)
+
+
 def QA_SU_save_single_stock_day(code : str, client= DATABASE, ui_log=None):
     '''
      save single stock_day
@@ -766,10 +808,7 @@ def QA_SU_save_stock_min(client=DATABASE, ui_log=None, ui_progress=None):
                             end_time,
                             type
                         )
-                        if len(__data) > 1:
-                            coll.insert_many(
-                                QA_util_to_json_from_pandas(__data)[1::]
-                            )
+                        _insert_new_minute_rows(coll, __data, start_time)
                 else:
                     start_time = '2015-01-01'
                     QA_util_log_info(
@@ -793,10 +832,7 @@ def QA_SU_save_stock_min(client=DATABASE, ui_log=None, ui_progress=None):
                             end_time,
                             type
                         )
-                        if len(__data) > 1:
-                            coll.insert_many(
-                                QA_util_to_json_from_pandas(__data)
-                            )
+                        _insert_new_minute_rows(coll, __data, None)
         except Exception as e:
             QA_util_log_info(e, ui_log=ui_log)
             err.append(code)
@@ -890,10 +926,7 @@ def QA_SU_save_single_stock_min(code : str, client=DATABASE, ui_log=None, ui_pro
                             end_time,
                             type
                         )
-                        if len(__data) > 1:
-                            coll.insert_many(
-                                QA_util_to_json_from_pandas(__data)[1::]
-                            )
+                        _insert_new_minute_rows(coll, __data, start_time)
                 else:
                     start_time = '2015-01-01'
                     QA_util_log_info(
@@ -917,10 +950,7 @@ def QA_SU_save_single_stock_min(code : str, client=DATABASE, ui_log=None, ui_pro
                             end_time,
                             type
                         )
-                        if len(__data) > 1:
-                            coll.insert_many(
-                                QA_util_to_json_from_pandas(__data)
-                            )
+                        _insert_new_minute_rows(coll, __data, None)
         except Exception as e:
             QA_util_log_info(e, ui_log=ui_log)
             err.append(code)
