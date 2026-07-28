@@ -19,6 +19,7 @@ try:
     from .build_final_report import (
         DEFAULT_ROOT,
         PORTFOLIO_SELECTION_WINDOWS,
+        Candidate,
         build_group_index,
         candidate_subset,
         canonical_sha,
@@ -34,9 +35,10 @@ try:
         write_json,
     )
 except ImportError:
-    from build_final_report import (
+    from build_final_report import (  # type: ignore[no-redef]
         DEFAULT_ROOT,
         PORTFOLIO_SELECTION_WINDOWS,
+        Candidate,
         build_group_index,
         candidate_subset,
         canonical_sha,
@@ -55,7 +57,7 @@ except ImportError:
 
 def read_development_events(
     path: Path,
-    candidates: list[dict[str, object]],
+    candidates: list[Candidate],
 ) -> pd.DataFrame:
     columns = required_event_columns(candidates, portfolio=True)
     missing = sorted(set(columns).difference(parquet_columns(path)))

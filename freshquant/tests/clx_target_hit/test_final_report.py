@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import subprocess
 import sys
+from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -13,9 +14,10 @@ from script.clx_target_hit.build_final_report import (
     HORIZONS,
     PORTFOLIO_SELECTION_WINDOWS,
     TARGETS,
+    Candidate,
     audit_gate_evidence,
-    compact_grid_payload,
     canonical_sha,
+    compact_grid_payload,
     date_block_bootstrap,
     load_portfolio_lock,
     portfolio_equity_curve,
@@ -33,7 +35,7 @@ from script.clx_target_hit.lock_portfolio_candidate import (
 from script.clx_target_hit.select_and_challenge import mark_phase2, mark_phase3
 
 
-def candidate() -> dict[str, object]:
+def candidate() -> Candidate:
     return {
         "candidate_id": "candidate-a",
         "model_code": "S0000",
@@ -252,7 +254,8 @@ def test_portfolio_selection_annualizes_on_fixed_stage_window() -> None:
     )
     start, end = PORTFOLIO_SELECTION_WINDOWS["TRAIN"]
     days = (end - start).days + 1
-    expected = (summary["ending_equity"] / 5_000_000) ** (365.25 / days) - 1
+    ending_equity = cast(float, summary["ending_equity"])
+    expected = (ending_equity / 5_000_000) ** (365.25 / days) - 1
     assert summary["annualization_basis"] == "FIXED_STAGE_WINDOW"
     assert summary["annualization_days"] == days
     assert summary["annualized_return"] == pytest.approx(expected)
@@ -307,7 +310,7 @@ def test_portfolio_curve_marks_open_positions_at_daily_qfq_close(
 
 
 def test_universe_lineage_ignores_stage_specific_event_paths() -> None:
-    source_manifest = {
+    source_manifest: dict[str, object] = {
         "inputs": {
             "event_root": "/sealed/events",
             "event_manifest": {"sha256": "event-sha"},
@@ -316,30 +319,40 @@ def test_universe_lineage_ignores_stage_specific_event_paths() -> None:
             "index": {"sha256": "index-sha"},
         }
     }
-    development = {
+    development: dict[str, object] = {
         "events_path": "event_universe.parquet",
         "source_manifest": source_manifest,
     }
-    audit = {
+    audit: dict[str, object] = {
         "events_path": "event_universe_audit.parquet",
         "source_manifest": source_manifest,
     }
     assert universe_lineage_identity(development) == universe_lineage_identity(audit)
-    audit["source_manifest"] = json.loads(json.dumps(source_manifest))
-    audit["source_manifest"]["inputs"]["index"]["sha256"] = "different"
+    audit_source_manifest = cast(
+        dict[str, object],
+        json.loads(json.dumps(source_manifest)),
+    )
+    audit["source_manifest"] = audit_source_manifest
+    audit_inputs = cast(dict[str, object], audit_source_manifest["inputs"])
+    audit_index = cast(dict[str, object], audit_inputs["index"])
+    audit_index["sha256"] = "different"
     assert universe_lineage_identity(development) != universe_lineage_identity(audit)
 
 
 def test_audit_gate_binds_both_locks_before_universe_read() -> None:
-    candidate_lock = {
+    candidate_lock: dict[str, object] = {
         "locked_at": "2026-01-01T00:00:00Z",
         "lock_sha256": "candidate-sha",
     }
-    portfolio_lock = {
+    portfolio_lock: dict[str, object] = {
         "locked_at": "2026-01-01T01:00:00Z",
         "lock_sha256": "portfolio-sha",
     }
-    manifest = {
+    portfolio_binding: dict[str, object] = {
+        "lock_sha256": "portfolio-sha",
+        "audit_read": False,
+    }
+    manifest: dict[str, object] = {
         "contract": {
             "universe": {
                 "source_manifest": {
@@ -349,10 +362,7 @@ def test_audit_gate_binds_both_locks_before_universe_read() -> None:
                             "lock_sha256": "candidate-sha",
                             "audit_read": False,
                         },
-                        "portfolio_lock": {
-                            "lock_sha256": "portfolio-sha",
-                            "audit_read": False,
-                        },
+                        "portfolio_lock": portfolio_binding,
                         "portfolio_binds_candidate": True,
                     },
                 }
@@ -361,27 +371,26 @@ def test_audit_gate_binds_both_locks_before_universe_read() -> None:
     }
     evidence = audit_gate_evidence(manifest, candidate_lock, portfolio_lock)
     assert evidence["passed"]
-    manifest["contract"]["universe"]["source_manifest"]["audit_gate"]["portfolio_lock"][
-        "lock_sha256"
-    ] = "drift"
+    portfolio_binding["lock_sha256"] = "drift"
     assert not audit_gate_evidence(manifest, candidate_lock, portfolio_lock)["passed"]
 
 
 def test_final_lock_bindings_reject_drift() -> None:
-    candidate_lock = {
+    candidate_inputs: dict[str, object] = {
+        "development_outcomes_sha256": "events",
+        "stage1_grid_sha256": "grid",
+    }
+    candidate_lock: dict[str, object] = {
         "selection_stages": ["TRAIN", "VALIDATION"],
         "audit_read": False,
-        "inputs": {
-            "development_outcomes_sha256": "events",
-            "stage1_grid_sha256": "grid",
-        },
+        "inputs": candidate_inputs,
     }
     validate_candidate_lock_bindings(
         candidate_lock,
         development_sha256="events",
         stage1_sha256="grid",
     )
-    candidate_lock["inputs"]["stage1_grid_sha256"] = "drift"
+    candidate_inputs["stage1_grid_sha256"] = "drift"
     with pytest.raises(AssertionError, match="stage1 grid"):
         validate_candidate_lock_bindings(
             candidate_lock,
@@ -389,7 +398,7 @@ def test_final_lock_bindings_reject_drift() -> None:
             stage1_sha256="grid",
         )
 
-    portfolio_lock = {
+    portfolio_lock: dict[str, object] = {
         "selection_stages": ["TRAIN", "VALIDATION"],
         "audit_read": False,
         "inputs": {

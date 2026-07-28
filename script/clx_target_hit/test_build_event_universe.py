@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -433,7 +433,7 @@ def test_run_writes_compatible_parquet_manifest_and_checks(tmp_path: Path) -> No
     index.to_parquet(index_path, index=False)
 
     manifest = run(
-        SimpleNamespace(
+        argparse.Namespace(
             stages="TRAIN,VALIDATION",
             event_root=event_root,
             snapshot_root=snapshot,

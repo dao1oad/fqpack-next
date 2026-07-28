@@ -223,7 +223,7 @@ def aggregate_horizon(
     base = pl.read_parquet(events_path, columns=columns).filter(
         pl.col(f"h{horizon}_purged") & pl.col("stage").is_in(stages)
     )
-    outputs = []
+    outputs: list[pl.DataFrame] = []
     # CONTAINS expands an event to every non-empty submask.  Model is already
     # present in every grouping key, so model partitions are exactly equivalent
     # and reduce peak expanded rows by roughly the model count.

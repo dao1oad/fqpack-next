@@ -54,16 +54,18 @@ def main() -> None:
     )
     grid_path = OUT / "s0000_fixture_grid.csv"
     grid.to_csv(grid_path, index=False, encoding="utf-8")
+    monotonicity = validate_monotonicity(evaluated)
+    f7_subset = f7_subset_check(events)
     checks = {
-        "monotonicity": validate_monotonicity(evaluated),
-        "f7_subset": f7_subset_check(events),
+        "monotonicity": monotonicity,
+        "f7_subset": f7_subset,
         "grid_rows": len(grid),
         "event_grid_rows": len(evaluated),
         "expected_event_grid_rows": len(events) * 522,
     }
     checks["passed"] = (
-        checks["monotonicity"]["passed"]
-        and checks["f7_subset"]["passed"]
+        monotonicity["passed"]
+        and f7_subset["passed"]
         and checks["event_grid_rows"] == checks["expected_event_grid_rows"]
     )
     (OUT / "checks.json").write_text(

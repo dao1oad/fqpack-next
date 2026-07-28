@@ -982,10 +982,15 @@ function renderPortfolio() {
 function renderContractAndChecks() {
   const contractLabels = {
     horizons: "期限 H", targets_pct: "目标 R", fee_each_side: "单边手续费",
-    entry: "入场", primary_trigger: "主触发", robustness_trigger: "稳健性触发"
+    entry: "入场", primary_trigger: "主触发", robustness_trigger: "稳健性触发",
+    portfolio: "资金组合"
   };
   $("contract").innerHTML = `<div class="list">${Object.entries(report.contract || {}).map(([key,value]) => {
-    let display = Array.isArray(value) ? `${value[0]} … ${value.at(-1)}（${value.length} 档）` : key === "fee_each_side" ? pct(value, 2) : value;
+    let display = Array.isArray(value) ? `${value[0]} … ${value.at(-1)}（${value.length} 档）` :
+      key === "fee_each_side" ? pct(value, 2) :
+      key === "portfolio" && value && typeof value === "object" ?
+        `初始 ¥${number(value.initial_capital, 0)} · ${number(value.equal_slots, 0)} 等额仓 · 每日最多 ${number(value.daily_signal_limit, 0)} 个信号 · 同股持仓期去重` :
+        value;
     return `<div class="row"><span class="label">${escapeHtml(contractLabels[key] || key)}</span><div>${escapeHtml(display)}</div></div>`;
   }).join("")}</div>`;
   const checkRows = [];

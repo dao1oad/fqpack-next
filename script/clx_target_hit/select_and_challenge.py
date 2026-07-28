@@ -19,7 +19,7 @@ import pyarrow.parquet as pq
 try:
     from .build_final_report import validate_pipeline_evidence
 except ImportError:
-    from build_final_report import validate_pipeline_evidence
+    from build_final_report import validate_pipeline_evidence  # type: ignore[no-redef]
 
 DEFAULT_ROOT = Path("/tmp/clx18_target_hit_v1")
 FILTER_BITS = {"F1": 1, "F2": 2, "F3": 4, "F4": 8, "F5": 16, "F6": 32, "F7": 64}

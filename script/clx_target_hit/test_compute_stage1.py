@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import polars as pl
 import pytest
 
 from script.clx_target_hit.compute_stage1 import (
@@ -9,7 +10,6 @@ from script.clx_target_hit.compute_stage1 import (
     require_passed_checks,
     validate_reused_part,
 )
-import polars as pl
 
 
 def test_partial_smoke_is_not_full_contract_completion() -> None:

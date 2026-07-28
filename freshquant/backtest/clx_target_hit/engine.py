@@ -30,7 +30,9 @@ class TargetHitContract:
 CONTRACT = TargetHitContract()
 
 
-def wilson_interval(successes: int, n: int, z: float = 1.959963984540054) -> tuple[float, float]:
+def wilson_interval(
+    successes: int, n: int, z: float = 1.959963984540054
+) -> tuple[float, float]:
     if n <= 0:
         return (float("nan"), float("nan"))
     p = successes / n
@@ -76,9 +78,12 @@ def evaluate_events(
             if len(highs) < horizon or len(closes) < horizon:
                 continue
             prefix_highs = highs[:horizon]
-            timeout_net = closes[horizon - 1] * (1 - fee_rate_each_side) / (
-                entry * (1 + fee_rate_each_side)
-            ) - 1
+            timeout_net = (
+                closes[horizon - 1]
+                * (1 - fee_rate_each_side)
+                / (entry * (1 + fee_rate_each_side))
+                - 1
+            )
             for target_bps in targets_bps:
                 threshold = entry * _required_high_multiple(
                     target_bps, fee_rate_each_side
@@ -127,11 +132,11 @@ def aggregate_grid(
             hit_rate=hit_n / n if n else np.nan,
             wilson_lower=lower,
             wilson_upper=upper,
-            first_hit_median=float(
-                group.loc[group["hit"], "first_hit_day"].median()
-            )
-            if hit_n
-            else np.nan,
+            first_hit_median=(
+                float(group.loc[group["hit"], "first_hit_day"].median())
+                if hit_n
+                else np.nan
+            ),
             unhit_mean_return=float(losses.mean()) if len(losses) else np.nan,
             net_mean_return=float(group["realized_net_return"].mean()),
             profit_factor=float(wins / loss_sum) if loss_sum > 0 else np.inf,

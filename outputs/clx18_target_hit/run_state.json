@@ -7,7 +7,7 @@
   "phase": 5,
   "status": "LOCAL_WEB_COMPLETE_RUNNING",
   "started_at": "2026-07-28T10:05:00+08:00",
-  "updated_at": "2026-07-28T13:46:25.7790422+08:00",
+  "updated_at": "2026-07-28T14:19:09.742801+08:00",
   "current_command": ".venv\\Scripts\\python.exe script\\clx_target_hit\\serve_report.py --host 127.0.0.1 --port 18765",
   "processed_models": [
     "S0000",
@@ -95,7 +95,10 @@
     "inline_javascript_check": true,
     "git_diff_check": true,
     "local_cleanup": true,
-    "remote_compute_temp_cleanup": true
+    "remote_compute_temp_cleanup": true,
+    "pre_commit_changed_files": true,
+    "browser_portfolio_contract_readable": true,
+    "post_restart_api_regression": true
   },
   "blockers": [],
   "next_step": "none; local report is running and accepted",
@@ -144,6 +147,6 @@
   "audit_universe_rows": 583652,
   "audit_outcome_rows": 583652,
   "audit_grid_rows": 1230876,
-  "server_pid": 53416,
-  "listener_pid": 43036
+  "server_pid": 28764,
+  "listener_pid": 5900
 }

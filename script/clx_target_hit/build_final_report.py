@@ -17,7 +17,7 @@ import os
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TypedDict, cast
 
 import numpy as np
 import pandas as pd
@@ -86,6 +86,20 @@ RETURN_BINS = np.asarray(
     ],
     dtype=np.float64,
 )
+
+
+class Candidate(TypedDict):
+    candidate_id: str
+    model_code: str
+    trigger_view: str
+    trigger_key: str
+    trigger_label: object
+    required_filter_mask: int
+    filter_key: object
+    filter_count: int
+    horizon: int
+    target_bps: int
+    source_phase: object
 
 
 def utc_now() -> str:
@@ -210,10 +224,16 @@ def date_block_bootstrap(
     return tuple(np.quantile(rates, [0.025, 0.975]).tolist())
 
 
-def normalize_candidate(record: dict[str, object]) -> dict[str, object]:
-    required_mask = int(record.get("required_filter_mask") or 0)
-    trigger_mask = int(record["trigger_key"])
-    candidate = {
+def integer_field(value: object) -> int:
+    """Convert an integer-valued JSON lock field without changing runtime behavior."""
+
+    return int(cast(int | float | str, value))
+
+
+def normalize_candidate(record: dict[str, object]) -> Candidate:
+    required_mask = integer_field(record.get("required_filter_mask") or 0)
+    trigger_mask = integer_field(record["trigger_key"])
+    candidate: Candidate = {
         "candidate_id": str(record["candidate_id"]),
         "model_code": str(record["model_code"]),
         "trigger_view": "EXACT",
@@ -221,15 +241,17 @@ def normalize_candidate(record: dict[str, object]) -> dict[str, object]:
         "trigger_label": record.get("trigger_label") or trigger_label(trigger_mask),
         "required_filter_mask": required_mask,
         "filter_key": record.get("filter_key") or filter_label(required_mask),
-        "filter_count": int(record.get("filter_count") or required_mask.bit_count()),
-        "horizon": int(record["horizon"]),
-        "target_bps": int(record["target_bps"]),
+        "filter_count": integer_field(
+            record.get("filter_count") or required_mask.bit_count()
+        ),
+        "horizon": integer_field(record["horizon"]),
+        "target_bps": integer_field(record["target_bps"]),
         "source_phase": record.get("source_phase"),
     }
     return candidate
 
 
-def load_lock(path: Path) -> tuple[dict[str, object], list[dict[str, object]], bool]:
+def load_lock(path: Path) -> tuple[dict[str, object], list[Candidate], bool]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     claimed = payload.get("lock_sha256")
     unsigned = dict(payload)
@@ -349,8 +371,10 @@ def universe_lineage_identity(
     event_manifest = inputs.get("event_manifest")
     snapshot_manifest = inputs.get("snapshot_manifest")
     index = inputs.get("index")
-    if not all(
-        isinstance(item, dict) for item in (event_manifest, snapshot_manifest, index)
+    if (
+        not isinstance(event_manifest, dict)
+        or not isinstance(snapshot_manifest, dict)
+        or not isinstance(index, dict)
     ):
         return None
     identity = {
@@ -362,7 +386,7 @@ def universe_lineage_identity(
     }
     if not all(isinstance(value, str) and value for value in identity.values()):
         return None
-    return identity
+    return cast(dict[str, str], identity)
 
 
 def audit_gate_evidence(
@@ -372,11 +396,12 @@ def audit_gate_evidence(
 ) -> dict[str, object]:
     """Prove the AUDIT universe was first materialized after both bound locks."""
 
-    universe = (
-        audit_outcome_manifest.get("contract", {}).get("universe")
+    contract = (
+        audit_outcome_manifest.get("contract")
         if isinstance(audit_outcome_manifest, dict)
         else None
     )
+    universe = contract.get("universe") if isinstance(contract, dict) else None
     source_manifest = (
         universe.get("source_manifest") if isinstance(universe, dict) else None
     )
@@ -493,7 +518,7 @@ def validate_portfolio_lock_bindings(
 
 
 def required_event_columns(
-    candidates: Iterable[dict[str, object]],
+    candidates: Iterable[Candidate],
     *,
     portfolio: bool,
 ) -> list[str]:
@@ -538,7 +563,7 @@ def parquet_columns(path: Path) -> set[str]:
 def read_event_artifacts(
     development_path: Path,
     audit_path: Path,
-    candidates: list[dict[str, object]],
+    candidates: list[Candidate],
     *,
     portfolio: bool,
 ) -> pd.DataFrame:
@@ -588,7 +613,7 @@ def build_group_index(events: pd.DataFrame) -> dict[tuple[str, int, str], np.nda
 def candidate_subset(
     events: pd.DataFrame,
     group_index: dict[tuple[str, int, str], np.ndarray],
-    candidate: dict[str, object],
+    candidate: Candidate,
     stage: str | None,
 ) -> pd.DataFrame:
     trigger_mask = int(candidate["trigger_key"])
@@ -622,7 +647,7 @@ def candidate_subset(
 
 def outcome_arrays(
     subset: pd.DataFrame,
-    candidate: dict[str, object],
+    candidate: Candidate,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     horizon = int(candidate["horizon"])
     target_bps = int(candidate["target_bps"])
@@ -639,7 +664,7 @@ def outcome_arrays(
 
 def summarize_subset(
     subset: pd.DataFrame,
-    candidate: dict[str, object],
+    candidate: Candidate,
     *,
     stage: str,
     bootstrap_samples: int,
@@ -695,7 +720,7 @@ def summarize_subset(
 
 def evaluate_locked(
     events: pd.DataFrame,
-    candidates: list[dict[str, object]],
+    candidates: list[Candidate],
     *,
     bootstrap_samples: int,
 ) -> tuple[pd.DataFrame, dict[tuple[str, str], pd.DataFrame]]:
@@ -719,7 +744,7 @@ def evaluate_locked(
 
 def distribution_rows(
     subsets: dict[tuple[str, str], pd.DataFrame],
-    candidates: list[dict[str, object]],
+    candidates: list[Candidate],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     first_rows: list[dict[str, object]] = []
     unhit_rows: list[dict[str, object]] = []
@@ -767,7 +792,7 @@ def distribution_rows(
 
 def period_metric(
     subset: pd.DataFrame,
-    candidate: dict[str, object],
+    candidate: Candidate,
     *,
     stage: str,
     dimension: str,
@@ -786,7 +811,7 @@ def period_metric(
 
 def build_periods(
     subsets: dict[tuple[str, str], pd.DataFrame],
-    candidates: list[dict[str, object]],
+    candidates: list[Candidate],
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for candidate in candidates:
@@ -829,7 +854,7 @@ def max_losing_streak(returns: Iterable[float]) -> int:
 
 def prepare_portfolio_signals(
     subset: pd.DataFrame,
-    candidate: dict[str, object],
+    candidate: Candidate,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     horizon = int(candidate["horizon"])
     target = int(candidate["target_bps"]) // 100
@@ -867,7 +892,7 @@ def prepare_portfolio_signals(
 
 def simulate_acceptance(
     subset: pd.DataFrame,
-    candidate: dict[str, object],
+    candidate: Candidate,
     *,
     annualization_window: tuple[pd.Timestamp, pd.Timestamp] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, object]]:
@@ -887,7 +912,9 @@ def simulate_acceptance(
             # Frozen execution order: all exits settle before entries on the
             # same date, matching the previously validated portfolio engine.
             if pd.Timestamp(position["exit_date"]) <= pd.Timestamp(entry_date):
-                cash += slot_capital * (1 + float(position["realized_return"]))
+                cash += slot_capital * (
+                    1 + float(cast(float, position["realized_return"]))
+                )
             else:
                 still_active.append(position)
         active = still_active
@@ -926,7 +953,7 @@ def simulate_acceptance(
             accepted.append(row)
             admitted_today += 1
     for position in active:
-        cash += slot_capital * (1 + float(position["realized_return"]))
+        cash += slot_capital * (1 + float(cast(float, position["realized_return"])))
     trades = pd.DataFrame(accepted)
     rejections = pd.DataFrame(
         rejection_rows,
@@ -1353,7 +1380,7 @@ def category_key(raw: str) -> str | None:
 
 def champion_payload(
     lock_payload: dict[str, object],
-    candidates: list[dict[str, object]],
+    candidates: list[Candidate],
     stability: pd.DataFrame,
 ) -> dict[str, list[dict[str, object]]]:
     candidate_lookup = {
@@ -1371,7 +1398,11 @@ def champion_payload(
         "by_horizon": [],
         "portfolio": [],
     }
-    for category in lock_payload.get("categories", []):
+    categories = cast(
+        list[dict[str, object]],
+        lock_payload.get("categories", []),
+    )
+    for category in categories:
         key = category_key(str(category["category"]))
         candidate_id = str(category["candidate_id"])
         if key is None or candidate_id not in candidate_lookup:
@@ -1649,15 +1680,19 @@ def main() -> None:
         stage1_sha256=stage1_sha256,
         pipeline_evidence=development_pipeline_evidence,
     )
-    lock_bootstrap_samples = lock_payload.get("bootstrap", {}).get("samples")
+    lock_bootstrap = cast(
+        dict[str, object],
+        lock_payload.get("bootstrap", {}),
+    )
+    lock_bootstrap_samples = lock_bootstrap.get("samples")
     bootstrap_samples = (
         args.bootstrap_samples
         if args.bootstrap_samples is not None
-        else int(lock_bootstrap_samples or 1000)
+        else integer_field(lock_bootstrap_samples or 1000)
     )
     if (
         lock_bootstrap_samples is not None
-        and int(lock_bootstrap_samples) != bootstrap_samples
+        and integer_field(lock_bootstrap_samples) != bootstrap_samples
     ):
         raise AssertionError("final bootstrap sample count must match candidate lock")
     portfolio_lock, portfolio_lock_verified = load_portfolio_lock(portfolio_lock_path)
@@ -1692,7 +1727,8 @@ def main() -> None:
     portfolio: dict[str, object] | None = None
     portfolio_winner: dict[str, object] | None = None
     if not args.skip_portfolio:
-        winner_id = str(portfolio_lock["winner"]["candidate_id"])
+        winner_lock = cast(dict[str, object], portfolio_lock["winner"])
+        winner_id = str(winner_lock["candidate_id"])
         candidate = next(
             (item for item in candidates if str(item["candidate_id"]) == winner_id),
             None,
@@ -1749,7 +1785,7 @@ def main() -> None:
                     "actual first-touch stock bar date; same-day exits precede entries"
                 ),
                 "selection_stages": ["TRAIN", "VALIDATION"],
-                "selection_score": portfolio_lock["winner"]["selection_score"],
+                "selection_score": winner_lock["selection_score"],
             }
         )
         portfolio_winner = summary
@@ -1807,8 +1843,14 @@ def main() -> None:
         if development_manifest
         else None
     )
+    audit_contract = (
+        cast(dict[str, object], audit_manifest.get("contract", {}))
+        if audit_manifest
+        else {}
+    )
+    audit_universe_value = audit_contract.get("universe")
     audit_universe = (
-        audit_manifest.get("contract", {}).get("universe") if audit_manifest else None
+        audit_universe_value if isinstance(audit_universe_value, dict) else None
     )
     universe_lineage = universe_lineage_identity(universe)
     audit_universe_lineage = universe_lineage_identity(audit_universe)

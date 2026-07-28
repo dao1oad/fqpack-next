@@ -13,6 +13,7 @@ from functools import lru_cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import cast
 from urllib.parse import parse_qsl, quote, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -167,7 +168,10 @@ def _filter_fixture_grid(
     ]
     return sorted(
         selected,
-        key=lambda row: (int(row.get("horizon", 0)), int(row.get("target_bps", 0))),
+        key=lambda row: (
+            int(cast(int | float | str, row.get("horizon", 0))),
+            int(cast(int | float | str, row.get("target_bps", 0))),
+        ),
     )
 
 
@@ -233,7 +237,8 @@ def _grid_payload_cached(
             "selection": dict(filters),
             "row_count": len(rows),
             "grid_total_rows": report.get(
-                "grid_total_rows", len(report.get("grid", []))
+                "grid_total_rows",
+                len(cast(list[object], report.get("grid", []))),
             ),
             "rows": rows,
         }
@@ -374,7 +379,8 @@ def _facets_payload_cached(
                 (int(value) for value in _facet_values(report, "target_bps"))
             ),
             "grid_total_rows": report.get(
-                "grid_total_rows", len(report.get("grid", []))
+                "grid_total_rows",
+                len(cast(list[object], report.get("grid", []))),
             ),
             "grid_export": report.get("grid_export"),
         }
@@ -558,13 +564,17 @@ class Handler(BaseHTTPRequestHandler):
             details.update(
                 {
                     "report": not missing,
-                    "checks_passed": report.get("checks", {}).get("passed") is True,
+                    "checks_passed": cast(
+                        dict[str, object], report.get("checks", {})
+                    ).get("passed")
+                    is True,
                     "data_status": report.get("data_status"),
                     "generated_at": report.get("generated_at"),
                     "provenance_sha256": provenance_hash,
-                    "grid_rows": len(report.get("grid", [])),
+                    "grid_rows": len(cast(list[object], report.get("grid", []))),
                     "grid_total_rows": report.get(
-                        "grid_total_rows", len(report.get("grid", []))
+                        "grid_total_rows",
+                        len(cast(list[object], report.get("grid", []))),
                     ),
                     "grid_backend": (
                         str(grid_export) if grid_export else "report.grid"

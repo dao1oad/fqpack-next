@@ -1,6 +1,6 @@
 {
   "schema_version": "clx18-target-hit-local-acceptance-v1",
-  "generated_at": "2026-07-28T13:44:54.2207364+08:00",
+  "generated_at": "2026-07-28T14:19:09.742801+08:00",
   "scope": {
     "deployment": "LOCALHOST_ONLY",
     "url": "http://127.0.0.1:18765",
@@ -59,6 +59,15 @@
     },
     "git_diff_check": {
       "passed": true
+    },
+    "pre_commit": {
+      "passed": true,
+      "scope": "origin/main changed files",
+      "changed_files": 21,
+      "black": true,
+      "mypy": true,
+      "isort": true,
+      "mixed_line_ending": true
     }
   },
   "http": {
@@ -122,7 +131,9 @@
     "pareto_chart_rendered": true,
     "missing_metrics_render_as_dash": true,
     "reset_to_recommended_view": true,
-    "console_errors": 0
+    "console_errors": 0,
+    "portfolio_contract_readable": true,
+    "object_object_leak": false
   },
   "lifecycle": {
     "passed": true,
@@ -132,8 +143,8 @@
     "health_recovered_after_restart": true,
     "local_address": "127.0.0.1",
     "port": 18765,
-    "service_pid": 53416,
-    "listener_pid": 43036
+    "service_pid": 28764,
+    "listener_pid": 5900
   },
   "cleanup": {
     "passed": true,

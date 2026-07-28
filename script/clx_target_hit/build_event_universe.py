@@ -822,14 +822,13 @@ def enrich_stock_features(
         },
     }
     failures = sum(
-        checks[name]
-        for name in (
-            "missing_snapshot_code_rows",
-            "missing_reveal_bar_rows",
-            "missing_entry_bar_rows",
-            "missing_feature_window_rows",
-            "source_entry_date_mismatches",
-            "source_raw_entry_price_mismatches",
+        (
+            missing_code_rows,
+            missing_reveal_rows,
+            missing_entry_rows,
+            missing_feature_window_rows,
+            entry_date_mismatches,
+            raw_entry_price_mismatches,
         )
     )
     if failures:
