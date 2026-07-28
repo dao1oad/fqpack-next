@@ -37,6 +37,7 @@ def _run_git(
         cwd=repo_root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
 

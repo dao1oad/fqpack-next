@@ -25,6 +25,7 @@ def _git_output(repo_root: Path, *args: str) -> str:
         cwd=repo_root,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     if result.returncode != 0:
