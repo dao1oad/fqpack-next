@@ -1,0 +1,17 @@
+{
+  "monotonicity": {
+    "passed": true,
+    "failure_count": 0,
+    "failures": []
+  },
+  "f7_subset": {
+    "passed": true,
+    "raw_n": 48,
+    "f7_n": 32,
+    "violations": 0
+  },
+  "grid_rows": 17748,
+  "event_grid_rows": 25056,
+  "expected_event_grid_rows": 25056,
+  "passed": true
+}

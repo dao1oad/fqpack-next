@@ -22,6 +22,7 @@
 ## 当前专题入口
 
 - [CLX 大规模回测](./current/modules/clx-backtest.md)
+- [CLX18 日线目标收益触达率报告](./current/reference/clx-target-hit-report.md)
 - [CLX 30分钟上证行情分段×双形态回测](./current/reference/clx-30m-regime-trigger-backtest.md)
 
 ## 当前阶段最常用入口

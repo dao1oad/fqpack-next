@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CLX18 目标收益触达率</title>
+  <style>
+    :root{color-scheme:dark;--bg:#08101c;--panel:#111d2d;--line:#26364b;--text:#edf4ff;--muted:#91a3ba;--cyan:#42d3c8;--amber:#ffbd59}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#173452 0,transparent 34%),var(--bg);color:var(--text);font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif}
+    header,main{max-width:1500px;margin:auto;padding:22px}.eyebrow{color:var(--cyan);letter-spacing:.14em;font-weight:700}h1{font-size:30px;margin:4px 0}h2{font-size:18px;margin:0 0 14px}.muted{color:var(--muted)}
+    .banner{border:1px solid #795f28;background:#312817;padding:10px 14px;border-radius:8px;color:#ffe0a3;margin-top:14px}
+    .cards,.grid2{display:grid;gap:14px}.cards{grid-template-columns:repeat(4,1fr);margin:18px 0}.grid2{grid-template-columns:2fr 1fr}
+    .card,.panel{background:rgba(17,29,45,.94);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 12px 30px #0004}.metric{font-size:26px;font-weight:750}.label{color:var(--muted);font-size:12px}
+    .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}label{color:var(--muted);font-size:12px}select{display:block;margin-top:4px;background:#0a1422;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 24px 7px 9px}
+    .heat{overflow:auto}.heat table{border-collapse:separate;border-spacing:3px;min-width:1100px}.heat th{color:var(--muted);font-size:11px;position:sticky}.heat td{height:42px;min-width:51px;text-align:center;border-radius:5px;font-size:10px;cursor:pointer}.heat td:hover{outline:2px solid white}.heat strong{display:block;font-size:12px}
+    .bar{display:flex;height:18px;border-radius:5px;overflow:hidden;background:#1d2a3d}.bar span{background:var(--cyan)}.list{display:grid;gap:9px}.row{border-bottom:1px solid var(--line);padding-bottom:8px}.status{color:var(--cyan);font-weight:700}
+    a{color:var(--cyan)}footer{max-width:1500px;margin:auto;padding:0 22px 30px;color:var(--muted)}@media(max-width:900px){.cards{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="eyebrow">FRESHQUANT · CLX RESEARCH</div>
+  <h1>CLX18 日线目标收益触达率</h1>
+  <div class="muted">H 5–90 × R 2%–30% · T+1 开盘 · 双向各 0.02% · EXACT 主视图 / CONTAINS 稳健性</div>
+  <div class="banner" id="statusBanner">正在读取报告血缘…</div>
+</header>
+<main>
+  <section class="cards">
+    <div class="card"><div class="label">数据状态</div><div class="metric status" id="dataStatus">—</div></div>
+    <div class="card"><div class="label">当前模型</div><div class="metric" id="modelCount">—</div></div>
+    <div class="card"><div class="label">H×R 单元</div><div class="metric">522</div></div>
+    <div class="card"><div class="label">合同检查</div><div class="metric" id="checkStatus">—</div></div>
+  </section>
+  <section class="panel">
+    <div class="filters">
+      <label>模型<select id="model"></select></label>
+      <label>阶段<select id="stage"></select></label>
+      <label>触发视图<select id="view"></select></label>
+      <label>触发组合<select id="trigger"></select></label>
+      <label>过滤条件<select id="filter"></select></label>
+    </div>
+    <h2>H × R 触达率热力图</h2>
+    <div class="muted">单元格：触达率 / n；悬停查看 Wilson 下限、首次触达中位数与未触达收益。</div>
+    <div class="heat" id="heat"></div>
+  </section>
+  <section class="grid2" style="margin-top:14px">
+    <div class="panel"><h2>稳定性与筛选漏斗</h2><div id="stability" class="list"></div></div>
+    <div class="panel"><h2>可追溯与导出</h2>
+      <div class="list">
+        <div class="row"><span class="label">生成时间</span><div id="generated">—</div></div>
+        <div class="row"><span class="label">聚合哈希</span><div id="hash" style="word-break:break-all">—</div></div>
+        <div><a href="/exports/s0000_fixture_grid.csv">导出当前 CSV</a> · <a href="/exports/checks.json">检查 JSON</a> · <a href="/exports/run_state.json">运行状态</a></div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>固定地址 http://127.0.0.1:18765 · 健康检查 GET /health · 聚合接口 GET /api/report</footer>
+<script>
+let report, rows;
+const uniq=(key)=>[...new Set(report.grid.map(x=>String(x[key])))];
+function options(id,key){const e=document.getElementById(id);e.innerHTML=uniq(key).map(x=>`<option>${x}</option>`).join("");e.onchange=render}
+const colour=p=>{const v=Math.max(0,Math.min(1,(p-.15)/.75));return `hsl(${190-v*155} 65% ${19+v*29}%)`}
+function render(){
+ const pick={model_code:model.value,stage:stage.value,trigger_view:view.value,trigger_key:trigger.value,filter_key:filter.value};
+ rows=report.grid.filter(r=>Object.entries(pick).every(([k,v])=>String(r[k])===v));
+ const by=new Map(rows.map(r=>[`${r.horizon}-${r.target_bps}`,r]));
+ let html="<table><thead><tr><th>H \\ R</th>"+report.contract.targets_pct.map(r=>`<th>${r}%</th>`).join("")+"</tr></thead><tbody>";
+ for(const h of report.contract.horizons){html+=`<tr><th>${h}日</th>`;for(const r of report.contract.targets_pct){const x=by.get(`${h}-${r*100}`);if(!x){html+="<td>—</td>";continue}const pct=(x.hit_rate*100).toFixed(1);const tip=`Wilson下限 ${(x.wilson_lower*100).toFixed(1)}% · 首触中位 ${x.first_hit_median??"—"}日 · 未触达均值 ${x.unhit_mean_return==null?"—":(x.unhit_mean_return*100).toFixed(2)+"%"}`;html+=`<td style="background:${colour(x.hit_rate)}" title="${tip}"><strong>${pct}%</strong>n=${x.n}</td>`}html+="</tr>"}heat.innerHTML=html+"</tbody></table>";
+ stability.innerHTML=["TRAIN","VALIDATION","AUDIT"].map(s=>{const g=report.grid.filter(x=>x.stage===s);const avg=g.reduce((a,x)=>a+x.hit_rate,0)/(g.length||1);return `<div class="row"><b>${s}</b><div class="bar"><span style="width:${avg*100}%"></span></div><span class="muted">平均触达率 ${(avg*100).toFixed(1)}%</span></div>`}).join("");
+}
+fetch("/api/report").then(r=>r.json()).then(data=>{
+ report=data; dataStatus.textContent=data.data_status; modelCount.textContent=uniq("model_code").length+"/18"; checkStatus.textContent=data.checks.passed?"通过":"失败";
+ statusBanner.textContent=data.provenance.warning;generated.textContent=data.generated_at;hash.textContent=data.provenance.grid_sha256;
+ options("model","model_code");options("stage","stage");options("view","trigger_view");options("trigger","trigger_key");options("filter","filter_key");render();
+}).catch(e=>statusBanner.textContent="报告接口读取失败："+e);
+</script>
+</body>
+</html>

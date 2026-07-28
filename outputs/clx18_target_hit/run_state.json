@@ -1,0 +1,32 @@
+{
+  "schema_version": "clx18-target-hit-run-state-v1",
+  "github_issue": "https://github.com/dao1oad/fqpack-next/issues/475",
+  "phase": 0,
+  "status": "PHASE0_VERIFIED",
+  "started_at": "2026-07-28T10:05:00+08:00",
+  "updated_at": "2026-07-28T02:48:59.146244+00:00",
+  "current_command": "waiting for frozen real event artifact ingestion",
+  "processed_models": [
+    "S0000"
+  ],
+  "processed_events": 48,
+  "output_paths": [
+    "outputs/clx18_target_hit/run_state.json",
+    "outputs/clx18_target_hit/checks.json",
+    "outputs/clx18_target_hit/s0000_fixture_grid.csv",
+    "outputs/clx18_target_hit/report.json"
+  ],
+  "checks": {
+    "memory_context_read": true,
+    "docs_current_read": true,
+    "git_clean_before_branch": true,
+    "source_assets_present": true,
+    "hosting_json_absent": true,
+    "s0000_contract_slice": true
+  },
+  "blockers": [
+    "remote fqcompare SSH public-key authentication rejected",
+    "local machine does not contain the 2,531,213-row extended_events.parquet or its two source candidate parquets"
+  ],
+  "next_step": "Ingest the 2,531,213-row frozen event artifact and run phases 1-5"
+}

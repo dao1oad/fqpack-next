@@ -1,0 +1,5 @@
+report.json
+*.csv
+*.parquet
+server*.log
+server.pid
