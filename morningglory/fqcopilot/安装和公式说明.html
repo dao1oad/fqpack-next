@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FqCopilot 安装和公式说明</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-secondary: #8b949e;
+  --accent: #58a6ff;
+  --accent-dim: #1f6feb;
+  --green: #3fb950;
+  --red: #f85149;
+  --orange: #d29922;
+  --code-bg: #0d1117;
+  --table-hover: rgba(88,166,255,0.08);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  padding: 2rem clamp(1rem, 5vw, 4rem);
+}
+
+h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--accent-dim);
+  padding-bottom: 0.6rem;
+  margin-bottom: 2rem;
+  letter-spacing: 0.02em;
+}
+
+h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 2.5rem 0 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+h2::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 1.2em;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 1.8rem 0 0.8rem;
+}
+
+h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 1.5rem 0 0.6rem;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--accent-dim);
+}
+
+h5 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 1rem 0 0.5rem;
+}
+
+p { margin: 0.5rem 0; }
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+a:hover { color: var(--green); text-decoration: underline; }
+
+code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 0.88em;
+  color: var(--orange);
+}
+
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  margin: 0.8rem 0;
+}
+
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8rem 0;
+  font-size: 0.92rem;
+}
+
+th, td {
+  padding: 0.55rem 0.9rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  background: var(--surface);
+  font-weight: 600;
+  color: var(--accent);
+  position: sticky;
+  top: 0;
+}
+
+tr:hover { background: var(--table-hover); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.2rem 1.5rem;
+  margin: 1rem 0;
+}
+
+.card-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+.tag {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  border-radius: 4px;
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
+.tag-buy  { background: rgba(63,185,80,0.15); color: var(--green); }
+.tag-sell { background: rgba(248,81,73,0.15); color: var(--red); }
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+
+.note {
+  background: rgba(88,166,255,0.06);
+  border-left: 3px solid var(--accent);
+  padding: 0.6rem 1rem;
+  border-radius: 0 6px 6px 0;
+  margin: 0.8rem 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.example-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.6rem;
+  margin: 0.8rem 0;
+}
+
+.example-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.88rem;
+}
+
+.example-item code {
+  font-size: 0.95rem;
+}
+
+.nav-toc {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.nav-toc ul {
+  list-style: none;
+  columns: 2;
+  column-gap: 2rem;
+}
+
+.nav-toc li {
+  padding: 0.2rem 0;
+}
+
+.nav-toc a {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+}
+.nav-toc a:hover { color: var(--accent); }
+
+@media (max-width: 640px) {
+  body { padding: 1rem; }
+  .nav-toc ul { columns: 1; }
+  .example-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<h1>FqCopilot 安装和公式说明</h1>
+
+<!-- TOC -->
+<nav class="nav-toc">
+  <ul>
+    <li><a href="#install">安装指南</a></li>
+    <li><a href="#formula">公式选项说明</a></li>
+    <li><a href="#func">函数说明</a></li>
+    <li style="padding-left:1.2rem;"><a href="#tdx-func">通达信</a></li>
+    <li style="padding-left:1.2rem;"><a href="#jzt-func">交易师 / 大智慧</a></li>
+    <li style="padding-left:1.2rem;"><a href="#mt-func">MT4 / MT5</a></li>
+    <li><a href="#signal-encoding">信号值编码</a></li>
+    <li><a href="#models">18 个选股模型</a></li>
+    <li><a href="#decode-examples">信号值解码示例</a></li>
+    <li><a href="#articles">文章索引</a></li>
+  </ul>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="install">安装指南</h2>
+
+<div class="card">
+  <ul style="list-style:none; display:flex; flex-direction:column; gap:0.5rem;">
+    <li><a href="https://mp.weixin.qq.com/s/OkwpdPgA7eeIfg7QuxLXDw" target="_blank">FqCopilot 缠论插件（TDX 安装指南 20260525 更新）</a></li>
+    <li><a href="https://mp.weixin.qq.com/s/v3uchXfQLACdeEoV6CN65Q" target="_blank">番茄 FqChan04 缠论插件安装指南说明（文字版）</a></li>
+    <li><a href="https://mp.weixin.qq.com/s/xKBIlmBp9iyYg7wpLc5bPw" target="_blank">参与量化社区订阅指南</a></li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="formula">公式选项说明</h2>
+
+<p>WAVEOPT — 笔控制参数</p>
+
+<h3>一次性在主图上标注所有模型的信号K和信号值</h3>
+
+<pre><code>RESET:=TDXDLL7(1,0,0,0);
+IG1:=TDXDLL7(2, 6, WAVEOPT, 0);
+IG2:=TDXDLL7(2, 7, 0, 0);
+IG3:=TDXDLL7(2, 8, 0, 0);
+IG5:=TDXDLL7(2, 3, OPEN, 0);
+IG6:=TDXDLL7(2, 5, VOL, 0);
+SIG:TDXDLL7(4,HIGH,LOW,CLOSE),NODRAW;
+DRAWICON(SIG&gt;0, LOW, 1);
+DRAWNUMBER(SIG&gt;0, LOW, SIG);
+DRAWICON(SIG&lt;0, HIGH, 2);
+DRAWNUMBER(SIG&lt;0, HIGH, SIG);</code></pre>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<h2 id="func">函数说明</h2>
+
+<p>fqcopilot.dll 支持 3 个平台，内部计算逻辑共享，仅调用接口不同。</p>
+
+<!-- ===================== 通达信 ===================== -->
+<h3 id="tdx-func">通达信函数说明</h3>
+
+<p>通过 <code>TDXDLL7(函数号, 参数1, 参数2, 参数3)</code> 调用，共 4 个函数。通达信会自动从 OHLCV 数据填充 HIGH/LOW/CLOSE 序列，因此 Func 2 只需补充 OPEN、VOL 和控制参数。</p>
+
+<!-- TDX Func 1 -->
+<h4 id="func1">Func 1：RESET — 重置状态</h4>
+
+<p>清除上一只股票的残留数据，每只股票公式计算前<strong>必须调用一次</strong>。</p>
+
+<pre><code>TDXDLL7(1, 0, 0, 0)</code></pre>
+
+<p>参数均为 0，无返回值。</p>
+
+<hr class="divider">
+
+<!-- TDX Func 2 -->
+<h4 id="func2">Func 2：SETPARAMVAR — 设置参数</h4>
+
+<p>向引擎传入价格数据或控制参数。第一个参数为参数类型编号，第二个参数为数据。</p>
+
+<pre><code>TDXDLL7(2, 类型编号, 数据, 0)</code></pre>
+
+<h5>参数类型编号</h5>
+
+<table>
+  <thead>
+    <tr><th>编号</th><th>常量名</th><th>说明</th><th>数据</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>3</code></td><td>PARAM_OPEN</td><td>开盘价</td><td>OPEN 序列</td></tr>
+    <tr><td><code>5</code></td><td>PARAM_VOLUME</td><td>成交量</td><td>VOL 序列</td></tr>
+    <tr><td><code>6</code></td><td>PARAM_WAVE_OPT</td><td>笔参数</td><td>整数（如 1560）</td></tr>
+    <tr><td><code>7</code></td><td>PARAM_STRETCH_OPT</td><td>线段参数</td><td>整数（通常为 1）</td></tr>
+    <tr><td><code>8</code></td><td>PARAM_EXT_OPT</td><td>模型扩展参数</td><td>整数</td></tr>
+    <tr><td><code>9</code></td><td>PARAM_MODEL_OPT</td><td>模型选择</td><td>整数（如 10001）</td></tr>
+  </tbody>
+</table>
+
+<h5>WAVEOPT 笔参数编码</h5>
+
+<p>4 位整数，由三个字段组合：</p>
+
+<pre><code>WAVEOPT = merge × 10000 + force_count × 100 + bi_mode × 10</code></pre>
+
+<table>
+  <thead>
+    <tr><th>位置</th><th>字段</th><th>含义</th><th>取值</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>万位</td><td>merge</td><td>合并未完备笔</td><td>0 = 关闭，1 = 开启</td></tr>
+    <tr><td>百位 + 千位</td><td>force_count</td><td>强制成笔最小K数</td><td>10~99（如 15）</td></tr>
+    <tr><td>十位</td><td>bi_mode</td><td>笔模式</td><td>4 = 新笔，5 = 旧笔，6 = 大笔</td></tr>
+  </tbody>
+</table>
+
+<div class="example-grid">
+  <div class="example-item">
+    <code>1560</code> → 大笔模式(6) + 15根K成笔 + 不合并
+  </div>
+  <div class="example-item">
+    <code>1550</code> → 旧笔模式(5) + 15根K成笔 + 不合并
+  </div>
+  <div class="example-item">
+    <code>11540</code> → 新笔模式(4) + 15根K成笔 + 合并
+  </div>
+</div>
+
+<h5>MODEL_OPT 模型选择编码</h5>
+
+<pre><code>MODEL_OPT = switch_opt × 10000 + model_id</code></pre>
+
+<table>
+  <thead>
+    <tr><th>位置</th><th>字段</th><th>含义</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>低 4 位</td><td>model_id</td><td>模型编号（0~17）</td></tr>
+    <tr><td>高位</td><td>switch_opt</td><td>策略内部开关</td></tr>
+  </tbody>
+</table>
+
+<div class="example-item" style="display:inline-block; margin:0.5rem 0;">
+  <code>10001</code> → 模型 S0001，switch_opt = 1
+</div>
+
+<hr class="divider">
+
+<!-- TDX Func 3 -->
+<h4 id="func3">Func 3：SXXXX — 单模型信号计算</h4>
+
+<p>根据 Func 2 设置的参数，计算指定模型的买卖信号。</p>
+
+<pre><code>TDXDLL7(3, HIGH, LOW, CLOSE)</code></pre>
+
+<p>返回值：信号值序列。<span class="tag tag-buy">正值 = 买入</span> <span class="tag tag-sell">负值 = 卖出</span> <code>0 = 无信号</code></p>
+
+<div class="note">
+  依赖 Func 2 预设的 OPEN / VOL / WAVEOPT / MODEL_OPT 参数。未设置 MODEL_OPT 时默认计算 S0001。
+</div>
+
+<hr class="divider">
+
+<!-- TDX Func 4 -->
+<h4 id="func4">Func 4：SALL — 批量计算全部模型</h4>
+
+<p>一次性计算 18 个模型（S0000~S0017），输出第一个非零信号值。</p>
+
+<pre><code>TDXDLL7(4, HIGH, LOW, CLOSE)</code></pre>
+
+<p>返回值：信号值序列。每个 K 线位置返回优先级最高的非零信号。</p>
+
+<div class="note">
+  需要 Func 2 预设 OPEN、VOL、WAVEOPT 参数。
+</div>
+
+<hr class="divider">
+
+<!-- ===================== 交易师 / 大智慧 ===================== -->
+<h3 id="jzt-func">交易师 / 大智慧函数说明</h3>
+
+<p>交易师和大智慧通过 <code>CALCINFO</code> 结构体传入完整的 OHLCV 数据，无需手动调用 SETPARAMVAR 传价格序列。DLL 导出 4 个函数，公式编辑器中通过 <code>"DLL名@函数名"(参数表)</code> 调用。</p>
+
+<table>
+  <thead>
+    <tr><th>导出函数</th><th>说明</th><th>参数</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>RUNMODE</code></td>
+      <td>返回运行模式</td>
+      <td>无参，固定返回 1</td>
+    </tr>
+    <tr>
+      <td><code>RESET</code></td>
+      <td>重置引擎状态</td>
+      <td>无参</td>
+    </tr>
+    <tr>
+      <td><code>SETPARAMVAR</code></td>
+      <td>设置控制参数</td>
+      <td>参数1 = 数据序列，参数2 = 类型编号（同通达信 ParamType）</td>
+    </tr>
+    <tr>
+      <td><code>SXXXX</code></td>
+      <td>单模型信号计算</td>
+      <td>参数1 = WAVEOPT，参数2 = STRETCH_OPT，参数3 = EXT_OPT，参数4 = MODEL_OPT</td>
+    </tr>
+    <tr>
+      <td><code>SALL</code></td>
+      <td>批量计算全部模型</td>
+      <td>参数1 = WAVEOPT，参数2 = EXT_OPT</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  SXXXX / SALL 自动从 CALCINFO 结构体提取 OHLCV 数据，无需额外传入。参数编码与通达信一致。
+</div>
+
+<hr class="divider">
+
+<!-- ===================== MT4 / MT5 ===================== -->
+<h3 id="mt-func">MT4 / MT5 函数说明</h3>
+
+<p>MT4/MT5 通过 <code>#import</code> 直接调用 DLL 导出函数，传入 double 数组。DLL 导出 2 个函数。</p>
+
+<table>
+  <thead>
+    <tr><th>导出函数</th><th>说明</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>FQ_CLXS</code></td>
+      <td>单模型信号计算</td>
+    </tr>
+    <tr>
+      <td><code>FQ_CLXS_ALL</code></td>
+      <td>批量计算全部模型</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>FQ_CLXS — 单模型信号计算</h4>
+
+<pre><code>void FQ_CLXS(
+    int    count,        // K线数量
+    double &out[],       // 输出信号数组
+    const double &high[], const double &low[],
+    const double &open[], const double &close[],
+    const double &vol[],
+    int    wave_opt,     // 笔参数（编码同 WAVEOPT）
+    int    stretch_opt,  // 线段参数
+    int    trend_opt,    // 趋势/扩展参数
+    int    model_opt     // 模型选择（编码同 MODEL_OPT）
+);</code></pre>
+
+<h4>FQ_CLXS_ALL — 批量计算全部模型</h4>
+
+<pre><code>void FQ_CLXS_ALL(
+    int    count,        // K线数量
+    int    model_count,  // 模型数量（最大 18）
+    double &out[],       // 输出数组（count × model_count 二维展平）
+    const double &high[], const double &low[],
+    const double &open[], const double &close[],
+    const double &vol[],
+    int    wave_opt,     // 笔参数
+    int    stretch_opt,  // 线段参数
+    int    trend_opt     // 趋势/扩展参数
+);</code></pre>
+
+<p><code>out</code> 数组按行主序存储：<code>out[i * model_count + m]</code> 为第 i 根 K 线、第 m 个模型的信号值。</p>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<h2 id="signal-encoding">信号值编码</h2>
+
+<p>信号值采用统一编码，可直接解析出方向、模型、触发类型：</p>
+
+<pre><code>signal = direction × (model_id × 1000 + occurrence × 100 + entrypoint)</code></pre>
+
+<table>
+  <thead>
+    <tr><th>字段</th><th>含义</th><th>取值</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>direction</td><td>方向</td><td>+1 买入，-1 卖出</td></tr>
+    <tr><td>model_id</td><td>模型编号</td><td>0~17</td></tr>
+    <tr><td>occurrence</td><td>第几次（含义因模型而异）</td><td>1~99</td></tr>
+    <tr><td>entrypoint</td><td>触发类型</td><td>1~9</td></tr>
+  </tbody>
+</table>
+
+<h3>Entrypoint 触发类型</h3>
+
+<table>
+  <thead>
+    <tr><th>值</th><th>名称</th><th>判定逻辑</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>结构信号</td><td>策略模型自身结构判断</td></tr>
+    <tr><td>2</td><td>Pin Bar</td><td>长下/上影线形态</td></tr>
+    <tr><td>3</td><td>吞没形态</td><td>看涨/看跌吞没</td></tr>
+    <tr><td>4</td><td>强分型</td><td>强底/顶分型确认</td></tr>
+    <tr><td>5</td><td>MA5 拐头</td><td>MA5 方向转折</td></tr>
+    <tr><td>6</td><td>量价配合</td><td>量价齐升/跌</td></tr>
+    <tr><td>7</td><td>MACD 交叉</td><td>MACD 金叉/死叉</td></tr>
+    <tr><td>8~9</td><td>预留</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<h2 id="models">18 个选股模型</h2>
+
+<table>
+  <thead>
+    <tr><th>编号</th><th>模型</th><th>策略名称</th><th>occurrence 含义</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>0</td><td>S0000</td><td>笔转折信号</td><td>逆势或顺势首创新极值=1；顺势第N次创新极值=N (≥2)</td></tr>
+    <tr><td>1</td><td>S0001</td><td>线段走势买卖点</td><td>固定 1</td></tr>
+    <tr><td>2</td><td>S0002</td><td>线段内中枢买卖点</td><td>固定 1</td></tr>
+    <tr><td>3</td><td>S0003</td><td>锯齿形态</td><td>固定 1</td></tr>
+    <tr><td>4</td><td>S0004</td><td>三买三卖（中枢突破）</td><td>固定 1</td></tr>
+    <tr><td>5</td><td>S0005</td><td>中枢震荡</td><td>第1/2/3次回踩</td></tr>
+    <tr><td>6</td><td>S0006</td><td>ATR 回踩支撑/阻力</td><td>固定 1</td></tr>
+    <tr><td>7</td><td>S0007</td><td>顶底互换</td><td>固定 1</td></tr>
+    <tr><td>8</td><td>S0008</td><td>盘整/趋势背驰</td><td>含 1/2/N 个中枢</td></tr>
+    <tr><td>9</td><td>S0009</td><td>拉回中枢</td><td>第1/2/3次拉回</td></tr>
+    <tr><td>10</td><td>S0010</td><td>离开中枢回踩</td><td>固定 1</td></tr>
+    <tr><td>11</td><td>S0011</td><td>走势类型背驰</td><td>固定 1</td></tr>
+    <tr><td>12</td><td>S0012</td><td>V 反信号</td><td>固定 1</td></tr>
+    <tr><td>13</td><td>S0013</td><td>二买二卖</td><td>继承 S0008</td></tr>
+    <tr><td>14</td><td>S0014</td><td>中枢上方/下方</td><td>继承 S0008</td></tr>
+    <tr><td>15</td><td>S0015</td><td>MA250 支撑/阻力</td><td>固定 1（entrypoint=1）</td></tr>
+    <tr><td>16</td><td>S0016</td><td>支撑/阻力区间反转</td><td>第1/2/3次回踩</td></tr>
+    <tr><td>17</td><td>S0017</td><td>支撑/阻力区间反转（笔级别）</td><td>第1/2/3次回踩</td></tr>
+  </tbody>
+</table>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<h2 id="decode-examples">信号值解码示例</h2>
+
+<div class="example-grid">
+  <div class="example-item">
+    <code>102</code><br>
+    S0000 · 逆势/顺势首新 · <span class="tag tag-buy">买入</span> Pin Bar
+  </div>
+  <div class="example-item">
+    <code>-103</code><br>
+    S0000 · 逆势/顺势首新 · <span class="tag tag-sell">卖出</span> 吞没形态
+  </div>
+  <div class="example-item">
+    <code>207</code><br>
+    S0000 · 顺势(第2次创新高) · <span class="tag tag-buy">买入</span> MACD 交叉
+  </div>
+  <div class="example-item">
+    <code>1102</code><br>
+    S0001 · 第1次 · <span class="tag tag-buy">买入</span> Pin Bar
+  </div>
+  <div class="example-item">
+    <code>5101</code><br>
+    S0005 · 第1次回踩 · <span class="tag tag-buy">买入</span> 结构信号
+  </div>
+  <div class="example-item">
+    <code>5207</code><br>
+    S0005 · 第2次回踩 · <span class="tag tag-buy">买入</span> MACD 交叉
+  </div>
+  <div class="example-item">
+    <code>8107</code><br>
+    S0008 · 含1个中枢 · <span class="tag tag-buy">买入</span> MACD 交叉
+  </div>
+  <div class="example-item">
+    <code>8207</code><br>
+    S0008 · 含2个中枢 · <span class="tag tag-buy">买入</span> MACD 交叉
+  </div>
+  <div class="example-item">
+    <code>9102</code><br>
+    S0009 · 第1次拉回(dd) · <span class="tag tag-buy">买入</span> Pin Bar
+  </div>
+  <div class="example-item">
+    <code>9304</code><br>
+    S0009 · 第3次拉回(zg) · <span class="tag tag-buy">买入</span> 强分型
+  </div>
+  <div class="example-item">
+    <code>10101</code><br>
+    S0010 · 第1次 · <span class="tag tag-buy">买入</span> 结构信号
+  </div>
+  <div class="example-item">
+    <code>15101</code><br>
+    S0015 · 第1次 · <span class="tag tag-buy">买入</span> 结构信号
+  </div>
+  <div class="example-item">
+    <code>-15101</code><br>
+    S0015 · 第1次 · <span class="tag tag-sell">卖出</span> 结构信号
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ============================================================ -->
+<h2 id="articles">文章索引</h2>
+
+<p>FqCopilot 历史文章目录，按发布时间排列。来源：<a href="https://mp.weixin.qq.com/s/_CJ6tD5DPCfQy250vWhW8w" target="_blank">文章汇总（20260424 更新）</a></p>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>标题</th><th>分类</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112022&idx=1&sn=73eede18834ba3b66073ff2bfcbc6fe5&scene=21#wechat_redirect" target="_blank">量化兵器库之选股 S0001 · 初代发布 · 缠论中枢完备</a></td><td>S0001</td></tr>
+    <tr><td>2</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112557&idx=1&sn=8ad5e4344044a147ae9064dd29cf7ffc&scene=21#wechat_redirect" target="_blank">Python 包发布 · CLXS0003 调用说明</a></td><td>发布</td></tr>
+    <tr><td>3</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112575&idx=1&sn=3649f3ecaa99d4e22ec941fb3c7d43db&scene=21#wechat_redirect" target="_blank">优化选股公式 · 支持参数指定模型</a></td><td>公式</td></tr>
+    <tr><td>4</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112620&idx=1&sn=53ba2ee8f67691a4158be5fb9dfe5abe&scene=21#wechat_redirect" target="_blank">升级 CLXS0001 选股公式</a></td><td>S0001</td></tr>
+    <tr><td>5</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112459&idx=1&sn=9ee35ddbb8cf27f370e2da310a5c3221&scene=21#wechat_redirect" target="_blank">量化缠论选股 S0002 形态发布</a></td><td>S0002</td></tr>
+    <tr><td>6</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112626&idx=1&sn=f86891c7b77f6b95aeb6abcd2d7150dc&scene=21#wechat_redirect" target="_blank">fqcopilot-2024.12.26 · 升级 CLXS0002</a></td><td>S0002</td></tr>
+    <tr><td>7</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112640&idx=1&sn=3a9fe916b83cdc0102ff1ef893dc6cbf&scene=21#wechat_redirect" target="_blank">fqcopilot-2024.12.29 · 升级 CLXS0003</a></td><td>S0003</td></tr>
+    <tr><td>8</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112655&idx=1&sn=3c06cd1f3be2632807e0f114ab59e5e7&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.04 · CLXS0004 三买形态</a></td><td>S0004</td></tr>
+    <tr><td>9</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112680&idx=1&sn=7f5ff4bbc32e447febe60e00ed290a90&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.11 · CLXS0005 二买及类二买</a></td><td>S0005</td></tr>
+    <tr><td>10</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112702&idx=1&sn=decdd728804c6e400973e706fe96bb79&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.19 · CLXS0006 低点反弹</a></td><td>S0006</td></tr>
+    <tr><td>11</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112722&idx=1&sn=f74275e8dee7f7a03d6e1b0c08ce85e9&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.27 · CLXS0007 顶底互换 · 春节祝福</a></td><td>S0007</td></tr>
+    <tr><td>12</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112729&idx=1&sn=2cd57ae2159c02fc272945ec44229fc5&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.28 · CLXS0008 盘整/趋势背驰</a></td><td>S0008</td></tr>
+    <tr><td>13</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112737&idx=1&sn=389da68f9102ded3ea9ac2a9663fea1b&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.30 · CLXS0009 模型改良</a></td><td>S0009</td></tr>
+    <tr><td>14</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113077&idx=1&sn=c30da0080037d8e5a7e9511c572e9c13&scene=21#wechat_redirect" target="_blank">缠论 CLXS0008 模型更新</a></td><td>S0008</td></tr>
+    <tr><td>15</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113316&idx=1&sn=81a25edafded649137591ec983d72aea&scene=21#wechat_redirect" target="_blank">更新日志 · 修复 CLX0008 模型 bug</a></td><td>S0008</td></tr>
+    <tr><td>16</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113138&idx=1&sn=af8e10910e2c4fe0405516f63b4cc87d&scene=21#wechat_redirect" target="_blank">CLXS0008 · 涨停导致 MACD 失真问题</a></td><td>S0008</td></tr>
+    <tr><td>17</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113206&idx=1&sn=4f54739abd6460e65af8de58f686afac&scene=21#wechat_redirect" target="_blank">CLXS0008 & CLXS0009 优化</a></td><td>S0008/09</td></tr>
+    <tr><td>18</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113328&idx=1&sn=9fabe0f06c0425770b3c2326fb13fed7&scene=21#wechat_redirect" target="_blank">CLXS0008 背驰模型除虫</a></td><td>S0008</td></tr>
+    <tr><td>19</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113333&idx=1&sn=acfad095094d92889fd5262a3b2fd01b&scene=21#wechat_redirect" target="_blank">CLXS0009 拉回反弹信号优化</a></td><td>S0009</td></tr>
+    <tr><td>20</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113132&idx=1&sn=82d923a46dc61a1024f955cde96799da&scene=21#wechat_redirect" target="_blank">CLX0009 信号重构</a></td><td>S0009</td></tr>
+    <tr><td>21</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112752&idx=1&sn=65004978e32c1a948e4329a4ed2afa65&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.30 · CLXS0010 突破回调</a></td><td>S0010</td></tr>
+    <tr><td>22</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112759&idx=1&sn=f80714f7a65f5e536f09ea77d1aebe90&scene=21#wechat_redirect" target="_blank">fqcopilot-2025.01.30 · CLXS0011 突破回踩转折</a></td><td>S0011</td></tr>
+    <tr><td>23</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113214&idx=1&sn=f22fceab14e0a0bc8ad4448580408a52&scene=21#wechat_redirect" target="_blank">CLXS0012 新模型发布</a></td><td>S0012</td></tr>
+    <tr><td>24</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448114079&idx=1&sn=7e18ff211bc23e12ec496dfe0af62f47&scene=21#wechat_redirect" target="_blank">CLXS0013 缠论二买 · 回调中找黄金买点</a></td><td>S0013</td></tr>
+    <tr><td>25</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448114090&idx=1&sn=f0c9b622da3f72c8b86d1483eff31c1d&scene=21#wechat_redirect" target="_blank">CLXS0014 缠论三买三卖</a></td><td>S0014</td></tr>
+    <tr><td>26</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448114096&idx=1&sn=d56ed173f66d5d583e33c6f4828a029c&scene=21#wechat_redirect" target="_blank">S0014 三类买卖点补充</a></td><td>S0014</td></tr>
+    <tr><td>27</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448114181&idx=1&sn=2d917053895296a25f1bd1c10c81db72&scene=21#wechat_redirect" target="_blank">CLXS0015 新模型发布</a></td><td>S0015</td></tr>
+    <tr><td>28</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113198&idx=1&sn=adb7cafeda1c4e4816fedccdd62f351a&scene=21#wechat_redirect" target="_blank">fqlite 更新 · 增加 CLXS 系列选股程序</a></td><td>发布</td></tr>
+    <tr><td>29</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448114066&idx=1&sn=3bff61e35d0177c9b122e5b8dd3105a8&scene=21#wechat_redirect" target="_blank">基于 FqCopilot + FqChan04 写二买公式</a></td><td>公式</td></tr>
+    <tr><td>30</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448114073&idx=1&sn=376e9a15635e4dd6be5d074a946aa2be&scene=21#wechat_redirect" target="_blank">基于 FqCopilot + FqChan04 写三买公式</a></td><td>公式</td></tr>
+    <tr><td>31</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112067&idx=1&sn=34d89fcab1b7d3978d107f61430086ad&scene=21#wechat_redirect" target="_blank">走势类型命名与分类逻辑详解</a></td><td>缠论基础</td></tr>
+    <tr><td>32</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112604&idx=1&sn=9a684c320d487891afa496ebbc177d58&scene=21#wechat_redirect" target="_blank">FqChan04 插件 · 笔模式6 要求调整</a></td><td>缠论基础</td></tr>
+    <tr><td>33</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448112614&idx=1&sn=6c231754304c9a64b7af6f0b5665a98f&scene=21#wechat_redirect" target="_blank">解答笔的问题 · 模式6和模式5的区别</a></td><td>缠论基础</td></tr>
+    <tr><td>34</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113977&idx=1&sn=bee6864df2e142a617223801802e9fd7&scene=21#wechat_redirect" target="_blank">使用 Claude Code 复盘演示</a></td><td>AI 工具</td></tr>
+    <tr><td>35</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448114001&idx=1&sn=1f5237c516fed971f2ba5726666c20d3&scene=21#wechat_redirect" target="_blank">AI 重构流程 · 舆情分析演示</a></td><td>AI 工具</td></tr>
+    <tr><td>36</td><td><a href="https://mp.weixin.qq.com/s?__biz=MjM5MDM4ODE2Mw==&mid=2448113982&idx=1&sn=49368fb97d02110ab2340223ce6b9d2b&scene=21#wechat_redirect" target="_blank">AI 洞察 A 股舆情 · 市场舆情分析 Skill 全攻略</a></td><td>AI 工具</td></tr>
+  </tbody>
+</table>
+
+</body>
+</html>

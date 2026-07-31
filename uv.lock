@@ -1147,7 +1147,7 @@ source = { directory = "morningglory/fqchan03/python" }
 
 [[package]]
 name = "fqchan04"
-version = "2026.2.15"
+version = "2026.5.24"
 source = { directory = "morningglory/fqchan04/python" }
 
 [[package]]
@@ -1157,7 +1157,7 @@ source = { directory = "morningglory/fqchan06/python" }
 
 [[package]]
 name = "fqcopilot"
-version = "2026.2.17"
+version = "2026.6.18"
 source = { directory = "morningglory/fqcopilot/python" }
 dependencies = [
     { name = "setuptools" },

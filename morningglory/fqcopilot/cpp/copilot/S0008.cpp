@@ -168,9 +168,8 @@ private:
               is_buy_signal = true;
             }
             if (is_buy_signal) {
-              inner_result[n] =
-                  pivots_num * 100 +
-                  static_cast<int>(EntrypointType::ENTRYPOINT_BUY_OPEN_1);
+              inner_result[n] = encode_signal(8, pivots_num,
+                  EntrypointType::ENTRYPOINT_BUY_OPEN_7);
             }
           }
         }
@@ -291,9 +290,8 @@ private:
               is_sell_signal = true;
             }
             if (is_sell_signal) {
-              inner_result[n] =
-                  -pivots_num * 100 +
-                  static_cast<int>(EntrypointType::ENTRYPOINT_SELL_OPEN_1);
+              inner_result[n] = encode_signal(8, pivots_num,
+                  EntrypointType::ENTRYPOINT_SELL_OPEN_7);
             }
           }
         }
@@ -311,6 +309,17 @@ public:
       : BaseCalculator(high, low, open, close, vol, switch_opt, options) {
     calculate();
   }
+
+  S0008_Calculator(const std::vector<float> &high,
+                   const std::vector<float> &low,
+                   const std::vector<float> &open,
+                   const std::vector<float> &close,
+                   const std::vector<float> &vol, int switch_opt,
+                   const ChanOptions &options,
+                   const ChanContext &ctx)
+      : BaseCalculator(high, low, open, close, vol, switch_opt, options, ctx) {
+    calculate();
+  }
 };
 
 std::vector<int> F_S0008(const std::vector<float> &high,
@@ -321,4 +330,15 @@ std::vector<int> F_S0008(const std::vector<float> &high,
                          const ChanOptions &options) {
   S0008_Calculator calculator(high, low, open, close, vol, switch_opt, options);
   return calculator.result();
+}
+
+REGISTER_CALC(8, F_S0008)
+
+std::vector<int> F_S0008_ctx(
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol, int switch_opt,
+    const ChanOptions &options, const ChanContext &ctx)
+{
+    return S0008_Calculator(high, low, open, close, vol, switch_opt, options, ctx).result();
 }

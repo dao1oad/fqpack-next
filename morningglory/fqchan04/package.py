@@ -20,6 +20,8 @@ TO_ZIP_FILES = [
     "jzt32/*.fla",
     "mt5/*.dll",
     "mt5/*.mq5",
+    "mt4/*.dll",
+    "mt4/*.mq4",
     "version.txt",
     "README.md",
     "安装和公式说明.md"
@@ -41,7 +43,7 @@ def main():
         f.unlink()
     
     # Build 7z command
-    cmd = ['C:/Program Files/7-Zip/7z', 'a', filename] + TO_ZIP_FILES
+    cmd = ['7z', 'a', filename] + TO_ZIP_FILES
     print(cmd)
     
     # Run 7z command

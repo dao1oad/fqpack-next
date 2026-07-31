@@ -205,9 +205,10 @@ class ClxsStrategy(BaseStrategy):
 
             highs = hist_data.high.to_list()
             lows = hist_data.low.to_list()
+            closes = hist_data.close.to_list()
             length = len(highs)
 
-            bi = fq_recognise_bi(length, highs, lows)
+            bi = fq_recognise_bi(length, highs, lows, closes)
 
             stop_loss_price = None
             for x in range(len(bi) - 1, -1, -1):

@@ -5,6 +5,7 @@ build/
 *.lib
 *.zip
 __pycache__/
+.claude/
 fqcopilot.txt
 .aider*
 fqcopilot.egg-info/
@@ -12,6 +13,8 @@ python/fqcopilot.*.pyd
 python/fqcopilot.*.so
 python/fqcopilot.cpp
 python/dist
+python/cpp
+wheelhouse/
 .env
 dzh/dlls/*.dll
 jzt/dlls/*.dll
@@ -20,3 +23,5 @@ kt/dlls/*.dll
 tdx/dlls/*.dll
 tdx64/dlls/*.dll
 mt5/dlls/*.dll
+mt4/dlls/*.dll
+/docs/

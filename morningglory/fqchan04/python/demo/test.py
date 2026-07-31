@@ -21,7 +21,8 @@ def main():
         length = len(data)
         high_price_list = data["high"].tolist()
         low_price_list = data["low"].tolist()
-        fq_recognise_bi(length, high_price_list, low_price_list)
+        close_price_list = data["close"].tolist()
+        fq_recognise_bi(length, high_price_list, low_price_list, close_price_list)
 
 if __name__ == "__main__":
     main()

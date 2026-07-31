@@ -21,5 +21,7 @@ kt/fqchan04.dll
 tdx/fqchan04.dll
 tdx64/fqchan04.dll
 mt5/fqchan04.dll
+mt4/fqchan04.dll
 python/cpp
+wheelhouse/
 /nul
