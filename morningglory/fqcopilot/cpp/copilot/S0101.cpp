@@ -1,21 +1,31 @@
-﻿#include "copilot.h"
+#include "copilot.h"
 #include "../common/log.h"
 #include "../common/common.h"
 #include "../chanlun/czsc.h"
-#include "s.h"
 #include "../indicator/indicator.h"
+#include "s.h"
 #include "signal_utils.h"
 #include "base_calculator.h"
 
+/**
+ * S0101 - 分型中枢突破策略
+ *
+ * 买入逻辑：向下线段终点 → 定位支撑价格 → 在笔内分型中枢突破时触发
+ * 卖出逻辑：向上线段终点 → 定位阻力价格 → 在笔内分型中枢突破时触发
+ *
+ * 信号编码：model_id = 101
+ *   101101  → 确认买点（model=101, 第1次, ENTRYPOINT_BUY_OPEN_1）
+ *   -101101 → 确认卖点（model=101, 第1次, ENTRYPOINT_SELL_OPEN_1）
+ */
+
 // 风浪@vx
 
-class TAILORED_S0001_Calculator : public BaseCalculator
+class S0101_Calculator : public BaseCalculator
 {
 private:
-    void calculate()
+    void calculate() override
     {
-
-        for (int i = 0; i < length; i++)
+        for (int i = 0; i < length; ++i)
         {
             if (stretch_sigs[i] == -1)
             {
@@ -44,7 +54,7 @@ private:
         }
         // 找到允许的最低支撑价格
         float support_price = 0;
-        for (int i = origin_pos - 1; i >= 0; i--)
+        for (int i = origin_pos - 1; i >= 0; --i)
         {
             if (stretch_sigs[i] == 1)
             {
@@ -55,7 +65,7 @@ private:
                     Pivot &last_pivot = pivots.back();
                     float price_diff_a = 0;
                     float price_diff_b = 0;
-                    for (int m = last_pivot.start - 1; m >= i; m--)
+                    for (int m = last_pivot.start - 1; m >= i; --m)
                     {
                         if (wave_sigs[m] == 1)
                         {
@@ -73,8 +83,8 @@ private:
                 break;
             }
         }
-        
-        for (int j = origin_pos; j < length; j++)
+
+        for (int j = origin_pos; j < length; ++j)
         {
             // 又碰到一个向下线段的终点了，针对这个线段就不用再预警了。
             if (j > origin_pos && (low[j] < low[origin_pos] || stretch_sigs[j] == -1 || stretch_sigs[j] == -0.5))
@@ -93,7 +103,7 @@ private:
                     {
                         if (pivot.is_comprehensive)
                         {
-                            standard_count++;
+                            ++standard_count;
                         }
                     }
                     if (standard_count >= 2)
@@ -113,7 +123,7 @@ private:
                     support_price = low[origin_pos];
                 }
             }
-            
+
             if (support_price == 0)
             {
                 continue;
@@ -125,7 +135,7 @@ private:
                 int y = j;
                 int z = -1;
                 // 向前查找x点，x点是wave_sigs[x] == 1的点，且x不能比i小
-                for (int k = y - 1; k >= 0; k--)
+                for (int k = y - 1; k >= 0; --k)
                 {
                     if (wave_sigs[k] == 1)
                     {
@@ -147,7 +157,7 @@ private:
                             if (last_standard_pivot.zg > support_price)
                             {
                                 found = true;
-                            }               
+                            }
                             break;
                         }
                     }
@@ -155,12 +165,12 @@ private:
                     {
                         // 找y后面突破中枢高点的K线
                         int v_idx = 0;
-                        for (int k = y + 1; k < length && v_idx < 3; k++)
+                        for (int k = y + 1; k < length && v_idx < 3; ++k)
                         {
                             if ((close[k - 1] <= last_standard_pivot.zg || low[k] <= last_standard_pivot.zg) && close[k] > last_standard_pivot.zg)
                             {
                                 // 找到突破点，设置买点信号
-                                inner_result[k] = static_cast<int>(EntrypointType::ENTRYPOINT_BUY_OPEN_1);
+                                inner_result[k] = encode_signal(101, 1, EntrypointType::ENTRYPOINT_BUY_OPEN_1);
                             }
                             if (wave_sigs[k] == 1)
                             {
@@ -168,13 +178,13 @@ private:
                             }
                             if (swing_sigs[k] == 1)
                             {
-                                v_idx++;
+                                ++v_idx;
                             }
                         }
                     }
                 }
                 // 从y向后查找z点
-                for (int k = y + 1; k < length; k++)
+                for (int k = y + 1; k < length; ++k)
                 {
                     if (wave_sigs[k] == 1)
                     {
@@ -190,12 +200,12 @@ private:
                     {
                         if (pivot.is_comprehensive)
                         {
-                            for (int k = pivot.end; k <= z; k++)
+                            for (int k = pivot.end; k <= z; ++k)
                             {
                                 if ((close[k - 1] <= pivot.zg || low[k] <= pivot.zg) && close[k] > pivot.zg)
                                 {
                                     // 找到突破点，设置买点信号
-                                    inner_result[k] = static_cast<int>(EntrypointType::ENTRYPOINT_BUY_OPEN_1);
+                                    inner_result[k] = encode_signal(101, 1, EntrypointType::ENTRYPOINT_BUY_OPEN_1);
                                 }
                             }
                         }
@@ -213,7 +223,7 @@ private:
         }
         // 找到允许的最高阻力价格
         float resistance_price = 0;
-        for (int i = origin_pos - 1; i >= 0; i--)
+        for (int i = origin_pos - 1; i >= 0; --i)
         {
             if (stretch_sigs[i] == -1)
             {
@@ -224,7 +234,7 @@ private:
                     Pivot &last_pivot = pivots.back();
                     float price_diff_a = 0;
                     float price_diff_b = 0;
-                    for (int m = last_pivot.start - 1; m >= i; m--)
+                    for (int m = last_pivot.start - 1; m >= i; --m)
                     {
                         if (wave_sigs[m] == -1)
                         {
@@ -242,8 +252,8 @@ private:
                 break;
             }
         }
-        
-        for (int j = origin_pos; j < length; j++)
+
+        for (int j = origin_pos; j < length; ++j)
         {
             // 又碰到一个向上线段的终点了，针对这个线段就不用再预警了。
             if (j > origin_pos && (high[j] > high[origin_pos] || stretch_sigs[j] == 1 || stretch_sigs[j] == 0.5))
@@ -261,7 +271,7 @@ private:
                     {
                         if (pivot.is_comprehensive)
                         {
-                            standard_count++;
+                            ++standard_count;
                         }
                     }
                     if (standard_count >= 2)
@@ -281,7 +291,7 @@ private:
                     resistance_price = high[origin_pos];
                 }
             }
-            
+
             if (resistance_price == 0)
             {
                 continue;
@@ -293,7 +303,7 @@ private:
                 int y = j;
                 int z = -1;
                 // 向前查找x点，x点是wave_sigs[x] == -1的点，且x不能比i小
-                for (int k = y - 1; k >= 0; k--)
+                for (int k = y - 1; k >= 0; --k)
                 {
                     if (wave_sigs[k] == -1)
                     {
@@ -315,7 +325,7 @@ private:
                             if (last_standard_pivot.zd < resistance_price)
                             {
                                 found = true;
-                            }               
+                            }
                             break;
                         }
                     }
@@ -323,12 +333,12 @@ private:
                     {
                         // 找y后面突破中枢低点的K线
                         int v_idx = 0;
-                        for (int k = y + 1; k < length && v_idx < 3; k++)
+                        for (int k = y + 1; k < length && v_idx < 3; ++k)
                         {
                             if ((close[k - 1] >= last_standard_pivot.zd || high[k] >= last_standard_pivot.zd) && close[k] < last_standard_pivot.zd)
                             {
                                 // 找到突破点，设置卖点信号
-                                inner_result[k] = static_cast<int>(EntrypointType::ENTRYPOINT_SELL_OPEN_1);
+                                inner_result[k] = encode_signal(101, 1, EntrypointType::ENTRYPOINT_SELL_OPEN_1);
                             }
                             if (wave_sigs[k] == -1)
                             {
@@ -336,13 +346,13 @@ private:
                             }
                             if (swing_sigs[k] == -1)
                             {
-                                v_idx++;
+                                ++v_idx;
                             }
                         }
                     }
                 }
                 // 从y向后查找z点
-                for (int k = y + 1; k < length; k++)
+                for (int k = y + 1; k < length; ++k)
                 {
                     if (wave_sigs[k] == -1)
                     {
@@ -358,12 +368,12 @@ private:
                     {
                         if (pivot.is_comprehensive)
                         {
-                            for (int k = pivot.end; k <= z; k++)
+                            for (int k = pivot.end; k <= z; ++k)
                             {
                                 if ((close[k - 1] >= pivot.zd || high[k] >= pivot.zd) && close[k] < pivot.zd)
                                 {
                                     // 找到突破点，设置卖点信号
-                                    inner_result[k] = static_cast<int>(EntrypointType::ENTRYPOINT_SELL_OPEN_1);
+                                    inner_result[k] = encode_signal(101, 1, EntrypointType::ENTRYPOINT_SELL_OPEN_1);
                                 }
                             }
                         }
@@ -374,7 +384,7 @@ private:
     }
 
 public:
-    TAILORED_S0001_Calculator(
+    S0101_Calculator(
         const std::vector<float> &high, const std::vector<float> &low, const std::vector<float> &open, const std::vector<float> &close,
         const std::vector<float> &vol,
         int switch_opt, const ChanOptions &options) : BaseCalculator(high, low, open, close, vol, switch_opt, options)
@@ -383,10 +393,12 @@ public:
     }
 };
 
-std::vector<int> TAILORED_F_S0001(
+std::vector<int> F_S0101(
     const std::vector<float> &high, const std::vector<float> &low, const std::vector<float> &open, const std::vector<float> &close,
     const std::vector<float> &vol, int switch_opt, const ChanOptions &options)
 {
-    TAILORED_S0001_Calculator calculator(high, low, open, close, vol, switch_opt, options);
+    S0101_Calculator calculator(high, low, open, close, vol, switch_opt, options);
     return calculator.result();
 }
+
+REGISTER_CALC(101, F_S0101)

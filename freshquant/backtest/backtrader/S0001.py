@@ -46,7 +46,7 @@ class S0001Strategy(bt.Strategy):
             data_high = data.high.get(0, size=data_len)
             data_low = data.low.get(0, size=data_len)
             data_close = data.close.get(0, size=data_len)
-            bi = fq_recognise_bi(data_len, data_high, data_low)
+            bi = fq_recognise_bi(data_len, data_high, data_low, data_close)
             sigs = fq_calc_s0001(data_len, data_high, data_low, data_close, 1560, 0, 1)
             if len(sigs) == 0:
                 continue

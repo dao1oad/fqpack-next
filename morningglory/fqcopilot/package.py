@@ -15,7 +15,7 @@ def create_zip(filename, files):
         os.remove(filename)
     
     # 使用7z命令行工具创建zip
-    cmd = ['C:/Program Files/7-Zip/7z', 'a', filename] + files
+    cmd = ['7z', 'a', filename] + files
     subprocess.run(cmd, check=True)
 
 def main():

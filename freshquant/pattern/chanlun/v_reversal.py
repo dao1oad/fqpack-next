@@ -24,7 +24,7 @@ def locate_v_reversal(
     length = len(datetime_list)
     # 如果没有提供笔信号数据，内部计算
     if bi_list is None:
-        bi_list = fq_recognise_bi(length, high_list, low_list)
+        bi_list = fq_recognise_bi(length, high_list, low_list, close_list)
     try:
         # 使用fq_clxs计算V反信号，model_opt=12表示计算V反信号
         # 使用默认成交量数据，信号计算不需要引用成交量

@@ -122,6 +122,7 @@ def _import_strategy_modules_with_stubs(monkeypatch, fake_db: FakeDB | None = No
 
 def test_clxs_strategy_emits_hooks_for_universe_progress_and_results(monkeypatch):
     clxs, _ = _import_strategy_modules_with_stubs(monkeypatch)
+    bi_close_inputs: list[list[float]] = []
 
     monkeypatch.setattr(
         clxs,
@@ -131,9 +132,11 @@ def test_clxs_strategy_emits_hooks_for_universe_progress_and_results(monkeypatch
             {"code": "000002", "name": "ST beta", "sse": "sz"},
         ],
     )
-    monkeypatch.setattr(
-        clxs, "fq_recognise_bi", lambda length, highs, lows: [-1] * length
-    )
+    def fake_recognise_bi(length, highs, lows, closes):
+        bi_close_inputs.append(closes)
+        return [-1] * length
+
+    monkeypatch.setattr(clxs, "fq_recognise_bi", fake_recognise_bi)
     monkeypatch.setattr(
         clxs,
         "fq_clxs",
@@ -199,6 +202,7 @@ def test_clxs_strategy_emits_hooks_for_universe_progress_and_results(monkeypatch
     assert len(events["hit_raw"]) == 1
     assert events["hit_raw"][0]["signal_type"] == "CLXS_10001"
     assert events["hit_raw"][0]["code"] == "000001"
+    assert bi_close_inputs == [[10.3, 10.8]]
     assert [item["code"] for item in events["accepted"]] == ["000001"]
     assert events["error"] == []
 
@@ -212,7 +216,7 @@ def test_clxs_strategy_without_hooks_preserves_old_behavior(monkeypatch):
         lambda: [{"code": "000001", "name": "alpha", "sse": "sz"}],
     )
     monkeypatch.setattr(
-        clxs, "fq_recognise_bi", lambda length, highs, lows: [-1] * length
+        clxs, "fq_recognise_bi", lambda length, highs, lows, closes: [-1] * length
     )
     monkeypatch.setattr(
         clxs,

@@ -68,7 +68,7 @@ private:
                         {
                             if (close[n] >= low[i])
                             {
-                                inner_result[n] = static_cast<int>(signal);
+                                inner_result[n] = encode_signal(6, 1, signal);
                             }
                             break;
                         }
@@ -119,7 +119,7 @@ private:
                         {
                             if (close[n] <= high[i])
                             {
-                                inner_result[n] = static_cast<int>(signal);
+                                inner_result[n] = encode_signal(6, 1, signal);
                             }
                             break;
                         }
@@ -137,6 +137,15 @@ public:
     {
         calculate();
     }
+
+    S0006_Calculator(
+        const std::vector<float> &high, const std::vector<float> &low, const std::vector<float> &open, const std::vector<float> &close,
+        const std::vector<float> &vol,
+        int switch_opt, const ChanOptions &options,
+        const ChanContext &ctx) : BaseCalculator(high, low, open, close, vol, switch_opt, options, ctx)
+    {
+        calculate();
+    }
 };
 
 std::vector<int> F_S0006(const std::vector<float> &high, const std::vector<float> &low, const std::vector<float> &open, const std::vector<float> &close,
@@ -144,4 +153,15 @@ std::vector<int> F_S0006(const std::vector<float> &high, const std::vector<float
 {
     S0006_Calculator calculator(high, low, open, close, vol, switch_opt, options);
     return calculator.result();
+}
+
+REGISTER_CALC(6, F_S0006)
+
+std::vector<int> F_S0006_ctx(
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol, int switch_opt,
+    const ChanOptions &options, const ChanContext &ctx)
+{
+    return S0006_Calculator(high, low, open, close, vol, switch_opt, options, ctx).result();
 }

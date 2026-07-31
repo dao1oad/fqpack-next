@@ -31,6 +31,24 @@ CLXS 是当前仓库仍在使用的一组缠论信号函数与筛选策略，主
 - `model_opt=10001`
   - CLXS 选股默认模型
 
+### 原生 CLX 模型范围
+
+当前 `morningglory/fqcopilot` 原生扩展已注册 **S0000–S0017 共 18 个模型**。
+
+- 单模型 Python 入口：`fqcopilot.fq_clxs`
+  - 生产编码为 `10000..10017`
+  - 编码规则：`model_opt = switch_opt * 10000 + model_id`
+- 批量 Python 入口：`fqcopilot.fq_clxs_all`
+  - 返回 18 行，行号 `0..17` 对应 `S0000..S0017`
+  - 与通达信 Func4 / `SALL` 采用 `switch_opt=0` 的批量口径
+
+因此，批量入口与单模型入口做逐项对照时，应比较批量第 `m` 行和
+`fq_clxs(..., model_opt=m)`；生产单模型调用则使用 `10000 + m`。
+
+`trend_opt` 同时作为模型扩展参数传入。S0015 的默认 MA 周期由 `trend_opt=0`
+触发；传入 `trend_opt=1` 会把扩展参数解释为 MA 周期 1，可能得到空信号，
+这属于参数语义而不是模型执行失败。
+
 常见默认参数：
 
 - `wave_opt=1560`

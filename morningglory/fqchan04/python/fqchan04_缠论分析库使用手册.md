@@ -120,16 +120,17 @@ fq_recognise_swing(length: int, high: List[float], low: List[float]) -> List[flo
 - `length: int` - K线数据长度
 - `high: List[float]` - 最高价列表
 - `low: List[float]` - 最低价列表
-- `chan_options: ChanOptions` - 缠论参数选项（可选，有默认值）
+- `close: List[float]` - 收盘价列表（可选，用于区分强分型）
+- `chan_options: dict` - 缠论参数选项（可选）
 
 **返回值：**
 
-- `List[float]` - 笔信号列表，-1表示笔的低点，1表示笔的高点，0表示非笔端点
+- `List[float]` - 笔信号列表；`-1/1` 表示笔的低/高点，`-11/11` 表示普通底/顶分型确认，`-12/12` 表示强底/顶分型确认
 
 ```python
-fq_recognise_bi(length: int, high: List[float], low: List[float], 
-                chan_options: ChanOptions = ChanOptions(bi_mode=6, force_wave_stick_count=15, 
-                                                       allow_pivot_across=0, merge_non_complehensive_wave=0)) -> List[float]
+fq_recognise_bi(length: int, high: List[float], low: List[float],
+                close: List[float] | None = None,
+                chan_options: dict | None = None) -> List[float]
 ```
 
 ### fq_recognise_duan
@@ -243,12 +244,13 @@ import fqchan04
 length = len(high_prices)
 high_list = high_prices  # 最高价列表
 low_list = low_prices    # 最低价列表
+close_list = close_prices  # 收盘价列表
 
 # 识别分型
 swing_signals = fqchan04.fq_recognise_swing(length, high_list, low_list)
 
 # 识别笔
-bi_signals = fqchan04.fq_recognise_bi(length, high_list, low_list)
+bi_signals = fqchan04.fq_recognise_bi(length, high_list, low_list, close_list)
 
 # 识别段
 duan_signals = fqchan04.fq_recognise_duan(length, bi_signals, high_list, low_list)
@@ -257,7 +259,13 @@ duan_signals = fqchan04.fq_recognise_duan(length, bi_signals, high_list, low_lis
 pivots = fqchan04.fq_recognise_pivots(length, duan_signals, bi_signals, high_list, low_list)
 
 # 自定义参数
-options = fqchan04.ChanOptions(bi_mode=5, force_wave_stick_count=14, 
-                              allow_pivot_across=1, merge_non_complehensive_wave=1)
-bi_signals_custom = fqchan04.fq_recognise_bi(length, high_list, low_list, options)
+options = {
+    "bi_mode": 5,
+    "force_wave_stick_count": 14,
+    "allow_pivot_across": 1,
+    "merge_non_complehensive_wave": 1,
+}
+bi_signals_custom = fqchan04.fq_recognise_bi(
+    length, high_list, low_list, close_list, chan_options=options
+)
 ```

@@ -20,7 +20,7 @@ def locate_macd_divergence(datetime_list, high_list, low_list, open_list, close_
 
     # 如果没有提供笔信号数据，内部计算
     if bi_list is None:
-        bi_list = fq_recognise_bi(length, high_list, low_list)
+        bi_list = fq_recognise_bi(length, high_list, low_list, close_list)
 
     # 使用默认成交量数据
     volume_list = [1.0] * length
