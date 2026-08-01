@@ -124,7 +124,11 @@ def apply_qfq_with_intraday_override(
             )
 
     trade_date = _normalize_date_str((override or {}).get("trade_date"))
-    anchor_scale = float((override or {}).get("anchor_scale") or 1.0)
+    anchor_scale = float(
+        (override or {}).get("legacy_anchor_scale")
+        or (override or {}).get("anchor_scale")
+        or 1.0
+    )
     if trade_date:
         history_mask = date_key < trade_date
         trade_mask = date_key == trade_date

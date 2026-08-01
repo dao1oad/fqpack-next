@@ -2,12 +2,13 @@
 
 ## 职责
 
-XTData 链路负责把宿主机 XTData 行情转换成 FreshQuant 可消费的实时事件流。它承担四件事：
+XTData 链路负责把宿主机 XTData 行情转换成 FreshQuant 可消费的实时事件流，并维护独立的盘后 QFQ shadow 快照。它承担五件事：
 
 - 从 XTQuant 订阅当前监控池的全量行情。
 - 把 tick 推入 Redis 分片队列。
 - 合成 1 分钟 bar，并继续向下游发布 bar close 事件。
 - 在 consumer 侧做 prewarm、结构计算、实时缓存与运行观测。
+- 在盘后 BFQ ready 后，以 XTData 日线 `preClose` 构建和审计 Stock / ETF A/B QFQ shadow 快照。
 
 ## 入口
 
@@ -15,8 +16,16 @@ XTData 链路负责把宿主机 XTData 行情转换成 FreshQuant 可消费的�
   - `python -m freshquant.market_data.xtdata.market_producer`
 - consumer
   - `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
+- QFQ shadow worker
+  - `python -m freshquant.market_data.xtdata.qfq_worker worker`
+- QFQ 运维 CLI
+  - `python -m freshquant.market_data.xtdata.qfq_worker status --strict`
+  - `python -m freshquant.market_data.xtdata.qfq_worker audit --scope <stock|etf> --mode <structure|tail|full> [--code CODE]`
+  - `python -m freshquant.market_data.xtdata.qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD`
+  - `python -m freshquant.market_data.xtdata.qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD --full`
+  - `python -m freshquant.market_data.xtdata.qfq_worker rollback --scope <stock|etf>`
 
-producer 是唯一 XTData 入口；consumer 是唯一 bar 队列消费入口。
+producer 是唯一 XTData 实时订阅入口；consumer 是唯一 bar 队列消费入口。QFQ worker 是独立的盘后 XTData 日线读取入口，不参与实时队列。
 
 ## 依赖
 
@@ -24,6 +33,7 @@ producer 是唯一 XTData 入口；consumer 是唯一 bar 队列消费入口。
 - `XTQUANT_PORT`，默认 `58610`
 - Redis
 - QuantAxis 历史库
+- `freshquant.dagster_pipeline_markers` 的 `stock_postclose_ready` / `etf_postclose_ready` 成功文档
 - 监控池来源
   - `guardian_1m = xt_positions + must_pool`
   - `guardian_and_clx_15_30 = (xt_positions + must_pool) + stock_pools`
@@ -51,6 +61,17 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - `OneMinuteBarGenerator` 和 `StrategyConsumer` 都会通过 FreshQuant A 股交易日历拦截非交易日 bar；周末/节假日 tick 不生成 bar，非交易日 `BAR_CLOSE` 不写入 `stock_realtime/index_realtime`。
 - consumer prewarm、股票分钟线 API 拼接与 ETF/index K 线查询都会过滤非交易日 realtime 行，避免历史脏数据继续进入 Redis Kline cache 或 `/api/stock_data` 返回值。
 
+### QFQ shadow 链
+
+`Dagster Stock/ETF BFQ + 旧复权 writer -> postclose ready marker -> fqnext_xtdata_qfq_worker -> XTData preClose -> inactive A/B slot -> audit -> qfq_ready active_slot`
+
+- Stock 数据集合为 `stock_adj_qfq_a` / `stock_adj_qfq_b`，ETF 数据集合为 `etf_adj_qfq_a` / `etf_adj_qfq_b`。
+- `quantaxis.qfq_ready` 对每个 scope 使用一个原子双槽 marker；构建 inactive slot 期间 active slot 保持只读，inactive slot 审计成功后才切换。
+- `quantaxis.qfq_writer_locks` 对每个 scope 只允许一个带过期时间并由后台线程持续续期的 writer lease；单次 XTData 请求或 Mongo `$out` 阻塞时仍续租，发布前重新核对 owner。中断的 `building` 仅由下一位 lease owner 恢复，人工 build / rollback 不与 Supervisor worker 并发写。
+- 首次 bootstrap 先构建并审计 A，再复制和审计 B，之后发布双槽 marker；日更只对 inactive slot 写入。
+- 当前 Stock / ETF 在线 reader 和旧 `stock_xdxr`、`etf_xdxr -> etf_adj` writer 均未切换；A/B 发布不会改变现有 Kline 或策略读取结果。
+- 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ shadow scope。
+
 ## 存储
 
 - Redis
@@ -61,6 +82,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
   - 历史分钟线读取
   - 实时结构或补权结果所需的基础数据
   - `realtime_screen_multi_period`
+  - `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b` 与 `qfq_ready`
 
 当前模块会在启用 CLX 能力时把命中的多周期 CLX 信号写入 `realtime_screen_multi_period`。
 
@@ -81,6 +103,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
   - 决定 consumer 何时进入 catchup 模式。
 - `XTQUANT_PORT`
   - XTData 连接端口。
+  - QFQ worker 通过 `bootstrap_config.xtdata.port` 读取同一端口，默认 `58610`。
 
 对 Guardian 主链最重要的是：
 
@@ -89,8 +112,8 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 ## 部署/运行
 
-- 这两个进程通常运行在宿主机，不放进 Docker。
-- 修改 `freshquant/market_data/**` 后，至少重启 producer 与 consumer。
+- producer、consumer 与 QFQ worker 通常运行在宿主机，不放进 Docker。
+- 修改 `freshquant/market_data/**` 后，按 `market_data` surface 重启 producer、consumer、adj refresh worker 与 QFQ worker。
 - consumer 改动涉及结构缓存或 prewarm 逻辑时，建议带 `--prewarm` 重新拉起。
 - producer 启动阶段若遇到可重试的 XTData 连接失败，当前会在进程内按退避重试继续等待 XTQuant / QMT 就绪，不再只依赖 supervisor 外层重启。
 - producer 当前会在交易时段内监控 `rx_age_s`：
@@ -101,6 +124,9 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
   - `tick_quote_pending_batches`
   - `tick_quote_dropped_batches`
 - `xtdata_adj_refresh_worker` 若在启动或日内计划刷新时遇到可重试的 XTData 连接失败，当前会退避后重建新的 refresh service / XTData client 再继续同步。
+- `fqnext_xtdata_qfq_worker` 默认每 60 秒轮询盘后 ready marker；可用 `worker --once` 单轮执行，用 `status --strict`、`audit`、`build`、`rollback` 做运维检查。正式 post-deploy verify 会执行严格 status，不能只以进程存在代替数据 ready。
+- 默认日更回看 60 个实际交易日；更早的 XTData 历史修订通过 `build --full` 在 inactive slot 做同截止日全 scope 重算并清除 universe 外残留 code，自动执行频率需在全市场容量 gate 后确定。
+- `audit --mode structure` 是 Mongo 快速结构审计；`--mode tail` / `--mode full` 会重新读取 XTData source bars 并验证递推恒等式，正式全市场 gate 使用 `--mode full`。
 
 ## 排障点
 
@@ -129,3 +155,10 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 - 检查 tick 分片队列是否有目标 code。
 - 检查 producer 是否在向 `REDIS_TICK_QUEUE_PREFIX:<shard>` 推送。
+
+### QFQ shadow 不更新
+
+- 检查 `fqnext_xtdata_qfq_worker` Supervisor 状态与 `D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log`。
+- 执行 `python -m freshquant.market_data.xtdata.qfq_worker worker --once`，区分 `waiting_for_bfq`、`current`、`published` 与错误结果。
+- 执行 `status --strict` 核对 active 截止日与盘后 marker，执行 `audit --scope stock|etf --mode full` 对 active slot 做 XTData source-aware 审计；快速排查可先用 `--mode structure`。
+- 页面仍读取旧 Stock / ETF 因子；shadow 集合已更新但页面未变化，不代表 QFQ worker 失败。

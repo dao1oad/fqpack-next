@@ -6,6 +6,7 @@ FreshQuant 当前同时使用三类行情来源：
 
 - XTData / XTQuant
   - 实时 tick 和分钟 bar 的唯一正式入口
+  - Stock / ETF QFQ shadow 快照的 `preClose` 权威来源
 - QuantAxis / Mongo 历史库
   - Kline、结构计算、历史回看使用的主要历史数据来源
 - Redis realtime cache
@@ -17,6 +18,13 @@ FreshQuant 当前同时使用三类行情来源：
   - `python -m freshquant.market_data.xtdata.market_producer`
 - 实时 consumer
   - `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
+- QFQ shadow worker / 运维 CLI
+  - `python -m freshquant.market_data.xtdata.qfq_worker worker`
+  - `python -m freshquant.market_data.xtdata.qfq_worker status --strict`
+  - `python -m freshquant.market_data.xtdata.qfq_worker audit --scope <stock|etf> --mode <structure|tail|full> [--code CODE]`
+  - `python -m freshquant.market_data.xtdata.qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD`
+  - `python -m freshquant.market_data.xtdata.qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD --full`
+  - `python -m freshquant.market_data.xtdata.qfq_worker rollback --scope <stock|etf>`
 - HTTP 查询
   - `/api/stock_data`
   - `/api/stock_data_v2`
@@ -39,15 +47,20 @@ FreshQuant 当前同时使用三类行情来源：
 - TDX 股票日线对未上市/暂无源数据代码返回空结果时按 no-op 处理，不执行空批量写入；连接、抓取或真实写库异常仍由 Dagster 标记为失败
 - 股票除权除息复权计算使用显式列赋值与 `DataFrame.ffill()`，避免 Pandas 3.0 链式 `inplace`/`fillna(method=...)` 兼容性问题，计算口径不变
 - 独立 CLX 日线选股的 `qfq-daily-v1` provider 会逐 bar 校验 `stock_adj/etf_adj` 覆盖；缺失、非有限或小于等于 0 的因子直接使本侧 partition fail-closed，不回退为 `adj=1` 或 bfq
+- Stock / ETF 在线读取仍使用 `quantaxis.stock_adj` / `quantaxis.etf_adj`，现有 `stock_xdxr`、`etf_xdxr -> etf_adj` writer 继续运行
+- XTData `preClose` QFQ writer 维护独立 shadow 集合：`stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`；`quantaxis.qfq_ready` 保存每个 scope 的 active slot 与双槽快照元数据
+- shadow writer 只在 inactive slot 构建并审计，审计成功且 writer lease owner 仍匹配后原子切换 marker；当前 Stock / ETF reader 尚未读取这些 A/B 集合
+- `audit --mode structure` 只检查 Mongo 结构合同；`tail/full` 会加载 XTData source bars 并验证 `preClose` 递推，正式发布门禁使用 `full`
+- 真实 Index 日线、分钟线与 realtime merge 固定为 BFQ，实时表使用 `freshquant.index_realtime`，不读取 ETF 或 Stock 复权因子
 
 Dagster 盘后桥接口径当前新增两条 ready asset：
 
 - `stock_postclose_ready_asset`
-  - 依赖股票日线与 `quality_stock_universe` 快照刷新
-  - 成功后写入 `dagster_pipeline_markers.stock_postclose_ready`
+  - 依赖股票日线、分钟线、`quality_stock_universe` 快照刷新与旧 `stock_xdxr` writer
+  - 成功后写入 `freshquant.dagster_pipeline_markers` 中 `pipeline_key=stock_postclose_ready` 的文档
 - `etf_postclose_ready_asset`
-  - 依赖 `etf_adj` 和通过日线/五周期完整性门禁的 `etf_min`
-  - 成功后写入 `dagster_pipeline_markers.etf_postclose_ready`
+  - 依赖旧 `etf_xdxr -> etf_adj` writer 和通过日线/五周期完整性门禁的 `etf_min`
+  - 成功后写入 `freshquant.dagster_pipeline_markers` 中 `pipeline_key=etf_postclose_ready` 的文档
 
 其中：
 
@@ -57,6 +70,8 @@ Dagster 盘后桥接口径当前新增两条 ready asset：
 - 对旧 `/daily-screening`，`etf_postclose_ready` 仍不是硬门禁
 - 对独立 CLX 日线选股，`stock_postclose_ready` success 立即启动 stock partition，`etf_postclose_ready` success 立即启动 ETF partition；两侧互不等待
 - 两个 CLX partition 都成功只门控 finalizer、`clx_daily_selection_ready`、正式完整结果和跨资产统计
+- `etf_postclose_ready` 当前仅保留给 ETF 扩展链路，不是每日选股硬门禁
+- Windows `fqnext_xtdata_qfq_worker` 消费上述两个 success marker，更新对应 scope 的 QFQ shadow 快照
 
 ## 当前常见字段语义
 

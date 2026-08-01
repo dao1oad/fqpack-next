@@ -13,17 +13,37 @@ from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime, QA_util_tim
 
 from freshquant.database.cache import redis_cache
 from freshquant.db import DBfreshquant
-from freshquant.util.code import fq_util_code_append_market_code
+from freshquant.instrument.index import query_index_map
+from freshquant.util.code import normalize_to_base_code
+
+
+def _index_realtime_code(code: str) -> str:
+    raw = str(code or "").strip()
+    upper = raw.upper()
+    base_code = normalize_to_base_code(raw)
+    if len(upper) == 8 and upper[:2] in {"SH", "SZ"}:
+        return upper.lower()
+    if len(upper) == 9 and upper[:6].isdigit() and upper[6:] in {".SH", ".SZ"}:
+        return f"{upper[7:].lower()}{upper[:6]}"
+    index_map = query_index_map()
+    instrument = index_map.get(raw) or index_map.get(base_code)
+    if instrument and instrument.get("sse"):
+        return f"{str(instrument['sse']).lower()}{base_code}"
+    return base_code
 
 
 @redis_cache.memoize(expiration=900)
 def fq_data_QA_fetch_index_min_adv(code, start, end, frequence):
-    return QA_fetch_index_min_adv(code, start, end, frequence).to_qfq().data
+    # Real indexes are intentionally BFQ.  ETF QFQ factors are never read on
+    # this path, even though both products use QUANTAXIS index collections.
+    data = QA_fetch_index_min_adv(code, start, end, frequence)
+    return data.data if data is not None else None
 
 
 @redis_cache.memoize(expiration=900)
 def fqDataQAFetchIndexDayAdv(code, start, end):
-    return QA_fetch_index_day_adv(code, start, end).data
+    data = QA_fetch_index_day_adv(code, start, end)
+    return data.data if data is not None else None
 
 
 @redis_cache.memoize(expiration=864000)
@@ -32,23 +52,24 @@ def fqDataQAFetchIndexListAdv():
 
 
 def fq_data_index_fetch_min(code, frequence, start=None, end=None):
+    base_code = normalize_to_base_code(code)
     data = fq_data_QA_fetch_index_min_adv(
-        code,
+        base_code,
         QA_util_datetime_to_strdatetime(start),
         QA_util_datetime_to_strdatetime(end),
         frequence=frequence,
     )
+    if data is None or len(data) == 0:
+        return None
     data.reset_index(inplace=True)
     data["time_stamp"] = data["datetime"].apply(lambda dt: QA_util_time_stamp(dt))
     data.set_index("datetime", inplace=True, drop=False)
-    if data is None or len(data) == 0:
-        return None
-    last_datetime = data["datetime"][-1]
+    last_datetime = data["datetime"].iloc[-1]
     realtime_data_list = (
-        DBfreshquant["stock_realtime"]
+        DBfreshquant["index_realtime"]
         .find(
             {
-                "code": fq_util_code_append_market_code(code, upper_case=False),
+                "code": _index_realtime_code(code),
                 "frequence": frequence,
                 "datetime": {"$gt": last_datetime, "$lte": end},
                 "open": {"$gt": 0},
@@ -88,7 +109,7 @@ def fq_data_index_fetch_min(code, frequence, start=None, end=None):
             lambda value: value.replace(tzinfo=None)
         )
         realtime_data_list.set_index("datetime", drop=False, inplace=True)
-        data = data.append(realtime_data_list)
+        data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
     data = data.round(
         {"open": 2, "high": 2, "low": 2, "close": 2, "volume": 2, "amount": 2}
@@ -102,6 +123,8 @@ def fqDataIndexFetchDay(code, start=None, end=None):
         QA_util_datetime_to_strdatetime(start),
         QA_util_datetime_to_strdatetime(end),
     )
+    if data is None or len(data) == 0:
+        return None
     data.reset_index(inplace=True)
     data["datetime"] = data["date"].apply(lambda x: datetime.combine(x, time()))
     data["date_stamp"] = data["datetime"].apply(lambda x: QA_util_time_stamp(x))
@@ -111,6 +134,10 @@ def fqDataIndexFetchDay(code, start=None, end=None):
     )
     data.set_index("datetime", drop=False, inplace=True)
     return data
+
+
+# Explicit BFQ aliases used by the type-routing layer.
+fq_data_index_fetch_day = fqDataIndexFetchDay
 
 
 def fq_data_stock_resample_60min(data):

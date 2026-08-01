@@ -61,6 +61,9 @@ def _install_chanlun_stubs(monkeypatch):
 
     instrument_general_module = types.ModuleType("freshquant.instrument.general")
     instrument_general_module.query_instrument_type = lambda code: None
+    instrument_general_module.infer_cn_instrument_type = (
+        lambda code: InstrumentType.STOCK_CN
+    )
 
     instrument_stock_module = types.ModuleType("freshquant.instrument.stock")
     instrument_stock_module.query_stock_map = lambda: {}
@@ -216,3 +219,41 @@ def test_resolve_security_symbol_and_type_uses_normalized_symbol_for_suffix_code
     assert observed_codes == ["sh204001"]
     assert resolved_symbol == "sh204001"
     assert instrument_type == InstrumentType.BOND_CN
+
+
+def test_get_data_v2_routes_index_to_bfq_fetcher(monkeypatch, chanlun_service):
+    captured = {}
+    instrument_index_module = types.ModuleType("freshquant.instrument.index")
+    instrument_index_module.query_index_map = lambda: {}
+    quote_index_module = types.ModuleType("freshquant.quote.index")
+
+    def fake_index(code, period, end_date, bar_count=0):
+        captured["args"] = (code, period, end_date, bar_count)
+        return pd.DataFrame(
+            {
+                "datetime": pd.to_datetime(["2026-03-11 09:35", "2026-03-11 09:40"]),
+                "open": [10.0, 10.2],
+                "high": [10.3, 10.4],
+                "low": [9.9, 10.1],
+                "close": [10.1, 10.3],
+                "volume": [1000, 1200],
+                "amount": [10000, 12360],
+            }
+        )
+
+    quote_index_module.queryIndexCandleSticks = fake_index
+    monkeypatch.setitem(
+        sys.modules, "freshquant.instrument.index", instrument_index_module
+    )
+    monkeypatch.setitem(sys.modules, "freshquant.quote.index", quote_index_module)
+    monkeypatch.setattr(
+        chanlun_service,
+        "query_instrument_type",
+        lambda _code: InstrumentType.INDEX_CN,
+    )
+
+    payload = chanlun_service.get_data_v2("sh000300", "5m", bar_count=7)
+
+    assert captured["args"] == ("sh000300", "5m", None, 7)
+    assert payload["instrumentType"] == InstrumentType.INDEX_CN
+    assert payload["close"] == [10.1, 10.3]

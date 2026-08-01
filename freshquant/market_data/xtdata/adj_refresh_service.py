@@ -47,6 +47,15 @@ def _default_code_loader() -> list[str]:
     return list(load_monitor_codes(mode=mode, max_symbols=max_symbols) or [])
 
 
+def _default_snapshot_provider(kind: str) -> dict[str, Any] | None:
+    try:
+        from freshquant.market_data.xtdata.qfq import resolve_active_slot
+
+        return resolve_active_slot(scope=kind, db=DBQuantAxis)
+    except Exception:
+        return None
+
+
 def _is_retryable_xtdata_error(error: Exception) -> bool:
     message = str(error or "")
     normalized = message.lower()
@@ -65,6 +74,25 @@ class AdjRefreshRepository:
     ) -> dict | None:
         coll = "stock_adj" if kind == "stock" else "etf_adj"
         return DBQuantAxis[coll].find_one(
+            {
+                "code": normalize_to_base_code(code),
+                "date": {"$lte": base_anchor_date},
+            },
+            sort=[("date", -1)],
+            projection={"_id": 0, "date": 1, "adj": 1},
+        )
+
+    def get_snapshot_anchor(
+        self,
+        kind: str,
+        code: str,
+        base_anchor_date: str,
+        snapshot: dict[str, Any],
+    ) -> dict | None:
+        collection = str(snapshot.get("collection") or "")
+        if not collection:
+            return None
+        return DBQuantAxis[collection].find_one(
             {
                 "code": normalize_to_base_code(code),
                 "date": {"$lte": base_anchor_date},
@@ -195,6 +223,7 @@ class AdjRefreshService:
         trade_date_provider=None,
         prev_trade_date_provider=None,
         now_provider=None,
+        snapshot_provider=None,
     ):
         self.repository = repository or AdjRefreshRepository()
         self.market_client = market_client or XtDataAdjRefreshClient()
@@ -204,6 +233,7 @@ class AdjRefreshService:
             prev_trade_date_provider or query_prev_trade_date
         )
         self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
+        self.snapshot_provider = snapshot_provider or _default_snapshot_provider
 
     def sync_once(self) -> dict[str, Any]:
         trade_date = _normalize_date_str(self.trade_date_provider())
@@ -227,6 +257,7 @@ class AdjRefreshService:
             "base_anchor_date": base_anchor_date,
             "updated_at": updated_at,
         }
+        snapshots = {kind: self.snapshot_provider(kind) for kind in ("stock", "etf")}
 
         for code in list(self.code_loader() or []):
             kind = "etf" if _is_index_like_code(code) else "stock"
@@ -248,15 +279,35 @@ class AdjRefreshService:
                 continue
 
             target_adj = front_close / raw_close
-            anchor_scale = target_adj / base_adj
+            legacy_anchor_scale = target_adj / base_adj
             document = {
                 "code": normalize_to_base_code(code),
                 "trade_date": trade_date,
                 "base_anchor_date": effective_anchor_date,
-                "anchor_scale": float(anchor_scale),
+                "anchor_scale": float(legacy_anchor_scale),
+                "legacy_anchor_scale": float(legacy_anchor_scale),
                 "source": "xtdata_front_raw",
                 "updated_at": updated_at,
             }
+            snapshot = snapshots.get(kind) or {}
+            snapshot_anchor_loader = getattr(
+                self.repository, "get_snapshot_anchor", None
+            )
+            snapshot_anchor = (
+                snapshot_anchor_loader(kind, code, base_anchor_date, snapshot)
+                if snapshot.get("snapshot_id") and snapshot_anchor_loader
+                else None
+            )
+            snapshot_anchor_date = str((snapshot_anchor or {}).get("date") or "")
+            snapshot_adj = float((snapshot_anchor or {}).get("adj") or 0.0)
+            if (
+                snapshot.get("snapshot_id")
+                and snapshot_anchor_date == effective_anchor_date
+                and snapshot_adj > 0
+            ):
+                document["anchor_scale"] = float(target_adj / snapshot_adj)
+                document["base_snapshot_id"] = str(snapshot["snapshot_id"])
+                document["base_factor_asof"] = str(snapshot.get("factor_asof") or "")
             self.repository.upsert_intraday_override(kind, document)
             result["count"] += 1
             result[f"{kind}_count"] += 1
@@ -272,6 +323,7 @@ def refresh_adj_overrides_once(
     trade_date_provider=None,
     prev_trade_date_provider=None,
     now_provider=None,
+    snapshot_provider=None,
 ) -> dict[str, Any]:
     service = AdjRefreshService(
         repository=repository,
@@ -280,5 +332,6 @@ def refresh_adj_overrides_once(
         trade_date_provider=trade_date_provider,
         prev_trade_date_provider=prev_trade_date_provider,
         now_provider=now_provider,
+        snapshot_provider=snapshot_provider,
     )
     return service.sync_once()

@@ -46,6 +46,7 @@ def test_resolve_surface_programs_expands_market_and_order_management() -> None:
         "fqnext_realtime_xtdata_producer",
         "fqnext_realtime_xtdata_consumer",
         "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_xtdata_qfq_worker",
         "fqnext_xtquant_broker",
         "fqnext_xt_account_sync_worker",
         "fqnext_xt_auto_repay_worker",
@@ -83,6 +84,7 @@ def test_resolve_target_programs_supports_restart_surfaces_without_program_arg()
         "fqnext_realtime_xtdata_producer",
         "fqnext_realtime_xtdata_consumer",
         "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_xtdata_qfq_worker",
         "fqnext_guardian_event",
     ]
 
@@ -101,6 +103,7 @@ def test_resolve_target_programs_supports_stop_surfaces_without_program_arg() ->
         "fqnext_realtime_xtdata_producer",
         "fqnext_realtime_xtdata_consumer",
         "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_xtdata_qfq_worker",
         "fqnext_guardian_event",
     ]
 
@@ -119,6 +122,7 @@ def test_resolve_target_programs_supports_wait_settled_without_program_arg() -> 
         "fqnext_realtime_xtdata_producer",
         "fqnext_realtime_xtdata_consumer",
         "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_xtdata_qfq_worker",
         "fqnext_guardian_event",
     ]
 

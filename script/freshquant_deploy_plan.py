@@ -64,6 +64,7 @@ HOST_SURFACE_PROGRAMS = {
         "fqnext_realtime_xtdata_producer",
         "fqnext_realtime_xtdata_consumer",
         "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_xtdata_qfq_worker",
     ],
     "guardian": ["fqnext_guardian_event"],
     "position_management": ["fqnext_xt_account_sync_worker"],
@@ -172,6 +173,31 @@ PATH_RULES: tuple[PathRule, ...] = (
     PrefixRule(
         label="freshquant-rear",
         prefix="freshquant/rear/",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="index-data-api",
+        exact_path="freshquant/data/index.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="index-quote-api",
+        exact_path="freshquant/quote/index.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="instrument-routing-api",
+        exact_path="freshquant/instrument/general.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="chanlun-api",
+        exact_path="freshquant/chanlun_service.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="chanlun-structure-api",
+        exact_path="freshquant/chanlun_structure_service.py",
         surfaces=("api",),
     ),
     ExactRule(
