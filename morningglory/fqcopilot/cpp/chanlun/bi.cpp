@@ -538,3 +538,10 @@ std::vector<float> recognise_bi(int length, std::vector<float> &high,
   }
   return bi;
 }
+
+std::vector<float> recognise_bi(int length, std::vector<float> &high,
+                                std::vector<float> &low,
+                                ChanOptions &options) {
+  const std::vector<float> close;
+  return recognise_bi(length, high, low, close, options);
+}
