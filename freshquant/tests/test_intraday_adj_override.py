@@ -41,6 +41,22 @@ def test_apply_qfq_with_intraday_override_keeps_trade_date_raw_and_rescales_hist
     assert out["close"].tolist() == [10.5, 11.5]
 
 
+def test_legacy_reader_uses_legacy_scale_when_override_is_snapshot_bound():
+    out = apply_qfq_with_intraday_override(
+        _bars(),
+        _base_adj(),
+        override={
+            "trade_date": "2026-03-09",
+            "anchor_scale": 0.8,
+            "legacy_anchor_scale": 0.5,
+            "base_snapshot_id": "stock-snapshot-v1",
+        },
+    )
+
+    assert out["open"].tolist() == [10.0, 11.0]
+    assert out["close"].tolist() == [10.5, 11.5]
+
+
 def test_apply_qfq_with_intraday_override_falls_back_to_base_adj_when_override_missing():
     out = apply_qfq_with_intraday_override(_bars(), _base_adj(), override=None)
 

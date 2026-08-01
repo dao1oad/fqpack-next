@@ -1,0 +1,32 @@
+{
+  "captured_at": "2026-08-01",
+  "source": "XTData dividend_type=none/front, fill_data=false",
+  "samples": [
+    {
+      "code": "600381",
+      "kind": "stock",
+      "bars": [
+        {"date": "2012-05-11", "close": 8.68, "preClose": 9.39},
+        {"date": "2012-05-14", "close": 8.71, "preClose": 8.68},
+        {"date": "2012-05-15", "close": 5.31, "preClose": 5.12}
+      ],
+      "event_date": "2012-05-14",
+      "expected_event_qfq_close": 5.12,
+      "front_reference_normalized_close": 5.123529411764705,
+      "front_tolerance": 0.01
+    },
+    {
+      "code": "159995",
+      "kind": "etf",
+      "bars": [
+        {"date": "2026-07-03", "close": 3.0, "preClose": 3.019},
+        {"date": "2026-07-06", "close": 3.009, "preClose": 3.0},
+        {"date": "2026-07-07", "close": 1.501, "preClose": 1.505}
+      ],
+      "event_date": "2026-07-06",
+      "expected_event_qfq_close": 1.505,
+      "front_reference_normalized_close": 1.5045,
+      "front_tolerance": 0.001
+    }
+  ]
+}

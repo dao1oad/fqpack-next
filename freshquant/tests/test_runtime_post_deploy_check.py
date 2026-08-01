@@ -27,6 +27,13 @@ def test_runtime_post_deploy_check_resolves_python_without_py_launcher() -> None
     assert "Get-Command py -ErrorAction SilentlyContinue" in script_text
 
 
+def test_runtime_post_deploy_check_runs_strict_qfq_readiness_for_market_data() -> None:
+    script_text = SCRIPT.read_text(encoding="utf-8")
+
+    assert "freshquant.market_data.xtdata.qfq_worker" in script_text
+    assert "'status', '--strict'" in script_text
+
+
 def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:
@@ -221,13 +228,13 @@ def test_capture_baseline_treats_absent_live_container_as_missing_without_error(
         "\n".join(
             [
                 "#!/usr/bin/env sh",
-                'if [ \"$1\" = \"ps\" ]; then',
+                'if [ "$1" = "ps" ]; then',
                 "  printf '%s\\n' fq_mongodb",
                 "  exit 0",
                 "fi",
-                'if [ \"$1\" = \"inspect\" ]; then',
-                '  if [ \"$2\" = \"fq_mongodb\" ]; then',
-                "    printf '%s\\n' '[{\"Name\":\"fq_mongodb\",\"State\":{\"Status\":\"running\",\"Health\":{\"Status\":\"healthy\"}}}]'",
+                'if [ "$1" = "inspect" ]; then',
+                '  if [ "$2" = "fq_mongodb" ]; then',
+                '    printf \'%s\\n\' \'[{"Name":"fq_mongodb","State":{"Status":"running","Health":{"Status":"healthy"}}}]\'',
                 "    exit 0",
                 "  fi",
                 "  exit 1",
@@ -440,6 +447,13 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
                 "ProcessId": 403,
                 "Name": "python.exe",
                 "CommandLine": "python -m freshquant.market_data.xtdata.adj_refresh_worker",
+            },
+            {
+                "ProcessId": 407,
+                "Name": "python.exe",
+                "CommandLine": (
+                    "python -m freshquant.market_data.xtdata.qfq_worker worker"
+                ),
             },
             {
                 "ProcessId": 404,

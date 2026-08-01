@@ -26,6 +26,7 @@ PROGRAM_NAMES = (
     "fqnext_tpsl_worker",
     "fqnext_xtquant_broker",
     "fqnext_xtdata_adj_refresh_worker",
+    "fqnext_xtdata_qfq_worker",
 )
 
 
@@ -155,8 +156,17 @@ autostart=true
 autorestart=true
 startsecs=5
 
+[program:fqnext_xtdata_qfq_worker]
+command={python_executable} -m freshquant.market_data.xtdata.qfq_worker worker
+directory={root}
+stdout_logfile=D:/fqdata/log/fqnext_xtdata_qfq_worker.log
+stderr_logfile=D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log
+autostart=true
+autorestart=true
+startsecs=5
+
 [group:fqnext_reference_data]
-programs=fqnext_xtdata_adj_refresh_worker
+programs=fqnext_xtdata_adj_refresh_worker,fqnext_xtdata_qfq_worker
 
 [group:fqnext_trading_chain]
 programs=fqnext_realtime_xtdata_producer,fqnext_realtime_xtdata_consumer,fqnext_guardian_event,fqnext_xt_account_sync_worker,fqnext_xt_auto_repay_worker,fqnext_tpsl_worker,fqnext_xtquant_broker
