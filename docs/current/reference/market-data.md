@@ -38,6 +38,7 @@ FreshQuant 当前同时使用三类行情来源：
 - 指定 `endDate` 时，以历史查询为准
 - TDX 股票日线对未上市/暂无源数据代码返回空结果时按 no-op 处理，不执行空批量写入；连接、抓取或真实写库异常仍由 Dagster 标记为失败
 - 股票除权除息复权计算使用显式列赋值与 `DataFrame.ffill()`，避免 Pandas 3.0 链式 `inplace`/`fillna(method=...)` 兼容性问题，计算口径不变
+- 独立 CLX 日线选股的 `qfq-daily-v1` provider 会逐 bar 校验 `stock_adj/etf_adj` 覆盖；缺失、非有限或小于等于 0 的因子直接使本侧 partition fail-closed，不回退为 `adj=1` 或 bfq
 
 Dagster 盘后桥接口径当前新增两条 ready asset：
 
@@ -53,7 +54,9 @@ Dagster 盘后桥接口径当前新增两条 ready asset：
 - `stock_data_job` 仍由工作日 `16:00` schedule 驱动
 - `etf_data_job` 仍由工作日 `16:00` schedule 驱动
 - `stock_postclose_ready` 是 Gantt / Daily Screening 盘后链路的正式股票侧就绪信号
-- `etf_postclose_ready` 当前仅保留给 ETF 扩展链路，不是每日选股硬门禁
+- 对旧 `/daily-screening`，`etf_postclose_ready` 仍不是硬门禁
+- 对独立 CLX 日线选股，`stock_postclose_ready` success 立即启动 stock partition，`etf_postclose_ready` success 立即启动 ETF partition；两侧互不等待
+- 两个 CLX partition 都成功只门控 finalizer、`clx_daily_selection_ready`、正式完整结果和跨资产统计
 
 ## 当前常见字段语义
 

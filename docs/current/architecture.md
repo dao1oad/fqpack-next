@@ -7,6 +7,7 @@
 - 策略层
   - `freshquant.strategy.*`
   - `freshquant.signal.*`
+  - `freshquant.clx_daily_selection.*`
 - 交易执行层
   - `freshquant.order_management.*`
   - `freshquant.position_management.*`
@@ -30,6 +31,34 @@
   - 记忆层只提供上下文，不覆盖 GitHub、`docs/current/**` 与最新远程 `origin/main` / `main` 的正式真值
   - 涉及运行交付时，以最新远程 `main` 的正式 deploy 与 health check 为准
   - 所有代码更新的 PR + CI + merge gate 仍是交付收敛面的正式真值
+
+## CLX 日线选股 fork-join 链
+
+### 股票 partition
+
+`stock_postclose_ready(success) -> clx_daily_selection_stock_sensor -> scheduled attempt -> owner/token running claim -> production_v1 CLX18 -> marker drift recheck -> fenced committing -> immutable stock partition`
+
+### ETF partition
+
+`etf_postclose_ready(success) -> clx_daily_selection_etf_sensor -> scheduled attempt -> owner/token running claim -> production_v1 CLX18 -> marker drift recheck -> fenced committing -> immutable ETF partition`
+
+两条 partition 链并发且互不读取另一侧 marker。单侧失败、运行中或 marker 漂移只影响本侧；已经 completed 的另一侧 partition 按 `selection_key + content_hash` 复用。partition attempt 按 `scheduled -> running -> committing -> completed` 推进，claim 由 `claim_owner + claim_token + lease_expires_at` fencing；同一 attempt 的第二 executor 不进入计算，过期旧 worker 不能提交不可变输出。
+
+### sensor 跨日追赶
+
+stock、ETF 和 finalizer 三个 CLX sensor 都按 newest-first 扫描最近 5 个已完成交易日。交易日来自交易日历；本地时间未到 `15:05` 时当天不算完成，周末也不会推导出未来交易日。每个 sensor 每个 tick 最多派发一个 `RunRequest`：marker 缺失或计划为 `reuse/wait` 时继续检查更早日期，遇到 `active` 时停止本轮以避免并发重复，遇到 `run` 时立即返回。由此可在 D+1 找回延迟到达的旧日 marker、失败 partition 的下一 attempt，以及旧日失败 publication，同时不重复计算已完成侧。
+
+### finalizer
+
+`immutable stock partition + immutable ETF partition -> persisted finalization_attempt -> strict Dagster tag check -> finalizer contract check -> immutable final content -> owner/token publication claim -> clx_daily_selection_ready`
+
+finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_attempts` 的 trade date、batch id 和两个 partition id，每次 dispatch 使用独立 attempt/run key；job 必须按 `finalization_attempt_id` 读取该计划，并强校验所有 Dagster tags。finalizer 再校验同交易日、`production_v1 / switch_opt=1`、算法/数据/参数/schema/条件目录/线定义版本一致。任一当前 marker 缺失时只返回 waiting；marker 或 partition generation 漂移时不发布旧 failed/pending generation。final 内容与 ready marker publication 分离：publication 为 `pending/publishing/failed` 时公共 API 仍投影为 partial，只有 `published/not_required` 才进入默认完整结果；publication 也以 owner/token CAS 防止旧发布者覆盖新 claim，发布重试不重算 partition。ready marker 的 generation 使用规范 UTC 可排序键和不可变 `publication_id`：相同 publication id 重试幂等复读，迟到的旧 generation 被显式拒绝为 `stale_publication`，旧 batch 保持 publication failed，不能覆盖新 marker 或被标为 published。单侧完成只形成明确的 partial。
+
+### 读链
+
+`freshquant_clx_daily_selection -> /api/clx-daily-selection/* -> /clx-daily-screening -> /kline-slim CLX sidebar/workbench -> ECharts CLX marker series`
+
+新链使用独立数据库、API、页面路由和 `clx_daily_selection_ready` marker。旧 `/daily-screening`、`fqscreening` 与 `daily_screening_ready` 继续保持 12 模型链的原有语义。
 
 ## 订单相关核心调用链
 
@@ -129,6 +158,12 @@
   - `entries + entry_slices + takeprofit + stoploss`
 - `KlineSlim`
   - `entries + entry stoploss + guardian/takeprofit + 可选订单级交易复盘覆盖层`
+  - CLX 左栏读取选定 final/显式 partial scope；右侧工作台按 `production_v1` 历史响应控制模型/条件和 marker 可见性
+  - CLX marker 由 renderer 生成独立 ECharts scatter series，并由 controller 处理点击、聚焦和 tooltip
+- `ClxDailyScreening`
+  - 默认读取最新 `published/not_required` final；显式选择时才展示 partial 或 publication 中间态
+  - 展示 stock/ETF partition 状态、attempt、hash、结果筛选和逐 membership 证据
+  - 跨资产统计只来自 finalizer 通过后的完整 batch
 - `PositionReview`
   - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
   - 与 `KlineSlim` 共享订单级时间线投影：信号、订单聚合成交、数量对比和连续持仓使用同一口径
@@ -177,3 +212,11 @@
   - 重启 `tpsl.tick_listener`
 - `morningglory/fqwebui/**`
   - 重建 Web UI
+- `freshquant/clx_daily_selection/**` 或 `freshquant/rear/clx_daily_selection/**`
+  - 重建 API Server
+  - 重启 Dagster Webserver / Daemon，使 partition job 与 finalizer 加载同一服务实现
+- `morningglory/fqdagster/**`
+  - 重启 Dagster Webserver / Daemon
+- `morningglory/fqcopilot/**`
+  - 重新构建并安装原生扩展
+  - 重建/重启消费该扩展的 API 与 Dagster 运行面

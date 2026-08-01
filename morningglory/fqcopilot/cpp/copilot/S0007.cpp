@@ -32,7 +32,7 @@ private:
     {
         int v[3] = {-1, -1, -1};
         int found = 0;
-        
+
         // 从origin_pos开始向后查找
         for (int i = origin_pos + 1; i < length && found < 3; i++) {
             if (wave_sigs[i] == -1) {  // 找到笔的低点
@@ -75,7 +75,7 @@ private:
     {
         int v[3] = {-1, -1, -1};
         int found = 0;
-        
+
         // 从origin_pos开始向后查找
         for (int i = origin_pos + 1; i < length && found < 3; i++) {
             if (wave_sigs[i] == 1) {  // 找到笔的高点

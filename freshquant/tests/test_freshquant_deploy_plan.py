@@ -64,6 +64,79 @@ def test_webui_paths_use_web_surface_and_correct_port() -> None:
     assert plan["host_surfaces"] == []
     assert "--no-deps" in plan["docker_command"]
     assert "http://127.0.0.1:18080/" in plan["health_checks"]
+    assert "http://127.0.0.1:18080/clx-daily-screening" in plan["health_checks"]
+    assert "http://127.0.0.1:18080/kline-slim" in plan["health_checks"]
+
+
+def test_clx_shared_service_paths_redeploy_api_and_dagster() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/clx_daily_selection/service.py"]
+    )
+
+    assert plan["deployment_surfaces"] == ["api", "dagster"]
+    assert plan["docker_build_targets"] == ["fq_apiserver"]
+    assert plan["docker_up_services"] == [
+        "fq_apiserver",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+    assert (
+        "http://127.0.0.1:15000/api/clx-daily-selection/health" in plan["health_checks"]
+    )
+    assert (
+        "http://127.0.0.1:15000/api/clx-daily-selection/model-catalog"
+        in plan["health_checks"]
+    )
+    assert any("partition/finalizer" in note for note in plan["notes"])
+
+
+def test_clx_rear_route_redeploys_api_only() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/rear/clx_daily_selection/routes.py"]
+    )
+
+    assert plan["deployment_surfaces"] == ["api"]
+    assert plan["docker_services"] == ["fq_apiserver"]
+
+
+def test_fqcopilot_native_paths_rebuild_all_python_consumers() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["morningglory/fqcopilot/fqcopilot.pyx"]
+    )
+
+    assert plan["deployment_surfaces"] == ["api", "dagster"]
+    assert plan["docker_services"] == [
+        "fq_apiserver",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+    assert any("原生扩展" in note for note in plan["notes"])
+
+
+def test_dagster_paths_redeploy_only_dagster_runtime() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=[
+            "morningglory/fqdagster/src/fqdagster/defs/jobs/clx_daily_selection.py"
+        ]
+    )
+
+    assert plan["deployment_surfaces"] == ["dagster"]
+    assert plan["docker_build_targets"] == ["fq_apiserver"]
+    assert plan["docker_up_services"] == [
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+    ]
+    assert plan["health_checks"] == [
+        "http://127.0.0.1:11003/server_info",
+    ]
 
 
 def test_summary_render_includes_host_and_docker_sections() -> None:

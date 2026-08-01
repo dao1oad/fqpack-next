@@ -2,7 +2,7 @@
 
 ## 职责
 
-`/kline-slim` 负责单标的多周期图表、缠论结构和标的设置浮层。当前与订单账本相关的部分已经切到 `position entry` 语义。
+`/kline-slim` 负责单标的多周期图表、缠论结构、标的设置浮层、订单复盘覆盖层和 CLX 日线信号工作台。当前与订单账本相关的部分已经切到 `position entry` 语义；CLX 部分只读取 `production_v1 / switch_opt=1` 的服务端事实。
 
 ## 入口
 
@@ -18,6 +18,11 @@
   - `/api/tpsl/takeprofit/<symbol>`
   - `/api/tpsl/takeprofit/<symbol>/rearm`
   - `/api/position-review/symbols/<symbol>/timeline`
+  - `/api/clx-daily-selection/batches`
+  - `/api/clx-daily-selection/batches/latest`
+  - `/api/clx-daily-selection/batches/<batch_id>/results`
+  - `/api/clx-daily-selection/history/signals`
+  - `/api/clx-daily-selection/model-catalog`
 
 ## 当前订单相关语义
 
@@ -50,6 +55,19 @@
   - 主 K 线保留为唯一价格图；关联信号和订单聚合成交标记叠加在价格层
   - 策略应有量、实际成交量和连续持仓在同一时间轴的下方轨道显示
   - 可跳转到 `/position-review?symbol=<symbol>` 查看完整复盘工作台
+- 左栏 `CLX日线选股` section
+  - 默认使用最新 `published/not_required` final；只有用户显式选择时才使用 partial 或 publication 中间态
+  - 同时显示 scope、股票/ETF partition 状态；单侧 completed 不显示为完整结果
+  - 标的按去重模型数降序、条件数降序、symbol 升序排列
+  - hover 显示模型、条件、最近触发、scope 和 profile 摘要
+- 右侧 `CLX 信号工作台`
+  - `显示控制`：历史范围、同日 marker 聚合/逐条、模型和条件筛选
+  - `信号时间轴`：按触发日列出当前可见 marker，点击后聚焦图表
+  - `信号详情`：展示 raw、方向、entrypoint/条件和 `condition_evidence`
+- CLX 图层
+  - 日线信号按当前日/周/月 bar 重新锚定
+  - renderer 生成独立 `clx-signal-<sceneScopeId>` ECharts scatter series
+  - 同日聚合 marker 使用 count、方向和模型颜色生成 pin/diamond；controller 负责点击、highlight 与 tooltip
 
 ## 当前数据流
 
@@ -64,6 +82,15 @@
   - K 线加载完成后，按当前主图时间窗请求 `/api/position-review/symbols/<symbol>/timeline`
   - 前端只消费订单级 `events` 和连续 `position_series`；成交笔数和均价仅作为订单聚合字段，不渲染逐笔 fill。窗口请求中的实际成交量只代表当前主图窗口内成交
   - 服务未部署或返回 `404` 时，复盘层显示明确的不可用状态，不会退回旧请求级 `reviews` 并伪装为订单级复盘
+- `CLX 左栏`
+  - 先请求 batch 列表和默认 latest `published/not_required` final，再查询当前 scope 结果
+  - `include_partial=1` 只用于观察最新运行/发布状态；未显式选择 partial 时，左栏仍保持 latest published final
+  - stock/ETF 任一 marker success 即可形成本侧 partial；另一侧不构成左栏数据产生的启动门禁
+- `CLX 信号工作台`
+  - 按当前 symbol、asset type、日线 endDate（缺省时由服务端解析最新交易日）、barCount、模型/条件请求 `/api/clx-daily-selection/history/signals`
+  - 只在 `profile=production_v1`、`switch_opt=1` 且 `future_function_guard.passed=true` 时把 marker 交给 chart renderer
+  - URL 保存 `clxScope / clxModels / clxConditions / clxMarkerMode / clxWorkbench`，刷新和返回时恢复同一可见状态
+  - 模型/条件筛选只改变已经计算的 marker 可见性，不重新定义或重算服务端信号
 
 ## 当前边界
 
@@ -71,6 +98,9 @@
 - `entry stoploss` 当前合并在同一个标的设置浮层里编辑
 - 图表页不再直接展示长 `buy_lot_id`
 - 交易复盘是可选只读覆盖层，不改变 K 线主图、订单账本、持仓真值或策略执行逻辑
+- CLX 工作台也是只读覆盖层，不写 batch、partition、选股结果、股票池或策略参数
+- partial 只允许明确展示已完成 partition，不能冒充 final；跨资产统计仍由 CLX finalizer 的完整 batch 提供
+- 旧 `/daily-screening` 的 12 模型结果不混入 Kline CLX section
 - 信号仅在后端给出明确关联时显示；无关联信号不依据时间或价格补配
 - 同一策略请求无法把应有量可靠分给多个订单时，数量轨显示证据不足而非重复的策略数量；同秒跨订单的仓位先后无法证实时也明确标记为不确定
 
@@ -91,3 +121,23 @@
 
 - 查 `/api/subject-management/<symbol>` 是否返回 `entries`
 - 查 `subject-price-guides` 是否从 `entry_price / remaining_quantity` 生成价格线
+
+### 左栏 CLX 标的为空
+
+- 查 `/api/clx-daily-selection/batches/latest` 是否已有 `published/not_required` final
+- 若只存在单侧完成，显式查 `/api/clx-daily-selection/batches/latest?include_partial=1`，确认页面显示的是 partial 而不是完整结果
+- 查当前 scope 的 `/batches/<batch_id>/results` 是否包含目标资产 partition
+- 查左栏“仅当前筛选”是否把模型或条件过滤为空
+
+### 图上没有 CLX marker
+
+- 直接请求 `/api/clx-daily-selection/history/signals?symbol=<symbol>&assetType=<stock|etf>&period=1d&endDate=<date>`
+- 确认 `calculation_profile.id=production_v1`、`switch_opt=1`、`future_function_guard.passed=true`
+- 确认 marker 的 `trigger_date` 落在当前 K 线日期范围，模型/条件筛选没有排除它
+- 查 chart scene 的 `clxSignals.hasData` 和最终 option 是否包含 `clx-signal-<sceneScopeId>`；只加载了 marker 列表但没有 scatter series 不算已绘制
+
+### marker 点击后时间轴或详情没有联动
+
+- 查 series data 是否保留 `clxGroup`
+- 查 controller 的 `handleChartClick` 是否收到 `seriesId` 以 `clx-signal-` 开头的事件
+- 查 `clxSelectedMarkerId` 是否同时传回 renderer 与右侧工作台

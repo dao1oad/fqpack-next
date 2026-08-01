@@ -86,7 +86,9 @@ export function buildPeriodLegendSelectionState({ currentPeriod, previousSelecte
   return Object.fromEntries(
     Object.keys(defaults).map((period) => [
       period,
-      Object.prototype.hasOwnProperty.call(previousSelected, period)
+      period === normalizedCurrent
+        ? true
+        : Object.prototype.hasOwnProperty.call(previousSelected, period)
         ? !!previousSelected[period]
         : defaults[period]
     ])

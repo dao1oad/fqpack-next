@@ -395,7 +395,8 @@ export function createKlineSlimChartController({
   onLegendChange,
   onViewportChange,
   onPriceGuideDrag,
-  onPriceGuideDragEnd
+  onPriceGuideDragEnd,
+  onClxMarkerSelect
 } = {}) {
   let viewport = createKlineSlimViewportState()
   let currentScene = null
@@ -478,6 +479,13 @@ export function createKlineSlimChartController({
 
   const handleLegendSelectChanged = (event) => {
     onLegendChange?.(event?.selected || {})
+  }
+
+  const handleChartClick = (event) => {
+    if (!String(event?.seriesId || '').startsWith('clx-signal-')) return
+    const group = event?.data?.clxGroup
+    if (!group) return
+    onClxMarkerSelect?.(group)
   }
 
   const handleDataZoom = (event) => {
@@ -682,6 +690,7 @@ export function createKlineSlimChartController({
     chart.on('legendselectchanged', handleLegendSelectChanged)
     chart.on('legendselected', handleLegendSelectChanged)
     chart.on('legendunselected', handleLegendSelectChanged)
+    chart.on('click', handleChartClick)
     chart.on('datazoom', handleDataZoom)
     chart.getZr?.().on('mousemove', handleMouseMove)
     chart.getZr?.().on('mousedown', handleMouseDown)
@@ -728,6 +737,44 @@ export function createKlineSlimChartController({
     getCrosshair() {
       return crosshair
     },
+    focusClxMarker(markerId) {
+      const id = String(markerId || '').trim()
+      const groups = Array.isArray(currentScene?.clxSignals?.groups)
+        ? currentScene.clxSignals.groups
+        : []
+      const groupIndex = groups.findIndex((group) => (
+        group.id === id || group.markers?.some((marker) => marker.id === id)
+      ))
+      if (groupIndex < 0 || !currentScene) return false
+
+      const group = groups[groupIndex]
+      const axisSpan = Math.max(1, currentScene.mainWindow.endTs - currentScene.mainWindow.startTs)
+      const center = ((group.plotSlot - currentScene.mainWindow.startTs) / axisSpan) * 100
+      const currentSpan = Math.max(2, viewport.xRange.end - viewport.xRange.start)
+      const nextSpan = Math.min(24, currentSpan)
+      let start = Math.max(0, center - nextSpan / 2)
+      let end = Math.min(100, start + nextSpan)
+      if (end === 100) start = Math.max(0, end - nextSpan)
+      viewport = createKlineSlimViewportState({
+        xRange: { start, end },
+        yRange: viewport.yRange,
+        yMode: viewport.yMode,
+      })
+      viewport = deriveViewportStateForScene({ scene: currentScene, viewport })
+      applyViewportOption()
+      chart.dispatchAction?.({ type: 'downplay', seriesId: `clx-signal-${currentScene.sceneScopeId}` })
+      chart.dispatchAction?.({
+        type: 'highlight',
+        seriesId: `clx-signal-${currentScene.sceneScopeId}`,
+        dataIndex: groupIndex,
+      })
+      chart.dispatchAction?.({
+        type: 'showTip',
+        seriesId: `clx-signal-${currentScene.sceneScopeId}`,
+        dataIndex: groupIndex,
+      })
+      return true
+    },
     dispose() {
       if (!chart) {
         return
@@ -735,6 +782,7 @@ export function createKlineSlimChartController({
       chart.off('legendselectchanged', handleLegendSelectChanged)
       chart.off('legendselected', handleLegendSelectChanged)
       chart.off('legendunselected', handleLegendSelectChanged)
+      chart.off('click', handleChartClick)
       chart.off('datazoom', handleDataZoom)
       chart.getZr?.().off('mousemove', handleMouseMove)
       chart.getZr?.().off('mousedown', handleMouseDown)

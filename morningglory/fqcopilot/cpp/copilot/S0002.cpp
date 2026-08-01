@@ -10,6 +10,15 @@
 class S0002_Calculator : public BaseCalculator
 {
 private:
+    std::vector<int> entrypoint3_evidence;
+
+    void record_signal(
+        int index, EntrypointType signal,
+        S0002Entrypoint3Trigger trigger = S0002Entrypoint3Trigger::NONE)
+    {
+        inner_result[index] = encode_signal(2, 1, signal);
+        entrypoint3_evidence[index] = static_cast<int>(trigger);
+    }
 
     void calculate()
     {
@@ -133,7 +142,12 @@ private:
 
                                     if (signal != EntrypointType::ENTRYPOINT_UNKNOWN)
                                     {
-                                        inner_result[n] = encode_signal(2, 1, signal);
+                                        auto trigger = S0002Entrypoint3Trigger::NONE;
+                                        if (signal == EntrypointType::ENTRYPOINT_BUY_OPEN_3)
+                                        {
+                                            trigger = S0002Entrypoint3Trigger::BUY_ENGULFING;
+                                        }
+                                        record_signal(n, signal, trigger);
                                         break;
                                     }
                                     else
@@ -142,7 +156,9 @@ private:
                                         auto normal_factors = NORMAL_FACTAL(high, low, open, close, swing_sigs, std_bars);
                                         if (normal_factors[n] == 1 && close[n] > support_price)
                                         {
-                                            inner_result[n] = encode_signal(2, 1, EntrypointType::ENTRYPOINT_BUY_OPEN_3);
+                                            record_signal(
+                                                n, EntrypointType::ENTRYPOINT_BUY_OPEN_3,
+                                                S0002Entrypoint3Trigger::BUY_NORMAL_FRACTAL_FALLBACK);
                                             break;
                                         }
                                     }
@@ -250,7 +266,12 @@ private:
 
                                     if (signal != EntrypointType::ENTRYPOINT_UNKNOWN)
                                     {
-                                        inner_result[n] = encode_signal(2, 1, signal);
+                                        auto trigger = S0002Entrypoint3Trigger::NONE;
+                                        if (signal == EntrypointType::ENTRYPOINT_SELL_OPEN_3)
+                                        {
+                                            trigger = S0002Entrypoint3Trigger::SELL_ENGULFING;
+                                        }
+                                        record_signal(n, signal, trigger);
                                         break;
                                     }
                                     else
@@ -259,7 +280,9 @@ private:
                                         auto strong_factors = NORMAL_FACTAL(high, low, open, close, swing_sigs, std_bars);
                                         if (strong_factors[n] == -1 && close[n] < resistance_price)
                                         {
-                                            inner_result[n] = encode_signal(2, 1, EntrypointType::ENTRYPOINT_SELL_OPEN_3);
+                                            record_signal(
+                                                n, EntrypointType::ENTRYPOINT_SELL_OPEN_3,
+                                                S0002Entrypoint3Trigger::SELL_NORMAL_FRACTAL_FALLBACK);
                                             break;
                                         }
                                     }
@@ -282,6 +305,7 @@ public:
         const std::vector<float> &vol,
         int switch_opt, const ChanOptions &options) : BaseCalculator(high, low, open, close, vol, switch_opt, options)
     {
+        entrypoint3_evidence.assign(length, 0);
         calculate();
     }
 
@@ -291,7 +315,13 @@ public:
         int switch_opt, const ChanOptions &options,
         const ChanContext &ctx) : BaseCalculator(high, low, open, close, vol, switch_opt, options, ctx)
     {
+        entrypoint3_evidence.assign(length, 0);
         calculate();
+    }
+
+    std::vector<int> evidence() const
+    {
+        return entrypoint3_evidence;
     }
 
 };
@@ -301,6 +331,14 @@ std::vector<int> F_S0002(const std::vector<float> &high, const std::vector<float
 {
     S0002_Calculator calculator(high, low, open, close, vol, switch_opt, options);
     return calculator.result();
+}
+
+std::vector<int> F_S0002_entrypoint3_evidence(
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol, int switch_opt, const ChanOptions &options)
+{
+    return S0002_Calculator(high, low, open, close, vol, switch_opt, options).evidence();
 }
 
 REGISTER_CALC(2, F_S0002)

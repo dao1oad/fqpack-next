@@ -53,6 +53,15 @@
         </el-button>
         <el-button
           size="small"
+          :type="showClxWorkbench ? 'primary' : 'default'"
+          :loading="clxHistoryLoading"
+          :disabled="!routeSymbol"
+          @click="toggleClxWorkbench"
+        >
+          CLX信号
+        </el-button>
+        <el-button
+          size="small"
           :type="showPriceGuidePanel ? 'primary' : 'default'"
           :disabled="!routeSymbol"
           @click="togglePriceGuideEditMode"
@@ -99,6 +108,36 @@
           </header>
           <transition name="sidebar-section-collapse">
             <div v-show="section.expanded" class="sidebar-section-body">
+              <div v-if="section.key === 'clx_daily_selection'" class="clx-sidebar-scope">
+                <div class="clx-sidebar-scope__head">
+                  <span>{{ clxSidebarDisplayScope?.tradeDate || '暂无批次' }}</span>
+                  <StatusChip :variant="clxScopeStatusMeta.variant">{{ clxScopeStatusMeta.label }}</StatusChip>
+                </div>
+                <div class="clx-sidebar-scope__partitions">
+                  <StatusChip :variant="clxStockPartitionMeta.variant">{{ clxStockPartitionMeta.label }}</StatusChip>
+                  <StatusChip :variant="clxEtfPartitionMeta.variant">{{ clxEtfPartitionMeta.label }}</StatusChip>
+                </div>
+                <div v-if="clxSidebarDisplayScope?.isFailed" class="sidebar-section-empty error-text">
+                  {{ clxScopeStatusMeta.detail }}
+                </div>
+                <el-switch
+                  :model-value="clxSidebarOnlyCurrentFilters"
+                  size="small"
+                  inline-prompt
+                  active-text="当前筛选"
+                  inactive-text="全部结果"
+                  @change="toggleClxSidebarFilterMode"
+                />
+                <el-button
+                  v-if="!clxSidebarScope && clxLatestObservedScope?.isPartial"
+                  size="small"
+                  type="warning"
+                  plain
+                  @click="selectLatestObservedClxScope"
+                >
+                  查看部分结果
+                </el-button>
+              </div>
               <div v-if="section.loading" class="sidebar-section-empty">加载中...</div>
               <div v-else-if="section.error" class="sidebar-section-empty error-text">
                 {{ section.error }}
@@ -112,10 +151,10 @@
                 >
                   <el-popover
                     placement="right-start"
-                    :width="860"
+                    :width="section.key === 'clx_daily_selection' ? 420 : 860"
                     popper-class="kline-slim-reason-popper"
                     trigger="hover"
-                    @show="handleReasonPopoverShow(item)"
+                    @show="section.key !== 'clx_daily_selection' && handleReasonPopoverShow(item)"
                   >
                     <template #reference>
                       <button
@@ -130,7 +169,32 @@
                         </span>
                       </button>
                     </template>
-                    <div class="reason-popover">
+                    <div v-if="section.key === 'clx_daily_selection'" class="clx-sidebar-popover">
+                      <div class="clx-sidebar-popover__head">
+                        <strong>{{ item.name || item.code6 }}</strong>
+                        <span>{{ item.symbol || item.code6 }}</span>
+                      </div>
+                      <div class="clx-sidebar-popover__counts">
+                        <StatusChip variant="info">{{ item.distinctModelCount }} 模型</StatusChip>
+                        <StatusChip variant="muted">{{ item.distinctConditionCount }} 条件</StatusChip>
+                        <StatusChip variant="muted">{{ item.latestTrigger || '-' }}</StatusChip>
+                      </div>
+                      <div class="clx-sidebar-popover__models">
+                        <span
+                          v-for="modelKey in item.modelKeys"
+                          :key="modelKey"
+                          :style="{ borderColor: getClxModelColor(modelKey) }"
+                        >{{ modelKey }}</span>
+                      </div>
+                      <div v-if="item.conditionKeys.length" class="clx-sidebar-popover__conditions">
+                        {{ item.conditionKeys.join(' / ') }}
+                      </div>
+                      <div class="clx-sidebar-popover__meta">
+                        <span>scope {{ clxSidebarDisplayScope?.scopeId || '-' }}</span>
+                        <span>profile {{ clxSidebarDisplayScope?.profileId || '-' }}</span>
+                      </div>
+                    </div>
+                    <div v-else class="reason-popover">
                       <div class="reason-popover-head">
                         <span>{{ item.name || item.code6 }}</span>
                         <span>{{ item.code6 }}</span>
@@ -606,6 +670,178 @@
               </section>
             </div>
           </div>
+        </div>
+        <div v-if="showClxWorkbench" class="kline-slim-clx-workbench kline-slim-overlay-panel">
+          <header class="clx-workbench-header">
+            <div>
+              <div class="clx-workbench-title-row">
+                <strong>CLX 信号工作台</strong>
+                <span>{{ routeSymbol }}</span>
+                <span>{{ currentPeriod }}</span>
+              </div>
+              <div class="clx-workbench-meta">
+                <span>{{ clxSignalHistory?.profileId || 'profile -' }}</span>
+                <span>switch_opt {{ clxSignalHistory?.switchOpt ?? '-' }}</span>
+                <span>{{ clxSignalHistory?.algorithmVersion || 'algorithm -' }}</span>
+              </div>
+            </div>
+            <div class="clx-workbench-header__actions">
+              <el-button size="small" :loading="clxHistoryLoading" @click="loadClxHistory({ force: true })">刷新</el-button>
+              <el-button size="small" @click="closeClxWorkbench">关闭</el-button>
+            </div>
+          </header>
+
+          <div class="clx-workbench-status">
+            <StatusChip :variant="clxHistoryContractValid ? 'success' : 'warning'">
+              {{ clxHistoryContractValid ? 'production_v1' : '合同待确认' }}
+            </StatusChip>
+            <StatusChip variant="muted">可见 {{ clxFilteredMarkers.length }}</StatusChip>
+            <StatusChip variant="muted">总计 {{ clxSignalHistory?.markers?.length || 0 }}</StatusChip>
+            <StatusChip variant="muted">数据 {{ clxSignalHistory?.dataVersion || '-' }}</StatusChip>
+          </div>
+
+          <el-alert
+            v-if="clxHistoryState?.kind === 'error'"
+            type="error"
+            :closable="false"
+            show-icon
+            :title="clxHistoryState.message"
+          />
+
+          <el-tabs v-model="clxWorkbenchTab" class="clx-workbench-tabs">
+            <el-tab-pane label="显示控制" name="controls">
+              <div class="clx-workbench-tab-scroll">
+                <section class="clx-workbench-section">
+                  <div class="clx-workbench-section__head">
+                    <strong>历史范围</strong>
+                    <span>日线计算 / {{ currentPeriod }} 锚定</span>
+                  </div>
+                  <el-radio-group
+                    :model-value="clxHistoryBarCount"
+                    size="small"
+                    @change="handleClxHistoryBarCountChange"
+                  >
+                    <el-radio-button v-for="count in [60, 120, 250, 750, 1200]" :key="count" :value="count">
+                      {{ count }}
+                    </el-radio-button>
+                  </el-radio-group>
+                </section>
+
+                <section class="clx-workbench-section">
+                  <div class="clx-workbench-section__head">
+                    <strong>同日 marker</strong>
+                  </div>
+                  <el-radio-group v-model="clxMarkerMode" size="small" @change="handleClxVisibilityChange">
+                    <el-radio-button value="aggregate">聚合</el-radio-button>
+                    <el-radio-button value="individual">逐条</el-radio-button>
+                  </el-radio-group>
+                </section>
+
+                <section class="clx-workbench-section">
+                  <div class="clx-workbench-section__head">
+                    <strong>模型</strong>
+                    <div>
+                      <el-button link type="primary" @click="selectAllClxModels">全选</el-button>
+                      <el-button link type="primary" @click="clearClxModels">全不选</el-button>
+                      <el-button link type="primary" @click="selectTriggeredClxModels">有信号</el-button>
+                    </div>
+                  </div>
+                  <el-checkbox-group
+                    v-model="clxSelectedModelKeys"
+                    class="clx-workbench-models"
+                    @change="handleClxVisibilityChange"
+                  >
+                    <el-checkbox v-for="model in clxModelOptions" :key="model.key" :value="model.key">
+                      <span class="clx-model-swatch" :style="{ backgroundColor: getClxModelColor(model.key) }"></span>
+                      <span>{{ model.key }}</span>
+                      <small v-if="model.label !== model.key">{{ model.label }}</small>
+                    </el-checkbox>
+                  </el-checkbox-group>
+                </section>
+
+                <section class="clx-workbench-section">
+                  <div class="clx-workbench-section__head"><strong>条件</strong></div>
+                  <el-select
+                    v-model="clxSelectedConditionKeys"
+                    multiple
+                    collapse-tags
+                    clearable
+                    placeholder="全部条件"
+                    @change="handleClxVisibilityChange"
+                  >
+                    <el-option
+                      v-for="condition in clxConditionOptions"
+                      :key="condition.key"
+                      :label="condition.label"
+                      :value="condition.key"
+                    />
+                  </el-select>
+                </section>
+              </div>
+            </el-tab-pane>
+
+            <el-tab-pane label="信号时间轴" name="timeline">
+              <div class="clx-workbench-tab-scroll">
+                <div v-if="clxHistoryState && clxHistoryState.kind !== 'error'" class="clx-workbench-empty">
+                  {{ clxHistoryState.message }}
+                </div>
+                <section v-for="group in clxTimelineGroups" :key="group.tradeDate" class="clx-timeline-day">
+                  <header>
+                    <strong>{{ group.tradeDate }}</strong>
+                    <span>{{ group.count }} 条 · {{ group.modelKeys.length }} 模型</span>
+                  </header>
+                  <button
+                    v-for="marker in group.markers"
+                    :key="marker.id"
+                    type="button"
+                    class="clx-timeline-marker"
+                    :class="{ active: marker.id === clxSelectedMarkerId }"
+                    @click="selectClxMarker(marker)"
+                  >
+                    <span class="clx-model-swatch" :style="{ backgroundColor: getClxModelColor(marker.modelKey) }"></span>
+                    <strong>{{ marker.modelKey }}</strong>
+                    <span>{{ marker.conditionLabel || marker.conditionKey || '-' }}</span>
+                    <small>raw {{ marker.signalValueRaw ?? '-' }}</small>
+                  </button>
+                </section>
+              </div>
+            </el-tab-pane>
+
+            <el-tab-pane label="信号详情" name="detail">
+              <div class="clx-workbench-tab-scroll">
+                <div v-if="!clxSelectedMarker" class="clx-workbench-empty">尚未选择 marker</div>
+                <article v-else class="clx-marker-detail">
+                  <header>
+                    <div>
+                      <strong>{{ clxSelectedMarker.modelKey }}</strong>
+                      <span>{{ clxSelectedMarker.triggerDate }}</span>
+                    </div>
+                    <div>
+                      <el-button size="small" @click="navigateClxMarker(-1)">前一条</el-button>
+                      <el-button size="small" @click="navigateClxMarker(1)">后一条</el-button>
+                    </div>
+                  </header>
+                  <dl>
+                    <dt>条件</dt><dd>{{ clxSelectedMarker.conditionLabel || clxSelectedMarker.conditionKey || '-' }}</dd>
+                    <dt>方向</dt><dd>{{ clxSelectedMarker.direction || '-' }}</dd>
+                    <dt>raw</dt><dd>{{ clxSelectedMarker.signalValueRaw ?? '-' }}</dd>
+                    <dt>价格</dt><dd>{{ clxSelectedMarker.price ?? '-' }}</dd>
+                    <dt>连线值</dt><dd>{{ clxSelectedMarker.lineValue ?? '-' }}</dd>
+                    <dt>来源</dt><dd>{{ clxSelectedMarker.source || '-' }}</dd>
+                  </dl>
+                  <div v-if="clxSelectedMarker.conditionEvidence.length" class="clx-marker-evidence">
+                    <div
+                      v-for="(evidence, index) in clxSelectedMarker.conditionEvidence"
+                      :key="index"
+                    >
+                      <strong>{{ evidence.label || evidence.key || evidence.code || 'evidence' }}</strong>
+                      <span>{{ formatClxEvidenceValue(evidence) }}</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
         </div>
         <div ref="chartHost" class="kline-slim-chart"></div>
         <div
@@ -1448,6 +1684,286 @@ export default {
 
 .error-text
   color #fca5a5
+
+.clx-sidebar-scope
+  display flex
+  flex-direction column
+  gap 7px
+  margin-bottom 8px
+  padding 8px
+  border 1px solid rgba(148, 163, 184, 0.2)
+  border-radius 6px
+  background rgba(15, 23, 42, 0.55)
+
+.clx-sidebar-scope__head,
+.clx-sidebar-scope__partitions,
+.clx-sidebar-popover__head,
+.clx-sidebar-popover__counts,
+.clx-workbench-title-row,
+.clx-workbench-meta,
+.clx-workbench-status,
+.clx-workbench-section__head,
+.clx-timeline-day header,
+.clx-marker-detail header
+  display flex
+  align-items center
+  gap 7px
+
+.clx-sidebar-scope__head,
+.clx-sidebar-popover__head,
+.clx-workbench-section__head,
+.clx-timeline-day header,
+.clx-marker-detail header
+  justify-content space-between
+
+.clx-sidebar-scope__partitions,
+.clx-sidebar-popover__counts,
+.clx-workbench-status
+  flex-wrap wrap
+
+.clx-sidebar-popover
+  display flex
+  flex-direction column
+  gap 10px
+  color #1f2937
+
+.clx-sidebar-popover__head span,
+.clx-sidebar-popover__meta,
+.clx-sidebar-popover__conditions
+  color #64748b
+  font-size 12px
+
+.clx-sidebar-popover__models
+  display flex
+  flex-wrap wrap
+  gap 5px
+
+.clx-sidebar-popover__models span
+  padding 2px 6px
+  border 1px solid #94a3b8
+  border-radius 4px
+  background #f8fafc
+  font-family ui-monospace, SFMono-Regular, Consolas, monospace
+  font-size 11px
+
+.clx-sidebar-popover__meta
+  display grid
+  grid-template-columns 1fr
+  gap 4px
+  overflow-wrap anywhere
+
+.kline-slim-clx-workbench
+  right 12px
+  left auto
+  width clamp(360px, 31vw, 440px)
+  max-width calc(100% - 24px)
+  height calc(100% - 24px)
+  display flex
+  flex-direction column
+  border 1px solid rgba(148, 163, 184, 0.32)
+  border-radius 8px
+  background rgba(10, 15, 23, 0.97)
+  color #e5e7eb
+  resize horizontal
+
+.clx-workbench-header
+  display flex
+  align-items flex-start
+  justify-content space-between
+  gap 12px
+  flex 0 0 auto
+  padding 12px 14px
+  border-bottom 1px solid rgba(148, 163, 184, 0.2)
+  background rgba(30, 41, 59, 0.72)
+
+.clx-workbench-title-row
+  flex-wrap wrap
+
+.clx-workbench-title-row strong
+  color #f8fafc
+  font-size 15px
+
+.clx-workbench-title-row span,
+.clx-workbench-meta span
+  padding 2px 5px
+  border 1px solid rgba(148, 163, 184, 0.2)
+  border-radius 4px
+  color #cbd5e1
+  font-family ui-monospace, SFMono-Regular, Consolas, monospace
+  font-size 10px
+
+.clx-workbench-meta
+  flex-wrap wrap
+  margin-top 6px
+
+.clx-workbench-header__actions
+  display flex
+  flex 0 0 auto
+  gap 6px
+
+.clx-workbench-status
+  flex 0 0 auto
+  padding 8px 12px
+  border-bottom 1px solid rgba(148, 163, 184, 0.16)
+
+.clx-workbench-tabs
+  display flex
+  flex-direction column
+  flex 1
+  min-height 0
+
+.clx-workbench-tabs :deep(.el-tabs__header)
+  flex 0 0 auto
+  margin 0
+  padding 0 12px
+
+.clx-workbench-tabs :deep(.el-tabs__nav-wrap::after)
+  background rgba(148, 163, 184, 0.18)
+
+.clx-workbench-tabs :deep(.el-tabs__item)
+  color #94a3b8
+
+.clx-workbench-tabs :deep(.el-tabs__item.is-active)
+  color #93c5fd
+
+.clx-workbench-tabs :deep(.el-tabs__content),
+.clx-workbench-tabs :deep(.el-tab-pane)
+  flex 1
+  min-height 0
+  height 100%
+
+.clx-workbench-tab-scroll
+  height 100%
+  padding 0 12px 14px
+  overflow-y auto
+
+.clx-workbench-section
+  padding 12px 0
+  border-bottom 1px solid rgba(148, 163, 184, 0.16)
+
+.clx-workbench-section__head
+  margin-bottom 8px
+
+.clx-workbench-section__head > span
+  color #94a3b8
+  font-size 11px
+
+.clx-workbench-models
+  display grid
+  grid-template-columns repeat(2, minmax(0, 1fr))
+  gap 3px 8px
+
+.clx-workbench-models :deep(.el-checkbox)
+  min-width 0
+  height 28px
+  margin-right 0
+
+.clx-workbench-models :deep(.el-checkbox__label)
+  display inline-flex
+  align-items center
+  min-width 0
+  gap 5px
+  color #dbe3ef
+
+.clx-workbench-models small
+  overflow hidden
+  color #7f8da3
+  text-overflow ellipsis
+  white-space nowrap
+
+.clx-model-swatch
+  width 8px
+  height 8px
+  flex 0 0 auto
+  border-radius 50%
+
+.clx-workbench-empty
+  padding 28px 12px
+  color #94a3b8
+  text-align center
+
+.clx-timeline-day
+  padding 11px 0
+  border-bottom 1px solid rgba(148, 163, 184, 0.16)
+
+.clx-timeline-day header
+  margin-bottom 7px
+
+.clx-timeline-day header span
+  color #94a3b8
+  font-size 11px
+
+.clx-timeline-marker
+  width 100%
+  display grid
+  grid-template-columns 8px 56px minmax(0, 1fr) 64px
+  align-items center
+  gap 7px
+  min-height 34px
+  padding 5px 7px
+  border 1px solid transparent
+  border-radius 5px
+  background transparent
+  color #dbe3ef
+  cursor pointer
+  text-align left
+
+.clx-timeline-marker:hover,
+.clx-timeline-marker.active
+  border-color rgba(96, 165, 250, 0.42)
+  background rgba(30, 64, 175, 0.2)
+
+.clx-timeline-marker > span:nth-child(3)
+  overflow hidden
+  text-overflow ellipsis
+  white-space nowrap
+
+.clx-timeline-marker small
+  color #94a3b8
+  text-align right
+
+.clx-marker-detail
+  padding 12px 0
+
+.clx-marker-detail header > div
+  display flex
+  align-items center
+  gap 7px
+
+.clx-marker-detail header span
+  color #94a3b8
+  font-size 12px
+
+.clx-marker-detail dl
+  display grid
+  grid-template-columns 74px minmax(0, 1fr)
+  gap 8px
+  margin 16px 0
+  font-size 12px
+
+.clx-marker-detail dt
+  color #94a3b8
+
+.clx-marker-detail dd
+  min-width 0
+  margin 0
+  overflow-wrap anywhere
+  font-family ui-monospace, SFMono-Regular, Consolas, monospace
+
+.clx-marker-evidence
+  padding-left 10px
+  border-left 2px solid #14b8a6
+
+.clx-marker-evidence > div
+  display flex
+  justify-content space-between
+  gap 8px
+  padding 5px 0
+  font-size 11px
+
+.clx-marker-evidence span
+  overflow-wrap anywhere
+  text-align right
 
 @media (max-width: 1200px)
   .kline-slim-toolbar

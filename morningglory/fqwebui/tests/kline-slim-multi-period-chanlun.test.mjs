@@ -52,6 +52,23 @@ test('legend selection includes current main period while visible extras still e
 
   assert.deepEqual(
     buildPeriodLegendSelectionState({
+      currentPeriod: '1d',
+      previousSelected: {
+        '5m': true,
+        '1d': false
+      }
+    }),
+    {
+      '1m': false,
+      '5m': true,
+      '15m': false,
+      '30m': false,
+      '1d': true
+    }
+  )
+
+  assert.deepEqual(
+    buildPeriodLegendSelectionState({
       currentPeriod: '15m',
       previousSelected: {
         '1m': true,

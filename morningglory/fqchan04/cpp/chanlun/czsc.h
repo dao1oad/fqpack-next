@@ -107,6 +107,7 @@ std::vector<Pivot> locate_pivots(std::vector<float> &vertexes, std::vector<float
 std::vector<Bar> recognise_bars(int length, std::vector<float> &high, std::vector<float> &low);
 std::vector<StdBar> recognise_std_bars(int length, std::vector<float> &high, std::vector<float> &low);
 std::vector<float> recognise_swing(int length, std::vector<float> &high, std::vector<float> &low);
+std::vector<float> recognise_bi(int length, std::vector<float> &high, std::vector<float> &low, ChanOptions &options);
 std::vector<float> recognise_bi(int length, std::vector<float> &high, std::vector<float> &low, const std::vector<float> &close, ChanOptions &options);
 std::vector<float> recognise_duan(int length, std::vector<float> &bi, std::vector<float> &high, std::vector<float> &low);
 std::vector<Pivot> recognise_pivots(

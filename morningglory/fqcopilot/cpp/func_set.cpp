@@ -2,6 +2,24 @@
 #include "copilot/copilot.h"
 #include "copilot/batch_calculator.h"
 
+#include <stdexcept>
+
+static void validate_batch_inputs(
+    int length,
+    const std::vector<float> &high, const std::vector<float> &low,
+    const std::vector<float> &open, const std::vector<float> &close,
+    const std::vector<float> &vol)
+{
+    if (length < 0 || static_cast<int>(high.size()) != length ||
+        static_cast<int>(low.size()) != length ||
+        static_cast<int>(open.size()) != length ||
+        static_cast<int>(close.size()) != length ||
+        static_cast<int>(vol.size()) != length)
+    {
+        throw std::invalid_argument("length must match all OHLCV series");
+    }
+}
+
 std::vector<float> clxs(
     int length,
     std::vector<float> &high, std::vector<float> &low, std::vector<float> &open, std::vector<float> &close,
@@ -54,6 +72,23 @@ std::vector<std::vector<float>> clxs_all(
     std::vector<float> &vol,
     int wave_opt, int stretch_opt, int trend_opt)
 {
+    return clxs_all(
+        length, high, low, open, close, vol,
+        wave_opt, stretch_opt, trend_opt, 0);
+}
+
+std::vector<std::vector<float>> clxs_all(
+    int length,
+    std::vector<float> &high, std::vector<float> &low,
+    std::vector<float> &open, std::vector<float> &close,
+    std::vector<float> &vol,
+    int wave_opt, int stretch_opt, int trend_opt, int switch_opt)
+{
+    validate_batch_inputs(length, high, low, open, close, vol);
+    if (switch_opt != 0 && switch_opt != 1)
+    {
+        throw std::invalid_argument("switch_opt must be 0 or 1");
+    }
     std::vector<std::vector<float>> result(18, std::vector<float>(length, 0));
     if (length == 0) return result;
 
@@ -63,7 +98,7 @@ std::vector<std::vector<float>> clxs_all(
     options.merge_non_complehensive_wave = wave_opt / 10000 % 10;
     options.ext_opt = trend_opt;
 
-    BatchCalculator batch(high, low, open, close, vol, 0, options);
+    BatchCalculator batch(high, low, open, close, vol, switch_opt, options);
     auto sigs = batch.calc_all();
 
     for (int model = 0; model < 18; model++)
@@ -77,4 +112,30 @@ std::vector<std::vector<float>> clxs_all(
         }
     }
     return result;
+}
+
+std::vector<int> clxs_s0002_entrypoint3_evidence(
+    int length,
+    std::vector<float> &high, std::vector<float> &low,
+    std::vector<float> &open, std::vector<float> &close,
+    std::vector<float> &vol,
+    int wave_opt, int stretch_opt, int trend_opt, int switch_opt)
+{
+    validate_batch_inputs(length, high, low, open, close, vol);
+    if (switch_opt != 0 && switch_opt != 1)
+    {
+        throw std::invalid_argument("switch_opt must be 0 or 1");
+    }
+    if (length == 0)
+    {
+        return std::vector<int>();
+    }
+
+    ChanOptions options;
+    options.bi_mode = wave_opt / 10 % 10;
+    options.force_wave_stick_count = wave_opt / 100 % 100;
+    options.merge_non_complehensive_wave = wave_opt / 10000 % 10;
+    options.ext_opt = trend_opt;
+    return F_S0002_entrypoint3_evidence(
+        high, low, open, close, vol, switch_opt, options);
 }

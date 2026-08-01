@@ -115,6 +115,10 @@ def _build_day_dataframe():
     )
 
 
+def _build_many_day_bars(count):
+    return pd.DataFrame({"close": range(count)})
+
+
 def _realtime_bar(dt, frequence, close):
     return {
         "code": "sh512000",
@@ -206,3 +210,27 @@ def test_query_etf_day_filters_non_trade_date_realtime_rows(monkeypatch):
     dates = set(pd.to_datetime(result["datetime"]).dt.strftime("%Y-%m-%d"))
     assert "2026-07-04" not in dates
     assert "2026-07-06" in dates
+
+
+def test_query_etf_day_clamps_large_bar_count_to_epoch_and_tails_result(monkeypatch):
+    etf_module = _load_etf_module(monkeypatch)
+    seen = {}
+
+    def fake_query_day(code, start, end):
+        seen["code"] = code
+        seen["start"] = start
+        seen["end"] = end
+        return _build_many_day_bars(25000)
+
+    monkeypatch.setattr(etf_module, "queryEtfCandleSticksDay", fake_query_day)
+
+    result = etf_module.queryEtfCandleSticks(
+        "sz159213", "1d", "2026-03-13", bar_count=20000
+    )
+
+    assert seen["code"] == "sz159213"
+    assert seen["start"] == datetime(1970, 1, 2, tzinfo=seen["end"].tzinfo)
+    assert seen["end"].tzinfo is not None
+    assert len(result) == 20000
+    assert result["close"].iloc[0] == 5000
+    assert result["close"].iloc[-1] == 24999

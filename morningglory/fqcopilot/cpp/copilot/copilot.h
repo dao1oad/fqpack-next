@@ -91,6 +91,16 @@ enum class EntrypointType
     ENTRYPOINT_SELL_OPEN_9 = -9,
 };
 
+// Aligned evidence for S0002 entrypoint 3. Zero means no hit or unknown.
+enum class S0002Entrypoint3Trigger
+{
+    NONE = 0,
+    BUY_ENGULFING = 1,
+    BUY_NORMAL_FRACTAL_FALLBACK = 2,
+    SELL_ENGULFING = -1,
+    SELL_NORMAL_FRACTAL_FALLBACK = -2,
+};
+
 // 极点类型
 enum class ExtremePointType
 {
@@ -167,6 +177,7 @@ public:
 std::vector<int> F_S0000(const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, int, const ChanOptions &);
 std::vector<int> F_S0001(const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, int, const ChanOptions &);
 std::vector<int> F_S0002(const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, int, const ChanOptions &);
+std::vector<int> F_S0002_entrypoint3_evidence(const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, int, const ChanOptions &);
 std::vector<int> F_S0003(const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, int, const ChanOptions &);
 std::vector<int> F_S0004(const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, int, const ChanOptions &);
 std::vector<int> F_S0005(const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, const std::vector<float> &, int, const ChanOptions &);
