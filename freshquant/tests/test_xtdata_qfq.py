@@ -268,6 +268,32 @@ def test_normalize_xtdata_field_table_payload():
     ]
 
 
+def test_normalize_xtdata_field_table_uses_trading_date_columns():
+    payload = {
+        "time": pd.DataFrame(
+            [[670608000000]],
+            index=["000001.SZ"],
+            columns=["19910403"],
+        ),
+        "close": pd.DataFrame([[14.6]], index=["000001.SZ"], columns=["19910403"]),
+        "preClose": pd.DataFrame([[0.0]], index=["000001.SZ"], columns=["19910403"]),
+    }
+
+    result = qfq.normalize_xtdata_bars(payload, code="000001.SZ")
+
+    assert result["date"].tolist() == ["1991-04-03"]
+
+
+def test_normalize_xtdata_empty_field_table_reports_no_daily_bars():
+    empty = pd.DataFrame(index=["158000.SZ"])
+
+    with pytest.raises(qfq.QFQSyncError, match="returned no daily bars"):
+        qfq.normalize_xtdata_bars(
+            {"time": empty, "close": empty, "preClose": empty},
+            code="158000.SZ",
+        )
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -291,6 +317,15 @@ def test_canonical_date_values_use_fast_path(monkeypatch, value):
     )
 
     assert qfq._date_key(value) == "2026-01-02"
+
+
+def test_normalize_xtdata_epoch_uses_shanghai_trading_date():
+    result = qfq.normalize_xtdata_bars(
+        pd.DataFrame({"time": [670608000000], "close": [14.6], "preClose": [0.0]}),
+        code="000001.SZ",
+    )
+
+    assert result["date"].tolist() == ["1991-04-03"]
 
 
 @pytest.mark.parametrize("code", ["920001", "430001", "830001"])
@@ -343,7 +378,13 @@ def test_load_bfq_dates_sorts_in_memory_without_mongo_date_sort():
     class _BfqCollection:
         def find(self, query, projection):
             assert query == {"code": "000001"}
-            assert projection == {"_id": 0, "date": 1}
+            assert projection == {
+                "_id": 0,
+                "date": 1,
+                "vol": 1,
+                "volume": 1,
+                "amount": 1,
+            }
             return _UnsortedCursor()
 
     db = _DB()
@@ -352,6 +393,47 @@ def test_load_bfq_dates_sorts_in_memory_without_mongo_date_sort():
     assert qfq.load_bfq_dates(kind="stock", code="000001", db=db) == [
         "2026-01-02",
         "2026-01-05",
+    ]
+
+
+def test_load_bfq_dates_excludes_qasu_tiny_volume_amount_sentinel():
+    db = _DB(
+        stock_day=[
+            {
+                "code": "000001",
+                "date": "1991-09-29",
+                "vol": 930.0,
+                "amount": 1_355_000.0,
+            },
+            {
+                "code": "000001",
+                "date": "1991-09-30",
+                "open": 14.55,
+                "high": 14.65,
+                "low": 14.5,
+                "close": 14.6,
+                "vol": 5.877471754e-39,
+                "amount": 5.877471754e-39,
+            },
+            {
+                "code": "000001",
+                "date": "1991-10-01",
+                "vol": 0.0,
+                "amount": 0.0,
+            },
+            {
+                "code": "000001",
+                "date": "1991-10-02",
+                "vol": 5.877471754e-39,
+                "amount": 1.0,
+            },
+        ]
+    )
+
+    assert qfq.load_bfq_dates(kind="stock", code="000001", db=db) == [
+        "1991-09-29",
+        "1991-10-01",
+        "1991-10-02",
     ]
 
 
@@ -395,6 +477,23 @@ def test_audit_checks_terminal_factor_and_recurrence():
     assert audit["terminal_not_one"] == ["000001"]
 
 
+def test_source_audit_classifies_bfq_factor_without_xtdata_as_source_missing():
+    audit = qfq.audit_factor_snapshot(
+        [
+            {"code": "000001", "date": "2026-01-02", "adj": 1.0},
+            {"code": "000001", "date": "2026-01-05", "adj": 1.0},
+        ],
+        expected_dates_by_code={"000001": ["2026-01-02", "2026-01-05"]},
+        included_codes=["000001"],
+        require_exact_dates=True,
+        bars_by_code={"000001": _bars([("2026-01-02", 10.0, 0.0)])},
+    )
+
+    assert audit["ok"] is False
+    assert audit["source_missing_dates"] == [("000001", "2026-01-05")]
+    assert audit["extra_dates"] == []
+
+
 def test_bootstrap_builds_both_slots_before_atomic_marker_insert():
     dates = ["2026-01-02", "2026-01-05"]
     db = _stock_db(dates)
@@ -419,6 +518,123 @@ def test_bootstrap_builds_both_slots_before_atomic_marker_insert():
     assert marker["slots"]["b"]["status"] == "ready"
     assert marker["slots"]["a"]["collection"] == "stock_adj_qfq_a"
     assert marker["slots"]["b"]["collection"] == "stock_adj_qfq_b"
+
+
+def test_bootstrap_computes_on_xtdata_superset_then_projects_to_bfq_axis():
+    expected_dates = ["2026-01-02", "2026-01-06"]
+    db = _stock_db(expected_dates)
+    loader = _loader_for(
+        {
+            "000001": [
+                ("2026-01-02", 10.0, 0.0),
+                ("2026-01-05", 9.0, 8.0),
+                ("2026-01-06", 9.0, 9.0),
+            ]
+        }
+    )
+
+    qfq.sync_stock_adj_all(target_date=expected_dates[-1], db=db, bars_loader=loader)
+
+    rows = db["stock_adj_qfq_a"].rows
+    assert [row["date"] for row in rows] == expected_dates
+    assert [row["adj"] for row in rows] == pytest.approx([0.8, 1.0])
+    assert qfq.audit_qfq_slot(scope="stock", slot="a", db=db, bars_loader=loader)["ok"]
+
+
+def test_bootstrap_fails_when_valid_bfq_date_is_missing_from_xtdata():
+    dates = ["2026-01-02", "2026-01-05"]
+    db = _stock_db(dates)
+    loader = _loader_for({"000001": [(dates[0], 10.0, 0.0)]})
+
+    with pytest.raises(qfq.QFQSyncError, match="full QFQ rebuild audit failed"):
+        qfq.sync_stock_adj_all(target_date=dates[-1], db=db, bars_loader=loader)
+
+    assert not db["qfq_ready"].rows
+
+
+def test_bootstrap_skips_sentinel_only_etf_with_audited_reason():
+    sentinel = 5.877471754e-39
+    db = _DB(
+        etf_list=[
+            {"code": "158000", "name": "Placeholder ETF"},
+            {"code": "510050", "name": "Tradable ETF"},
+        ],
+        index_day=[
+            {
+                "code": "158000",
+                "date": "2026-07-30",
+                "open": 1.0,
+                "high": 1.0,
+                "low": 1.0,
+                "close": 1.0,
+                "vol": sentinel,
+                "amount": sentinel,
+            },
+            {
+                "code": "158000",
+                "date": "2026-07-31",
+                "open": 1.0,
+                "high": 1.0,
+                "low": 1.0,
+                "close": 1.0,
+                "vol": sentinel,
+                "amount": sentinel,
+            },
+            {
+                "code": "510050",
+                "date": "2026-07-31",
+                "vol": 100.0,
+                "amount": 250.0,
+            },
+        ],
+    )
+    calls = []
+
+    def loader(code, *, start_time, end_time):
+        calls.append((code, start_time, end_time))
+        return _bars([("2026-07-31", 2.5, 0.0)])
+
+    result = qfq.sync_etf_adj_all(target_date="2026-07-31", db=db, bars_loader=loader)
+
+    assert [call[0] for call in calls] == ["510050"]
+    coverage = result["by_scope"]["etf"]["coverage"]
+    assert coverage["sentinel_rows_excluded"] == 2
+    assert coverage["codes_with_sentinel_rows"] == 1
+    assert coverage["skipped_codes"] == 1
+    assert coverage["skipped"][0] == {
+        "code": "158000",
+        "reason": "sentinel_only_bfq_history",
+        "sentinel_rows": 2,
+    }
+
+
+def test_bootstrap_does_not_exclude_near_miss_sentinel_bfq_row():
+    sentinel = 5.877471754e-39
+    db = _DB(
+        etf_list=[{"code": "510050", "name": "Tradable ETF"}],
+        index_day=[
+            {
+                "code": "510050",
+                "date": "2026-07-31",
+                "vol": sentinel,
+                "amount": 1.0,
+            }
+        ],
+    )
+    empty = pd.DataFrame(index=["510050.SH"])
+
+    with pytest.raises(qfq.QFQSyncError, match="returned no daily bars"):
+        qfq.sync_etf_adj_all(
+            target_date="2026-07-31",
+            db=db,
+            bars_loader=lambda *_args, **_kwargs: {
+                "time": empty,
+                "close": empty,
+                "preClose": empty,
+            },
+        )
+
+    assert not db["qfq_ready"].rows
 
 
 def test_bootstrap_failure_never_creates_ready_marker():
@@ -636,6 +852,56 @@ def test_inactive_slot_catches_up_from_its_own_terminal_without_writing_active()
     assert db["stock_adj_qfq_a"].writes == active_writes_before
     assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == dates
     assert qfq.resolve_active_slot(scope="stock", db=db)["slot"] == "b"
+
+
+def test_incremental_update_projects_xtdata_superset_to_bfq_dates():
+    bfq_dates = ["2026-01-02", "2026-01-06"]
+    payload = {"000001": [(bfq_dates[0], 10.0, 0.0)]}
+    db = _stock_db(bfq_dates[:1])
+    loader = _loader_for(payload)
+    qfq.sync_stock_adj_all(target_date=bfq_dates[0], db=db, bars_loader=loader)
+    payload["000001"] = [
+        (bfq_dates[0], 10.0, 0.0),
+        ("2026-01-05", 11.0, 10.0),
+        (bfq_dates[1], 12.0, 11.0),
+    ]
+    db["stock_day"].rows.append({"code": "000001", "date": bfq_dates[1]})
+
+    result = qfq.sync_stock_adj_all(
+        target_date=bfq_dates[1],
+        db=db,
+        bars_loader=loader,
+        min_grace_seconds=0,
+    )
+
+    assert result["by_scope"]["stock"]["stats"]["incremental"] == 1
+    assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == bfq_dates
+    assert [row["adj"] for row in db["stock_adj_qfq_b"].rows] == [1.0, 1.0]
+
+
+def test_xtdata_only_corporate_action_day_forces_full_rebuild():
+    bfq_dates = ["2026-01-02", "2026-01-06"]
+    payload = {"000001": [(bfq_dates[0], 10.0, 0.0)]}
+    db = _stock_db(bfq_dates[:1])
+    loader = _loader_for(payload)
+    qfq.sync_stock_adj_all(target_date=bfq_dates[0], db=db, bars_loader=loader)
+    payload["000001"] = [
+        (bfq_dates[0], 10.0, 0.0),
+        ("2026-01-05", 9.0, 8.0),
+        (bfq_dates[1], 9.0, 9.0),
+    ]
+    db["stock_day"].rows.append({"code": "000001", "date": bfq_dates[1]})
+
+    result = qfq.sync_stock_adj_all(
+        target_date=bfq_dates[1],
+        db=db,
+        bars_loader=loader,
+        min_grace_seconds=0,
+    )
+
+    assert result["by_scope"]["stock"]["stats"]["full"] == 1
+    factors = {row["date"]: row["adj"] for row in db["stock_adj_qfq_b"].rows}
+    assert factors == pytest.approx({bfq_dates[0]: 0.8, bfq_dates[1]: 1.0})
 
 
 def test_company_action_rebuilds_only_inactive_code_history():

@@ -46,6 +46,8 @@ WRITER_LOCK_COLLECTION = "qfq_writer_locks"
 DEFAULT_TAIL_AUDIT_DAYS = 60
 DEFAULT_READER_GRACE_SECONDS = 300
 DEFAULT_WRITER_LEASE_SECONDS = 3600
+XTDATA_TRADING_TIMEZONE = timezone(timedelta(hours=8))
+BFQ_SENTINEL_VALUE = 5.877471754e-39
 ETF_OPEN_FUND_HINTS = (
     "开放式",
     "联接",
@@ -112,6 +114,32 @@ def _date_key(value: Any) -> str | None:
     return parsed.strftime("%Y-%m-%d")
 
 
+def _xtdata_date_key(value: Any) -> str | None:
+    if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(
+        value, (bool, np.bool_)
+    ):
+        number = float(value)
+        if math.isfinite(number):
+            try:
+                if number > 10_000_000_000:
+                    return (
+                        datetime.fromtimestamp(
+                            number / 1000, tz=XTDATA_TRADING_TIMEZONE
+                        )
+                        .date()
+                        .isoformat()
+                    )
+                if number > 1_000_000_000:
+                    return (
+                        datetime.fromtimestamp(number, tz=XTDATA_TRADING_TIMEZONE)
+                        .date()
+                        .isoformat()
+                    )
+            except (OSError, OverflowError, ValueError):
+                return None
+    return _date_key(value)
+
+
 def _xt_date_arg(value: Any) -> str:
     """Format a BFQ boundary in the date form accepted by XTData."""
 
@@ -172,6 +200,20 @@ def _row_key(frame: pd.DataFrame, code: str | None) -> Any:
     return frame.index[0] if len(frame.index) == 1 else None
 
 
+def _field_column_date(value: Any) -> str | None:
+    if isinstance(value, (date, datetime)):
+        return _date_key(value)
+    text = str(value).strip()
+    if (len(text) == 8 and text.isdigit()) or (
+        len(text) == 10
+        and text[4] == "-"
+        and text[7] == "-"
+        and text.replace("-", "").isdigit()
+    ):
+        return _date_key(text)
+    return None
+
+
 def _field_table_to_rows(
     payload: Mapping[str, Any], code: str | None
 ) -> pd.DataFrame | None:
@@ -191,16 +233,24 @@ def _field_table_to_rows(
         return None
 
     # ``get_market_data`` returns field -> DataFrame(index=code, columns=time).
-    sample = next(
-        (value for value in fields.values() if isinstance(value, pd.DataFrame)), None
-    )
-    if sample is not None and not sample.empty:
+    tables = [value for value in fields.values() if isinstance(value, pd.DataFrame)]
+    sample = next((value for value in tables if not value.empty), None)
+    if (
+        tables
+        and sample is None
+        and all(isinstance(value, pd.DataFrame) for value in fields.values())
+    ):
+        return pd.DataFrame()
+    if sample is not None:
         key = _row_key(sample, code)
         if key is not None:
             columns = list(sample.columns)
             rows: list[dict[str, Any]] = []
             for column in columns:
-                row: dict[str, Any] = {"time": column}
+                column_date = _field_column_date(column)
+                row: dict[str, Any] = (
+                    {"date": column_date} if column_date else {"time": column}
+                )
                 for field_name, value in fields.items():
                     if isinstance(value, pd.DataFrame) and key in value.index:
                         row[field_name] = value.loc[key].get(column)
@@ -292,7 +342,7 @@ def normalize_xtdata_bars(payload: Any, *, code: str | None = None) -> pd.DataFr
     if "close" not in frame.columns or "preClose" not in frame.columns:
         raise QFQSyncError(f"XTData daily bars missing close/preClose for code={code}")
     source_dates = frame["date"] if "date" in frame.columns else frame["time"]
-    frame["date"] = [_date_key(value) or "" for value in source_dates]
+    frame["date"] = [_xtdata_date_key(value) or "" for value in source_dates]
     frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
     frame["preClose"] = pd.to_numeric(frame["preClose"], errors="coerce")
     frame = frame.loc[frame["date"].astype(bool)].copy()
@@ -442,23 +492,47 @@ def load_factor_universe(
     }
 
 
-def load_bfq_dates(*, kind: str, code: str, db=DBQuantAxis) -> list[str]:
-    """Return the actual BFQ trading-date axis for one included instrument."""
+def _is_bfq_sentinel_row(row: Mapping[str, Any]) -> bool:
+    volume = row.get("vol", row.get("volume"))
+    amount = row.get("amount")
+    if volume is None or amount is None:
+        return False
+    try:
+        values = (float(volume), float(amount))
+    except (TypeError, ValueError):
+        return False
+    return all(
+        math.isfinite(value)
+        and math.isclose(value, BFQ_SENTINEL_VALUE, rel_tol=1e-9, abs_tol=0.0)
+        for value in values
+    )
 
+
+def _load_bfq_coverage(*, kind: str, code: str, db=DBQuantAxis) -> dict[str, Any]:
     if kind not in BFQ_COLLECTIONS:
         raise ValueError(f"unsupported BFQ kind: {kind}")
     code6 = normalize_code(code)
     collection = db[BFQ_COLLECTIONS[kind]]
     query = {"code": code6}
-    projection = {"_id": 0, "date": 1}
+    projection = {
+        "_id": 0,
+        "date": 1,
+        "vol": 1,
+        "volume": 1,
+        "amount": 1,
+    }
     try:
         cursor = collection.find(query, projection)
     except TypeError:
         cursor = collection.find(query)
     dates: list[str] = []
+    sentinel_dates: list[str] = []
     invalid: list[Any] = []
     for row in cursor:
         value = row.get("date") if isinstance(row, Mapping) else None
+        if isinstance(row, Mapping) and _is_bfq_sentinel_row(row):
+            sentinel_dates.append(_date_key(value) or str(value))
+            continue
         key = _date_key(value)
         if key is None:
             invalid.append(value)
@@ -469,7 +543,56 @@ def load_bfq_dates(*, kind: str, code: str, db=DBQuantAxis) -> list[str]:
             f"{kind} BFQ history contains invalid dates for code={code6}",
             stats={"kind": kind, "code": code6, "invalid_dates": invalid[:20]},
         )
-    return sorted(set(dates))
+    return {
+        "dates": sorted(set(dates)),
+        "sentinel_rows": len(sentinel_dates),
+        "sentinel_dates": sorted(set(sentinel_dates))[:20],
+    }
+
+
+def load_bfq_dates(*, kind: str, code: str, db=DBQuantAxis) -> list[str]:
+    """Return valid BFQ trading dates, excluding explicit QASU filler rows."""
+
+    return _load_bfq_coverage(kind=kind, code=code, db=db)["dates"]
+
+
+def _new_bfq_coverage_summary() -> dict[str, Any]:
+    return {
+        "sentinel_rows_excluded": 0,
+        "codes_with_sentinel_rows": 0,
+        "skipped_codes": 0,
+        "skipped": [],
+    }
+
+
+def _select_bfq_dates(
+    *,
+    code: str,
+    coverage: Mapping[str, Any],
+    target_date: str | None,
+    summary: dict[str, Any],
+) -> list[str]:
+    sentinel_rows = int(coverage.get("sentinel_rows") or 0)
+    if sentinel_rows:
+        summary["sentinel_rows_excluded"] += sentinel_rows
+        summary["codes_with_sentinel_rows"] += 1
+    dates = list(coverage.get("dates") or ())
+    selected = [date for date in dates if not target_date or date <= target_date]
+    if selected:
+        return selected
+    if sentinel_rows and not dates:
+        reason = "sentinel_only_bfq_history"
+    elif dates and target_date:
+        reason = "no_bfq_history_by_target"
+    else:
+        reason = "no_bfq_history"
+    summary["skipped_codes"] += 1
+    if len(summary["skipped"]) < 100:
+        item: dict[str, Any] = {"code": normalize_code(code), "reason": reason}
+        if sentinel_rows:
+            item["sentinel_rows"] = sentinel_rows
+        summary["skipped"].append(item)
+    return []
 
 
 def _bfq_download_bounds(
@@ -518,6 +641,7 @@ def audit_factor_snapshot(
     terminal_not_one: list[str] = []
     recurrence_errors: list[tuple[str, str]] = []
     missing_dates: list[tuple[str, str]] = []
+    source_missing_dates: list[tuple[str, str]] = []
     extra_dates: list[tuple[str, str]] = []
     for code in sorted({normalize_code(c) for c in (included_codes or by_code)}):
         code_rows = by_code.get(code, [])
@@ -562,33 +686,32 @@ def audit_factor_snapshot(
         if bars_payload is not None and normalized:
             bars = normalize_xtdata_bars(bars_payload, code=code)
             factors = {date: factor for date, factor in normalized}
-            bar_dates = set(bars["date"])
+            source_rows = compute_preclose_adj(bars, code=code)
+            source_factors = dict(
+                zip(source_rows["date"], source_rows["adj"], strict=True)
+            )
             if require_exact_dates:
-                missing_dates.extend(
-                    (code, date) for date in sorted(bar_dates - set(factors))
+                source_missing_dates.extend(
+                    (code, date) for date in sorted(set(factors) - set(source_factors))
                 )
-                extra_dates.extend(
-                    (code, date) for date in sorted(set(factors) - bar_dates)
-                )
-            for index in range(len(bars) - 1):
-                date = str(bars.iloc[index]["date"])
-                next_date = str(bars.iloc[index + 1]["date"])
-                if date not in factors or next_date not in factors:
+            for factor_date, factor in factors.items():
+                source_factor = source_factors.get(factor_date)
+                if source_factor is None:
                     continue
-                expected = factors[next_date] * (
-                    float(bars.iloc[index + 1]["preClose"])
-                    / float(bars.iloc[index]["close"])
-                )
                 if not math.isclose(
-                    factors[date], expected, rel_tol=rel_tol, abs_tol=1e-12
+                    factor,
+                    float(source_factor),
+                    rel_tol=rel_tol,
+                    abs_tol=1e-12,
                 ):
-                    recurrence_errors.append((code, date))
+                    recurrence_errors.append((code, factor_date))
     return {
         "codes": len(set(by_code) | set(expected_map)),
         "rows": len(rows),
-        "missing": len(missing_codes) + len(missing_dates),
+        "missing": len(missing_codes) + len(missing_dates) + len(source_missing_dates),
         "missing_codes": missing_codes,
         "missing_dates": missing_dates,
+        "source_missing_dates": source_missing_dates,
         "extra": len(extra_dates),
         "extra_dates": extra_dates,
         "invalid": invalid,
@@ -598,6 +721,7 @@ def audit_factor_snapshot(
         "ok": (
             not missing_codes
             and not missing_dates
+            and not source_missing_dates
             and not extra_dates
             and invalid == 0
             and duplicates == 0
@@ -1179,7 +1303,12 @@ def _full_rebuild_code(
 ) -> dict[str, Any]:
     load_start, load_end, expected = _bfq_download_bounds(expected_dates)
     bars = _call_loader(loader, code, load_start, load_end)
-    rows = compute_preclose_adj(bars, code=code).to_dict(orient="records")
+    expected_set = set(expected)
+    rows = [
+        row
+        for row in compute_preclose_adj(bars, code=code).to_dict(orient="records")
+        if str(row["date"])[:10] in expected_set
+    ]
     audit = _audit_code_rows(code=code, rows=rows, expected_dates=expected, bars=bars)
     if not audit["ok"]:
         raise QFQSyncError(
@@ -1233,7 +1362,12 @@ def _reconcile_code(
         _xt_date_arg(tail_dates[0]),
         _xt_date_arg(tail_dates[-1]),
     )
-    tail_rows = compute_preclose_adj(bars, code=code).to_dict(orient="records")
+    tail_date_set = set(tail_dates)
+    tail_rows = [
+        row
+        for row in compute_preclose_adj(bars, code=code).to_dict(orient="records")
+        if str(row["date"])[:10] in tail_date_set
+    ]
     tail_audit = _audit_code_rows(
         code=code, rows=tail_rows, expected_dates=tail_dates, bars=bars
     )
@@ -1353,12 +1487,17 @@ def audit_qfq_slot(
     failures: list[dict[str, Any]] = []
     rows = 0
     checked_codes = 0
+    coverage_summary = _new_bfq_coverage_summary()
     for code in universe["codes"]:
         if progress_callback:
             progress_callback()
-        expected = load_bfq_dates(kind=scope, code=code, db=db)
-        if factor_asof:
-            expected = [date for date in expected if date <= factor_asof]
+        coverage = _load_bfq_coverage(kind=scope, code=code, db=db)
+        expected = _select_bfq_dates(
+            code=code,
+            coverage=coverage,
+            target_date=factor_asof,
+            summary=coverage_summary,
+        )
         if not expected:
             continue
         code_rows = _load_existing_factor_rows(
@@ -1400,6 +1539,7 @@ def audit_qfq_slot(
         ),
         "codes": checked_codes,
         "rows": rows,
+        "coverage": coverage_summary,
         "failed": len(failures),
         "failures": failures[:100],
         "ok": not failures and checked_codes > 0,
@@ -1425,14 +1565,17 @@ def _bootstrap_scope(
     _ensure_factor_indexes(collection_a)
     included: list[str] = []
     rows_written = 0
+    coverage_summary = _new_bfq_coverage_summary()
     for code in universe["codes"]:
         if progress_callback:
             progress_callback()
-        expected = [
-            date
-            for date in load_bfq_dates(kind=scope, code=code, db=db)
-            if date <= target_date
-        ]
+        coverage = _load_bfq_coverage(kind=scope, code=code, db=db)
+        expected = _select_bfq_dates(
+            code=code,
+            coverage=coverage,
+            target_date=target_date,
+            summary=coverage_summary,
+        )
         if not expected:
             continue
         result = _full_rebuild_code(
@@ -1491,6 +1634,7 @@ def _bootstrap_scope(
         "factor_asof": target_date,
         "codes": len(included),
         "rows_written": rows_written,
+        "coverage": coverage_summary,
         "marker": marker,
         "audit": {"a": audit_a, "b": audit_b},
     }
@@ -1563,6 +1707,7 @@ def _update_scope(
         "rows_written": 0,
         "stale_codes_removed": 0,
     }
+    coverage_summary = _new_bfq_coverage_summary()
     try:
         _ensure_factor_indexes(collection)
         universe = load_factor_universe(kind=scope, db=db, codes=codes)
@@ -1570,11 +1715,13 @@ def _update_scope(
         for code in universe["codes"]:
             if progress_callback:
                 progress_callback()
-            expected = [
-                date
-                for date in load_bfq_dates(kind=scope, code=code, db=db)
-                if date <= target_date
-            ]
+            coverage = _load_bfq_coverage(kind=scope, code=code, db=db)
+            expected = _select_bfq_dates(
+                code=code,
+                coverage=coverage,
+                target_date=target_date,
+                summary=coverage_summary,
+            )
             if not expected:
                 continue
             if force_full_rebuild:
@@ -1639,6 +1786,7 @@ def _update_scope(
             "factor_asof": target_date,
             "slot": inactive_slot,
             "stats": stats,
+            "coverage": coverage_summary,
             "audit": audit,
             "marker": published,
         }
