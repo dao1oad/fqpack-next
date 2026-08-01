@@ -14,6 +14,7 @@ const DEV_SERVER_PORT = 18096
 const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 const PARTIAL_BATCH_ID = 'clx-2026-03-10-production-v1-partial'
+const FINAL_BATCH_ID = 'clx-2026-02-28-production-v1-final'
 
 let devServerProcess = null
 
@@ -46,6 +47,38 @@ const partialBatch = {
       status: 'running',
       selection_key: 'etf-selection',
       attempt_no: 2,
+    },
+  },
+}
+
+const finalBatch = {
+  ...partialBatch,
+  batch_id: FINAL_BATCH_ID,
+  trade_date: '2026-02-28',
+  status: 'completed',
+  release_status: 'final',
+  is_final: true,
+  publication: { status: 'published' },
+  counts: {
+    stock: { universe_count: 2, evaluated_count: 2, hit_symbol_count: 1, error_count: 0 },
+    etf: { universe_count: 1, evaluated_count: 1, hit_symbol_count: 1, error_count: 0 },
+    total: { universe_count: 3, evaluated_count: 3, hit_symbol_count: 2, error_count: 0 },
+  },
+  partitions: {
+    stock: {
+      ...partialBatch.partitions.stock,
+      snapshot_hash: 'stock-snapshot-final',
+      content_hash: 'stock-content-final',
+    },
+    etf: {
+      asset_type: 'etf',
+      status: 'completed',
+      selection_key: 'etf-selection-final',
+      attempt_no: 1,
+      partition_id: 'etf-output-final',
+      snapshot_hash: 'etf-snapshot-final',
+      content_hash: 'etf-content-final',
+      counts: { universe_count: 1, evaluated_count: 1, hit_symbol_count: 1, error_count: 0 },
     },
   },
 }
@@ -88,7 +121,12 @@ function buildKlinePayload(period = '5m') {
   }
 }
 
-async function mockApis(page, requestLog) {
+async function mockApis(page, requestLog, {
+  batchItems = [partialBatch],
+  latestPayload = { status: 'no_ready_batch', release_status: 'final', is_final: false },
+  activeBatch = partialBatch,
+  statisticsPayload = {},
+} = {}) {
   await page.route('**/api/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -113,7 +151,7 @@ async function mockApis(page, requestLog) {
     }
 
     if (pathname === '/api/clx-daily-selection/batches') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [partialBatch] }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: batchItems }) })
       return
     }
 
@@ -121,29 +159,29 @@ async function mockApis(page, requestLog) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ status: 'no_ready_batch', release_status: 'final', is_final: false }),
+        body: JSON.stringify(latestPayload),
       })
       return
     }
 
-    if (pathname === `/api/clx-daily-selection/batches/${PARTIAL_BATCH_ID}/summary`) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(partialBatch) })
+    if (pathname === `/api/clx-daily-selection/batches/${activeBatch.batch_id}/summary`) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeBatch) })
       return
     }
 
-    if (pathname === `/api/clx-daily-selection/batches/${PARTIAL_BATCH_ID}/results`) {
+    if (pathname === `/api/clx-daily-selection/batches/${activeBatch.batch_id}/results`) {
       requestLog.resultQueries.push(request.postDataJSON?.() || {})
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...partialBatch, rows: [resultRow], total: 1 }),
+        body: JSON.stringify({ ...activeBatch, rows: [resultRow], total: 1 }),
       })
       return
     }
 
     if (pathname.endsWith('/statistics')) {
       requestLog.statisticsRequests += 1
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(statisticsPayload) })
       return
     }
 
@@ -303,4 +341,47 @@ test('partial page stays explicit and Kline renders guarded CLX markers', async 
   expect(Number.isFinite(rendered.y)).toBe(true)
   expect(rendered.y).toBeGreaterThan(0)
   expect(rendered.nonTransparentPixels).toBeGreaterThan(100)
+})
+
+test('latest final outside the 30 mixed-scope window remains the complete default', async ({ page }) => {
+  const requestLog = { resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const newerPartials = Array.from({ length: 30 }, (_, index) => ({
+    ...partialBatch,
+    batch_id: `partial-window-${String(index + 1).padStart(2, '0')}`,
+    trade_date: `2026-03-${String(30 - index).padStart(2, '0')}`,
+    updated_at: `2026-03-${String(30 - index).padStart(2, '0')}T18:00:00+08:00`,
+  }))
+  const statisticsPayload = {
+    counts: { stock: 1, etf: 1, total: 2 },
+    by_model: [{ model_key: 'S0003', symbol_count: 1 }],
+    by_condition: [{ condition_key: 'entrypoint_1', symbol_count: 1 }],
+    resonance_distribution: [{ distinct_model_count: 2, symbol_count: 1 }],
+  }
+
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await mockApis(page, requestLog, {
+    batchItems: newerPartials,
+    latestPayload: { batch: finalBatch },
+    activeBatch: finalBatch,
+    statisticsPayload,
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+
+  await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
+  await expect(page.locator('.clx-scope-select')).toContainText('2026-02-28')
+  await expect(page.locator('.clx-scope-select')).toContainText(FINAL_BATCH_ID)
+  await expect(page.getByText('最新运行 2026-03-30')).toBeVisible()
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect(page.locator('.clx-kpi-row')).toContainText('候选2')
+  await expect(page.locator('.clx-kpi-row')).toContainText('股票命中1')
+  await expect(page.locator('.clx-kpi-row')).toContainText('ETF命中1')
+  await expect.poll(() => requestLog.resultQueries.length).toBe(1)
+  await expect.poll(() => requestLog.statisticsRequests).toBe(1)
+  expect(requestLog.resultQueries[0].scope_id).toBe(FINAL_BATCH_ID)
+
+  await page.getByRole('tab', { name: '统计' }).click()
+  await expect(page.locator('.clx-statistics-grid')).toContainText('资产分组')
+  await expect(page.locator('.clx-statistics-grid')).toContainText('S0003')
+  await expect(page.getByText(/当前是部分结果/)).toHaveCount(0)
 })
