@@ -262,10 +262,16 @@ export const normalizeClxScopes = (payload = {}) => {
     .sort(compareClxScopeRecency)
 }
 
-export const mergeClxScopes = (batchesPayload = {}, latestFinalPayload = null) => {
+export const mergeClxScopes = (batchesPayload = {}, ...authoritativePayloads) => {
   const scopes = normalizeClxScopes(batchesPayload)
-  const latestFinal = latestFinalPayload ? pickDefaultClxScope(latestFinalPayload) : null
-  const merged = latestFinal ? [latestFinal, ...scopes] : scopes
+  const authoritativeScopes = authoritativePayloads
+    .filter(Boolean)
+    .map((payload) => {
+      const root = readPayload(payload)
+      return normalizeClxScope(root.batch || root.scope || root.latest || root)
+    })
+    .filter((scope) => scope.scopeId || scope.tradeDate)
+  const merged = [...authoritativeScopes, ...scopes]
   const seen = new Set()
 
   return merged

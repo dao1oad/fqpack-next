@@ -437,10 +437,39 @@ const filters = reactive({
 
 let queryTimer = 0
 let routeSyncing = false
+let navigationEpoch = 0
 const bootstrapRequests = createClxRequestChannel()
+const routeScopeRequests = createClxRequestChannel()
 const scopeRequests = createClxRequestChannel()
 const resultRequests = createClxRequestChannel()
 const detailRequests = createClxRequestChannel()
+
+const beginScopeNavigation = ({ abortBootstrap = true } = {}) => {
+  navigationEpoch += 1
+  window.clearTimeout(queryTimer)
+  queryTimer = 0
+  if (abortBootstrap) {
+    bootstrapRequests.abort()
+    loading.bootstrap = false
+  }
+  routeScopeRequests.abort()
+  scopeRequests.abort()
+  resultRequests.abort()
+  detailRequests.abort()
+  loading.scope = false
+  loading.results = false
+  loading.statistics = false
+  loading.detail = false
+  pageError.value = ''
+  selectedRow.value = null
+  detail.value = null
+  summary.value = emptySummary()
+  statistics.value = emptyStatistics()
+  queryResult.value = emptyQueryResult()
+  currentCursor.value = ''
+  cursorStack.value = []
+  return navigationEpoch
+}
 
 const activeScope = computed(() => scopes.value.find((item) => item.scopeId === selectedScopeId.value) || null)
 const latestObservedScope = computed(() => observedScopes.value[0] || null)
@@ -499,9 +528,11 @@ const applyRouteState = () => {
   return state
 }
 
-const syncRoute = async () => {
+const syncRoute = async (navigationId = navigationEpoch) => {
+  if (navigationId !== navigationEpoch) return
   routeSyncing = true
   try {
+    if (navigationId !== navigationEpoch) return
     await router.replace({
       path: '/clx-daily-screening',
       query: buildClxSelectionRouteQuery({
@@ -532,12 +563,21 @@ const buildQueryPayload = (scopeId = selectedScopeId.value) => buildClxSelection
   cursor: currentCursor.value,
 })
 
-const loadResults = async ({ syncUrl = true, scopeId = selectedScopeId.value, clearError = true } = {}) => {
+const loadResults = async ({
+  syncUrl = true,
+  scopeId = selectedScopeId.value,
+  clearError = true,
+  navigationId = navigationEpoch,
+} = {}) => {
   if (!scopeId) return
   const requestPayload = buildQueryPayload(scopeId)
   const requestKey = `${scopeId}|${JSON.stringify(requestPayload)}`
   const token = resultRequests.begin(requestKey)
-  const isCurrent = () => resultRequests.isCurrent(token, requestKey) && selectedScopeId.value === scopeId
+  const isCurrent = () => (
+    navigationEpoch === navigationId &&
+    resultRequests.isCurrent(token, requestKey) &&
+    selectedScopeId.value === scopeId
+  )
   loading.results = true
   if (clearError) pageError.value = ''
   try {
@@ -554,7 +594,7 @@ const loadResults = async ({ syncUrl = true, scopeId = selectedScopeId.value, cl
       )) || null
       if (!selectedRow.value) detail.value = null
     }
-    if (syncUrl) await syncRoute()
+    if (syncUrl) await syncRoute(navigationId)
   } catch (error) {
     if (!isCurrent()) return
     queryResult.value = emptyQueryResult()
@@ -564,30 +604,29 @@ const loadResults = async ({ syncUrl = true, scopeId = selectedScopeId.value, cl
   }
 }
 
-const loadScopeData = async () => {
+const loadScopeData = async ({ prefetchedSummary = null, navigationId = null } = {}) => {
   const scopeId = selectedScopeId.value
   if (!scopeId) return
+  const activeNavigationId = navigationId ?? beginScopeNavigation()
+  if (activeNavigationId !== navigationEpoch) return
   const token = scopeRequests.begin(scopeId)
-  const isCurrent = () => scopeRequests.isCurrent(token, scopeId) && selectedScopeId.value === scopeId
+  const isCurrent = () => (
+    navigationEpoch === activeNavigationId &&
+    scopeRequests.isCurrent(token, scopeId) &&
+    selectedScopeId.value === scopeId
+  )
   resultRequests.abort()
   detailRequests.abort()
   loading.scope = true
-  loading.results = false
-  loading.detail = false
-  pageError.value = ''
-  selectedRow.value = null
-  detail.value = null
-  summary.value = emptySummary()
-  statistics.value = emptyStatistics()
-  queryResult.value = emptyQueryResult()
-  currentCursor.value = ''
-  cursorStack.value = []
   const scope = scopes.value.find((item) => item.scopeId === scopeId)
   const scopeIsFinal = Boolean(scope?.isFinal)
   if (!scopeIsFinal && activeTab.value === 'statistics') activeTab.value = 'results'
   loading.statistics = scopeIsFinal
 
-  const summaryTask = clxDailySelectionApi.getBatchSummary(scopeId, { signal: token.signal })
+  const summaryRequest = prefetchedSummary
+    ? Promise.resolve(prefetchedSummary)
+    : clxDailySelectionApi.getBatchSummary(scopeId, { signal: token.signal })
+  const summaryTask = summaryRequest
     .then((payload) => {
       if (isCurrent()) summary.value = normalizeClxSummary(payload)
     })
@@ -616,7 +655,7 @@ const loadScopeData = async () => {
     await Promise.allSettled([
       summaryTask,
       statisticsTask,
-      loadResults({ scopeId, clearError: false }),
+      loadResults({ scopeId, clearError: false, navigationId: activeNavigationId }),
     ])
   } finally {
     if (isCurrent()) loading.scope = false
@@ -624,16 +663,14 @@ const loadScopeData = async () => {
 }
 
 const loadBootstrap = async () => {
-  const token = bootstrapRequests.begin('bootstrap')
-  const isCurrent = () => bootstrapRequests.isCurrent(token, 'bootstrap')
-  scopeRequests.abort()
-  resultRequests.abort()
-  detailRequests.abort()
+  const navigationId = beginScopeNavigation({ abortBootstrap: false })
+  const requestKey = `bootstrap:${navigationId}`
+  const token = bootstrapRequests.begin(requestKey)
+  const isCurrent = () => (
+    navigationEpoch === navigationId &&
+    bootstrapRequests.isCurrent(token, requestKey)
+  )
   loading.bootstrap = true
-  loading.scope = false
-  loading.results = false
-  loading.detail = false
-  pageError.value = ''
   const initialRoute = applyRouteState()
   try {
     const [catalogPayload, batchesPayload, latestFinalPayload] = await Promise.all([
@@ -644,11 +681,21 @@ const loadBootstrap = async () => {
     if (!isCurrent()) return
     catalog.value = normalizeClxCatalog(catalogPayload)
     observedScopes.value = normalizeClxScopes(batchesPayload)
-    scopes.value = mergeClxScopes(batchesPayload, latestFinalPayload)
+    let requestedScopePayload = null
+    let mergedScopes = mergeClxScopes(batchesPayload, latestFinalPayload)
+    if (initialRoute.scopeId && !mergedScopes.some((item) => item.scopeId === initialRoute.scopeId)) {
+      requestedScopePayload = await clxDailySelectionApi.getBatchSummary(
+        initialRoute.scopeId,
+        { signal: token.signal },
+      )
+      if (!isCurrent()) return
+      mergedScopes = mergeClxScopes(batchesPayload, requestedScopePayload, latestFinalPayload)
+    }
+    scopes.value = mergedScopes
     const requested = scopes.value.find((item) => item.scopeId === initialRoute.scopeId)
     const finalScope = latestFinalPayload ? pickDefaultClxScope(latestFinalPayload) : null
     selectedScopeId.value = requested?.scopeId || finalScope?.scopeId || scopes.value.find((item) => item.isFinal)?.scopeId || ''
-    await loadScopeData()
+    await loadScopeData({ prefetchedSummary: requestedScopePayload, navigationId })
     if (!isCurrent()) return
     if (initialRoute.symbol) {
       const row = queryResult.value.rows.find((item) => item.symbol === initialRoute.symbol || item.code === initialRoute.symbol)
@@ -664,6 +711,40 @@ const loadBootstrap = async () => {
 
 const refreshAll = () => loadBootstrap()
 const handleScopeChange = () => loadScopeData()
+const selectRouteScope = async (scopeId) => {
+  const navigationId = beginScopeNavigation()
+  selectedScopeId.value = scopeId
+  loading.scope = true
+  const requestKey = `${navigationId}:${scopeId}`
+  const token = routeScopeRequests.begin(requestKey)
+  const isCurrent = () => (
+    navigationEpoch === navigationId &&
+    routeScopeRequests.isCurrent(token, requestKey) &&
+    route.path === '/clx-daily-screening' &&
+    parseClxSelectionRouteQuery(route.query).scopeId === scopeId
+  )
+  let prefetchedSummary = null
+  if (!scopes.value.some((item) => item.scopeId === scopeId)) {
+    try {
+      prefetchedSummary = await clxDailySelectionApi.getBatchSummary(
+        scopeId,
+        { signal: token.signal },
+      )
+    } catch (error) {
+      if (!isCurrent()) return
+      loading.scope = false
+      pageError.value = error?.response?.data?.message || 'CLX 批次摘要加载失败'
+      return
+    }
+    if (!isCurrent()) return
+    scopes.value = mergeClxScopes(
+      { items: scopes.value.map((item) => item.raw) },
+      prefetchedSummary,
+    )
+  }
+  if (!isCurrent()) return
+  await loadScopeData({ prefetchedSummary, navigationId })
+}
 const selectObservedPartial = async () => {
   if (!latestObservedScope.value) return
   selectedScopeId.value = latestObservedScope.value.scopeId
@@ -679,12 +760,14 @@ const resetFilters = () => {
   Object.keys(filters.lineFlags).forEach((key) => { filters.lineFlags[key] = '' })
 }
 const selectRow = async (row) => {
+  const navigationId = navigationEpoch
   const scopeId = selectedScopeId.value
   const assetType = row.assetType || 'stock'
   const symbol = row.symbol
   const detailKey = [scopeId, assetType, symbol].join('|')
   const token = detailRequests.begin(detailKey)
   const isCurrent = () => (
+    navigationEpoch === navigationId &&
     detailRequests.isCurrent(token, detailKey) &&
     selectedScopeId.value === scopeId &&
     selectedRow.value?.symbol === symbol &&
@@ -702,7 +785,7 @@ const selectRow = async (row) => {
     )
     if (!isCurrent()) return
     detail.value = normalizeClxDetail(payload)
-    await syncRoute()
+    await syncRoute(navigationId)
   } catch (error) {
     if (!isCurrent()) return
     pageError.value = error?.response?.data?.message || 'CLX 标的详情加载失败'
@@ -758,12 +841,15 @@ watch(
   },
 )
 
-watch(() => route.fullPath, () => {
+watch(() => route.fullPath, async () => {
   if (routeSyncing || route.path !== '/clx-daily-screening') return
   const routeState = applyRouteState()
+  if (loading.bootstrap) {
+    await loadBootstrap()
+    return
+  }
   if (routeState.scopeId && routeState.scopeId !== selectedScopeId.value) {
-    selectedScopeId.value = routeState.scopeId
-    loadScopeData()
+    await selectRouteScope(routeState.scopeId)
   }
 })
 
@@ -771,6 +857,7 @@ onMounted(loadBootstrap)
 onBeforeUnmount(() => {
   window.clearTimeout(queryTimer)
   bootstrapRequests.abort()
+  routeScopeRequests.abort()
   scopeRequests.abort()
   resultRequests.abort()
   detailRequests.abort()

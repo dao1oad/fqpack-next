@@ -15,6 +15,9 @@ const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
 const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 const PARTIAL_BATCH_ID = 'clx-2026-03-10-production-v1-partial'
 const FINAL_BATCH_ID = 'clx-2026-02-28-production-v1-final'
+const DEEP_LINK_BATCH_ID = 'clx-2026-01-30-production-v1-final'
+const RACE_SCOPE_A = 'clx-route-race-a'
+const RACE_SCOPE_B = 'clx-route-race-b'
 
 let devServerProcess = null
 
@@ -83,6 +86,13 @@ const finalBatch = {
   },
 }
 
+const deepLinkedFinalBatch = {
+  ...finalBatch,
+  batch_id: DEEP_LINK_BATCH_ID,
+  trade_date: '2026-01-30',
+  updated_at: '2026-01-30T18:00:00+08:00',
+}
+
 const resultRow = {
   asset_type: 'stock',
   symbol: 'sz000001',
@@ -121,18 +131,56 @@ function buildKlinePayload(period = '5m') {
   }
 }
 
+const buildNewerPartialWindow = () => Array.from({ length: 30 }, (_, index) => ({
+  ...partialBatch,
+  batch_id: `partial-window-${String(index + 1).padStart(2, '0')}`,
+  trade_date: `2026-03-${String(30 - index).padStart(2, '0')}`,
+  updated_at: `2026-03-${String(30 - index).padStart(2, '0')}T18:00:00+08:00`,
+}))
+
+const finalStatisticsPayload = {
+  counts: { stock: 1, etf: 1, total: 2 },
+  by_model: [{ model_key: 'S0003', symbol_count: 1 }],
+  by_condition: [{ condition_key: 'entrypoint_1', symbol_count: 1 }],
+  resonance_distribution: [{ distinct_model_count: 2, symbol_count: 1 }],
+}
+
 async function mockApis(page, requestLog, {
   batchItems = [partialBatch],
   latestPayload = { status: 'no_ready_batch', release_status: 'final', is_final: false },
   activeBatch = partialBatch,
+  batchPayloads = [],
+  resultRowsByBatch = {},
+  responseDelays = {},
   statisticsPayload = {},
 } = {}) {
+  const knownBatches = new Map()
+  for (const batch of [
+    ...batchItems,
+    activeBatch,
+    ...batchPayloads,
+    latestPayload?.batch,
+    latestPayload?.scope,
+  ].filter(Boolean)) {
+    knownBatches.set(batch.batch_id || batch.scope_id, batch)
+  }
+  const waitForResponse = async (kind, batchId = '') => {
+    const configured = responseDelays[kind]
+    const delay = Number(
+      configured && typeof configured === 'object'
+        ? configured[batchId] || 0
+        : configured || 0,
+    )
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+  }
+
   await page.route('**/api/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     const pathname = url.pathname
 
     if (pathname === '/api/clx-daily-selection/model-catalog') {
+      await waitForResponse('catalog')
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -151,11 +199,14 @@ async function mockApis(page, requestLog, {
     }
 
     if (pathname === '/api/clx-daily-selection/batches') {
+      requestLog.batchRequests = (requestLog.batchRequests || 0) + 1
+      await waitForResponse('batches')
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: batchItems }) })
       return
     }
 
     if (pathname === '/api/clx-daily-selection/batches/latest') {
+      await waitForResponse('latest')
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -164,23 +215,39 @@ async function mockApis(page, requestLog, {
       return
     }
 
-    if (pathname === `/api/clx-daily-selection/batches/${activeBatch.batch_id}/summary`) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeBatch) })
+    const summaryMatch = pathname.match(/^\/api\/clx-daily-selection\/batches\/([^/]+)\/summary$/)
+    if (summaryMatch) {
+      const batchId = decodeURIComponent(summaryMatch[1])
+      const batch = knownBatches.get(batchId)
+      requestLog.summaryRequests.push(batchId)
+      await waitForResponse('summary', batchId)
+      await route.fulfill({ status: batch ? 200 : 404, contentType: 'application/json', body: JSON.stringify(batch || {}) })
       return
     }
 
-    if (pathname === `/api/clx-daily-selection/batches/${activeBatch.batch_id}/results`) {
+    const resultsMatch = pathname.match(/^\/api\/clx-daily-selection\/batches\/([^/]+)\/results$/)
+    if (resultsMatch) {
+      const batchId = decodeURIComponent(resultsMatch[1])
+      const batch = knownBatches.get(batchId)
       requestLog.resultQueries.push(request.postDataJSON?.() || {})
+      await waitForResponse('results', batchId)
       await route.fulfill({
-        status: 200,
+        status: batch ? 200 : 404,
         contentType: 'application/json',
-        body: JSON.stringify({ ...activeBatch, rows: [resultRow], total: 1 }),
+        body: JSON.stringify({
+          ...(batch || {}),
+          rows: resultRowsByBatch[batchId] || [resultRow],
+          total: (resultRowsByBatch[batchId] || [resultRow]).length,
+        }),
       })
       return
     }
 
     if (pathname.endsWith('/statistics')) {
+      const batchId = decodeURIComponent(pathname.split('/').at(-2) || '')
       requestLog.statisticsRequests += 1
+      requestLog.statisticsScopeIds = [...(requestLog.statisticsScopeIds || []), batchId]
+      await waitForResponse('statistics', batchId)
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(statisticsPayload) })
       return
     }
@@ -249,6 +316,14 @@ async function mockApis(page, requestLog, {
   })
 }
 
+async function pushClxScopeRoute(page, scopeId) {
+  await page.evaluate(async (nextScopeId) => {
+    const router = document.querySelector('#app')?.__vue_app__?.config?.globalProperties?.$router
+    if (!router) throw new Error('Vue router is not available')
+    await router.push({ path: '/clx-daily-screening', query: { scope_id: nextScopeId } })
+  }, scopeId)
+}
+
 test.beforeAll(async () => {
   test.setTimeout(120000)
   cleanupServerPort(DEV_SERVER_PORT)
@@ -275,7 +350,7 @@ test.afterAll(async () => {
 })
 
 test('partial page stays explicit and Kline renders guarded CLX markers', async ({ page }) => {
-  const requestLog = { resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
   await page.setViewportSize({ width: 1600, height: 900 })
   await mockApis(page, requestLog)
 
@@ -344,26 +419,14 @@ test('partial page stays explicit and Kline renders guarded CLX markers', async 
 })
 
 test('latest final outside the 30 mixed-scope window remains the complete default', async ({ page }) => {
-  const requestLog = { resultQueries: [], statisticsRequests: 0, historyQueries: [] }
-  const newerPartials = Array.from({ length: 30 }, (_, index) => ({
-    ...partialBatch,
-    batch_id: `partial-window-${String(index + 1).padStart(2, '0')}`,
-    trade_date: `2026-03-${String(30 - index).padStart(2, '0')}`,
-    updated_at: `2026-03-${String(30 - index).padStart(2, '0')}T18:00:00+08:00`,
-  }))
-  const statisticsPayload = {
-    counts: { stock: 1, etf: 1, total: 2 },
-    by_model: [{ model_key: 'S0003', symbol_count: 1 }],
-    by_condition: [{ condition_key: 'entrypoint_1', symbol_count: 1 }],
-    resonance_distribution: [{ distinct_model_count: 2, symbol_count: 1 }],
-  }
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
 
   await page.setViewportSize({ width: 1600, height: 900 })
   await mockApis(page, requestLog, {
-    batchItems: newerPartials,
+    batchItems: buildNewerPartialWindow(),
     latestPayload: { batch: finalBatch },
     activeBatch: finalBatch,
-    statisticsPayload,
+    statisticsPayload: finalStatisticsPayload,
   })
 
   await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
@@ -384,4 +447,106 @@ test('latest final outside the 30 mixed-scope window remains the complete defaul
   await expect(page.locator('.clx-statistics-grid')).toContainText('资产分组')
   await expect(page.locator('.clx-statistics-grid')).toContainText('S0003')
   await expect(page.getByText(/当前是部分结果/)).toHaveCount(0)
+})
+
+test('an explicit final scope deep link outside the 30-item window loads all final views', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await mockApis(page, requestLog, {
+    batchItems: buildNewerPartialWindow(),
+    latestPayload: { batch: finalBatch },
+    activeBatch: deepLinkedFinalBatch,
+    statisticsPayload: finalStatisticsPayload,
+  })
+
+  await page.goto(
+    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${encodeURIComponent(DEEP_LINK_BATCH_ID)}`,
+    { waitUntil: 'domcontentloaded' },
+  )
+
+  await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
+  await expect(page.locator('.clx-scope-select')).toContainText('2026-01-30')
+  await expect(page.locator('.clx-scope-select')).toContainText(DEEP_LINK_BATCH_ID)
+  await expect(page.getByText('最新运行 2026-03-30')).toBeVisible()
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect.poll(() => requestLog.summaryRequests).toEqual([DEEP_LINK_BATCH_ID])
+  await expect.poll(() => requestLog.resultQueries.length).toBe(1)
+  await expect.poll(() => requestLog.statisticsRequests).toBe(1)
+  expect(requestLog.resultQueries[0].scope_id).toBe(DEEP_LINK_BATCH_ID)
+
+  await page.getByRole('tab', { name: '统计' }).click()
+  await expect(page.locator('.clx-statistics-grid')).toContainText('资产分组')
+  await expect(page.locator('.clx-statistics-grid')).toContainText('S0003')
+  await expect(page.getByText(/当前是部分结果/)).toHaveCount(0)
+})
+
+test('a route change during bootstrap invalidates the captured initial scope', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const scopeA = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
+  const scopeB = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
+  const rowA = { ...resultRow, symbol: 'sz000001', code: '000001', name: '旧导航结果' }
+  const rowB = { ...resultRow, symbol: 'sz000002', code: '000002', name: '新导航结果' }
+
+  await mockApis(page, requestLog, {
+    batchItems: [scopeA, scopeB],
+    activeBatch: scopeA,
+    batchPayloads: [scopeB],
+    resultRowsByBatch: { [RACE_SCOPE_A]: [rowA], [RACE_SCOPE_B]: [rowB] },
+    responseDelays: { batches: 250 },
+    statisticsPayload: finalStatisticsPayload,
+  })
+
+  await page.goto(
+    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`,
+    { waitUntil: 'domcontentloaded' },
+  )
+  await expect.poll(() => requestLog.batchRequests || 0).toBeGreaterThan(0)
+  await pushClxScopeRoute(page, RACE_SCOPE_B)
+
+  await expect(page).toHaveURL(new RegExp(`scope_id=${RACE_SCOPE_B}`))
+  await expect(page.locator('.clx-scope-select')).toContainText(RACE_SCOPE_B)
+  await expect(page.getByText('新导航结果')).toBeVisible()
+  await expect(page.getByText('旧导航结果')).toHaveCount(0)
+  await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toEqual([RACE_SCOPE_B])
+})
+
+test('a delayed old result cannot overwrite a window-external deep link while its summary loads', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const scopeA = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
+  const scopeB = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
+  const rowA = { ...resultRow, symbol: 'sz000001', code: '000001', name: '迟到旧结果' }
+  const rowB = { ...resultRow, symbol: 'sz000002', code: '000002', name: '权威深链结果' }
+
+  await mockApis(page, requestLog, {
+    batchItems: [scopeA],
+    latestPayload: { batch: scopeA },
+    activeBatch: scopeA,
+    batchPayloads: [scopeB],
+    resultRowsByBatch: { [RACE_SCOPE_A]: [rowA], [RACE_SCOPE_B]: [rowB] },
+    responseDelays: {
+      summary: { [RACE_SCOPE_B]: 350 },
+      results: { [RACE_SCOPE_A]: 150 },
+    },
+    statisticsPayload: finalStatisticsPayload,
+  })
+
+  await page.goto(
+    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`,
+    { waitUntil: 'domcontentloaded' },
+  )
+  await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toContain(RACE_SCOPE_A)
+  await pushClxScopeRoute(page, RACE_SCOPE_B)
+
+  await page.waitForTimeout(220)
+  await expect(page).toHaveURL(new RegExp(`scope_id=${RACE_SCOPE_B}`))
+  await expect(page.getByText('迟到旧结果')).toHaveCount(0)
+
+  await expect(page.locator('.clx-scope-select')).toContainText(RACE_SCOPE_B)
+  await expect(page.getByText('权威深链结果')).toBeVisible()
+  await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
+  await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toEqual([
+    RACE_SCOPE_A,
+    RACE_SCOPE_B,
+  ])
+  await expect.poll(() => requestLog.statisticsScopeIds || []).toContain(RACE_SCOPE_B)
 })

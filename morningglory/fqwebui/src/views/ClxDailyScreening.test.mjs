@@ -12,10 +12,14 @@ test('CLX page keeps partial status distinct from final and renders both partiti
   assert.match(source, /getLatestBatch\(\{ includePartial: false \}, \{ signal: token\.signal \}\)/)
   assert.match(source, /getBatches\(\{ includePartial: true \}, \{ signal: token\.signal \}\)/)
   assert.match(source, /observedScopes\.value = normalizeClxScopes\(batchesPayload\)/)
-  assert.match(source, /scopes\.value = mergeClxScopes\(batchesPayload, latestFinalPayload\)/)
+  assert.match(source, /getBatchSummary\(\s*initialRoute\.scopeId/)
+  assert.match(source, /mergeClxScopes\(batchesPayload, requestedScopePayload, latestFinalPayload\)/)
   assert.match(source, /requested\?\.scopeId \|\| finalScope\?\.scopeId \|\| scopes\.value\.find\(\(item\) => item\.isFinal\)\?\.scopeId \|\| ''/)
   assert.doesNotMatch(source, /scopes\.value\[0\]\?\.scopeId/)
   assert.match(source, /selectObservedPartial/)
+  assert.match(source, /routeScopeRequests\.begin\(requestKey\)/)
+  assert.match(source, /selectRouteScope\(routeState\.scopeId\)/)
+  assert.match(source, /loadScopeData\(\{ prefetchedSummary, navigationId \}\)/)
 })
 
 test('CLX page uses backend summary, statistics, result and evidence contracts', async () => {
@@ -47,6 +51,17 @@ test('CLX page isolates scope and detail requests while preserving partial error
   assert.match(source, /v-if="activeScope\?\.isPartial"/)
   assert.match(source, /v-if="pageError"/)
   assert.doesNotMatch(source, /v-else-if="pageError"/)
+})
+
+test('CLX page gives each scope navigation exclusive ownership of async responses', async () => {
+  const source = await readFile(new URL('./ClxDailyScreening.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /let navigationEpoch = 0/)
+  assert.match(source, /const beginScopeNavigation = \(\{ abortBootstrap = true \} = \{\}\) => \{/)
+  assert.match(source, /window\.clearTimeout\(queryTimer\)[\s\S]*routeScopeRequests\.abort\(\)[\s\S]*scopeRequests\.abort\(\)[\s\S]*resultRequests\.abort\(\)[\s\S]*detailRequests\.abort\(\)/)
+  assert.match(source, /navigationEpoch === activeNavigationId/)
+  assert.match(source, /const navigationId = beginScopeNavigation\(\)[\s\S]*selectedScopeId\.value = scopeId[\s\S]*getBatchSummary/)
+  assert.match(source, /if \(loading\.bootstrap\) \{[\s\S]*await loadBootstrap\(\)/)
 })
 
 test('CLX result navigation carries row asset type into the Kline route', async () => {

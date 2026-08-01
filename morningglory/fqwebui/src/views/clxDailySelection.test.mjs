@@ -122,6 +122,41 @@ test('mergeClxScopes keeps a latest final outside the 30 partial batch window', 
   assert.equal(deduplicated.at(-1).isFinal, true)
 })
 
+test('mergeClxScopes gives an authoritative deep-linked partial precedence over a stale list copy', () => {
+  const scopeId = 'deep-linked-outside-window'
+  const staleFinalCopy = {
+    batch_id: scopeId,
+    trade_date: '2026-06-01',
+    release_status: 'final',
+    is_final: true,
+    partitions: {
+      stock: completedPartition('stock'),
+      etf: completedPartition('etf'),
+    },
+  }
+  const authoritativePartial = {
+    ...staleFinalCopy,
+    release_status: 'partial',
+    is_final: false,
+    partitions: {
+      stock: completedPartition('stock'),
+      etf: { asset_type: 'etf', execution_status: 'running', attempt_no: 2 },
+    },
+  }
+
+  const scopes = mergeClxScopes(
+    { items: [staleFinalCopy] },
+    { scope: authoritativePartial },
+  )
+  const selected = scopes.find((scope) => scope.scopeId === scopeId)
+
+  assert.equal(scopes.filter((scope) => scope.scopeId === scopeId).length, 1)
+  assert.equal(selected.isFinal, false)
+  assert.equal(selected.isPartial, true)
+  assert.equal(selected.partitions.stock.isComplete, true)
+  assert.equal(selected.partitions.etf.isActive, true)
+})
+
 test('mergeClxScopes orders same-day scopes by updated time before deterministic tie breakers', () => {
   const scope = (batchId, { createdAt, updatedAt, attemptNo }) => ({
     batch_id: batchId,

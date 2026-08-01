@@ -175,6 +175,7 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 
 - 顶部展示交易日、profile、算法/数据版本、股票/ETF partition 和 partial/final 状态。
 - 默认选择最新 `published/not_required` final；用户可显式切换并查看 partial 或 publication 中间态。
+- 页面把 `/batches/latest` 的权威 final 合入最近 30 条混合批次列表；URL 显式 `scope_id` 不在该窗口时，先以 `/batches/<batch_id>/summary` 取回并稳定去重加入列表。权威 summary 决定该 scope 的 partial/final 状态，只有 final 才请求和展示跨资产统计。
 - 左侧按资产、模型、条件、方向、三态线关系和最少模型数筛选。
 - 中栏显示服务端排序结果与分页；统计和批次页签展示 final 统计或独立 partition 元数据。
 - 右栏显示 raw signal、entrypoint、model condition 和 evidence。
