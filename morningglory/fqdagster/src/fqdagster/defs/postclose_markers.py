@@ -214,8 +214,8 @@ def _publish_generation_marker(collection, marker: dict[str, Any]) -> dict[str, 
             )
         except DuplicateKeyError:
             continue
-        if getattr(result, "upserted_id", None) is not None or getattr(
-            result, "matched_count", 0
+        if getattr(result, "upserted_id", None) is not None or (
+            getattr(result, "matched_count", 0) > 0
         ):
             return marker
     current = collection.find_one(identity)

@@ -59,7 +59,7 @@ MODEL_CATALOG = tuple(
     for model_id, model_key in enumerate(MODEL_KEYS)
 )
 
-PRODUCTION_PROFILE = {
+PRODUCTION_PROFILE: dict[str, Any] = {
     "id": "production_v1",
     "switch_opt": 1,
     "algorithm_version": "clx18-production-v1",

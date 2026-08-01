@@ -140,7 +140,9 @@ class ClxDailySelectionService:
         rows = self.repository.get_model_stats(partition_ids)
         snapshots = self.repository.get_snapshots(partition_ids)
         memberships = self.repository.get_partition_memberships(partition_ids)
-        by_asset = {asset_type: [] for asset_type in ASSET_TYPES}
+        by_asset: dict[str, list[dict[str, Any]]] = {
+            asset_type: [] for asset_type in ASSET_TYPES
+        }
         for row in rows:
             by_asset.setdefault(row.get("asset_type"), []).append(row)
         resonance = self._resonance_distribution(snapshots)
@@ -600,7 +602,7 @@ class ClxDailySelectionService:
             self._record_runtime_batch(attempt["trade_date"])
             return {"status": "completed", "partition": partition, "reused": False}
         except Exception as exc:
-            error = {
+            error: dict[str, Any] = {
                 "type": type(exc).__name__,
                 "message": str(exc),
             }
@@ -642,9 +644,9 @@ class ClxDailySelectionService:
         batch_id = self._batch_id(trade_date, states)
         completed = self._completed_partitions(states)
         actual_partition_ids = [
-            completed[item]["partition_id"]
+            partition["partition_id"]
             for item in ASSET_TYPES
-            if completed.get(item)
+            if (partition := completed.get(item))
         ]
         if expected_batch_id and batch_id != expected_batch_id:
             return self._store_partial_batch(
@@ -689,7 +691,12 @@ class ClxDailySelectionService:
                     states=states,
                 )
             )
-        mismatch_fields = self._partition_mismatches(completed, trade_date)
+        complete_partitions = {
+            item: partition
+            for item, partition in completed.items()
+            if partition
+        }
+        mismatch_fields = self._partition_mismatches(complete_partitions, trade_date)
         if mismatch_fields:
             return self._store_partial_batch(
                 self._batch_document(
@@ -708,7 +715,7 @@ class ClxDailySelectionService:
         if existing and existing.get("is_final"):
             if self._publication_complete(existing) or not self.ready_marker_publisher:
                 return existing
-            existing = self._ensure_publication_identity(existing, completed)
+            existing = self._ensure_publication_identity(existing, complete_partitions)
             before_publish = None
             if finalization_claim:
                 self._renew_finalization_claim(**finalization_claim)
@@ -724,8 +731,8 @@ class ClxDailySelectionService:
         content_hash = canonical_hash(
             {
                 item: {
-                    "partition_id": completed[item]["partition_id"],
-                    "content_hash": completed[item]["content_hash"],
+                    "partition_id": complete_partitions[item]["partition_id"],
+                    "content_hash": complete_partitions[item]["content_hash"],
                 }
                 for item in ASSET_TYPES
             }
@@ -751,7 +758,7 @@ class ClxDailySelectionService:
                 "last_error": None,
                 "generation_id": batch_id,
                 "generation_order": self._publication_generation_order(
-                    batch_id, completed
+                    batch_id, complete_partitions
                 ),
                 "publication_id": canonical_hash([batch_id, content_hash]),
             },
@@ -980,10 +987,15 @@ class ClxDailySelectionService:
         partitions = self._completed_partitions(states)
         if not all(partitions.values()):
             return {"action": "wait", "batch_id": batch_id, "partitions": states}
+        complete_partitions = {
+            asset_type: partition
+            for asset_type, partition in partitions.items()
+            if partition
+        }
         material = {
             asset_type: {
-                "partition_id": partitions[asset_type]["partition_id"],
-                "content_hash": partitions[asset_type]["content_hash"],
+                "partition_id": complete_partitions[asset_type]["partition_id"],
+                "content_hash": complete_partitions[asset_type]["content_hash"],
             }
             for asset_type in ASSET_TYPES
         }
@@ -1785,16 +1797,17 @@ class ClxDailySelectionService:
             for model_keys in models_by_symbol.values()
             for pair in combinations(sorted(model_keys), 2)
         )
-        rows = [
-            {
-                "model_key_a": model_key_a,
-                "model_key_b": model_key_b,
-                "model_keys": [model_key_a, model_key_b],
-                "symbol_count": symbol_count,
-                "count": symbol_count,
-            }
-            for (model_key_a, model_key_b), symbol_count in pairs.items()
-        ]
+        rows: list[dict[str, Any]] = []
+        for (model_key_a, model_key_b), symbol_count in pairs.items():
+            rows.append(
+                {
+                    "model_key_a": model_key_a,
+                    "model_key_b": model_key_b,
+                    "model_keys": [model_key_a, model_key_b],
+                    "symbol_count": symbol_count,
+                    "count": symbol_count,
+                }
+            )
         rows.sort(
             key=lambda item: (
                 -item["symbol_count"],
@@ -2113,16 +2126,18 @@ class ClxDailySelectionService:
                 )
 
     def _normalize_bars(self, bars) -> list[dict[str, Any]]:
-        normalized = []
+        normalized: list[dict[str, Any]] = []
         for row in bars or []:
             item = dict(row)
-            normalized_item = {
+            normalized_item: dict[str, Any] = {
                 "date": str(item.get("date") or item.get("datetime") or "")[:10],
                 "open": float(item["open"]),
                 "high": float(item["high"]),
                 "low": float(item["low"]),
                 "close": float(item["close"]),
-                "volume": float(item.get("volume", item.get("vol", 0.0))),
+                "volume": float(
+                    item["volume"] if "volume" in item else item.get("vol", 0.0)
+                ),
             }
             if "adjustment_factor" in item:
                 normalized_item["adjustment_factor"] = float(item["adjustment_factor"])
