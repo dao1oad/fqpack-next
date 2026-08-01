@@ -260,6 +260,8 @@ services:
       cache_to:
         - type=local,dest=${FQ_DOCKER_BUILD_CACHE_ROOT:?Set FQ_DOCKER_BUILD_CACHE_ROOT to the local Docker build cache root}/web,mode=max
     image: ${FQNEXT_WEBUI_IMAGE:-fqnext_webui:2026.2.23}
+    environment:
+      CLX_API_UPSTREAM: ${CLX_API_UPSTREAM:-http://fq_apiserver:5000}
     ports:
       - "18080:80"
     depends_on:

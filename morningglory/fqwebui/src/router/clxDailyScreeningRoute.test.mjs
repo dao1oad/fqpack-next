@@ -9,11 +9,11 @@ import {
 
 test('CLX daily screening is exposed by metadata-driven navigation', () => {
   assert.deepEqual(getHeaderNavTarget('clxDailyScreening'), {
-    label: 'CLX日线选股',
+    label: '每日选股',
     path: '/clx-daily-screening',
-    query: { tabTitle: 'CLX日线选股' },
+    query: { tabTitle: '每日选股' },
   })
-  assert.equal(resolveRouteMetaTitle('clx-daily-screening'), 'CLX日线选股')
+  assert.equal(resolveRouteMetaTitle('clx-daily-screening'), '每日选股')
 })
 
 test('CLX daily screening route is lazy loaded', async () => {

@@ -60,7 +60,7 @@ export const HEADER_NAV_TARGETS = {
     size: 'small',
   },
   clxDailyScreening: {
-    label: 'CLX日线选股',
+    label: '每日选股',
     path: '/clx-daily-screening',
     buttonType: 'primary',
     plain: true,
@@ -83,7 +83,7 @@ export const HEADER_NAV_TARGETS = {
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
   ['klineSlim', 'positionManagement', 'positionReview', 'runtime'],
-  ['gantt', 'shouban30', 'dailyScreening', 'clxDailyScreening'],
+  ['gantt', 'shouban30', 'clxDailyScreening'],
   ['stock', 'pool'],
 ]
 
@@ -96,7 +96,7 @@ export const ROUTE_TITLES_BY_NAME = {
   gantt: '板块趋势',
   'gantt-shouban30': '首板选股',
   'daily-screening': '每日选股',
-  'clx-daily-screening': 'CLX日线选股',
+  'clx-daily-screening': '每日选股',
   'gantt-stocks': '板块趋势',
   'position-management': '仓位管理',
   'position-review': '持仓复盘',

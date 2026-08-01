@@ -5,7 +5,7 @@
       <header class="clx-screening-header">
         <div class="clx-screening-title-row">
           <div class="workbench-title-group">
-            <div class="workbench-page-title">CLX日线选股</div>
+            <div class="workbench-page-title">每日选股</div>
             <div class="workbench-page-meta">
               <span>{{ activeScope?.tradeDate || '暂无交易日' }}</span>
               <span>{{ activeScope?.profileId || 'profile 未知' }}</span>
@@ -193,10 +193,10 @@
                 >
                   <el-table-column label="标的" width="132" fixed="left">
                     <template #default="{ row }">
-                      <div class="clx-symbol-cell">
+                      <button type="button" class="clx-symbol-cell" @click.stop="openRowInKline(row)">
                         <strong>{{ row.code || row.symbol }}</strong>
                         <span>{{ row.name || '-' }}</span>
-                      </div>
+                      </button>
                     </template>
                   </el-table-column>
                   <el-table-column label="资产" width="64">
@@ -793,21 +793,22 @@ const selectRow = async (row) => {
     if (isCurrent()) loading.detail = false
   }
 }
-const openSelectedInKline = () => {
-  if (!selectedRow.value) return
+const openRowInKline = (row) => {
+  if (!row) return
   router.push({
     path: '/kline-slim',
     query: {
-      symbol: selectedRow.value.symbol,
+      symbol: row.symbol,
       period: '1d',
       clxScope: selectedScopeId.value,
-      clxAssetType: selectedRow.value.assetType,
+      clxAssetType: row.assetType || 'stock',
       clxModels: filters.modelKeys.join(','),
       clxConditions: filters.conditionKeys.join(','),
       clxWorkbench: '1',
     },
   })
 }
+const openSelectedInKline = () => openRowInKline(selectedRow.value)
 const nextPage = async () => {
   if (!queryResult.value.nextCursor) return
   cursorStack.value.push(currentCursor.value)
@@ -1095,6 +1096,13 @@ button.clx-kpi:hover {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .clx-symbol-cell span {

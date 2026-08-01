@@ -67,5 +67,10 @@ test('CLX page gives each scope navigation exclusive ownership of async response
 test('CLX result navigation carries row asset type into the Kline route', async () => {
   const source = await readFile(new URL('./ClxDailyScreening.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /clxAssetType:\s*selectedRow\.value\.assetType/)
+  assert.match(source, /@click\.stop="openRowInKline\(row\)"/)
+  assert.match(source, /const openSelectedInKline = \(\) => openRowInKline\(selectedRow\.value\)/)
+  assert.match(source, /path:\s*'\/kline-slim'/)
+  assert.match(source, /symbol:\s*row\.symbol/)
+  assert.match(source, /clxAssetType:\s*row\.assetType \|\| 'stock'/)
+  assert.match(source, /clxWorkbench:\s*'1'/)
 })

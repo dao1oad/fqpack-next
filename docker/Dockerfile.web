@@ -24,11 +24,12 @@ RUN pnpm run build
 FROM nginx:alpine
 
 ARG FQ_IMAGE_GIT_SHA=unknown
+ENV CLX_API_UPSTREAM=http://fq_apiserver:5000
 
 LABEL org.opencontainers.image.revision="${FQ_IMAGE_GIT_SHA}"
 LABEL io.freshquant.git_sha="${FQ_IMAGE_GIT_SHA}"
 
 COPY --from=build /fqwebui/web /usr/share/nginx/html/
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 CMD ["nginx", "-g", "daemon off;"]
