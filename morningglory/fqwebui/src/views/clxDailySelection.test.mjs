@@ -6,6 +6,7 @@ import {
   createClxRequestChannel,
   formatClxNumber,
   getClxScopeStatusMeta,
+  mergeClxScopes,
   normalizeClxScope,
   normalizeClxStatistics,
   normalizeClxSummary,
@@ -73,6 +74,80 @@ test('pickDefaultClxScope skips a newer partial scope and keeps complete result 
 
   assert.equal(selected.scopeId, 'final-old')
   assert.equal(selected.isFinal, true)
+})
+
+test('mergeClxScopes keeps a latest final outside the 30 partial batch window', () => {
+  const partials = Array.from({ length: 30 }, (_, index) => ({
+    batch_id: `partial-${String(index + 1).padStart(2, '0')}`,
+    trade_date: `2026-07-${String(31 - index).padStart(2, '0')}`,
+    created_at: `2026-07-${String(31 - index).padStart(2, '0')}T16:00:00+08:00`,
+    release_status: 'partial',
+    partitions: {
+      stock: completedPartition('stock'),
+      etf: { execution_status: 'running', attempt_no: 1 },
+    },
+  }))
+  const latestFinal = {
+    batch_id: 'final-outside-window',
+    trade_date: '2026-06-30',
+    created_at: '2026-06-30T16:00:00+08:00',
+    release_status: 'final',
+    is_final: true,
+    publication: { status: 'published' },
+    partitions: {
+      stock: completedPartition('stock'),
+      etf: completedPartition('etf'),
+    },
+  }
+
+  const scopes = mergeClxScopes({ items: partials }, { batch: latestFinal })
+
+  assert.equal(scopes.length, 31)
+  assert.equal(scopes[0].scopeId, 'partial-01')
+  assert.equal(scopes.at(-1).scopeId, 'final-outside-window')
+  assert.equal(scopes.at(-1).isFinal, true)
+
+  const stalePartialCopy = {
+    ...latestFinal,
+    is_final: false,
+    release_status: 'partial',
+    publication: undefined,
+    partitions: {
+      stock: completedPartition('stock'),
+      etf: { execution_status: 'running' },
+    },
+  }
+  const deduplicated = mergeClxScopes({ items: [...partials, stalePartialCopy] }, { batch: latestFinal })
+  assert.equal(deduplicated.filter((scope) => scope.scopeId === latestFinal.batch_id).length, 1)
+  assert.equal(deduplicated.at(-1).isFinal, true)
+})
+
+test('mergeClxScopes orders same-day scopes by updated time before deterministic tie breakers', () => {
+  const scope = (batchId, { createdAt, updatedAt, attemptNo }) => ({
+    batch_id: batchId,
+    trade_date: '2026-07-31',
+    created_at: createdAt,
+    updated_at: updatedAt,
+    attempt_no: attemptNo,
+    release_status: 'partial',
+  })
+  const scopes = mergeClxScopes({
+    items: [
+      scope('a', { createdAt: '2026-07-31T14:00:00+08:00', updatedAt: '2026-07-31T18:00:00+08:00', attemptNo: 1 }),
+      scope('created-newer', { createdAt: '2026-07-31T16:00:00+08:00', updatedAt: '2026-07-31T17:00:00+08:00', attemptNo: 9 }),
+      scope('attempt-newer', { createdAt: '2026-07-31T14:00:00+08:00', updatedAt: '2026-07-31T18:00:00+08:00', attemptNo: 2 }),
+      scope('created-tiebreak', { createdAt: '2026-07-31T15:00:00+08:00', updatedAt: '2026-07-31T18:00:00+08:00', attemptNo: 1 }),
+      scope('z', { createdAt: '2026-07-31T14:00:00+08:00', updatedAt: '2026-07-31T18:00:00+08:00', attemptNo: 1 }),
+    ],
+  })
+
+  assert.deepEqual(scopes.map((item) => item.scopeId), [
+    'created-tiebreak',
+    'attempt-newer',
+    'z',
+    'a',
+    'created-newer',
+  ])
 })
 
 test('normalizeClxScope accepts completed real publication lifecycle objects as final', () => {

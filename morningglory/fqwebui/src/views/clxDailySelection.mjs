@@ -199,11 +199,15 @@ export const normalizeClxScope = (value = {}) => {
   const errorMessage = publicationError.message || batchError.message || stock.message || etf.message
   const errorPhase = publicationError.phase || batchError.phase || stock.errorPhase || etf.errorPhase
   const isFailed = isExecutionFailed || isPublicationFailed || partitionsFailed
+  const attemptNo = toNumber(raw.attempt_no ?? raw.attempt, Math.max(stock.attemptNo, etf.attemptNo))
 
   return {
     scopeId: toText(raw.batch_id || raw.scope_id || raw.publication_id || raw.run_id),
     selectionKey: toText(raw.selection_key),
     tradeDate: toText(raw.trade_date),
+    createdAt: toText(raw.created_at),
+    updatedAt: toText(raw.updated_at),
+    attemptNo,
     executionStatus,
     freshnessStatus: normalizeStatus(raw.freshness_status || raw.freshness),
     publicationStatus,
@@ -243,10 +247,35 @@ export const normalizeClxScope = (value = {}) => {
   }
 }
 
+const compareClxScopeRecency = (left, right) => (
+  right.tradeDate.localeCompare(left.tradeDate) ||
+  right.updatedAt.localeCompare(left.updatedAt) ||
+  right.createdAt.localeCompare(left.createdAt) ||
+  right.attemptNo - left.attemptNo ||
+  right.scopeId.localeCompare(left.scopeId)
+)
+
 export const normalizeClxScopes = (payload = {}) => {
   return readItems(payload)
     .map((item) => normalizeClxScope(item))
     .filter((item) => item.scopeId || item.tradeDate)
+    .sort(compareClxScopeRecency)
+}
+
+export const mergeClxScopes = (batchesPayload = {}, latestFinalPayload = null) => {
+  const scopes = normalizeClxScopes(batchesPayload)
+  const latestFinal = latestFinalPayload ? pickDefaultClxScope(latestFinalPayload) : null
+  const merged = latestFinal ? [latestFinal, ...scopes] : scopes
+  const seen = new Set()
+
+  return merged
+    .filter((scope) => {
+      const key = scope.scopeId || `${scope.tradeDate}|${scope.selectionKey}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort(compareClxScopeRecency)
 }
 
 export const pickDefaultClxScope = (payload = {}) => {

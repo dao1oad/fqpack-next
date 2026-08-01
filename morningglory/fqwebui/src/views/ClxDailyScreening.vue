@@ -387,6 +387,7 @@ import {
   formatClxNumber,
   getClxPartitionStatusMeta,
   getClxScopeStatusMeta,
+  mergeClxScopes,
   normalizeClxCatalog,
   normalizeClxDetail,
   normalizeClxScope,
@@ -406,6 +407,7 @@ const emptyQueryResult = () => normalizeClxSelectionQuery({})
 const emptyStatistics = () => normalizeClxStatistics({})
 
 const scopes = ref([])
+const observedScopes = ref([])
 const selectedScopeId = ref('')
 const catalog = ref(normalizeClxCatalog({}))
 const summary = ref(emptySummary())
@@ -441,7 +443,7 @@ const resultRequests = createClxRequestChannel()
 const detailRequests = createClxRequestChannel()
 
 const activeScope = computed(() => scopes.value.find((item) => item.scopeId === selectedScopeId.value) || null)
-const latestObservedScope = computed(() => scopes.value[0] || null)
+const latestObservedScope = computed(() => observedScopes.value[0] || null)
 const activeScopeStatus = computed(() => getClxScopeStatusMeta(activeScope.value || {}))
 const stockPartitionStatus = computed(() => getClxPartitionStatusMeta(activeScope.value?.partitions?.stock, 'stock'))
 const etfPartitionStatus = computed(() => getClxPartitionStatusMeta(activeScope.value?.partitions?.etf, 'etf'))
@@ -641,7 +643,8 @@ const loadBootstrap = async () => {
     ])
     if (!isCurrent()) return
     catalog.value = normalizeClxCatalog(catalogPayload)
-    scopes.value = normalizeClxScopes(batchesPayload)
+    observedScopes.value = normalizeClxScopes(batchesPayload)
+    scopes.value = mergeClxScopes(batchesPayload, latestFinalPayload)
     const requested = scopes.value.find((item) => item.scopeId === initialRoute.scopeId)
     const finalScope = latestFinalPayload ? pickDefaultClxScope(latestFinalPayload) : null
     selectedScopeId.value = requested?.scopeId || finalScope?.scopeId || scopes.value.find((item) => item.isFinal)?.scopeId || ''

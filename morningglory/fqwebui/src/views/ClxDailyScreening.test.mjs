@@ -11,6 +11,8 @@ test('CLX page keeps partial status distinct from final and renders both partiti
   assert.match(source, /etfPartitionStatus/)
   assert.match(source, /getLatestBatch\(\{ includePartial: false \}, \{ signal: token\.signal \}\)/)
   assert.match(source, /getBatches\(\{ includePartial: true \}, \{ signal: token\.signal \}\)/)
+  assert.match(source, /observedScopes\.value = normalizeClxScopes\(batchesPayload\)/)
+  assert.match(source, /scopes\.value = mergeClxScopes\(batchesPayload, latestFinalPayload\)/)
   assert.match(source, /requested\?\.scopeId \|\| finalScope\?\.scopeId \|\| scopes\.value\.find\(\(item\) => item\.isFinal\)\?\.scopeId \|\| ''/)
   assert.doesNotMatch(source, /scopes\.value\[0\]\?\.scopeId/)
   assert.match(source, /selectObservedPartial/)
