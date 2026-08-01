@@ -695,6 +695,7 @@ Get-Content D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log -Tail 200
 
 - `worker --once` 返回 `waiting_for_bfq` 时，先在 Dagster 核对最新 `stock_data_job` / `etf_data_job`，以及 `freshquant.dagster_pipeline_markers` 中相应 `pipeline_key` 的成功文档；QFQ worker 不绕过 BFQ ready gate。
 - XTData 连接或历史下载失败时，先恢复 MiniQMT / XTData 端口，再重新执行 `worker --once`；worker 会把中断的 inactive `building` 状态恢复为可重试的 `failed`。
+- 出现 `XTData history prefix download made no progress` 时，保留 worker 停止状态并检查 QMT 下载任务和本地历史缓存；该错误表示向前分页后最早交易日未变化，重复启动 worker 不会形成完整快照。
 - 返回 `writer lease is held` 时，先确认 Supervisor worker 或人工 build / rollback 是否仍在运行；正常 lease 会持续续期并在命令结束时释放，崩溃遗留 lease 到期后由下一轮原子接管，不要并发启动第二个 writer。
 - `audit --mode structure` 只确认 Mongo 结构；递推或 XTData source 对账必须用 `--mode tail|full`。审计失败时保留 active slot，修复源数据或日期轴后用 `build --scope <stock|etf> --target-date YYYY-MM-DD` 重建 inactive slot；不要手工修改 `active_slot` 或在 active 集合上原地修补。
 - `coverage.sentinel_rows_excluded` / `codes_with_sentinel_rows` 表示 BFQ 中精确 QASU 浮点占位行已被排除，`skipped[].reason=sentinel_only_bfq_history` 表示该标的没有可交易 BFQ 历史；这不等同于允许任意 XTData 空结果。只要存在非占位 BFQ 日期而 XTData 缺源，full/tail audit 仍返回 `QFQ_DATA_NOT_READY`。

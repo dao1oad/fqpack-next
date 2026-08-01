@@ -1323,6 +1323,70 @@ def test_xtdata_client_uses_configured_port_and_none_dividend(monkeypatch):
     assert calls[-1][1]["fill_data"] is False
 
 
+def test_xtdata_client_downloads_missing_history_prefix():
+    calls = []
+
+    class _XtData:
+        def connect(self, *, port):
+            calls.append(("connect", port))
+
+        def download_history_data(self, *args):
+            calls.append(("download", args))
+
+        def get_market_data(self, **kwargs):
+            calls.append(("get", kwargs))
+            download_count = sum(call[0] == "download" for call in calls)
+            rows = [
+                ("2024-09-03", 10.0, 10.0),
+                ("2026-07-31", 10.0, 10.0),
+            ]
+            if download_count > 1:
+                rows.insert(0, ("1994-01-04", 10.0, 10.0))
+            if download_count > 2:
+                rows.insert(0, ("1991-01-29", 10.0, 0.0))
+            return {"000002.SZ": _bars(rows)}
+
+    result = qfq.XtDataQfqClient(_XtData()).load_daily_bars(
+        "000002", start_time="19910129", end_time="20260731"
+    )
+
+    assert result["date"].tolist() == [
+        "1991-01-29",
+        "1994-01-04",
+        "2024-09-03",
+        "2026-07-31",
+    ]
+    assert [call for call in calls if call[0] == "download"] == [
+        ("download", ("000002.SZ", "1d", "19910129", "20260731")),
+        ("download", ("000002.SZ", "1d", "19910129", "20240902")),
+        ("download", ("000002.SZ", "1d", "19910129", "19940103")),
+    ]
+
+
+def test_xtdata_client_fails_when_history_prefix_makes_no_progress():
+    class _XtData:
+        def connect(self, *, port):
+            pass
+
+        def download_history_data(self, *args):
+            pass
+
+        def get_market_data(self, **kwargs):
+            return {
+                "000002.SZ": _bars(
+                    [
+                        ("2024-09-03", 10.0, 0.0),
+                        ("2026-07-31", 10.0, 10.0),
+                    ]
+                )
+            }
+
+    with pytest.raises(qfq.QFQSyncError, match="prefix download made no progress"):
+        qfq.XtDataQfqClient(_XtData()).load_daily_bars(
+            "000002", start_time="19910129", end_time="20260731"
+        )
+
+
 def test_real_xtdata_stock_and_etf_action_fixtures():
     fixture_path = Path(__file__).parent / "fixtures" / "qfq_xtdata_real_samples.json"
     payload = json.loads(fixture_path.read_text(encoding="utf-8"))

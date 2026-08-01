@@ -1217,16 +1217,41 @@ class XtDataQfqClient:
         xt_code = to_xt_code(code, market=market)
         if hasattr(xtdata, "download_history_data"):
             xtdata.download_history_data(xt_code, "1d", start_time, end_time)
-        payload = xtdata.get_market_data(
-            field_list=["time", "close", "preClose"],
-            stock_list=[xt_code],
-            period="1d",
-            start_time=start_time,
-            end_time=end_time,
-            dividend_type="none",
-            fill_data=False,
-        )
-        return normalize_xtdata_bars(payload, code=xt_code)
+
+        def load_bars() -> pd.DataFrame:
+            payload = xtdata.get_market_data(
+                field_list=["time", "close", "preClose"],
+                stock_list=[xt_code],
+                period="1d",
+                start_time=start_time,
+                end_time=end_time,
+                dividend_type="none",
+                fill_data=False,
+            )
+            return normalize_xtdata_bars(payload, code=xt_code)
+
+        bars = load_bars()
+        requested_start = _date_key(start_time)
+        earliest = _date_key(bars.iloc[0]["date"])
+        while (
+            hasattr(xtdata, "download_history_data")
+            and requested_start
+            and earliest
+            and earliest > requested_start
+        ):
+            prefix_end = _xt_date_arg(date.fromisoformat(earliest) - timedelta(days=1))
+            xtdata.download_history_data(xt_code, "1d", start_time, prefix_end)
+            next_bars = load_bars()
+            next_earliest = _date_key(next_bars.iloc[0]["date"])
+            if not next_earliest or next_earliest >= earliest:
+                raise QFQSyncError(
+                    "XTData history prefix download made no progress "
+                    f"for code={xt_code}: earliest={earliest}, "
+                    f"prefix_end={prefix_end}"
+                )
+            bars = next_bars
+            earliest = next_earliest
+        return bars
 
 
 def _call_loader(
