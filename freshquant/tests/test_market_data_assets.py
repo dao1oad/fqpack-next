@@ -484,6 +484,7 @@ def test_stock_postclose_ready_asset_depends_on_quality_snapshot(monkeypatch):
         "refresh_quality_stock_universe_snapshot",
         "stock_day",
         "stock_min",
+        "stock_xdxr",
     ]
 
 
@@ -659,8 +660,15 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
         },
         "2026-03-19 16:00:00",
         "2026-03-19 16:05:00",
+        "2026-03-19 16:10:00",
     )
 
+    assert module.stock_postclose_ready_asset.dependency_names == [
+        "refresh_quality_stock_universe_snapshot",
+        "stock_day",
+        "stock_min",
+        "stock_xdxr",
+    ]
     assert calls == [
         {
             "pipeline_key": "stock_postclose_ready",
@@ -670,6 +678,7 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
                 "count": 18,
                 "source_version": "xgt_hot_blocks_v1",
                 "integrity_audited_dates": ["2026-03-19"],
+                "stock_xdxr_completed_at": "2026-03-19 16:10:00",
             },
         }
     ]

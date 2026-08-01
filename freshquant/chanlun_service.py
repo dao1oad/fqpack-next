@@ -17,7 +17,10 @@ from freshquant.config import cfg, config
 from freshquant.data.astock.holding import get_stock_fills
 from freshquant.data.future.basic import fq_fetch_future_basic
 from freshquant.instrument.etf import query_etf_map
-from freshquant.instrument.general import query_instrument_type
+from freshquant.instrument.general import (
+    infer_cn_instrument_type,
+    query_instrument_type,
+)
 from freshquant.instrument.stock import query_stock_map
 from freshquant.KlineDataTool import (
     get_future_data_v2,
@@ -37,8 +40,6 @@ from freshquant.signal.break_pivot import (
 )
 from freshquant.util.code import infer_cn_security_prefixed_code
 
-ETF_CODE_PREFIXES = ("15", "16", "18", "50", "51", "56", "58")
-
 
 def _resolve_security_symbol_and_type(symbol):
     normalized_symbol = infer_cn_security_prefixed_code(symbol)
@@ -47,11 +48,7 @@ def _resolve_security_symbol_and_type(symbol):
 
     instrument_type = query_instrument_type(normalized_symbol.lower())
     if instrument_type is None:
-        base_code = normalized_symbol[2:]
-        if base_code.startswith(ETF_CODE_PREFIXES):
-            instrument_type = InstrumentType.ETF_CN
-        else:
-            instrument_type = InstrumentType.STOCK_CN
+        instrument_type = infer_cn_instrument_type(normalized_symbol)
 
     return normalized_symbol, instrument_type
 
@@ -117,6 +114,25 @@ def get_data_v2(symbol, period, end_date=None, bar_count=0):
             stock_fills = stock_fills[existing_columns].to_dict(orient="records")
         else:
             stock_fills = None
+    elif instrumentType == InstrumentType.INDEX_CN:
+        try:
+            from freshquant.instrument.index import query_index_map
+
+            name = pydash.get(query_index_map(), f"{query_symbol.lower()}.name")
+        except Exception:
+            name = None
+
+        from freshquant.quote.index import queryIndexCandleSticks
+
+        get_instrument_data = (
+            lambda code, current_period, current_end_date: queryIndexCandleSticks(
+                code,
+                current_period,
+                current_end_date,
+                bar_count=bar_count,
+            )
+        )
+        stock_fills = None
     else:
         future_obj = fq_fetch_future_basic(symbol)
         if future_obj is not None:

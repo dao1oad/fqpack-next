@@ -116,6 +116,41 @@ def test_sync_adj_refresh_once_uses_repository_anchor_date_for_xtdata_pair():
     assert repository.saved_docs["stock"][0]["anchor_scale"] == pytest.approx(0.9)
 
 
+def test_intraday_override_binds_to_active_shadow_snapshot():
+    repository = InMemoryAdjRefreshRepository(
+        {
+            ("stock", "sz000001", "2026-03-08"): {
+                "date": "2026-03-08",
+                "adj": 2.0,
+            },
+        }
+    )
+    service = AdjRefreshService(
+        repository=repository,
+        market_client=FakeXtDataAdjClient(
+            {
+                ("sz000001", "2026-03-08"): {
+                    "front_close": 18.0,
+                    "raw_close": 10.0,
+                }
+            }
+        ),
+        code_loader=lambda: ["sz000001"],
+        trade_date_provider=lambda: date(2026, 3, 9),
+        prev_trade_date_provider=lambda: date(2026, 3, 8),
+        snapshot_provider=lambda kind: {
+            "snapshot_id": f"{kind}-snapshot-v1",
+            "factor_asof": "2026-03-08",
+        },
+    )
+
+    service.sync_once()
+
+    document = repository.saved_docs["stock"][0]
+    assert document["base_snapshot_id"] == "stock-snapshot-v1"
+    assert document["base_factor_asof"] == "2026-03-08"
+
+
 def test_worker_run_once_calls_sync_service():
     service = FakeSyncService()
 

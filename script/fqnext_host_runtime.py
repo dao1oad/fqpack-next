@@ -41,6 +41,7 @@ SURFACE_PROGRAMS = {
         "fqnext_realtime_xtdata_producer",
         "fqnext_realtime_xtdata_consumer",
         "fqnext_xtdata_adj_refresh_worker",
+        "fqnext_xtdata_qfq_worker",
     ],
     "guardian": ["fqnext_guardian_event"],
     "position_management": ["fqnext_xt_account_sync_worker"],

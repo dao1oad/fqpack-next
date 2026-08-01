@@ -31,6 +31,17 @@
   - 涉及运行交付时，以最新远程 `main` 的正式 deploy 与 health check 为准
   - 所有代码更新的 PR + CI + merge gate 仍是交付收敛面的正式真值
 
+## 当前行情复权边界
+
+- Stock / ETF 线上读取链仍使用 `quantaxis.stock_adj` / `quantaxis.etf_adj`；现有 `stock_xdxr`、`etf_xdxr -> etf_adj` 写入链继续运行。
+- `freshquant.market_data.xtdata.qfq` 以 XTData 日线 `preClose` 生成独立的 Stock / ETF QFQ shadow 快照：
+  - Stock：`stock_adj_qfq_a` / `stock_adj_qfq_b`
+  - ETF：`etf_adj_qfq_a` / `etf_adj_qfq_b`
+  - `quantaxis.qfq_ready` 以每个 `scope` 的单文档保存 `active_slot` 与两个槽位的快照元数据。
+- shadow writer 只构建 inactive slot，审计通过后再原子切换 `active_slot`；`worker`、人工 `build` 与 `rollback` 共用 `qfq_writer_locks` 的 scope 唯一 lease，回滚也只切换 marker，不改写 active 集合。
+- 当前 Stock / ETF reader 尚未读取 `*_adj_qfq_a/b`，因此 shadow 快照发布不会改变 API、策略或实时 Kline 的复权结果。
+- 真实 Index 的日线、分钟线和实时合并固定使用 BFQ；Index 路径不读取 Stock / ETF 因子，实时数据读取 `freshquant.index_realtime`。
+
 ## 订单相关核心调用链
 
 ### 实时交易链
@@ -162,6 +173,13 @@
 
 ## 当前部署边界
 
+- `freshquant/market_data/**`
+  - 重启 XTData producer / consumer
+  - 重启 `xtdata_adj_refresh_worker` 与 `fqnext_xtdata_qfq_worker`
+- `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**`
+  - 重部署 Dagster webserver / daemon
+- `freshquant/data/index.py` / `freshquant/quote/index.py` / `freshquant/chanlun_service.py` / `freshquant/chanlun_structure_service.py`
+  - 重建 API Server
 - `freshquant/order_management/**`
   - 重建 API Server
   - 重启 `xt_account_sync.worker`

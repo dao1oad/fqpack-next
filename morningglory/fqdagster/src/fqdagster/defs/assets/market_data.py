@@ -525,6 +525,7 @@ def stock_postclose_ready_asset(
     refresh_quality_stock_universe_snapshot: dict,
     stock_day: str,
     stock_min: str,
+    stock_xdxr: str,
 ) -> dict:
     trade_date = (
         str(refresh_quality_stock_universe_snapshot.get("trade_date") or "")
@@ -538,6 +539,7 @@ def stock_postclose_ready_asset(
             refresh_quality_stock_universe_snapshot.get("source_version") or ""
         ).strip(),
         "integrity_audited_dates": list(integrity.get("audited_dates") or []),
+        "stock_xdxr_completed_at": stock_xdxr,
     }
     upsert_postclose_marker(
         "stock_postclose_ready",

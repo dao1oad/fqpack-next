@@ -494,6 +494,8 @@ class StrategyConsumer:
         """
         kind: "stock" | "etf"
         """
+        if kind == "index":
+            return 1.0
         coll = "stock_adj" if kind == "stock" else "etf_adj"
         override_coll = "stock_adj_intraday" if kind == "stock" else "etf_adj_intraday"
         try:
@@ -525,6 +527,8 @@ class StrategyConsumer:
     def _apply_qfq_to_bar(
         self, *, kind: str, code_prefixed: str, bar: dict[str, Any]
     ) -> dict[str, Any]:
+        if kind == "index":
+            return bar
         dt: datetime | None = bar.get("datetime")
         if not isinstance(dt, datetime):
             return bar
@@ -555,6 +559,16 @@ class StrategyConsumer:
             pass
         return _is_etf(_base_code(code_prefixed))
 
+    def _is_real_index(self, code_prefixed: str) -> bool:
+        try:
+            from freshquant.carnation.enum_instrument import InstrumentType
+            from freshquant.instrument.general import query_instrument_type
+
+            return query_instrument_type(code_prefixed) == InstrumentType.INDEX_CN
+        except Exception:
+            code = str(code_prefixed or "").strip().lower()
+            return code.startswith(("sh000", "sz399"))
+
     def _load_window_from_db(self, *, code: str, period_backend: str) -> pd.DataFrame:
         """
         Load a max_bars window:
@@ -570,6 +584,7 @@ class StrategyConsumer:
 
         base6 = _base_code(code)
         is_index_like = self._is_index_like(code)
+        is_real_index = self._is_real_index(code)
 
         hist_coll = "index_min" if is_index_like else "stock_min"
         hist_df = _empty_bar_window_df()
@@ -617,21 +632,26 @@ class StrategyConsumer:
 
         start_date = start_dt.strftime("%Y-%m-%d")
         end_date = end_dt.strftime("%Y-%m-%d")
-        adj_coll = "etf_adj" if is_index_like else "stock_adj"
-        override_coll = "etf_adj_intraday" if is_index_like else "stock_adj_intraday"
-        adj_df = fetch_qfq_adj_df(
-            coll_name=adj_coll,
-            code=base6,
-            start_date=start_date,
-            end_date=end_date,
-            db=DBQuantAxis,
-        )
-        override = fetch_intraday_override(
-            coll_name=override_coll,
-            code=base6,
-            trade_date=end_date,
-            db=DBQuantAxis,
-        )
+        adj_df = None
+        override = None
+        if not is_real_index:
+            adj_coll = "etf_adj" if is_index_like else "stock_adj"
+            override_coll = (
+                "etf_adj_intraday" if is_index_like else "stock_adj_intraday"
+            )
+            adj_df = fetch_qfq_adj_df(
+                coll_name=adj_coll,
+                code=base6,
+                start_date=start_date,
+                end_date=end_date,
+                db=DBQuantAxis,
+            )
+            override = fetch_intraday_override(
+                coll_name=override_coll,
+                code=base6,
+                trade_date=end_date,
+                db=DBQuantAxis,
+            )
 
         merged = _normalize_bar_window_df(
             pd.concat([hist_df, rt_df], ignore_index=True)
@@ -641,12 +661,13 @@ class StrategyConsumer:
 
         merged = merged.drop_duplicates(subset=["datetime"], keep="last")
         merged = merged.sort_values("datetime")
-        merged = apply_qfq_with_intraday_override(
-            merged,
-            adj_df,
-            override=override,
-            datetime_col="datetime",
-        )
+        if not is_real_index:
+            merged = apply_qfq_with_intraday_override(
+                merged,
+                adj_df,
+                override=override,
+                datetime_col="datetime",
+            )
 
         if len(merged) > self.max_bars:
             merged = merged.iloc[-self.max_bars :]
@@ -1137,7 +1158,8 @@ class StrategyConsumer:
         }
 
         is_index_like = self._is_index_like(code)
-        kind = "etf" if is_index_like else "stock"
+        is_real_index = self._is_real_index(code)
+        kind = "index" if is_real_index else ("etf" if is_index_like else "stock")
         coll = "index_realtime" if is_index_like else "stock_realtime"
         bar_store = bar_raw
         bar_calc = self._apply_qfq_to_bar(kind=kind, code_prefixed=code, bar=bar_raw)

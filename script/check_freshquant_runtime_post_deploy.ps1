@@ -254,6 +254,12 @@ $processSpecs = @(
         SupervisorProgram = 'fqnext_xtdata_adj_refresh_worker'
     },
     [pscustomobject]@{
+        Id = 'xtdata_qfq_worker'
+        Surface = 'market_data'
+        Pattern = 'python -m freshquant.market_data.xtdata.qfq_worker worker'
+        SupervisorProgram = 'fqnext_xtdata_qfq_worker'
+    },
+    [pscustomobject]@{
         Id = 'xt_account_sync_worker'
         Surfaces = @('position_management', 'order_management')
         Pattern = 'python -m freshquant.xt_account_sync.worker'

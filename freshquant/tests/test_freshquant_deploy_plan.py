@@ -41,6 +41,17 @@ def test_xt_auto_repay_paths_expand_to_order_management_host_runtime() -> None:
     assert "fqnext_xt_auto_repay_worker" in plan["host_programs"]
 
 
+def test_qfq_writer_path_restarts_reference_data_worker() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/market_data/xtdata/qfq.py"]
+    )
+
+    assert plan["deployment_surfaces"] == ["market_data"]
+    assert "fqnext_xtdata_qfq_worker" in plan["host_programs"]
+
+
 def test_retired_runtime_paths_no_longer_emit_deploy_surface() -> None:
     module = load_module()
 

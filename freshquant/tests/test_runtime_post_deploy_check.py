@@ -442,6 +442,13 @@ def test_verify_passes_when_required_runtime_state_is_restored(tmp_path: Path) -
                 "CommandLine": "python -m freshquant.market_data.xtdata.adj_refresh_worker",
             },
             {
+                "ProcessId": 407,
+                "Name": "python.exe",
+                "CommandLine": (
+                    "python -m freshquant.market_data.xtdata.qfq_worker worker"
+                ),
+            },
+            {
                 "ProcessId": 404,
                 "Name": "python.exe",
                 "CommandLine": "python -m fqxtrade.xtquant.broker",
