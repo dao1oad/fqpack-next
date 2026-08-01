@@ -70,6 +70,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - `quantaxis.qfq_writer_locks` 对每个 scope 只允许一个带过期时间并由后台线程持续续期的 writer lease；单次 XTData 请求或 Mongo `$out` 阻塞时仍续租，发布前重新核对 owner。中断的 `building` 仅由下一位 lease owner 恢复，人工 build / rollback 不与 Supervisor worker 并发写。
 - 首次 bootstrap 先构建并审计 A，再复制和审计 B，之后发布双槽 marker；日更只对 inactive slot 写入。
 - XTData field-table 以日期列为交易日，epoch 回退按 Asia/Shanghai 还原；因子先在完整 XTData 实际日期轴递推，再投影到有效 BFQ coverage。BFQ 中 `vol` 与 `amount` 同时等于 QASU 浮点哨兵的占位行不进入 coverage，运行结果和 audit 会记录排除计数与原因；任何其余有效 BFQ 日期缺少 XTData source 时仍 fail closed。
+- XTData 长区间下载只返回近期后缀时，QFQ client 会以当前最早缓存日的前一日为边界继续向前分页，直至覆盖请求起点；任一页未把最早日期向前推进时立即报错，不发布不完整快照。
 - 当前 Stock / ETF 在线 reader 和旧 `stock_xdxr`、`etf_xdxr -> etf_adj` writer 均未切换；A/B 发布不会改变现有 Kline 或策略读取结果。
 - 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ shadow scope。
 
