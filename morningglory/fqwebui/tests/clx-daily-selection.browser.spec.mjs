@@ -294,10 +294,13 @@ test('partial page stays explicit and Kline renders guarded CLX markers', async 
       count: series.data.length,
       direction: point.clxGroup.direction,
       symbol: point.symbol,
+      y: Number(point.value?.[1]),
       nonTransparentPixels,
     }
   })
 
   expect(rendered).toMatchObject({ type: 'scatter', count: 1, direction: 'mixed', symbol: 'diamond' })
+  expect(Number.isFinite(rendered.y)).toBe(true)
+  expect(rendered.y).toBeGreaterThan(0)
   expect(rendered.nonTransparentPixels).toBeGreaterThan(100)
 })

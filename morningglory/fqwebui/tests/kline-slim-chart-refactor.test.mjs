@@ -215,6 +215,50 @@ test('CLX history markers become a real ECharts series with same-day aggregation
   assert.equal(option.tooltip.show, true)
 })
 
+test('CLX marker prices use directional candle fallbacks unless explicitly finite and positive', () => {
+  const candle = { open: 10, close: 10.1, low: 9.9, high: 10.2 }
+  const cases = [
+    { label: 'null sell', price: null, direction: 'sell', expected: candle.high * 1.006 },
+    { label: 'undefined bearish', price: undefined, direction: 'bearish', expected: candle.high * 1.006 },
+    { label: 'absent sell', direction: 'sell', expected: candle.high * 1.006, omitPrice: true },
+    { label: 'empty buy', price: '', direction: 'buy', expected: candle.low * 0.994 },
+    { label: 'NaN bullish', price: Number.NaN, direction: 'bullish', expected: candle.low * 0.994 },
+    { label: 'infinite mixed', price: Number.POSITIVE_INFINITY, direction: 'mixed', expected: candle.close },
+    { label: 'zero neutral', price: 0, direction: 'neutral', expected: candle.close },
+    { label: 'negative buy', price: -1, direction: 'buy', expected: candle.low * 0.994 },
+    { label: 'explicit positive', price: 11.25, direction: 'sell', expected: 11.25 },
+  ]
+
+  for (const markerCase of cases) {
+    const scene = buildKlineSlimChartScene({
+      mainData: createMainPayload({
+        date: ['2026-03-09'],
+        open: [candle.open],
+        close: [candle.close],
+        low: [candle.low],
+        high: [candle.high],
+        bidata: { date: [], data: [] },
+        duandata: { date: [], data: [] },
+        higherDuanData: { date: [], data: [] },
+      }),
+      currentPeriod: '1d',
+      clxVisible: true,
+      clxMarkerMode: 'individual',
+      clxSignalHistory: {
+        markers: [{
+          id: markerCase.label,
+          modelKey: 'S0003',
+          triggerDate: '2026-03-09',
+          direction: markerCase.direction,
+          ...(markerCase.omitPrice ? {} : { price: markerCase.price }),
+        }],
+      },
+    })
+
+    assert.equal(scene.clxSignals.groups[0].price, markerCase.expected, markerCase.label)
+  }
+})
+
 test('CLX mixed aggregation uses a neutral marker and keeps line/source facts in tooltip', () => {
   const scene = buildKlineSlimChartScene({
     mainData: createMainPayload({

@@ -1505,7 +1505,7 @@ function buildKlineSlimClxLayer({
     const candle = mainCandles[group.barIndex]
     const markerPrice = group.markers
       .map((marker) => Number(marker.price))
-      .find(Number.isFinite)
+      .find((price) => Number.isFinite(price) && price > 0)
     const sellOnly = group.direction === 'sell' || group.direction === 'bearish'
     const buyOnly = group.direction === 'buy' || group.direction === 'bullish'
     const fallbackPrice = sellOnly
