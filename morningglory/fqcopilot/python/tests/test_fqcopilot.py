@@ -16,6 +16,14 @@ def _load_module():
     return fqcopilot
 
 
+def _load_fullcalc_module():
+    try:
+        import fullcalc
+    except Exception as exc:  # pragma: no cover - depends on local extension build
+        pytest.skip(f"fullcalc extension unavailable: {exc}")
+    return fullcalc
+
+
 def _bars(length: int = 512):
     close = [
         100.0 + 0.08 * i + 2.5 * math.sin(i / 11.0) + 1.1 * math.sin(i / 3.0)
@@ -78,6 +86,36 @@ def test_all_18_production_models_return_finite_series() -> None:
         assert len(values) == length
         assert all(math.isfinite(float(value)) for value in values)
         assert all(float(value).is_integer() for value in values)
+
+
+def test_production_batch_accepts_a_single_bar() -> None:
+    fqcopilot = _load_module()
+    high, low, open_, close, volume = _bars(1)
+
+    batch = list(
+        fqcopilot.fq_clxs_all(1, high, low, open_, close, volume, 1560, 0, 0, 1)
+    )
+
+    assert len(batch) == 18
+    assert all(list(row) == [0.0] for row in batch)
+
+
+def test_fullcalc_accepts_a_flat_minimum_window_with_clx_model() -> None:
+    fullcalc = _load_fullcalc_module()
+    values = [10.0] * 10
+
+    result = fullcalc.full_calc(
+        values,
+        values,
+        values,
+        values,
+        [1000.0] * 10,
+        model_ids=[10015],
+    )
+
+    assert result["ok"] is True
+    assert len(result["bi"]) == 10
+    assert len(result["duan"]) == 10
 
 
 def test_batch_entrypoint_matches_legacy_zero_switch_models() -> None:

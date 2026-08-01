@@ -37,7 +37,9 @@ D:\fqpack\runtime\tmp\issue480-validation-summary.txt
 - 四参数 legacy 等值回归：分别从 `origin/main` 与候选强制构建 `fqchan04`，对 5 个固定种子、每组 900 bars、`bi_mode=default/4/5/6` 的输出做逐值 SHA256；两侧均为 `bc6281423286ccad3f875854d2fde87ffe3ed0d9e30ba65690b44722e8e9ed24`，且 `11/-11/12/-12` 计数均为 0。只有带非空 close 的五参数 production 路径生成确认 marker。
 - 接口口径：`fq_clxs_all(..., switch_opt=0)` 保持 `legacy_sall_v0` 默认；显式 `switch_opt=1` 为 `production_v1`，并对非法 switch 与 OHLCV/length 不对齐 fail-fast。
 - 固定 fixture：4 组样本 × 18 模型逐 bar 对账全部通过；S0015 包含在统一 parity 中。S0002 entrypoint 3 的 `+1/+2/-1/-2` 四类结构证据 fixture 全覆盖。
-- 原生专项测试：`10 passed`；真实数据验证前后构建产物可导入并执行 production batch、single 与 S0002 evidence 接口。
+- 原生专项测试：`12 passed`；真实数据验证前后构建产物可导入并执行 production batch、single 与 S0002 evidence 接口。下界回归同时覆盖 `fq_clxs_all(length=1, switch_opt=1)` 的 18 模型单 bar 输出，以及 `fullcalc(model_ids=[10015])` 在 10 根 flat bars 上不发生 `size_t` 下溢。
+- `morningglory/fqcopilot/cpp/chanlun/czsc.cpp` 的最小依赖 A/B：保留单 bar hunk 时，history 使用的 production batch 对 18 个模型均返回 1 个值且退出 0；恢复 `origin/main` blob 后触发 `IndexError: invalid vector subscript`。该文件因此绑定 `/history/signals?barCount=1` 下界。
+- `morningglory/fqchan04/cpp/chanlun/czsc.cpp` 的最小依赖 A/B：`fullcalc.full_calc` 以 10 根 flat bars 和 `model_ids=[10015]` 运行时，保留 hunk 得到 `ok=True`、`bi/duan` 长度均为 10 且退出 0；恢复 `origin/main` blob 后触发同一 `IndexError`。`setup.py` 的 fullcalc source list 固定编译 `fqchan04/cpp/chanlun`，该文件因此绑定 S0015 flat-window 下界。
 - 真实数据：从 `D:\new_tdx\vipdoc` 取确定性 20 个日线文件，共 28,847 bars；对 S0000-S0017 执行 360 次 production 单模型调用。
 - production batch 18 行与 `fq_clxs(..., 10000 + model_id)` 逐 bar 对账，18 个模型的 mismatch count 全部为 `0`：
 
