@@ -52,6 +52,24 @@ def test_qfq_writer_path_restarts_reference_data_worker() -> None:
     assert "fqnext_xtdata_qfq_worker" in plan["host_programs"]
 
 
+def test_index_api_paths_require_api_deploy_and_health_checks() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=[
+            "freshquant/data/index.py",
+            "freshquant/quote/index.py",
+            "freshquant/instrument/general.py",
+            "freshquant/chanlun_service.py",
+            "freshquant/chanlun_structure_service.py",
+        ]
+    )
+
+    assert plan["deployment_surfaces"] == ["api"]
+    assert plan["docker_services"] == ["fq_apiserver"]
+    assert "http://127.0.0.1:15000/api/runtime/health/summary" in plan["health_checks"]
+
+
 def test_retired_runtime_paths_no_longer_emit_deploy_surface() -> None:
     module = load_module()
 

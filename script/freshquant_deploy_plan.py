@@ -161,6 +161,31 @@ PATH_RULES: tuple[PathRule, ...] = (
         surfaces=("api",),
     ),
     ExactRule(
+        label="index-data-api",
+        exact_path="freshquant/data/index.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="index-quote-api",
+        exact_path="freshquant/quote/index.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="instrument-routing-api",
+        exact_path="freshquant/instrument/general.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="chanlun-api",
+        exact_path="freshquant/chanlun_service.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
+        label="chanlun-structure-api",
+        exact_path="freshquant/chanlun_structure_service.py",
+        surfaces=("api",),
+    ),
+    ExactRule(
         label="freshquant-package-root",
         exact_path="freshquant/__init__.py",
         surfaces=FRESHQUANT_SHARED_RUNTIME_SURFACES,

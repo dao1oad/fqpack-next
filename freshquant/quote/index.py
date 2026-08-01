@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import pandas as pd
 from QUANTAXIS import QA_fetch_index_day_adv, QA_fetch_index_min_adv
 from QUANTAXIS.QAData.data_resample import QA_data_day_resample
 
@@ -45,6 +46,17 @@ def _resolve_index_history_days(period: str, bar_count: int = 0) -> int:
     return default_days
 
 
+def _datetime_values(data):
+    if "date" in data.columns:
+        values = data["date"]
+    elif getattr(data.index, "nlevels", 1) > 1:
+        level = "date" if "date" in data.index.names else 0
+        values = data.index.get_level_values(level)
+    else:
+        values = data.index
+    return pd.to_datetime(values).to_numpy()
+
+
 @in_memory_cache.memoize(expiration=3)
 def queryIndexCandleSticks(code: str, period: str, endDate=None, bar_count=0):
     """Fetch real Index candles without applying any QFQ factor."""
@@ -86,7 +98,7 @@ def queryIndexCandleSticks(code: str, period: str, endDate=None, bar_count=0):
     if bar_count and len(data) > int(bar_count):
         data = data.iloc[-int(bar_count) :].copy()
     if "datetime" not in data.columns:
-        data["datetime"] = data.index
+        data["datetime"] = _datetime_values(data)
     return data
 
 

@@ -11,12 +11,18 @@ from freshquant.market_data.xtdata.adj_refresh_worker import (
 
 
 class InMemoryAdjRefreshRepository:
-    def __init__(self, base_adj_docs=None):
+    def __init__(self, base_adj_docs=None, shadow_adj_docs=None):
         self.base_adj_docs = dict(base_adj_docs or {})
+        self.shadow_adj_docs = dict(shadow_adj_docs or {})
         self.saved_docs = {"stock": [], "etf": []}
 
     def get_base_anchor(self, kind, code, base_anchor_date):
         return self.base_adj_docs.get((kind, code, base_anchor_date))
+
+    def get_snapshot_anchor(self, kind, code, base_anchor_date, snapshot):
+        return self.shadow_adj_docs.get(
+            (kind, code, base_anchor_date, snapshot.get("collection"))
+        )
 
     def upsert_intraday_override(self, kind, document):
         self.saved_docs[kind].append(dict(document))
@@ -123,7 +129,15 @@ def test_intraday_override_binds_to_active_shadow_snapshot():
                 "date": "2026-03-08",
                 "adj": 2.0,
             },
-        }
+        },
+        {
+            (
+                "stock",
+                "sz000001",
+                "2026-03-08",
+                "stock_adj_qfq_a",
+            ): {"date": "2026-03-08", "adj": 1.5}
+        },
     )
     service = AdjRefreshService(
         repository=repository,
@@ -139,6 +153,7 @@ def test_intraday_override_binds_to_active_shadow_snapshot():
         trade_date_provider=lambda: date(2026, 3, 9),
         prev_trade_date_provider=lambda: date(2026, 3, 8),
         snapshot_provider=lambda kind: {
+            "collection": f"{kind}_adj_qfq_a",
             "snapshot_id": f"{kind}-snapshot-v1",
             "factor_asof": "2026-03-08",
         },
@@ -149,6 +164,8 @@ def test_intraday_override_binds_to_active_shadow_snapshot():
     document = repository.saved_docs["stock"][0]
     assert document["base_snapshot_id"] == "stock-snapshot-v1"
     assert document["base_factor_asof"] == "2026-03-08"
+    assert document["anchor_scale"] == pytest.approx(1.2)
+    assert document["legacy_anchor_scale"] == pytest.approx(0.9)
 
 
 def test_worker_run_once_calls_sync_service():

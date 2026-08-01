@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -485,6 +486,134 @@ def test_stale_writer_lease_is_reclaimed_and_released():
     assert not db["qfq_writer_locks"].rows
 
 
+def test_writer_lease_heartbeats_while_one_loader_call_is_blocked(monkeypatch):
+    db = _stock_db(["2026-01-02"])
+    loader_started = threading.Event()
+    background_refresh = threading.Event()
+    main_thread = threading.current_thread()
+    original_refresh = qfq._refresh_writer_lease
+
+    def observe_refresh(**kwargs):
+        if loader_started.is_set() and threading.current_thread() is not main_thread:
+            background_refresh.set()
+        return original_refresh(**kwargs)
+
+    def blocking_loader(*_args, **_kwargs):
+        loader_started.set()
+        assert background_refresh.wait(timeout=1.0)
+        return _bars([("2026-01-02", 10.0, 0.0)])
+
+    monkeypatch.setattr(qfq, "_refresh_writer_lease", observe_refresh)
+
+    qfq.sync_stock_adj_all(
+        target_date="2026-01-02",
+        db=db,
+        bars_loader=blocking_loader,
+        writer_heartbeat_seconds=0.01,
+    )
+
+    assert background_refresh.is_set()
+    assert not db["qfq_writer_locks"].rows
+
+
+def test_writer_lease_fences_publish_from_background_heartbeat_failure(monkeypatch):
+    refresh_started = threading.Event()
+    allow_failure = threading.Event()
+    published = threading.Event()
+    errors = []
+
+    def failing_refresh(**_kwargs):
+        refresh_started.set()
+        assert allow_failure.wait(timeout=1.0)
+        raise RuntimeError("lease lost")
+
+    monkeypatch.setattr(qfq, "_refresh_writer_lease", failing_refresh)
+    heartbeat = qfq._WriterLeaseHeartbeat(
+        db=object(),
+        scope="stock",
+        owner_id="writer",
+        lease_seconds=30,
+        heartbeat_seconds=0.01,
+    )
+    heartbeat.start()
+    assert refresh_started.wait(timeout=1.0)
+
+    def run_publish():
+        try:
+            heartbeat.run_fenced_publish(lambda: published.set())
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    publish_thread = threading.Thread(target=run_publish)
+    publish_thread.start()
+    allow_failure.set()
+    publish_thread.join(timeout=1.0)
+    heartbeat.stop()
+
+    assert not publish_thread.is_alive()
+    assert not published.is_set()
+    assert len(errors) == 1
+    assert isinstance(errors[0], qfq.QFQSyncError)
+
+
+def test_bootstrap_heartbeat_failure_before_publish_does_not_create_marker(monkeypatch):
+    db = _stock_db(["2026-01-02"])
+
+    def fail_fenced_publish(self, callback):
+        self._failure = RuntimeError("lease lost")
+        return original_fenced_publish(self, callback)
+
+    original_fenced_publish = qfq._WriterLeaseHeartbeat.run_fenced_publish
+    monkeypatch.setattr(
+        qfq._WriterLeaseHeartbeat,
+        "run_fenced_publish",
+        fail_fenced_publish,
+    )
+
+    with pytest.raises(qfq.QFQSyncError, match="heartbeat failed"):
+        qfq.sync_stock_adj_all(
+            target_date="2026-01-02",
+            db=db,
+            bars_loader=_loader_for({"000001": [("2026-01-02", 10.0, 0.0)]}),
+        )
+
+    assert not db["qfq_ready"].rows
+
+
+def test_update_heartbeat_failure_before_publish_keeps_active_marker(monkeypatch):
+    dates = ["2026-01-02", "2026-01-05"]
+    payload = {"000001": [(dates[0], 10.0, 0.0)]}
+    db = _stock_db(dates[:1])
+    loader = _loader_for(payload)
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=loader)
+    active_before = qfq.resolve_active_slot(scope="stock", db=db)
+    payload["000001"].append((dates[1], 10.0, 10.0))
+    db["stock_day"].rows.append({"code": "000001", "date": dates[1]})
+
+    def fail_fenced_publish(self, callback):
+        self._failure = RuntimeError("lease lost")
+        return original_fenced_publish(self, callback)
+
+    original_fenced_publish = qfq._WriterLeaseHeartbeat.run_fenced_publish
+    monkeypatch.setattr(
+        qfq._WriterLeaseHeartbeat,
+        "run_fenced_publish",
+        fail_fenced_publish,
+    )
+
+    with pytest.raises(qfq.QFQSyncError, match="heartbeat failed"):
+        qfq.sync_stock_adj_all(
+            target_date=dates[1],
+            db=db,
+            bars_loader=loader,
+            min_grace_seconds=0,
+        )
+
+    active_after = qfq.resolve_active_slot(scope="stock", db=db)
+    assert active_after["slot"] == active_before["slot"]
+    assert active_after["factor_asof"] == active_before["factor_asof"]
+
+
 def test_inactive_slot_catches_up_from_its_own_terminal_without_writing_active():
     dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
     rows = [
@@ -676,6 +805,15 @@ def test_forced_full_rebuild_repairs_revision_older_than_tail_window():
     assert repaired[dates[0]] == pytest.approx(0.8)
 
 
+def test_forced_full_rebuild_rejects_explicit_code_subset():
+    with pytest.raises(ValueError, match="codes must be omitted"):
+        qfq.sync_stock_adj_all(
+            target_date="2026-01-05",
+            codes=["000001"],
+            force_full_rebuild=True,
+        )
+
+
 def test_forced_full_rebuild_rejects_factor_asof_regression():
     dates = ["2026-01-02", "2026-01-05"]
     rows = [(dates[0], 10.0, 0.0), (dates[1], 10.0, 10.0)]
@@ -693,6 +831,50 @@ def test_forced_full_rebuild_rejects_factor_asof_regression():
         )
 
     assert qfq.resolve_active_slot(scope="stock", db=db)["factor_asof"] == dates[1]
+
+
+def test_forced_full_rebuild_removes_codes_outside_current_universe():
+    dates = ["2026-01-02", "2026-01-05"]
+    rows = [(dates[0], 10.0, 0.0), (dates[1], 10.0, 10.0)]
+    db = _stock_db(dates[:1])
+    loader = _loader_for({"000001": rows})
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=loader)
+    db["stock_adj_qfq_b"].rows.append({"code": "600999", "date": dates[0], "adj": 1.0})
+    db["stock_day"].rows.append({"code": "000001", "date": dates[1]})
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[1],
+        db=db,
+        bars_loader=loader,
+        min_grace_seconds=0,
+        force_full_rebuild=True,
+    )
+
+    assert result["by_scope"]["stock"]["stats"]["stale_codes_removed"] == 1
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
+    assert qfq.resolve_active_slot(scope="stock", db=db)["slot"] == "b"
+
+
+def test_source_audit_detects_recurrence_corruption_that_structure_audit_misses():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    rows = [
+        (dates[0], 10.0, 0.0),
+        (dates[1], 9.0, 8.0),
+        (dates[2], 9.0, 9.0),
+    ]
+    db = _stock_db(dates)
+    loader = _loader_for({"000001": rows})
+    qfq.sync_stock_adj_all(target_date=dates[-1], db=db, bars_loader=loader)
+    db["stock_adj_qfq_a"].rows[0]["adj"] = 0.123456
+
+    structure = qfq.audit_qfq_slot(scope="stock", slot="a", db=db)
+    source = qfq.audit_qfq_slot(scope="stock", slot="a", db=db, bars_loader=loader)
+
+    assert structure["ok"] is True
+    assert structure["audit_mode"] == "structure"
+    assert source["ok"] is False
+    assert source["audit_mode"] == "full_source"
+    assert source["failures"][0]["audit"]["recurrence_errors"]
 
 
 def test_stale_inactive_code_fails_closed_and_keeps_active():

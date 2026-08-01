@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
@@ -719,6 +720,87 @@ def _release_writer_lease(*, db, scope: str, owner_id: str) -> None:
     db[WRITER_LOCK_COLLECTION].delete_one({"scope": scope, "owner_id": owner_id})
 
 
+class _WriterLeaseHeartbeat:
+    def __init__(
+        self,
+        *,
+        db,
+        scope: str,
+        owner_id: str,
+        lease_seconds: int,
+        now_provider=None,
+        heartbeat_seconds: float | None = None,
+    ):
+        self.db = db
+        self.scope = scope
+        self.owner_id = owner_id
+        self.lease_seconds = lease_seconds
+        self.now_provider = now_provider
+        self.interval = (
+            max(0.01, float(heartbeat_seconds))
+            if heartbeat_seconds is not None
+            else min(60.0, max(1.0, float(lease_seconds) / 3.0))
+        )
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._failure: Exception | None = None
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"qfq-lease-{scope}",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            with self._lock:
+                if self._stop.is_set():
+                    return
+                try:
+                    self._refresh()
+                except Exception as exc:  # noqa: BLE001
+                    self._failure = exc
+                    return
+
+    def _refresh(self) -> None:
+        _refresh_writer_lease(
+            db=self.db,
+            scope=self.scope,
+            owner_id=self.owner_id,
+            now_provider=self.now_provider,
+            lease_seconds=self.lease_seconds,
+        )
+
+    def pulse(self) -> None:
+        with self._lock:
+            self._raise_if_failed_locked()
+            self._refresh()
+
+    def raise_if_failed(self) -> None:
+        with self._lock:
+            self._raise_if_failed_locked()
+
+    def _raise_if_failed_locked(self) -> None:
+        if self._failure is not None:
+            raise QFQSyncError(
+                f"{self.scope} QFQ writer lease heartbeat failed"
+            ) from self._failure
+
+    def run_fenced_publish(self, callback: Callable[[], Any]) -> Any:
+        with self._lock:
+            self._raise_if_failed_locked()
+            self._refresh()
+            result = callback()
+            self._stop.set()
+            return result
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5.0)
+
+
 def _ensure_marker_indexes(collection) -> None:
     collection.create_index([("scope", 1)], unique=True, name="scope_unique")
 
@@ -1255,6 +1337,8 @@ def audit_qfq_slot(
     db=DBQuantAxis,
     codes: Iterable[str] | None = None,
     factor_asof: str | None = None,
+    bars_loader: Callable[..., Any] | None = None,
+    source_tail_days: int | None = None,
     progress_callback: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     if scope not in FACTOR_COLLECTIONS or slot not in {"a", "b"}:
@@ -1280,8 +1364,25 @@ def audit_qfq_slot(
         code_rows = _load_existing_factor_rows(
             db=db, collection_name=collection.name, code=code
         )
-        audit = _audit_code_rows(code=code, rows=code_rows, expected_dates=expected)
-        rows += len(code_rows)
+        audit_dates = expected
+        bars = None
+        audit_rows = code_rows
+        if bars_loader is not None:
+            if source_tail_days is not None:
+                audit_dates = expected[-max(2, int(source_tail_days)) :]
+            load_start, load_end, audit_dates = _bfq_download_bounds(audit_dates)
+            bars = _call_loader(bars_loader, code, load_start, load_end)
+            audit_date_set = set(audit_dates)
+            audit_rows = [
+                row for row in code_rows if _date_key(row.get("date")) in audit_date_set
+            ]
+        audit = _audit_code_rows(
+            code=code,
+            rows=audit_rows,
+            expected_dates=audit_dates,
+            bars=bars,
+        )
+        rows += len(audit_rows)
         checked_codes += 1
         if not audit["ok"]:
             failures.append({"code": code, "audit": audit})
@@ -1292,6 +1393,11 @@ def audit_qfq_slot(
         "slot": slot,
         "collection": collection.name,
         "factor_asof": factor_asof,
+        "audit_mode": (
+            "structure"
+            if bars_loader is None
+            else "tail_source" if source_tail_days is not None else "full_source"
+        ),
         "codes": checked_codes,
         "rows": rows,
         "failed": len(failures),
@@ -1309,6 +1415,7 @@ def _bootstrap_scope(
     loader: Callable[..., Any],
     now_provider=None,
     progress_callback: Callable[[], None] | None = None,
+    publish_callback: Callable[[Callable[[], Any]], Any] | None = None,
 ) -> dict[str, Any]:
     if get_qfq_marker(scope=scope, db=db):
         raise QFQSyncError(f"{scope} QFQ bootstrap requires no marker")
@@ -1366,9 +1473,18 @@ def _bootstrap_scope(
     )
     if not audit_b["ok"] or audit_a["rows"] != audit_b["rows"]:
         raise QFQSyncError(f"{scope} bootstrap slot B audit failed", stats=audit_b)
-    marker = _insert_bootstrap_marker(
-        db=db, scope=scope, factor_asof=target_date, now_provider=now_provider
-    )
+
+    def publish_marker() -> dict[str, Any]:
+        return _insert_bootstrap_marker(
+            db=db, scope=scope, factor_asof=target_date, now_provider=now_provider
+        )
+
+    if publish_callback:
+        marker = publish_callback(publish_marker)
+    else:
+        if progress_callback:
+            progress_callback()
+        marker = publish_marker()
     return {
         "scope": scope,
         "mode": "bootstrap",
@@ -1415,6 +1531,7 @@ def _update_scope(
     force_full_rebuild: bool,
     now_provider=None,
     progress_callback: Callable[[], None] | None = None,
+    publish_callback: Callable[[Callable[[], Any]], Any] | None = None,
 ) -> dict[str, Any]:
     marker = validate_qfq_marker(get_qfq_marker(scope=scope, db=db), scope=scope)
     active_slot = str(marker["active_slot"])
@@ -1439,7 +1556,13 @@ def _update_scope(
     )
     inactive_slot = _claim_inactive_slot(db=db, scope=scope, marker=marker)
     collection = db[FACTOR_COLLECTIONS[scope][inactive_slot]]
-    stats = {"full": 0, "incremental": 0, "unchanged": 0, "rows_written": 0}
+    stats = {
+        "full": 0,
+        "incremental": 0,
+        "unchanged": 0,
+        "rows_written": 0,
+        "stale_codes_removed": 0,
+    }
     try:
         _ensure_factor_indexes(collection)
         universe = load_factor_universe(kind=scope, db=db, codes=codes)
@@ -1474,6 +1597,10 @@ def _update_scope(
             stats["rows_written"] += int(result["rows_written"])
             included.append(code)
         stale_codes = _distinct_codes(collection) - set(included)
+        if stale_codes and force_full_rebuild:
+            collection.delete_many({"code": {"$in": sorted(stale_codes)}})
+            stats["stale_codes_removed"] = len(stale_codes)
+            stale_codes = _distinct_codes(collection) - set(included)
         if stale_codes:
             raise QFQSyncError(
                 f"{scope} inactive slot contains codes outside BFQ universe",
@@ -1489,14 +1616,23 @@ def _update_scope(
         )
         if not audit["ok"]:
             raise QFQSyncError(f"{scope} inactive slot audit failed", stats=audit)
-        published = _publish_inactive_slot(
-            db=db,
-            scope=scope,
-            marker=marker,
-            inactive_slot=inactive_slot,
-            factor_asof=target_date,
-            now_provider=now_provider,
-        )
+
+        def publish_marker() -> dict[str, Any]:
+            return _publish_inactive_slot(
+                db=db,
+                scope=scope,
+                marker=marker,
+                inactive_slot=inactive_slot,
+                factor_asof=target_date,
+                now_provider=now_provider,
+            )
+
+        if publish_callback:
+            published = publish_callback(publish_marker)
+        else:
+            if progress_callback:
+                progress_callback()
+            published = publish_marker()
         return {
             "scope": scope,
             "mode": "update",
@@ -1529,6 +1665,7 @@ def sync_qfq_factors(
     min_grace_seconds: int = DEFAULT_READER_GRACE_SECONDS,
     force_full_rebuild: bool = False,
     writer_lease_seconds: int = DEFAULT_WRITER_LEASE_SECONDS,
+    writer_heartbeat_seconds: float | None = None,
     now_provider=None,
 ) -> dict[str, Any]:
     scopes = [item.strip().lower() for item in str(scope).split(",") if item.strip()]
@@ -1537,6 +1674,10 @@ def sync_qfq_factors(
     target = _date_key(target_date)
     if not target:
         raise ValueError(f"invalid QFQ target date: {target_date}")
+    if force_full_rebuild and codes is not None:
+        raise ValueError(
+            "force_full_rebuild requires the full scope; codes must be omitted"
+        )
     client = xtdata_client or XtDataQfqClient()
     loader = bars_loader or client.load_daily_bars
     result: dict[str, Any] = {
@@ -1553,14 +1694,15 @@ def sync_qfq_factors(
             lease_seconds=writer_lease_seconds,
         )
 
-        def heartbeat() -> None:
-            _refresh_writer_lease(
-                db=db,
-                scope=kind,
-                owner_id=owner_id,
-                now_provider=now_provider,
-                lease_seconds=writer_lease_seconds,
-            )
+        lease_heartbeat = _WriterLeaseHeartbeat(
+            db=db,
+            scope=kind,
+            owner_id=owner_id,
+            lease_seconds=writer_lease_seconds,
+            now_provider=now_provider,
+            heartbeat_seconds=writer_heartbeat_seconds,
+        )
+        lease_heartbeat.start()
 
         try:
             marker = get_qfq_marker(scope=kind, db=db)
@@ -1577,7 +1719,8 @@ def sync_qfq_factors(
                     codes=codes,
                     loader=loader,
                     now_provider=now_provider,
-                    progress_callback=heartbeat,
+                    progress_callback=lease_heartbeat.pulse,
+                    publish_callback=lease_heartbeat.run_fenced_publish,
                 )
             else:
                 scope_result = _update_scope(
@@ -1590,10 +1733,13 @@ def sync_qfq_factors(
                     min_grace_seconds=min_grace_seconds,
                     force_full_rebuild=force_full_rebuild,
                     now_provider=now_provider,
-                    progress_callback=heartbeat,
+                    progress_callback=lease_heartbeat.pulse,
+                    publish_callback=lease_heartbeat.run_fenced_publish,
                 )
+            lease_heartbeat.raise_if_failed()
             result["by_scope"][kind] = scope_result
         finally:
+            lease_heartbeat.stop()
             _release_writer_lease(db=db, scope=kind, owner_id=owner_id)
     result["ready"] = True
     return result

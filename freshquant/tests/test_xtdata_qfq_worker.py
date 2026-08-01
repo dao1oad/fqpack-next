@@ -298,3 +298,72 @@ def test_build_full_passes_force_full_rebuild(monkeypatch, capsys):
     )
     assert calls[0]["force_full_rebuild"] is True
     assert '"ready": true' in capsys.readouterr().out
+
+
+def test_strict_status_reports_active_snapshot_lag():
+    marker_db = _DB(
+        dagster_pipeline_markers=[
+            {
+                "pipeline_key": "stock_postclose_ready",
+                "trade_date": "2026-01-05",
+                "status": "success",
+            }
+        ]
+    )
+    factor_db = _DB(qfq_ready=[_marker(asof="2026-01-02")])
+
+    result = qfq_worker.qfq_readiness_status(
+        scopes=["stock"], marker_db=marker_db, factor_db=factor_db
+    )
+
+    assert result["ready"] is False
+    assert result["by_scope"]["stock"]["status"] == "stale"
+
+
+def test_status_strict_returns_nonzero_when_shadow_is_not_ready(monkeypatch, capsys):
+    monkeypatch.setattr(
+        qfq_worker,
+        "qfq_readiness_status",
+        lambda **_kwargs: {
+            "ready": False,
+            "by_scope": {"stock": {"status": "missing_qfq_marker"}},
+        },
+    )
+
+    assert qfq_worker.main(["status", "--scope", "stock", "--strict"]) == 1
+    assert '"ready": false' in capsys.readouterr().out
+
+
+def test_audit_full_passes_source_loader_and_single_code(monkeypatch, capsys):
+    calls = []
+    client = type("Client", (), {"load_daily_bars": lambda *args, **kwargs: None})()
+    monkeypatch.setattr(qfq_worker, "XtDataQfqClient", lambda: client)
+    monkeypatch.setattr(
+        qfq_worker,
+        "get_qfq_marker",
+        lambda **_kwargs: _marker(),
+    )
+    monkeypatch.setattr(
+        qfq_worker,
+        "audit_qfq_slot",
+        lambda **kwargs: calls.append(kwargs) or {"ok": True},
+    )
+
+    assert (
+        qfq_worker.main(
+            [
+                "audit",
+                "--scope",
+                "stock",
+                "--mode",
+                "full",
+                "--code",
+                "000001",
+            ]
+        )
+        == 0
+    )
+    assert calls[0]["codes"] == ["000001"]
+    assert calls[0]["bars_loader"] is not None
+    assert calls[0]["source_tail_days"] is None
+    assert '"ok": true' in capsys.readouterr().out

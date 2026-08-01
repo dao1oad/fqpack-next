@@ -61,10 +61,10 @@
 - Supervisor program 为 `fqnext_xtdata_qfq_worker`，并与 `fqnext_xtdata_adj_refresh_worker` 同属 `fqnext_reference_data` group；它运行在 Windows 宿主机，默认每 60 秒检查一次盘后就绪状态。
 - worker 从 `freshquant.dagster_pipeline_markers` 读取 `pipeline_key=stock_postclose_ready` / `etf_postclose_ready` 的最新成功文档，再把目标交易日传给 XTData QFQ writer。
 - `stock_postclose_ready` 在股票日线、分钟线、质量股票池快照和旧 `stock_xdxr` writer 完成后发布；`etf_postclose_ready` 在 ETF 日线/分钟线及旧 `etf_xdxr -> etf_adj` writer 完成后发布。
-- shadow 快照与发布 marker 写在 QuantAxis Mongo：数据集合为 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`，marker 集合为 `qfq_ready`；`qfq_writer_locks` 以 scope 唯一 heartbeat lease 强制 worker、人工 build 与 rollback 串行。
+- shadow 快照与发布 marker 写在 QuantAxis Mongo：数据集合为 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`，marker 集合为 `qfq_ready`；`qfq_writer_locks` 以 scope 唯一后台 heartbeat lease 强制 worker、人工 build 与 rollback 串行，单次 XTData 下载或 Mongo `$out` 阻塞期间也会持续续租，发布前再次核对 owner。
 - 当前 Stock / ETF 在线 reader 继续读取 `stock_adj` / `etf_adj`，旧 writer 继续运行；QFQ worker 的发布只更新 shadow 链。
 - 真实 Index 当前固定读取 BFQ 日线/分钟线与 `index_realtime`，不读取 `stock_adj`、`etf_adj` 或 QFQ shadow 集合。
-- 运维 CLI 入口为 `python -m freshquant.market_data.xtdata.qfq_worker`，子命令为 `worker`、`build`、`audit`、`status`、`rollback`。
+- 运维 CLI 入口为 `python -m freshquant.market_data.xtdata.qfq_worker`，子命令为 `worker`、`build`、`audit`、`status`、`rollback`；`status --strict` 检查 active 截止日是否追平盘后 ready marker，`audit --mode structure|tail|full` 分别执行结构、近期 XTData 递推和全历史 XTData 递推审计。
 
 ## 会话与记忆口径
 

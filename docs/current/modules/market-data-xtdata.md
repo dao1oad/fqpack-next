@@ -19,8 +19,8 @@ XTData 链路负责把宿主机 XTData 行情转换成 FreshQuant 可消费的�
 - QFQ shadow worker
   - `python -m freshquant.market_data.xtdata.qfq_worker worker`
 - QFQ 运维 CLI
-  - `python -m freshquant.market_data.xtdata.qfq_worker status`
-  - `python -m freshquant.market_data.xtdata.qfq_worker audit --scope <stock|etf>`
+  - `python -m freshquant.market_data.xtdata.qfq_worker status --strict`
+  - `python -m freshquant.market_data.xtdata.qfq_worker audit --scope <stock|etf> --mode <structure|tail|full> [--code CODE]`
   - `python -m freshquant.market_data.xtdata.qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD`
   - `python -m freshquant.market_data.xtdata.qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD --full`
   - `python -m freshquant.market_data.xtdata.qfq_worker rollback --scope <stock|etf>`
@@ -67,7 +67,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 - Stock 数据集合为 `stock_adj_qfq_a` / `stock_adj_qfq_b`，ETF 数据集合为 `etf_adj_qfq_a` / `etf_adj_qfq_b`。
 - `quantaxis.qfq_ready` 对每个 scope 使用一个原子双槽 marker；构建 inactive slot 期间 active slot 保持只读，inactive slot 审计成功后才切换。
-- `quantaxis.qfq_writer_locks` 对每个 scope 只允许一个带过期时间并持续续期的 writer lease；中断的 `building` 仅由下一位 lease owner 恢复，人工 build / rollback 不与 Supervisor worker 并发写。
+- `quantaxis.qfq_writer_locks` 对每个 scope 只允许一个带过期时间并由后台线程持续续期的 writer lease；单次 XTData 请求或 Mongo `$out` 阻塞时仍续租，发布前重新核对 owner。中断的 `building` 仅由下一位 lease owner 恢复，人工 build / rollback 不与 Supervisor worker 并发写。
 - 首次 bootstrap 先构建并审计 A，再复制和审计 B，之后发布双槽 marker；日更只对 inactive slot 写入。
 - 当前 Stock / ETF 在线 reader 和旧 `stock_xdxr`、`etf_xdxr -> etf_adj` writer 均未切换；A/B 发布不会改变现有 Kline 或策略读取结果。
 - 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ shadow scope。
@@ -124,8 +124,9 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
   - `tick_quote_pending_batches`
   - `tick_quote_dropped_batches`
 - `xtdata_adj_refresh_worker` 若在启动或日内计划刷新时遇到可重试的 XTData 连接失败，当前会退避后重建新的 refresh service / XTData client 再继续同步。
-- `fqnext_xtdata_qfq_worker` 默认每 60 秒轮询盘后 ready marker；可用 `worker --once` 单轮执行，用 `status`、`audit`、`build`、`rollback` 做运维检查。
-- 默认日更回看 60 个实际交易日；更早的 XTData 历史修订通过 `build --full` 在 inactive slot 做同截止日全 scope 重算，自动执行频率需在全市场容量 gate 后确定。
+- `fqnext_xtdata_qfq_worker` 默认每 60 秒轮询盘后 ready marker；可用 `worker --once` 单轮执行，用 `status --strict`、`audit`、`build`、`rollback` 做运维检查。正式 post-deploy verify 会执行严格 status，不能只以进程存在代替数据 ready。
+- 默认日更回看 60 个实际交易日；更早的 XTData 历史修订通过 `build --full` 在 inactive slot 做同截止日全 scope 重算并清除 universe 外残留 code，自动执行频率需在全市场容量 gate 后确定。
+- `audit --mode structure` 是 Mongo 快速结构审计；`--mode tail` / `--mode full` 会重新读取 XTData source bars 并验证递推恒等式，正式全市场 gate 使用 `--mode full`。
 
 ## 排障点
 
@@ -159,5 +160,5 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 - 检查 `fqnext_xtdata_qfq_worker` Supervisor 状态与 `D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log`。
 - 执行 `python -m freshquant.market_data.xtdata.qfq_worker worker --once`，区分 `waiting_for_bfq`、`current`、`published` 与错误结果。
-- 执行 `status` 查看 `qfq_ready` 双槽元数据，执行 `audit --scope stock|etf` 审计 active slot。
+- 执行 `status --strict` 核对 active 截止日与盘后 marker，执行 `audit --scope stock|etf --mode full` 对 active slot 做 XTData source-aware 审计；快速排查可先用 `--mode structure`。
 - 页面仍读取旧 Stock / ETF 因子；shadow 集合已更新但页面未变化，不代表 QFQ worker 失败。

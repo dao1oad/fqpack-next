@@ -13,7 +13,23 @@ from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime, QA_util_tim
 
 from freshquant.database.cache import redis_cache
 from freshquant.db import DBfreshquant
-from freshquant.util.code import fq_util_code_append_market_code
+from freshquant.instrument.index import query_index_map
+from freshquant.util.code import normalize_to_base_code
+
+
+def _index_realtime_code(code: str) -> str:
+    raw = str(code or "").strip()
+    upper = raw.upper()
+    base_code = normalize_to_base_code(raw)
+    if len(upper) == 8 and upper[:2] in {"SH", "SZ"}:
+        return upper.lower()
+    if len(upper) == 9 and upper[:6].isdigit() and upper[6:] in {".SH", ".SZ"}:
+        return f"{upper[7:].lower()}{upper[:6]}"
+    index_map = query_index_map()
+    instrument = index_map.get(raw) or index_map.get(base_code)
+    if instrument and instrument.get("sse"):
+        return f"{str(instrument['sse']).lower()}{base_code}"
+    return base_code
 
 
 @redis_cache.memoize(expiration=900)
@@ -36,8 +52,9 @@ def fqDataQAFetchIndexListAdv():
 
 
 def fq_data_index_fetch_min(code, frequence, start=None, end=None):
+    base_code = normalize_to_base_code(code)
     data = fq_data_QA_fetch_index_min_adv(
-        code,
+        base_code,
         QA_util_datetime_to_strdatetime(start),
         QA_util_datetime_to_strdatetime(end),
         frequence=frequence,
@@ -52,7 +69,7 @@ def fq_data_index_fetch_min(code, frequence, start=None, end=None):
         DBfreshquant["index_realtime"]
         .find(
             {
-                "code": fq_util_code_append_market_code(code, upper_case=False),
+                "code": _index_realtime_code(code),
                 "frequence": frequence,
                 "datetime": {"$gt": last_datetime, "$lte": end},
                 "open": {"$gt": 0},

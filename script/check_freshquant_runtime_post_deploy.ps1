@@ -989,6 +989,58 @@ function Get-ProcessChecks {
     }
 }
 
+function Get-QfqReadinessChecks {
+    param([string[]]$DeploymentSurfaces)
+
+    $targeted = @($DeploymentSurfaces) -contains 'market_data'
+    if (-not $targeted) {
+        return @{
+            Checks = @()
+            Warnings = @()
+            Failures = @()
+        }
+    }
+
+    $usingSnapshots = (
+        -not [string]::IsNullOrWhiteSpace($DockerSnapshotPath) -or
+        -not [string]::IsNullOrWhiteSpace($ServiceSnapshotPath) -or
+        -not [string]::IsNullOrWhiteSpace($ProcessSnapshotPath) -or
+        -not [string]::IsNullOrWhiteSpace($SupervisorSnapshotPath)
+    )
+    if ($usingSnapshots) {
+        return @{
+            Checks = @([pscustomobject]@{
+                id = 'xtdata_qfq_readiness'
+                required = $true
+                status = 'skipped_for_test_snapshots'
+                passed = $true
+                output = $null
+            })
+            Warnings = @('QFQ readiness command skipped because runtime snapshots were injected.')
+            Failures = @()
+        }
+    }
+
+    $commandResult = Invoke-PythonCommand -Arguments @('-m', 'freshquant.market_data.xtdata.qfq_worker', 'status', '--strict')
+    $output = (($commandResult.output | Out-String).Trim())
+    $passed = ($commandResult.available -and $commandResult.success)
+    $failures = @()
+    if (-not $passed) {
+        $failures = @("QFQ readiness check failed: $output")
+    }
+    return @{
+        Checks = @([pscustomobject]@{
+            id = 'xtdata_qfq_readiness'
+            required = $true
+            status = if ($passed) { 'ready' } else { 'not_ready' }
+            passed = $passed
+            output = $output
+        })
+        Warnings = @()
+        Failures = $failures
+    }
+}
+
 function Get-SupervisorConfigChecks {
     param(
         [Parameter(Mandatory = $true)]$SupervisorConfigState,
@@ -1091,6 +1143,7 @@ $result = [ordered]@{
     docker_checks = @()
     service_checks = @()
     process_checks = @()
+    readiness_checks = @()
     supervisor_config_checks = @()
     warnings = @()
     failures = @()
@@ -1134,14 +1187,16 @@ foreach ($surface in $deploymentSurfaces) {
 $dockerChecks = Get-DockerChecks -CurrentEntries $dockerBaseline -RequiredContainerNames @($requiredContainerNames)
 $serviceChecks = Get-ServiceChecks -CurrentEntries $serviceBaseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
 $processChecks = Get-ProcessChecks -CurrentEntries $processBaseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
+$readinessChecks = Get-QfqReadinessChecks -DeploymentSurfaces $deploymentSurfaces
 $supervisorConfigChecks = Get-SupervisorConfigChecks -SupervisorConfigState $supervisorConfigState -DeploymentSurfaces $deploymentSurfaces
 
 $result.docker_checks = $dockerChecks.Checks
 $result.service_checks = $serviceChecks.Checks
 $result.process_checks = $processChecks.Checks
+$result.readiness_checks = $readinessChecks.Checks
 $result.supervisor_config_checks = $supervisorConfigChecks.Checks
-$result.warnings = @($serviceChecks.Warnings + $processChecks.Warnings + $supervisorConfigChecks.Warnings)
-$result.failures = @($dockerChecks.Failures + $serviceChecks.Failures + $processChecks.Failures + $supervisorConfigChecks.Failures)
+$result.warnings = @($serviceChecks.Warnings + $processChecks.Warnings + $readinessChecks.Warnings + $supervisorConfigChecks.Warnings)
+$result.failures = @($dockerChecks.Failures + $serviceChecks.Failures + $processChecks.Failures + $readinessChecks.Failures + $supervisorConfigChecks.Failures)
 $result.passed = ($result.failures.Count -eq 0)
 
 $verifyJson = $result | ConvertTo-Json -Depth 12

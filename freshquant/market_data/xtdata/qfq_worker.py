@@ -10,6 +10,7 @@ from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.market_data.xtdata.qfq import (
     FACTOR_COLLECTIONS,
     QFQSyncError,
+    XtDataQfqClient,
     audit_qfq_slot,
     get_qfq_marker,
     rollback_active_slot,
@@ -85,6 +86,50 @@ def run_pending_once(
     return result
 
 
+def qfq_readiness_status(
+    *,
+    scopes: Iterable[str] = ("stock", "etf"),
+    factor_db=DBQuantAxis,
+    marker_db=DBfreshquant,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"ready": True, "by_scope": {}}
+    for raw_scope in scopes:
+        scope = str(raw_scope).strip().lower()
+        postclose = latest_success_postclose_marker(scope=scope, marker_db=marker_db)
+        marker = get_qfq_marker(scope=scope, db=factor_db)
+        if postclose is None:
+            result["by_scope"][scope] = {"status": "missing_bfq_marker"}
+            result["ready"] = False
+            continue
+        if marker is None:
+            result["by_scope"][scope] = {"status": "missing_qfq_marker"}
+            result["ready"] = False
+            continue
+        try:
+            marker = validate_qfq_marker(marker, scope=scope)
+        except QFQSyncError as exc:
+            result["by_scope"][scope] = {
+                "status": "invalid_qfq_marker",
+                "error": str(exc),
+            }
+            result["ready"] = False
+            continue
+        active_slot = str(marker["active_slot"])
+        factor_asof = str(marker["slots"][active_slot]["factor_asof"])
+        target_date = str(postclose.get("trade_date") or "")[:10]
+        status = "ready" if factor_asof >= target_date else "stale"
+        result["by_scope"][scope] = {
+            "status": status,
+            "active_slot": active_slot,
+            "factor_asof": factor_asof,
+            "target_date": target_date,
+            "snapshot_id": marker["slots"][active_slot]["snapshot_id"],
+        }
+        if status != "ready":
+            result["ready"] = False
+    return result
+
+
 def run_forever(*, poll_seconds: int = 60, scopes=("stock", "etf")) -> None:
     delay = max(5, int(poll_seconds))
     while True:
@@ -126,9 +171,15 @@ def _build_parser() -> argparse.ArgumentParser:
     audit = subparsers.add_parser("audit")
     audit.add_argument("--scope", choices=sorted(FACTOR_COLLECTIONS), required=True)
     audit.add_argument("--slot", choices=["a", "b"])
+    audit.add_argument("--code")
+    audit.add_argument(
+        "--mode", choices=["structure", "tail", "full"], default="structure"
+    )
+    audit.add_argument("--tail-days", type=int, default=60)
 
     status = subparsers.add_parser("status")
     status.add_argument("--scope", choices=sorted(FACTOR_COLLECTIONS))
+    status.add_argument("--strict", action="store_true")
 
     rollback = subparsers.add_parser("rollback")
     rollback.add_argument("--scope", choices=sorted(FACTOR_COLLECTIONS), required=True)
@@ -137,6 +188,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    exit_code = 0
     if args.command == "worker":
         if args.once:
             payload = run_pending_once(scopes=args.scope)
@@ -158,16 +210,27 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "audit":
         marker = validate_qfq_marker(get_qfq_marker(scope=args.scope), scope=args.scope)
         slot = args.slot or str(marker["active_slot"])
-        payload = audit_qfq_slot(scope=args.scope, slot=slot)
+        source_client = XtDataQfqClient() if args.mode in {"tail", "full"} else None
+        payload = audit_qfq_slot(
+            scope=args.scope,
+            slot=slot,
+            codes=[args.code] if args.code else None,
+            bars_loader=(source_client.load_daily_bars if source_client else None),
+            source_tail_days=args.tail_days if args.mode == "tail" else None,
+        )
         if not payload["ok"]:
             raise QFQSyncError(f"{args.scope}/{slot} audit failed", stats=payload)
     elif args.command == "status":
         scopes = [args.scope] if args.scope else sorted(FACTOR_COLLECTIONS)
-        payload = {scope: get_qfq_marker(scope=scope) for scope in scopes}
+        if args.strict:
+            payload = qfq_readiness_status(scopes=scopes)
+            exit_code = 0 if payload["ready"] else 1
+        else:
+            payload = {scope: get_qfq_marker(scope=scope) for scope in scopes}
     else:
         payload = rollback_active_slot(scope=args.scope)
     print(json.dumps(payload, ensure_ascii=False, default=str))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
