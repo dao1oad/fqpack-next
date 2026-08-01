@@ -34,6 +34,7 @@ D:\fqpack\runtime\tmp\issue480-validation-summary.txt
 ## 2026-08-01 Issue #482 production_v1 当前工作树复验
 
 - 构建来源：从当前 `codex/issue-482-clx-daily-selection` task-only 候选源码，CPython 3.12 强制原地构建 `fqchan04`、`fqcopilot` 与 `fullcalc` 三个扩展，构建命令退出码均为 0；验证进程打印的模块路径均指向隔离候选，未复用 canonical root 的旧二进制。新五参数 `recognise_bi(..., close, options)` 保留旧四参数重载，候选 `fqchan04` 的旧 Python 调用实际执行通过。
+- 四参数 legacy 等值回归：分别从 `origin/main` 与候选强制构建 `fqchan04`，对 5 个固定种子、每组 900 bars、`bi_mode=default/4/5/6` 的输出做逐值 SHA256；两侧均为 `bc6281423286ccad3f875854d2fde87ffe3ed0d9e30ba65690b44722e8e9ed24`，且 `11/-11/12/-12` 计数均为 0。只有带非空 close 的五参数 production 路径生成确认 marker。
 - 接口口径：`fq_clxs_all(..., switch_opt=0)` 保持 `legacy_sall_v0` 默认；显式 `switch_opt=1` 为 `production_v1`，并对非法 switch 与 OHLCV/length 不对齐 fail-fast。
 - 固定 fixture：4 组样本 × 18 模型逐 bar 对账全部通过；S0015 包含在统一 parity 中。S0002 entrypoint 3 的 `+1/+2/-1/-2` 四类结构证据 fixture 全覆盖。
 - 原生专项测试：`10 passed`；真实数据验证前后构建产物可导入并执行 production batch、single 与 S0002 evidence 接口。
