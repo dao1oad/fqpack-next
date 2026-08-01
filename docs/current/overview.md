@@ -6,9 +6,12 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 
 ## 当前已落地能力
 
-- HTTP API 已统一挂载 `stock / gantt / daily-screening / order / position-management / position-review / subject-management / tpsl / runtime / system-config`
+- HTTP API 已统一挂载 `stock / gantt / daily-screening / clx-daily-selection / order / position-management / position-review / subject-management / tpsl / runtime / system-config`
+- 独立 `clx_daily_selection` 已提供 S0000-S0017 的 `production_v1 / switch_opt=1` 日线计算、批次查询与解释证据 API；它不复用旧 12 模型 `/daily-screening` 的 scope 或 marker
+- CLX 盘后链采用 stock/ETF partition fork-join：任一侧 ready marker success 即启动本侧计算，partition 由 owner/token lease fencing；三个 sensor newest-first 追赶最近 5 个已完成交易日；双侧完成只门控持久化 finalization attempt、正式发布和跨资产统计，单侧完成可明确展示 partial
 - Guardian、订单管理、仓位管理、TPSL 已形成分层交易链
 - `PositionManagement / KlineSlim / RuntimeObservability / SystemSettings` 已统一为 workbench 风格页面
+- 桌面 `/clx-daily-screening` 已提供批次状态、模型/条件筛选、结果/统计/partition 元数据和证据详情；`KlineSlim` 左栏与右侧 CLX 工作台复用相同 scope，并把历史 marker 真正绘制到当前 K 线 series
 - `PositionReview` 已通过顶部“持仓复盘”导航和独立 `/position-review` 路由提供只读历史交易复盘；当前持仓与已清仓标的使用同一套全量成交、策略判定和图表口径
 - `SubjectManagement` 独立路由已移除，相关读模型与行内编辑能力已并入 `PositionManagement` 中栏“标的总览”
 - 订单账本已经切到 `broker order / execution fill / position entry / reconciliation` 主语义
@@ -23,7 +26,7 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 ## 当前目录职责
 
 - `freshquant/`
-  - API、CLI、订单、仓位、TPSL、运行观测与行情处理
+  - API、CLI、CLX 日线选股、订单、仓位、TPSL、运行观测与行情处理
 - `morningglory/fqwebui/`
   - Web UI
 - `morningglory/fqdagster/`
@@ -42,6 +45,14 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 - 运行真相源：最新远程 `origin/main` 的正式 deploy 结果
 - 文档真值
   - `docs/current/**`
+- CLX 日选 partition 真值
+  - `freshquant_clx_daily_selection.partitions` 及其 `memberships / snapshots / model_stats`
+- CLX finalizer dispatch 真值
+  - `freshquant_clx_daily_selection.finalization_attempts` 中持久化的 batch generation 与两个 partition id
+- CLX 默认完整批次真值
+  - `freshquant_clx_daily_selection.batch_statuses` 中 `is_final=true` 且 `publication.status in [published, not_required]` 的最新 batch
+  - 普通 partial 与 publication `pending/publishing/failed` 仅作显式中间态，不替代正式发布
+  - ready marker publication 还必须通过规范 UTC `generation_order + publication_id` CAS；迟到旧 generation 的 batch 保持 `failed/stale_publication`
 - 券商仓位真值
   - `xt_positions`
 - 券商成交与持仓复盘历史真值
@@ -63,4 +74,11 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 
 - 保持 `xt_positions`、订单账本、TPSL、前端读模型的一致性
 - 保持 docs、deploy、health check、cleanup 与合并结果同步
+- 保持 stock/ETF marker、最近 5 个已完成交易日 catch-up、partition owner/token fencing、独立 attempt/漂移处理、不可变 partition、finalization attempt 与 generation-aware publication CAS 合同一致
 - 继续压缩 legacy `buy_lot / stock_fills_compat` 的运行期影响面
+
+## 模块入口
+
+- [CLX 日线选股](./modules/clx-daily-selection.md)
+- [Kline Web UI](./modules/kline-webui.md)
+- [每日选股（旧 12 模型链）](./modules/daily-screening.md)

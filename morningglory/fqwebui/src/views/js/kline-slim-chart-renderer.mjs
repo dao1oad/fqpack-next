@@ -17,6 +17,14 @@ import {
   ORDER_REVIEW_TIMELINE_COLORS,
   buildOrderReviewOverlayData,
 } from '../orderReviewTimeline.mjs'
+import {
+  aggregateClxMarkersByBar,
+  anchorClxMarkersToBars,
+  filterClxMarkers,
+  getClxModelColor,
+} from './kline-slim-clx.mjs'
+
+export const CLX_SIGNAL_LEGEND_NAME = 'CLX日线信号'
 
 function toTimestamp(value) {
   const parsed = parseTimestampMs(value)
@@ -1453,9 +1461,171 @@ function buildOrderReviewSeries(layer) {
   ]
 }
 
+function escapeClxTooltip(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function buildKlineSlimClxLayer({
+  history,
+  dates,
+  period,
+  mainCandles,
+  modelKeys = [],
+  conditionKeys = [],
+  markerMode = 'aggregate',
+  selectedMarkerId = '',
+} = {}) {
+  const allMarkers = Array.isArray(history?.markers) ? history.markers : []
+  const visibleMarkers = filterClxMarkers(allMarkers, { modelKeys, conditionKeys })
+  const anchoredMarkers = anchorClxMarkersToBars({
+    markers: visibleMarkers,
+    dates,
+    period,
+  })
+  const groups = markerMode === 'individual'
+    ? anchoredMarkers.map((marker) => ({
+        id: marker.id,
+        barIndex: marker.barIndex,
+        anchorDate: marker.anchorDate,
+        markers: [marker],
+        modelKeys: [marker.modelKey],
+        conditionKeys: marker.conditionKey ? [marker.conditionKey] : [],
+        count: 1,
+        direction: marker.direction,
+      }))
+    : aggregateClxMarkersByBar(anchoredMarkers)
+
+  const barOrdinals = new Map()
+  const projectedGroups = groups.map((group) => {
+    const candle = mainCandles[group.barIndex]
+    const markerPrice = group.markers
+      .map((marker) => Number(marker.price))
+      .find(Number.isFinite)
+    const sellOnly = group.direction === 'sell' || group.direction === 'bearish'
+    const buyOnly = group.direction === 'buy' || group.direction === 'bullish'
+    const fallbackPrice = sellOnly
+      ? Number(candle?.high) * 1.006
+      : buyOnly
+        ? Number(candle?.low) * 0.994
+        : Number(candle?.close)
+    const price = Number.isFinite(markerPrice) ? markerPrice : fallbackPrice
+    if (!candle || !Number.isFinite(price)) return null
+    const barOrdinal = barOrdinals.get(group.barIndex) || 0
+    barOrdinals.set(group.barIndex, barOrdinal + 1)
+    return {
+      ...group,
+      plotSlot: candle.ts,
+      price,
+      selected: Boolean(selectedMarkerId) && (
+        group.id === selectedMarkerId ||
+        group.markers.some((marker) => marker.id === selectedMarkerId)
+      ),
+      stackOffset: markerMode === 'individual'
+        ? barOrdinal * (sellOnly ? -8 : 8)
+        : 0,
+      calculationMeta: {
+        profileId: history?.profileId || '',
+        algorithmVersion: history?.algorithmVersion || '',
+        dataVersion: history?.dataVersion || '',
+      },
+    }
+  }).filter(Boolean)
+
+  return {
+    allCount: allMarkers.length,
+    visibleCount: visibleMarkers.length,
+    hasData: projectedGroups.length > 0,
+    groups: projectedGroups,
+  }
+}
+
+function buildClxSignalTooltipFormatter(params) {
+  const group = params?.data?.clxGroup
+  if (!group) return ''
+  const lines = [
+    `<strong>${escapeClxTooltip(group.anchorDate || 'CLX 日线信号')}</strong>`,
+    `模型 ${escapeClxTooltip(group.modelKeys.join(' / '))}`,
+  ]
+  if (group.conditionKeys.length) {
+    lines.push(`条件 ${escapeClxTooltip(group.conditionKeys.join(' / '))}`)
+  }
+  group.markers.slice(0, 8).forEach((marker) => {
+    const raw = marker.signalValueRaw === null || marker.signalValueRaw === undefined
+      ? '-'
+      : marker.signalValueRaw
+    const source = marker.source ? ` · ${marker.source}` : ''
+    const line = Number.isFinite(Number(marker.lineValue)) ? ` · 连线 ${Number(marker.lineValue)}` : ''
+    lines.push(
+      `${escapeClxTooltip(marker.modelKey)} · ${escapeClxTooltip(marker.conditionLabel || marker.conditionKey || '未标注')} · raw ${escapeClxTooltip(raw)}${escapeClxTooltip(line)}${escapeClxTooltip(source)}`
+    )
+  })
+  if (group.markers.length > 8) lines.push(`另有 ${group.markers.length - 8} 条`)
+  const meta = group.calculationMeta || {}
+  lines.push(
+    `profile ${escapeClxTooltip(meta.profileId || '-')} · algorithm ${escapeClxTooltip(meta.algorithmVersion || '-')} · data ${escapeClxTooltip(meta.dataVersion || '-')}`
+  )
+  return lines.join('<br/>')
+}
+
+function buildClxSignalSeries(scene) {
+  if (!scene?.clxSignals?.hasData) return null
+  return {
+    id: `clx-signal-${scene.sceneScopeId}`,
+    name: CLX_SIGNAL_LEGEND_NAME,
+    type: 'scatter',
+    xAxisIndex: 0,
+    yAxisIndex: 0,
+    animation: false,
+    z: 14,
+    symbol: 'pin',
+    symbolSize: (value, params) => Math.min(34, 18 + Math.max(0, Number(params?.data?.clxGroup?.count || 1) - 1) * 3),
+    data: scene.clxSignals.groups.map((group) => ({
+      id: group.id,
+      value: [group.plotSlot, group.price],
+      clxGroup: group,
+      symbol: group.direction === 'mixed' || group.direction === 'neutral'
+        ? 'diamond'
+        : group.direction === 'sell' || group.direction === 'bearish'
+          ? 'triangle'
+          : 'pin',
+      symbolRotate: group.direction === 'sell' || group.direction === 'bearish' ? 180 : 0,
+      symbolOffset: [group.stackOffset, 0],
+      label: {
+        show: group.count > 1,
+        formatter: String(group.count),
+        color: '#ffffff',
+        fontSize: 9,
+        fontWeight: 700,
+      },
+      itemStyle: {
+        color: group.selected
+          ? '#f59e0b'
+          : group.direction === 'mixed' || group.direction === 'neutral'
+            ? '#64748b'
+            : getClxModelColor(group.modelKeys[0]),
+        borderColor: group.selected ? '#ffffff' : '#0f172a',
+        borderWidth: group.selected ? 2 : 1,
+        opacity: group.selected ? 1 : 0.92,
+      },
+    })),
+    emphasis: {
+      scale: 1.25,
+    },
+    tooltip: {
+      show: true,
+      formatter: buildClxSignalTooltipFormatter,
+    },
+  }
+}
+
 function buildSceneRenderSeries(scene, viewport) {
   const windowBounds = pickViewportWindow(scene, viewport) || scene.mainWindow
-  const series = scene.legendNames.map((name) => {
+  const series = scene.legendNames.filter((name) => name !== CLX_SIGNAL_LEGEND_NAME).map((name) => {
     const periodPalette = PERIOD_STYLE_MAP[name]
     const priceGuideLegend = scene.priceGuideLegendEntries.find((item) => item.legendName === name)
     return buildLegendPlaceholderSeries(
@@ -1537,6 +1707,11 @@ function buildSceneRenderSeries(scene, viewport) {
     series.push(...buildOrderReviewSeries(scene.orderReview))
   }
 
+  if (scene.clxSignalsVisible) {
+    const clxSeries = buildClxSignalSeries(scene)
+    if (clxSeries) series.push(clxSeries)
+  }
+
   return series
 }
 
@@ -1552,7 +1727,13 @@ export function buildKlineSlimChartScene({
   priceGuideEditMode = false,
   priceGuideEditLocked = false,
   orderReviewTimeline = null,
-  orderReviewVisible = false
+  orderReviewVisible = false,
+  clxSignalHistory = null,
+  clxModelKeys = [],
+  clxConditionKeys = [],
+  clxVisible = false,
+  clxMarkerMode = 'aggregate',
+  clxSelectedMarkerId = ''
 } = {}) {
   const normalizedCurrent = normalizeChanlunPeriod(currentPeriod)
   const dates = Array.isArray(mainData?.date) ? mainData.date : []
@@ -1612,17 +1793,36 @@ export function buildKlineSlimChartScene({
       })
     : null
   const orderReviewTrackVisible = Boolean(visibleOrderReview && orderReview?.hasData)
+  const visibleClxSignals = Boolean(clxVisible)
+  const clxSignals = visibleClxSignals
+    ? buildKlineSlimClxLayer({
+        history: clxSignalHistory,
+        dates,
+        period: normalizedCurrent,
+        mainCandles: buildCandleItems(mainData, normalizedCurrent, tradingAxis),
+        modelKeys: clxModelKeys,
+        conditionKeys: clxConditionKeys,
+        markerMode: clxMarkerMode,
+        selectedMarkerId: clxSelectedMarkerId,
+      })
+    : null
+  const clxLegendNames = visibleClxSignals && clxSignals?.hasData ? [CLX_SIGNAL_LEGEND_NAME] : []
 
   return {
     symbol: mainData.symbol || '',
     name: mainData.name || '',
     currentPeriod: normalizedCurrent,
     sceneScopeId,
-    legendNames: legendNames.concat(priceGuideLegendEntries.map((item) => item.legendName)),
+    legendNames: legendNames
+      .concat(priceGuideLegendEntries.map((item) => item.legendName))
+      .concat(clxLegendNames),
     legendSelected: {
       ...resolvedLegendSelected,
       ...(orderReviewTrackVisible
         ? buildOrderReviewLegendSelectionState(legendSelected)
+        : {}),
+      ...(clxLegendNames.length
+        ? { [CLX_SIGNAL_LEGEND_NAME]: legendSelected?.[CLX_SIGNAL_LEGEND_NAME] !== false }
         : {}),
     },
     priceGuideLegendEntries,
@@ -1641,6 +1841,8 @@ export function buildKlineSlimChartScene({
     orderReviewVisible: visibleOrderReview,
     orderReviewTrackVisible,
     orderReview,
+    clxSignalsVisible: visibleClxSignals,
+    clxSignals,
     periodScenes,
     structureBoxes: periodScenes.flatMap((periodScene) => periodScene.structureBoxes)
   }
@@ -1757,6 +1959,7 @@ export function buildKlineSlimChartOption({
 
   const visiblePeriodsText = scene.periodScenes.map((item) => item.period).join(' / ')
   const orderReviewVisible = Boolean(scene.orderReviewTrackVisible)
+  const clxSignalsVisible = Boolean(scene.clxSignalsVisible && scene.clxSignals?.hasData)
   const reviewLayout = orderReviewVisible ? resolveOrderReviewTrackLayout(chart) : null
   const compactOrderReviewLegend = Boolean(reviewLayout?.compactLegend)
   const reviewXAxisIndexes = orderReviewVisible ? [0, 1, 2] : [0]
@@ -1886,9 +2089,9 @@ export function buildKlineSlimChartOption({
       data: legendNames
     },
     tooltip: {
-      show: orderReviewVisible,
+      show: orderReviewVisible || clxSignalsVisible,
       trigger: 'item',
-      triggerOn: orderReviewVisible ? 'mousemove' : 'none',
+      triggerOn: orderReviewVisible || clxSignalsVisible ? 'mousemove|click' : 'none',
     },
     axisPointer: orderReviewVisible
       ? { link: [{ xAxisIndex: reviewXAxisIndexes }] }

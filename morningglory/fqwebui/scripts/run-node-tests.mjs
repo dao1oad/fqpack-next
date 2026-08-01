@@ -68,9 +68,14 @@ if (!includeKnownRed) {
   }
 }
 
+const testArgs = ['--test', ...runnableFiles.map(({ filePath }) => filePath)]
+if (process.allowedNodeEnvironmentFlags.has('--experimental-default-type')) {
+  testArgs.unshift('--experimental-default-type=module')
+}
+
 const result = spawnSync(
   process.execPath,
-  ['--experimental-default-type=module', '--test', ...runnableFiles.map(({ filePath }) => filePath)],
+  testArgs,
   {
     cwd: projectRoot,
     stdio: 'inherit',

@@ -3,7 +3,10 @@ import { stockApi } from '@/api/stockApi'
 
 import echartsConfig from './js/echartsConfig'
 import { createKlineSlimViewportState } from './js/kline-slim-chart-controller.mjs'
-import { buildKlineSlimChartScene } from './js/kline-slim-chart-renderer.mjs'
+import {
+  CLX_SIGNAL_LEGEND_NAME,
+  buildKlineSlimChartScene,
+} from './js/kline-slim-chart-renderer.mjs'
 import {
   buildResolvedKlineSlimQuery,
   canApplyResolvedKlineSlimRoute,
@@ -29,6 +32,7 @@ import {
   normalizeReasonItems
 } from './klineSlimSidebar.mjs'
 import { closeOtherPanels } from './klineSlimPageState.mjs'
+import { parseKlineClxQuery, resolveClxAssetType } from './js/kline-slim-clx.mjs'
 
 const DEFAULT_PERIOD = DEFAULT_MAIN_PERIOD
 const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
@@ -36,6 +40,14 @@ const CHANLUN_POLL_MS = 15000
 
 function getRoutePeriod(route) {
   return normalizeChanlunPeriod(route?.query?.period || DEFAULT_PERIOD)
+}
+
+function getChartRouteKey(route = {}) {
+  return [
+    String(route?.query?.symbol || '').trim(),
+    String(route?.query?.period || '').trim(),
+    String(route?.query?.endDate || '').trim(),
+  ].join('__')
 }
 
 function resetSubjectPanelState(state, { preserveOpen = false } = {}) {
@@ -68,10 +80,15 @@ export const klineSlimController = {
   },
   beforeUnmount() {
     this.routeToken += 1
+    this.abortMainDataRequest()
+    this.clxSidebarRequestId += 1
+    this.clxSidebarBatchesAbortController?.abort?.()
+    this.clxSidebarResultsAbortController?.abort?.()
     this.resolvingDefaultSymbol = false
     document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('resize', this.handleResize)
     this.stopPolling()
+    this.clxHistoryAbortController?.abort?.()
     if (this.renderFrameId) {
       window.cancelAnimationFrame(this.renderFrameId)
       this.renderFrameId = 0
@@ -90,6 +107,7 @@ export const klineSlimController = {
   methods: {
     async loadSidebarData() {
       await Promise.allSettled([
+        this.loadClxSidebar(),
         this.loadHoldingList(),
         this.loadMustPools(),
         this.loadStockPools(),
@@ -99,15 +117,33 @@ export const klineSlimController = {
     handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
         this.handleRouteChange()
+        this.ensureRealtimePolling()
         return
       }
       this.stopPolling()
     },
     handleRouteChange() {
+      const chartRouteKey = getChartRouteKey(this.$route)
+      const clxRouteState = parseKlineClxQuery(this.$route.query)
+      if (this.lastHandledChartRouteKey && this.lastHandledChartRouteKey === chartRouteKey) {
+        this.applyClxRouteState(clxRouteState)
+        this.loadClxSidebar()
+        if (this.showClxWorkbench && this.routeSymbol) {
+          this.loadClxHistory()
+        } else {
+          this.abortClxHistoryRequest()
+        }
+        this.ensureRealtimePolling()
+        this.scheduleRender()
+        return
+      }
+      const isFirstChartRoute = !this.lastHandledChartRouteKey
+      this.lastHandledChartRouteKey = chartRouteKey
       this.currentPeriod = getRoutePeriod(this.$route)
+      this.applyClxRouteState(clxRouteState)
       this.periodLegendSelected = buildPeriodLegendSelectionState({
         currentPeriod: this.currentPeriod,
-        previousSelected: this.periodLegendSelected
+        previousSelected: isFirstChartRoute ? null : this.periodLegendSelected
       })
       this.visibleChanlunPeriods = getVisibleChanlunPeriods({
         currentPeriod: this.currentPeriod,
@@ -190,12 +226,11 @@ export const klineSlimController = {
         })
       }
       this.refreshVisibleChanlunPeriods(this.routeToken)
-      if (this.isRealtimeMode && document.visibilityState === 'visible') {
-        this.chanlunRefreshTimer = window.setInterval(
-          () => this.refreshVisibleChanlunPeriods(this.routeToken),
-          CHANLUN_POLL_MS
-        )
+      this.loadClxSidebar()
+      if (this.showClxWorkbench) {
+        this.loadClxHistory()
       }
+      this.ensureRealtimePolling()
     },
     async resolveDefaultSymbol(token) {
       try {
@@ -226,13 +261,17 @@ export const klineSlimController = {
           return
         }
 
+        const nextQuery = buildResolvedKlineSlimQuery({
+          currentQuery: this.$route.query,
+          symbol,
+          period: this.currentPeriod
+        })
         this.$router.replace({
           path: '/kline-slim',
-          query: buildResolvedKlineSlimQuery({
-            currentQuery: this.$route.query,
-            symbol,
-            period: this.currentPeriod
-          })
+          query: {
+            ...nextQuery,
+            clxAssetType: resolveClxAssetType(symbol)
+          }
         })
       } catch (error) {
         if (token !== this.routeToken) {
@@ -252,7 +291,8 @@ export const klineSlimController = {
         query: {
           ...this.$route.query,
           symbol,
-          period: this.currentPeriod
+          period: this.currentPeriod,
+          clxAssetType: resolveClxAssetType(symbol, item?.assetType || item?.raw?.asset_type)
         }
       })
     },
@@ -330,7 +370,9 @@ export const klineSlimController = {
         this.closePriceGuidePanel()
         return
       }
+      const clxWasOpen = this.showClxWorkbench
       closeOtherPanels(this, 'showPriceGuidePanel')
+      if (clxWasOpen) await this.syncClxRouteState()
       this.showPriceGuidePanel = true
       this.priceGuideEditMode = true
       this.priceGuideDragDirty = false
@@ -356,7 +398,9 @@ export const klineSlimController = {
         this.closeChanlunStructurePanel()
         return
       }
+      const clxWasOpen = this.showClxWorkbench
       closeOtherPanels(this, 'showChanlunStructurePanel')
+      if (clxWasOpen) await this.syncClxRouteState()
       await this.openChanlunStructurePanel()
     },
     stopPolling() {
@@ -364,6 +408,19 @@ export const klineSlimController = {
         window.clearInterval(this.chanlunRefreshTimer)
         this.chanlunRefreshTimer = null
       }
+    },
+    ensureRealtimePolling() {
+      if (
+        !this.isRealtimeMode ||
+        document.visibilityState !== 'visible' ||
+        this.chanlunRefreshTimer
+      ) {
+        return
+      }
+      this.chanlunRefreshTimer = window.setInterval(
+        () => this.refreshVisibleChanlunPeriods(this.routeToken),
+        CHANLUN_POLL_MS
+      )
     },
     async refreshVisibleChanlunPeriods(token = this.routeToken) {
       const refreshPeriods = getRealtimeRefreshPeriods({
@@ -396,8 +453,14 @@ export const klineSlimController = {
           .concat(JSON.stringify(this.periodLegendSelected))
           .concat(JSON.stringify(this.priceGuideLegendSelected))
           .concat(JSON.stringify(this.orderReviewLegendSelected))
+          .concat(this.clxLegendSelected ? 'clx-legend:on' : 'clx-legend:off')
+          .concat(JSON.stringify(this.clxSelectedModelKeys))
+          .concat(JSON.stringify(this.clxSelectedConditionKeys))
+          .concat(this.clxMarkerMode || 'aggregate')
+          .concat(this.clxSelectedMarkerId || '')
           .concat(this.priceGuideRenderVersion || '')
           .concat(this.showOrderReview ? `order-review:${this.orderReviewVersion || 0}` : 'order-review:off')
+          .concat(this.showClxWorkbench ? `clx:${this.clxHistoryVersion || 0}` : 'clx:off')
           .join('__')
         if (
           renderVersion === this.lastRenderedVersion &&
@@ -419,14 +482,21 @@ export const klineSlimController = {
           legendSelected: {
             ...this.periodLegendSelected,
             ...this.priceGuideLegendSelected,
-            ...this.orderReviewLegendSelected
+            ...this.orderReviewLegendSelected,
+            [CLX_SIGNAL_LEGEND_NAME]: this.clxLegendSelected
           },
           priceGuides: this.draftChartPriceGuides,
           editablePriceGuides: this.editablePriceGuides,
           priceGuideEditMode: this.priceGuideEditMode,
           priceGuideEditLocked: this.priceGuideEditLocked,
           orderReviewTimeline: this.orderReviewTimeline,
-          orderReviewVisible: this.showOrderReview
+          orderReviewVisible: this.showOrderReview,
+          clxSignalHistory: this.clxSignalHistory,
+          clxModelKeys: this.clxSelectedModelKeys,
+          clxConditionKeys: this.clxSelectedConditionKeys,
+          clxVisible: this.showClxWorkbench && this.clxHistoryContractValid,
+          clxMarkerMode: this.clxMarkerMode,
+          clxSelectedMarkerId: this.clxSelectedMarkerId
         })
         if (!scene) {
           return
@@ -451,7 +521,8 @@ export const klineSlimController = {
         query: {
           ...this.$route.query,
           symbol,
-          period: this.currentPeriod
+          period: this.currentPeriod,
+          clxAssetType: resolveClxAssetType(symbol)
         }
       })
     },
@@ -492,6 +563,9 @@ export const klineSlimController = {
       this.refreshVisibleChanlunPeriods(this.routeToken)
       if (this.showOrderReview) {
         this.loadOrderReviewTimeline({ force: true })
+      }
+      if (this.showClxWorkbench) {
+        this.loadClxHistory({ force: true })
       }
     },
     resetChartViewport() {

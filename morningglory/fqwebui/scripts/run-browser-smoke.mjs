@@ -11,6 +11,7 @@ const smokeSpecs = (
   process.env.FQ_BROWSER_SMOKE_SPECS
     ? process.env.FQ_BROWSER_SMOKE_SPECS.split(',').map((item) => item.trim()).filter(Boolean)
     : [
+        'tests/clx-daily-selection.browser.spec.mjs',
         'tests/daily-screening.browser.spec.mjs',
         'tests/system-settings.browser.spec.mjs',
         'tests/workbench-overlap.browser.spec.mjs',

@@ -15,6 +15,11 @@ def create_app():
     app.register_blueprint(
         import_module("freshquant.rear.daily_screening.routes").daily_screening_bp
     )
+    app.register_blueprint(
+        import_module(
+            "freshquant.rear.clx_daily_selection.routes"
+        ).clx_daily_selection_bp
+    )
     app.register_blueprint(import_module("freshquant.rear.order.routes").order_bp)
     app.register_blueprint(
         import_module(

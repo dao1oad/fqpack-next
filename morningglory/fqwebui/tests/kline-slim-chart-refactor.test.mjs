@@ -128,6 +128,7 @@ function createControllerStubChart() {
   return {
     handlers,
     setOptionCalls: [],
+    dispatchActionCalls: [],
     on(name, handler) {
       handlers[name] = handler
     },
@@ -169,9 +170,171 @@ function createControllerStubChart() {
       }
     },
     hideLoading() {},
+    dispatchAction(action) {
+      this.dispatchActionCalls.push(action)
+    },
     clear() {}
   }
 }
+
+test('CLX history markers become a real ECharts series with same-day aggregation and visibility filters', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload({
+      symbol: 'sz000001',
+      date: ['2026-03-06', '2026-03-09', '2026-03-10'],
+      open: [10, 10.2, 10.4],
+      close: [10.1, 10.3, 10.5],
+      low: [9.9, 10.1, 10.3],
+      high: [10.2, 10.4, 10.6],
+      bidata: { date: [], data: [] },
+      duandata: { date: [], data: [] },
+      higherDuanData: { date: [], data: [] },
+    }),
+    currentPeriod: '1d',
+    clxVisible: true,
+    clxModelKeys: ['S0003'],
+    clxSignalHistory: {
+      markers: [
+        { id: 'm-1', modelKey: 'S0003', conditionKey: 'buy', triggerDate: '2026-03-09', direction: 'buy', signalValueRaw: 301 },
+        { id: 'm-2', modelKey: 'S0003', conditionKey: 'divergence', triggerDate: '2026-03-09', direction: 'buy', signalValueRaw: 302 },
+        { id: 'm-3', modelKey: 'S0007', conditionKey: 'buy', triggerDate: '2026-03-10', direction: 'buy', signalValueRaw: 701 },
+      ],
+    },
+  })
+  const option = buildKlineSlimChartOption({
+    scene,
+    viewport: deriveViewportStateForScene({ scene, viewport: createKlineSlimViewportState() }),
+  })
+  const series = option.series.find((item) => item.id === `clx-signal-${scene.sceneScopeId}`)
+
+  assert.equal(scene.clxSignals.allCount, 3)
+  assert.equal(scene.clxSignals.visibleCount, 2)
+  assert.equal(series.type, 'scatter')
+  assert.equal(series.data.length, 1)
+  assert.equal(series.data[0].clxGroup.count, 2)
+  assert.equal(option.tooltip.show, true)
+})
+
+test('CLX mixed aggregation uses a neutral marker and keeps line/source facts in tooltip', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload({
+      symbol: 'sz000001',
+      date: ['2026-03-09'],
+      open: [10],
+      close: [10.1],
+      low: [9.9],
+      high: [10.2],
+      bidata: { date: [], data: [] },
+      duandata: { date: [], data: [] },
+      higherDuanData: { date: [], data: [] },
+    }),
+    currentPeriod: '1d',
+    clxVisible: true,
+    clxSignalHistory: {
+      profileId: 'production_v1',
+      algorithmVersion: 'clx18-production-v1',
+      dataVersion: 'qfq-daily-v1',
+      markers: [
+        { id: 'buy', modelKey: 'S0003', conditionKey: 'entrypoint_1', triggerDate: '2026-03-09', direction: 'buy', signalValueRaw: 301, lineValue: 10.08, source: 'chanlun-v1' },
+        { id: 'sell', modelKey: 'S0007', conditionKey: 'entrypoint_2', triggerDate: '2026-03-09', direction: 'sell', signalValueRaw: -702 },
+      ],
+    },
+  })
+  const option = buildKlineSlimChartOption({
+    scene,
+    viewport: deriveViewportStateForScene({ scene, viewport: createKlineSlimViewportState() }),
+  })
+  const series = option.series.find((item) => item.id === `clx-signal-${scene.sceneScopeId}`)
+  const point = series.data[0]
+  const tooltip = series.tooltip.formatter({ data: point })
+
+  assert.equal(point.clxGroup.direction, 'mixed')
+  assert.equal(point.symbol, 'diamond')
+  assert.equal(point.itemStyle.color, '#64748b')
+  assert.match(tooltip, /连线 10\.08/)
+  assert.match(tooltip, /chanlun-v1/)
+  assert.match(tooltip, /profile production_v1/)
+})
+
+test('CLX individual marker offsets reset per bar and remain unique beyond four markers', () => {
+  const markers = [
+    { id: 'day-1', modelKey: 'S0001', triggerDate: '2026-03-06', direction: 'buy' },
+    { id: 'day-2', modelKey: 'S0002', triggerDate: '2026-03-09', direction: 'buy' },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      id: `same-day-${index + 2}`,
+      modelKey: `S000${index + 3}`,
+      triggerDate: '2026-03-09',
+      direction: 'buy',
+    })),
+  ]
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload({
+      date: ['2026-03-06', '2026-03-09'],
+      open: [10, 10.2],
+      close: [10.1, 10.3],
+      low: [9.9, 10.1],
+      high: [10.2, 10.4],
+      bidata: { date: [], data: [] },
+      duandata: { date: [], data: [] },
+      higherDuanData: { date: [], data: [] },
+    }),
+    currentPeriod: '1d',
+    clxVisible: true,
+    clxMarkerMode: 'individual',
+    clxSignalHistory: { markers },
+  })
+  const option = buildKlineSlimChartOption({
+    scene,
+    viewport: deriveViewportStateForScene({ scene, viewport: createKlineSlimViewportState() }),
+  })
+  const series = option.series.find((item) => item.id === `clx-signal-${scene.sceneScopeId}`)
+  const offsetsById = Object.fromEntries(series.data.map((item) => [item.id, item.symbolOffset]))
+  const sameDayOffsets = series.data
+    .filter((item) => item.clxGroup.barIndex === 1)
+    .map((item) => item.symbolOffset[0])
+
+  assert.deepEqual(offsetsById['day-1'], [0, 0])
+  assert.deepEqual(offsetsById['day-2'], [0, 0])
+  assert.deepEqual(sameDayOffsets, [0, 8, 16, 24, 32])
+  assert.equal(new Set(sameDayOffsets).size, 5)
+})
+
+test('chart controller links CLX series clicks and timeline focus to marker detail and viewport', () => {
+  const chart = createControllerStubChart()
+  const selected = []
+  const controller = createKlineSlimChartController({
+    chart,
+    onClxMarkerSelect(group) {
+      selected.push(group)
+    },
+  })
+  const scene = buildKlineSlimChartScene({
+    mainData: createMainPayload(),
+    currentPeriod: '5m',
+    clxVisible: true,
+    clxSignalHistory: {
+      markers: [{
+        id: 'm-click',
+        modelKey: 'S0003',
+        conditionKey: 'buy',
+        triggerDate: '2026-03-09',
+        direction: 'buy',
+      }],
+    },
+  })
+  controller.applyScene(scene)
+  const group = scene.clxSignals.groups[0]
+
+  chart.handlers.click?.({
+    seriesId: `clx-signal-${scene.sceneScopeId}`,
+    data: { clxGroup: group },
+  })
+  const focused = controller.focusClxMarker('m-click')
+
+  assert.equal(selected[0].markers[0].id, 'm-click')
+  assert.equal(focused, true)
+  assert.deepEqual(chart.dispatchActionCalls.map((item) => item.type), ['downplay', 'highlight', 'showTip'])
+})
 
 function createLunchGapMainPayload() {
   return createMainPayload({
