@@ -64,6 +64,9 @@ test('KlineSlim controller owns route, polling, sidebar and panel orchestration 
   assert.match(controllerSource, /created\(\)/)
   assert.match(controllerSource, /mounted\(\)/)
   assert.match(controllerSource, /beforeUnmount\(\)/)
+  assert.match(controllerSource, /new ResizeObserver\(this\.handleResize\)/)
+  assert.match(controllerSource, /this\.chartResizeObserver\.observe\(this\.\$refs\.chartHost\)/)
+  assert.match(controllerSource, /this\.chartResizeObserver\?\.disconnect\(\)/)
   assert.match(controllerSource, /async loadSidebarData\(/)
   assert.match(controllerSource, /handleRouteChange\(/)
   assert.match(controllerSource, /async resolveDefaultSymbol\(/)
@@ -313,7 +316,7 @@ test('KlineSlim lets the body flow below a wrapping toolbar instead of relying o
     true
   )
   assert.equal(
-    viewSource.includes('.kline-slim-body\n  position relative\n  display flex\n  flex 1'),
+    viewSource.includes('.kline-slim-body\n  position relative\n  display grid\n  grid-template-columns 280px minmax(0, 1fr)\n  flex 1'),
     true
   )
   assert.equal(viewSource.includes('.kline-slim-body\n  top 60px'), false)

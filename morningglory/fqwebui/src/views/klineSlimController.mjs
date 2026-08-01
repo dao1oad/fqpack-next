@@ -73,6 +73,10 @@ export const klineSlimController = {
   },
   mounted() {
     this.initChart()
+    if (typeof ResizeObserver !== 'undefined' && this.$refs.chartHost) {
+      this.chartResizeObserver = new ResizeObserver(this.handleResize)
+      this.chartResizeObserver.observe(this.$refs.chartHost)
+    }
     this.publishBrowserTestHooks()
     this.scheduleRender()
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
@@ -87,6 +91,8 @@ export const klineSlimController = {
     this.resolvingDefaultSymbol = false
     document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('resize', this.handleResize)
+    this.chartResizeObserver?.disconnect()
+    this.chartResizeObserver = null
     this.stopPolling()
     this.clxHistoryAbortController?.abort?.()
     if (this.renderFrameId) {

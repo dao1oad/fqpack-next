@@ -141,6 +141,8 @@ test('Kline CLX route keeps explicit asset type and ETF prefix fallback covers 5
   })
 
   assert.equal(query.clxAssetType, 'etf')
+  assert.equal(parseKlineClxQuery({}).workbenchOpen, false)
+  assert.equal(parseKlineClxQuery({ clxWorkbench: '1' }).workbenchOpen, true)
   assert.equal(parseKlineClxQuery(query).assetType, 'etf')
   assert.equal(resolveClxAssetType('sh520001'), 'etf')
   assert.equal(resolveClxAssetType('sh530001'), 'etf')

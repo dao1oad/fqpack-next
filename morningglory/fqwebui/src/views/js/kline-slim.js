@@ -330,6 +330,7 @@ export default {
       subjectPanelActions: createKlineSlimSubjectPanelActions(subjectManagementApi),
       chart: null,
       chartController: null,
+      chartResizeObserver: null,
       chartViewport: createKlineSlimViewportState(),
       lastHandledChartRouteKey: '',
       symbolInput: '',
