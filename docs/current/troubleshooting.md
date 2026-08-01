@@ -697,6 +697,7 @@ Get-Content D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log -Tail 200
 - XTData 连接或历史下载失败时，先恢复 MiniQMT / XTData 端口，再重新执行 `worker --once`；worker 会把中断的 inactive `building` 状态恢复为可重试的 `failed`。
 - 返回 `writer lease is held` 时，先确认 Supervisor worker 或人工 build / rollback 是否仍在运行；正常 lease 会持续续期并在命令结束时释放，崩溃遗留 lease 到期后由下一轮原子接管，不要并发启动第二个 writer。
 - `audit --mode structure` 只确认 Mongo 结构；递推或 XTData source 对账必须用 `--mode tail|full`。审计失败时保留 active slot，修复源数据或日期轴后用 `build --scope <stock|etf> --target-date YYYY-MM-DD` 重建 inactive slot；不要手工修改 `active_slot` 或在 active 集合上原地修补。
+- `coverage.sentinel_rows_excluded` / `codes_with_sentinel_rows` 表示 BFQ 中精确 QASU 浮点占位行已被排除，`skipped[].reason=sentinel_only_bfq_history` 表示该标的没有可交易 BFQ 历史；这不等同于允许任意 XTData 空结果。只要存在非占位 BFQ 日期而 XTData 缺源，full/tail audit 仍返回 `QFQ_DATA_NOT_READY`。
 - 怀疑 XTData 修订发生在默认 60 个交易日回看窗口之前时，使用同一 active 截止日执行 `build --scope <stock|etf> --target-date YYYY-MM-DD --full`；该命令重算整个 inactive scope，且不接受早于 active `factor_asof` 的日期。
 - 回切前先确认另一槽为 `ready` 并单独执行 `audit --slot <a|b>`，然后使用 `rollback --scope <stock|etf>`；回切只更新原子 marker。
 - 页面或策略结果未变化是当前边界：Stock / ETF 在线 reader 仍读取 `stock_adj` / `etf_adj`，A/B 集合是 shadow 数据。真实 Index 则固定使用 BFQ，不读取 ETF 因子。
