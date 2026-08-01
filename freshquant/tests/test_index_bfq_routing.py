@@ -6,11 +6,17 @@ import pandas as pd
 import pytest
 
 import freshquant.chanlun_structure_service as structure_service
-import freshquant.data.index as index_data
 import freshquant.market_data.xtdata.strategy_consumer as strategy_consumer
 from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.instrument.general import infer_cn_instrument_type
-from freshquant.quote import index as index_quote
+
+
+@pytest.fixture(scope="module")
+def index_modules():
+    import freshquant.data.index as index_data
+    from freshquant.quote import index as index_quote
+
+    return index_data, index_quote
 
 
 class _EmptyCursor:
@@ -85,7 +91,9 @@ def test_shared_cn_security_classification_boundaries(code, expected):
     assert infer_cn_instrument_type(code) == expected
 
 
-def test_index_minute_fetch_does_not_call_to_qfq(monkeypatch):
+def test_index_minute_fetch_does_not_call_to_qfq(monkeypatch, index_modules):
+    index_data, _index_quote = index_modules
+
     class _IndexData:
         data = _bars()
 
@@ -105,7 +113,8 @@ def test_index_minute_fetch_does_not_call_to_qfq(monkeypatch):
     assert result["close"].tolist() == [10.1, 10.3]
 
 
-def test_index_quote_fetcher_preserves_bfq_values(monkeypatch):
+def test_index_quote_fetcher_preserves_bfq_values(monkeypatch, index_modules):
+    _index_data, index_quote = index_modules
     source = _bars().copy()
     source.index = source["datetime"]
     monkeypatch.setattr(
@@ -118,7 +127,10 @@ def test_index_quote_fetcher_preserves_bfq_values(monkeypatch):
     assert result["open"].tolist() == [10.0, 10.2]
 
 
-def test_index_realtime_query_uses_index_market_for_conflicting_code(monkeypatch):
+def test_index_realtime_query_uses_index_market_for_conflicting_code(
+    monkeypatch, index_modules
+):
+    index_data, _index_quote = index_modules
     source = _bars().copy()
     capture_db = _CaptureDatabase()
     monkeypatch.setattr(
@@ -144,7 +156,10 @@ def test_index_realtime_query_uses_index_market_for_conflicting_code(monkeypatch
     assert capture_db.collection.query["code"] == "sh000001"
 
 
-def test_index_weekly_resample_exposes_datetime_not_multiindex_tuple(monkeypatch):
+def test_index_weekly_resample_exposes_datetime_not_multiindex_tuple(
+    monkeypatch, index_modules
+):
+    _index_data, index_quote = index_modules
     dates = pd.to_datetime(["2026-07-17", "2026-07-24"])
     weekly = pd.DataFrame(
         {
@@ -199,7 +214,8 @@ def test_strategy_consumer_index_read_never_reads_factor(monkeypatch):
     assert result["close"].tolist() == [10.1, 10.3]
 
 
-def test_chanlun_structure_routes_index_to_bfq_fetcher(monkeypatch):
+def test_chanlun_structure_routes_index_to_bfq_fetcher(monkeypatch, index_modules):
+    _index_data, index_quote = index_modules
     monkeypatch.setattr(
         "freshquant.instrument.general.query_instrument_type",
         infer_cn_instrument_type,
