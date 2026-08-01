@@ -83,8 +83,7 @@ def test_clx_shared_service_paths_redeploy_api_and_dagster() -> None:
         "fq_dagster_daemon",
     ]
     assert (
-        "http://127.0.0.1:15000/api/clx-daily-selection/health"
-        in plan["health_checks"]
+        "http://127.0.0.1:15000/api/clx-daily-selection/health" in plan["health_checks"]
     )
     assert (
         "http://127.0.0.1:15000/api/clx-daily-selection/model-catalog"

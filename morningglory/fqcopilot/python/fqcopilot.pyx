@@ -3,6 +3,7 @@
 
 from libcpp.vector cimport vector
 
+
 def fq_clxs(
     int length,
     vector[float] high, vector[float] low, vector[float] open, vector[float] close,

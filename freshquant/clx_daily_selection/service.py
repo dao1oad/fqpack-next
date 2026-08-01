@@ -692,9 +692,7 @@ class ClxDailySelectionService:
                 )
             )
         complete_partitions = {
-            item: partition
-            for item, partition in completed.items()
-            if partition
+            item: partition for item, partition in completed.items() if partition
         }
         mismatch_fields = self._partition_mismatches(complete_partitions, trade_date)
         if mismatch_fields:

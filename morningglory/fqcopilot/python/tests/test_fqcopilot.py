@@ -153,9 +153,9 @@ def test_batch_entrypoint_matches_all_production_models() -> None:
                     model_id,
                 )
             )
-            assert actual == expected, (
-                f"production parity failed for sample {sample_index}, {model_id}"
-            )
+            assert (
+                actual == expected
+            ), f"production parity failed for sample {sample_index}, {model_id}"
 
 
 def test_legacy_and_production_profiles_remain_distinct() -> None:
@@ -171,9 +171,7 @@ def test_legacy_and_production_profiles_remain_distinct() -> None:
     )
     changed_models = {
         model_id
-        for model_id, (legacy_row, production_row) in enumerate(
-            zip(legacy, production)
-        )
+        for model_id, (legacy_row, production_row) in enumerate(zip(legacy, production))
         if list(legacy_row) != list(production_row)
     }
 
@@ -185,9 +183,7 @@ def test_batch_entrypoint_rejects_unknown_switch_profile() -> None:
     high, low, open_, close, volume = _bars(32)
 
     with pytest.raises(ValueError, match="switch_opt must be 0 or 1"):
-        fqcopilot.fq_clxs_all(
-            len(high), high, low, open_, close, volume, 1560, 0, 0, 2
-        )
+        fqcopilot.fq_clxs_all(len(high), high, low, open_, close, volume, 1560, 0, 0, 2)
 
 
 def test_batch_entrypoint_rejects_misaligned_bar_count() -> None:
