@@ -701,22 +701,27 @@ test('final published basket uses sibling row actions, dark surfaces and selecte
     const panel = style('.clx-selection-panel')
     const foreground = luminance(panel.color)
     const background = luminance(panel.background)
+    const basket = style('.clx-selection-panel__basket-toggle[aria-pressed="true"]')
+    const basketForeground = luminance(basket.color)
+    const basketBackground = luminance(basket.background)
     return {
       panel,
       row: style('.clx-selection-panel__row-item'),
       input: style('.clx-selection-panel .el-input__wrapper'),
       popper: style('.el-popper.clx-market-dark-popper[aria-hidden="false"]'),
-      basket: style('.clx-selection-panel__basket-toggle[aria-pressed="true"]'),
+      basket,
       contrast: (Math.max(foreground, background) + 0.05) /
         (Math.min(foreground, background) + 0.05),
+      basketContrast: (Math.max(basketForeground, basketBackground) + 0.05) /
+        (Math.min(basketForeground, basketBackground) + 0.05),
     }
   })
   await page.keyboard.press('Escape')
   for (const surface of [colors.panel, colors.row, colors.input, colors.popper, colors.basket]) {
     expect(surface.background).not.toBe('rgb(255, 255, 255)')
   }
-  expect(colors.basket.background).toContain('22, 101, 52')
   expect(colors.contrast).toBeGreaterThan(4.5)
+  expect(colors.basketContrast).toBeGreaterThan(4.5)
 
   const button = page.getByRole('button', { name: '导入通达信（1）', exact: true })
   await expect(button).toBeEnabled()
@@ -761,13 +766,16 @@ test('select-all freezes the current filter and unions every result beyond the f
 
   await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('已加载 100 / 205')).toBeVisible()
+  const selectAllQueryStart = requestLog.resultQueries.length
   const selectAll = page.getByRole('button', { name: '全选当前筛选结果' })
   await selectAll.click()
   await expect(selectAll).toBeDisabled()
   await selectAll.click({ force: true })
   await expect(page.getByText('待导入 205 只')).toBeVisible()
 
-  const fullQueries = requestLog.resultQueries.filter((query) => query.limit === 200)
+  const fullQueries = requestLog.resultQueries
+    .slice(selectAllQueryStart)
+    .filter((query) => query.limit === 200)
   expect(fullQueries.map((query) => query.cursor)).toEqual(['', '200'])
   expect(fullQueries.every((query) => query.scope_id === FINAL_BATCH_ID)).toBe(true)
 
