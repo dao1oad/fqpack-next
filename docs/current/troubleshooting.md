@@ -794,6 +794,248 @@ print(inspect.signature(resolve_stock_account))
 - 在这种情况下，`runtime-verify.json 可以不存在`；正式收口依据改为 `result.json` 的 `ok=true` 和 `production-state.json` 的 `last_success_sha` 已更新到目标 SHA
 - 只有当你预期本轮应该命中运行面，但 plan 仍然给出 `deployment_required=false` 时，才继续回查 deploy plan 规则或 changed paths 计算
 
+## CLX 只有一侧完成，页面一直是 partial
+
+### 现象
+
+- 股票显示 completed，ETF 显示 waiting/running/failed，或反之
+- `/api/clx-daily-selection/batches/latest?include_partial=1` 有数据
+- 默认 `/api/clx-daily-selection/batches/latest` 仍返回较早 final 或 `no_ready_batch`
+
+### 当前判断
+
+这是 fork-join 的正常中间态。单侧 marker success 已经启动并完成本侧 partition；另一侧不阻塞本侧计算。双侧 completed 只门控 finalizer、正式发布和跨资产统计。
+
+### 排查顺序
+
+1. 看 partial batch 的两侧状态：
+
+```powershell
+$partial = Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/batches/latest?include_partial=1'
+$partial.partitions.stock
+$partial.partitions.etf
+```
+
+2. 查未完成侧 marker：
+
+```javascript
+db.dagster_pipeline_markers.findOne({
+  pipeline_key: "stock_postclose_ready", // 或 etf_postclose_ready
+  trade_date: "YYYY-MM-DD"
+})
+```
+
+3. 在 Dagster 看本侧 sensor，而不是等待或重跑另一侧：
+
+- `clx_daily_selection_stock_sensor`
+- `clx_daily_selection_etf_sensor`
+
+4. 两侧都 completed 后再看：
+
+- `clx_daily_selection_finalizer_sensor`
+- `freshquant_clx_daily_selection.batch_statuses`
+- `freshquant.dagster_pipeline_markers` 中的 `clx_daily_selection_ready`
+
+不要通过手工修改 `is_final` 把 partial 包装成 final。
+
+## CLX 旧交易日 marker 或失败任务没有自动找回
+
+### 当前口径
+
+- stock、ETF、finalizer 三个 sensor 都按 newest-first 扫描最近 5 个已完成交易日。
+- 项目时区当天必须到 `15:05` 才算已完成；交易日来自交易日历，周末、节假日和未收盘当天不会被当成未来可运行日期。
+- 每个 sensor 每 tick 最多返回一个 `RunRequest`。marker 缺失或 action 为 `reuse/wait` 时继续检查更早日期，`active` 时停止本轮，`run` 时立即派发并返回。
+- 该窗口覆盖 D+1 延迟到达的 marker、失败 partition 的 attempt 2，以及旧日 failed/expired publication；成功侧仍按 `reuse` 保持不可变。
+
+### 排查
+
+1. 查看 sensor tick 的候选交易日是否 newest-first，目标日期是否仍在最近 5 个已完成交易日内。
+2. 当天任务未出现时先核对项目时区与 `15:05` cutoff；不要把午间、盘中或周末日期手工伪造成 completed。
+3. 新日期为 `reuse/wait` 时应继续看到旧日计划；新日期存在 active attempt 时，本轮主动停止以避免并发重复，等后续 tick 再追赶。
+4. D+1 延迟 marker 应生成目标旧日的 partition；同一 selection 上次失败时应使用 `attempt_no=2+` 和新 run key。
+5. 旧日 publication retry 应只增加 finalization/publication attempt，不增加两个 completed partition 的计算次数。
+
+超过 5 个已完成交易日的历史洞不在自动追赶窗口内，使用显式 backfill，并保持相同 partition/finalizer 合同。
+
+## CLX 单侧失败后反复计算成功侧
+
+### 正确口径
+
+- failed、`claim_expired` 或 `upstream_drift` 只对本侧创建下一 `attempt_no`
+- completed selection 必须直接复用不可变 partition
+
+### 排查
+
+```javascript
+use freshquant_clx_daily_selection
+db.partition_attempts.find({
+  trade_date: "YYYY-MM-DD"
+}).sort({asset_type: 1, attempt_no: 1})
+
+db.partitions.find({
+  trade_date: "YYYY-MM-DD"
+}, {
+  asset_type: 1,
+  selection_key: 1,
+  partition_id: 1,
+  marker_snapshot_hash: 1,
+  content_hash: 1
+})
+```
+
+- 同一 `selection_key` 已 completed 却继续出现新 attempt：查 sensor 是否忽略了 `action=reuse`
+- attempt 长期 scheduled：查 Dagster RunRequest 是否未实际派发；9 分钟 lease 到期后应 CAS 为 `claim_expired` 并产生新 attempt
+- attempt 长期 running：查对应 Dagster run 是否仍存活；running lease 为 6 小时，到期后应只重派本侧
+- attempt 长期 committing：查明细/partition 头写入是否中断；committing lease 为 1 小时，只有原 `claim_owner / claim_token` 能完成提交，过期后旧 worker 不能越过 fencing
+- 失败侧 attempt 没递增：查 `selection_key` 是否因 marker/version 改变而形成了新的选择，而不是同一选择的 retry
+
+## CLX attempt 为 `claim_expired`
+
+### 当前口径
+
+- `scheduled` 表示 sensor 已规划但 job 尚未领取，claim lease 为 9 分钟。
+- job 以 compare-and-set 原子领取后变为 `running`，写入 `claim_owner / claim_token`，计算 lease 延长为 6 小时。
+- 提交前必须以同一 owner/token 且未过期的 running claim 切为 `committing`，commit lease 为 1 小时；明细、partition 头和 attempt completion 都受同一 fencing 保护。
+- scheduled、running 或 committing lease 到期时，原 attempt 保留 `claim_expired` 审计，新 attempt 使用递增 `attempt_no` 和不同 run key；另一侧 completed partition 不变。
+
+### 排查
+
+1. 查看 `status / scheduled_at / started_at / commit_started_at / claim_owner / claim_token / lease_expires_at / error.previous_status`。
+2. 若 previous status 为 scheduled，查 Dagster run 是否根本没有启动；若为 running，查 worker 是否退出或计算超过 lease；若为 committing，查不可变写入阶段是否中断。
+3. 确认只出现一个新 attempt；并发 sensor tick 应由 CAS 保证其余规划方复读 active/reuse 状态。把同一 attempt 交给第二 executor 时，它应只看到 running/committing，不再次调用 CLX engine。
+
+## CLX partition 为 `upstream_drift`
+
+### 原因
+
+partition 在计算前后会重新读取本侧 ready marker。当前 hash 与 attempt 冻结的 `marker_snapshot_hash` 不一致时，输出被丢弃并标记 drift。
+
+### 排查
+
+- 比较 attempt 的 `marker_snapshot` 与 `freshquant.dagster_pipeline_markers` 当前文档
+- 重点检查 `run_id / updated_at / payload.data_as_of / payload.source_version`
+- 确认上游是否在 CLX 计算期间覆盖了同交易日 marker
+- 只重试发生 drift 的一侧；另一侧 completed partition 不变
+
+## CLX partition 因单个 symbol 错误失败
+
+### 当前口径
+
+- symbol 级异常会写入 attempt 的 `error.errors[]`；服务继续遍历同侧其余 symbol，只用于收集完整诊断。
+- 当前发布门禁为零容忍。任意 symbol 计算错误都会使本侧 attempt 以 `PartitionInstrumentError` 失败，不提交已成功 symbol 的 completed partition。
+- 失败只影响本侧；另一侧已有 completed partition 时保持不可变并在重试期间复用。
+
+### 排查
+
+```javascript
+use freshquant_clx_daily_selection
+db.partition_attempts.find({
+  trade_date: "YYYY-MM-DD",
+  asset_type: "stock", // 或 etf
+  status: "failed",
+  "error.type": "PartitionInstrumentError"
+}).sort({attempt_no: -1})
+```
+
+1. 查看 `error.error_count` 和每条 `error.errors[].symbol / type / message`。
+2. 按 symbol 检查日线缺失、bar 数、OHLCV 有限性、复权口径和原生 18 模型返回长度。
+3. 修复输入或计算错误后只重试失败侧，确认下一次 `attempt_no` 递增。
+4. 确认成功侧 sensor 返回 `action=reuse`，没有生成新的 partition。
+
+不要把“其余 symbol 已完成诊断计算”解释为 partition completed，也不要手工提交缺少错误 symbol 的不完整输出。
+
+### 错误码为 `QFQ_DATA_NOT_READY`
+
+- shared QFQ reader 要求查询窗口内每个 bar 日期都有 active snapshot 覆盖，并以 `QFQDataNotReadyError` 返回 `scope/code/missing_dates`。
+- 规划 attempt 时先从 raw candidate universe 通用剔除 QFQ marker 的 `source_exclusions`，再用 shared strict reader 只校验其余标的的目标日 BFQ 行。该阶段逐标的 `QFQ_DATA_NOT_READY` 会进入 `universe_evidence.reader_isolations[]`，记录 `code / classification / error_code / reason / source` 与 count/hash；不会伪造回 QFQ marker，也不会阻塞另一资产侧。
+- 查 `candidate_universe_count = effective_universe_count + source_excluded_count + reader_isolation_count`，并核对 `effective_universe_hash / universe_isolation_hash` 与 partition run tags。残余 exclusion 交集、证据 hash/count 不一致、effective universe 为空或其他异常都会在创建 attempt 前结束规划。
+- attempt 创建后只计算冻结的 `effective_instruments`。完整历史读取中再次出现 `QFQ_DATA_NOT_READY` 时，本侧仍按逐标的错误零容忍失败；服务不会以 `adj=1`、BFQ 或部分覆盖继续计算。
+- 修复或补齐复权集合后，让 QFQ marker/pair 与上游 marker 形成新 generation，再只重试受影响侧；确认新 attempt 的 `data_version=qfq-daily-v1`，并保留旧隔离/失败事实用于审计。
+
+## CLX 两侧都 completed 但没有 final 内容
+
+先看 finalization dispatch 与当前 marker generation：
+
+```javascript
+use freshquant_clx_daily_selection
+db.finalization_attempts.find({
+  trade_date: "YYYY-MM-DD"
+}).sort({batch_id: 1, attempt_no: 1})
+```
+
+- 没有 finalization attempt 且某一侧 `upstream_status=marker_missing`：finalizer 正常返回 waiting；补齐当前 marker，不要发布旧 generation。
+- `scheduled` 超过 9 分钟或 `running` 超过 10 分钟：原 attempt 应 CAS 为 `claim_expired`，下一次 sensor 生成递增 attempt_no 和新 dispatch run key。
+- `failed`：查看 `error`。前置异常或 publication 失败后，下一次 dispatch 必须使用新 `finalization_attempt_id/run_key`，不能复用已失败的 Dagster run key。
+- job 启动即 tag 校验失败：核对 `fq_trade_date / fq_clx_batch_id / fq_clx_partition_ids / fq_clx_finalization_attempt_id / fq_clx_finalization_attempt_no / fq_clx_qfq_snapshot_pair_hash / fq_clx_qfq_{stock,etf}_snapshot_id / fq_clx_generation_order` 与该持久化 attempt；job 不接受 tag 临时改写 batch generation。
+- `generation_drift`：sensor 规划后 marker、batch id 或 partition ids 已改变。旧 attempt 保留 failed 审计，等待当前 generation 两侧 completed 后再规划。
+
+若 dispatch 已领取，再看 partial batch 是否为 `contract_mismatch`，并比较两个 partition：
+
+- `trade_date` 与各自 marker trade date
+- `evaluation_profile_id=production_v1`
+- `switch_opt=1`
+- `algorithm_version / data_version / parameter_hash`
+- `schema_version / condition_catalog_version / line_definition_version`
+
+finalizer 不接受跨交易日、跨 profile 或跨版本 join。修复失败侧/不一致侧后重新生成对应 partition，不覆盖已有不可变输出，也不重放旧 generation 的 pending/failed final。
+
+## CLX 已有 final 内容但默认 latest 不显示
+
+先显式查看中间态及 publication：
+
+```powershell
+$batch = Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/batches/latest?include_partial=1'
+$batch.publication
+```
+
+- `pending`：等待 finalizer 领取 publication。
+- `publishing` 且 `lease_expires_at` 未过期：已有发布者持有 2 分钟 `claim_owner / claim_token` claim，finalizer sensor 应 skip，避免重复写 marker。
+- `failed`：查看 `last_error`；下一次 finalizer 只以 `attempt_count+1` 重试 publication。
+- `publishing` lease 已过期：新发布者必须用 status、attempt_count、旧 owner/token 和 lease 做 CAS 后领取；旧发布者不能把新 claim 覆盖为 failed/published。重试不重算两个 completed partition。
+- 只有 `published/not_required` 进入默认 `/batches/latest`；其他 publication 状态在公共响应中保持 `release_status=partial / is_final=false`。
+
+若同交易日上游 marker 已换代，先确认当前 batch generation。新 marker 会生成新的 selection key/batch id；旧 generation 即使已有 pending/failed final，也不会被 finalizer sensor继续发布。
+
+若 `last_error.code=stale_publication`，表示新 generation 已先写入 `clx_daily_selection_ready`，随后恢复的旧 publisher 被 generation CAS 拒绝。此时旧 batch 必须保持 `publication.status=failed`，不能手工标为 published；同时核对 ready marker 仍是较新的 `generation_id / generation_order / publication_id`。同一 `publication_id` 的重试属于幂等复读，不应产生 stale 错误。`generation_order` 应为规范 UTC 微秒键 `YYYY-MM-DDTHH:mm:ss.ffffffZ|batch_id`，不要混用 `Z` 与 `+00:00` 原始字符串比较。
+
+## CLX API health degraded 或历史接口报错
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/health
+Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/model-catalog
+```
+
+- engine unavailable：查 API/Dagster Python 环境能否导入 `fqcopilot`
+- `batch_available=false` 且 `single_available=true`：当前按设计走 `single_model_fallback`；确认结果记录 `fallback_reason=fq_clxs_all_unavailable`，不把该状态单独判为 health 失败
+- batch 为缺少 `switch_opt` 的旧签名：确认 fallback reason 为 `fq_clxs_all_missing_switch_opt`
+- `single_available=false`：查 `fq_clxs`；此时 production adapter 没有可用计算入口
+- S0002 evidence unavailable：查 `fq_s0002_entrypoint3_evidence`
+- profile 不是 `production_v1 / switch_opt=1` 或模型数不是 18：当前扩展/服务版本不一致，重新同步最新远程 main 并部署相关运行面
+- `/history/signals` 只接受 `period=1d`；`endDate` 可省略并由 provider 解析最新交易日；barCount 不在 `1..2000` 或没有日线数据时返回请求错误
+
+## Kline Slim 已加载 CLX 列表但图上没有 marker
+
+### 排查顺序
+
+1. 直接请求历史接口，确认 `markers_by_model` 非空：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/history/signals?symbol=000001&assetType=stock&period=1d&endDate=YYYY-MM-DD&barCount=250&includeRaw=1'
+```
+
+2. 确认：
+
+- `calculation_profile.id=production_v1`
+- `calculation_profile.switch_opt=1`
+- `future_function_guard.passed=true`
+- marker `trigger_date` 在当前 K 线日期范围内
+
+3. 清掉过严的模型/条件筛选，并确认 `CLX信号` 工作台已开启。
+4. 查 chart scene 的 `clxSignals.hasData`，以及最终 ECharts option 是否包含 `clx-signal-<sceneScopeId>` scatter series。
+5. 点击 marker 不联动时，查 series data 的 `clxGroup` 和 controller 的 `seriesId` 过滤。
+
+列表、时间轴或 tooltip 有数据但没有真实 scatter series，仍属于绘制链未完成。
+
 ## API 无响应
 
 现象：

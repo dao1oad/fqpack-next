@@ -5,7 +5,9 @@
 """
 
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+
+ValueRange = Union[tuple[Any, Any], list[Any], set[Any]]
 
 
 class MarketDirection(str, Enum):
@@ -37,7 +39,7 @@ class InputParamModel:
         """
         self._params: Dict[str, Any] = {}
         self._param_types: Dict[str, type] = {}
-        self._param_ranges: Dict[str, tuple] = {}
+        self._param_ranges: Dict[str, ValueRange] = {}
         self._param_descriptions: Dict[str, str] = {}
 
     def set_param(
@@ -45,7 +47,7 @@ class InputParamModel:
         name: str,
         value: Any,
         param_type: Optional[type] = None,
-        value_range: Optional[tuple] = None,
+        value_range: Optional[ValueRange] = None,
         description: str = '',
     ):
         """

@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildSidebarSections, normalizeSidebarItem } from './kline-slim-sidebar.mjs'
+import {
+  buildSidebarSections,
+  normalizeSidebarItem,
+} from './kline-slim-sidebar.mjs'
 
 test('normalizeSidebarItem formats holding runtime summary like subject-management runtime column', () => {
   const item = normalizeSidebarItem({

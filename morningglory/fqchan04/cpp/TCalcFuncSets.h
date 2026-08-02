@@ -29,7 +29,7 @@ extern "C"
     /********************************************************************/
     //******************************FQCHAN******************************//
     /********************************************************************/
-    __declspec(dllexport) void WINAPI FQ_BI(int count, double *out, const double *high, const double *low, int bi_mode);
+    __declspec(dllexport) void WINAPI FQ_BI(int count, double *out, const double *high, const double *low, const double *close, int bi_mode);
     __declspec(dllexport) void WINAPI FQ_DUAN(int count, double *out, const double *high, const double *low, const double *bi);
     __declspec(dllexport) void WINAPI FQ_TREND(int count, double *out, const double *duan, const double *high, const double *low);
     __declspec(dllexport) void WINAPI FQ_ZSZG(int count, double *out, const double *duan, const double *bi, const double *high, const double *low, int bi_mode);
@@ -49,7 +49,7 @@ extern "C"
 #pragma comment(linker, "/export:_ZSSEVAR@4=ZSSEVAR")
 #pragma comment(linker, "/export:_ZSFXVAR@4=ZSFXVAR")
 #pragma comment(linker, "/export:_ZSGSVAR@4=ZSGSVAR")
-#pragma comment(linker, "/export:_FQ_BI@20=FQ_BI")
+#pragma comment(linker, "/export:_FQ_BI@24=FQ_BI")
 #pragma comment(linker, "/export:_FQ_DUAN@24=FQ_DUAN")
 #pragma comment(linker, "/export:_FQ_TREND@28=FQ_TREND")
 #pragma comment(linker, "/export:_FQ_ZSZG@32=FQ_ZSZG")

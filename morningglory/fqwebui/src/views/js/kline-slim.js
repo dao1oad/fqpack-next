@@ -4,10 +4,14 @@ import { futureApi } from '@/api/futureApi'
 import { positionReviewApi } from '@/api/positionReviewApi'
 import { stockApi } from '@/api/stockApi'
 import { subjectManagementApi } from '@/api/subjectManagementApi'
+import { clxDailySelectionApi } from '@/api/clxDailySelectionApi.js'
 
 import echartsConfig from './echartsConfig'
 import { createKlineSlimChartController, createKlineSlimViewportState } from './kline-slim-chart-controller.mjs'
-import { buildOrderReviewLegendSelectionState } from './kline-slim-chart-renderer.mjs'
+import {
+  CLX_SIGNAL_LEGEND_NAME,
+  buildOrderReviewLegendSelectionState,
+} from './kline-slim-chart-renderer.mjs'
 import {
   buildInitialKlineSlimPricePanelState,
   createKlineSlimPricePanelActions,
@@ -51,12 +55,24 @@ import {
   resolveTakeprofitGuideDrafts
 } from './subject-price-guides.mjs'
 import {
+  buildClxHistoryRequestKey,
   buildInitialKlineSlimPageState,
   buildKlineSlimRouteSymbol,
   closeOtherPanels,
 } from '../klineSlimPageState.mjs'
 import { normalizeOrderReviewTimeline } from '../orderReviewTimeline.mjs'
 import klineSlimController from '../klineSlimController.mjs'
+import {
+  normalizeClxCatalog,
+} from '../clxDailySelection.mjs'
+import {
+  buildKlineClxQuery,
+  filterClxMarkers,
+  getClxModelColor,
+  normalizeClxSignalHistory,
+  parseKlineClxQuery,
+  resolveClxAssetType,
+} from './kline-slim-clx.mjs'
 
 const MAIN_PERIODS = SUPPORTED_CHANLUN_PERIODS
 const DEFAULT_PERIOD = DEFAULT_MAIN_PERIOD
@@ -307,7 +323,9 @@ export default {
       subjectPanelActions: createKlineSlimSubjectPanelActions(subjectManagementApi),
       chart: null,
       chartController: null,
+      chartResizeObserver: null,
       chartViewport: createKlineSlimViewportState(),
+      lastHandledChartRouteKey: '',
       symbolInput: '',
       endDateModel: '',
       currentPeriod: pageState.currentPeriod,
@@ -316,6 +334,9 @@ export default {
       renderFrameId: 0,
       routeToken: 0,
       mainLoading: false,
+      mainRequestKey: '',
+      mainRequestId: 0,
+      mainAbortController: null,
       mainVersion: '',
       chanlunVersionMap: {},
       lastRenderedVersion: '',
@@ -344,6 +365,25 @@ export default {
       orderReviewRequestKey: '',
       orderReviewLoadedKey: '',
       orderReviewVersion: 0,
+      clxCatalog: normalizeClxCatalog({}),
+      showClxWorkbench: pageState.showClxWorkbench,
+      clxSignalHistory: null,
+      clxHistoryLoading: false,
+      clxHistoryError: '',
+      clxHistoryRequestId: 0,
+      clxHistoryRequestKey: '',
+      clxHistoryDesiredKey: '',
+      clxHistoryLoadedKey: '',
+      clxHistoryAbortController: null,
+      clxHistoryVersion: 0,
+      clxHistoryBarCount: 250,
+      clxAssetType: '',
+      clxSelectedModelKeys: [],
+      clxSelectedConditionKeys: [],
+      clxMarkerMode: 'aggregate',
+      clxSelectedMarkerId: '',
+      clxLegendSelected: true,
+      clxWorkbenchTab: 'controls',
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -378,6 +418,10 @@ export default {
     routeSymbol() {
       return buildKlineSlimRouteSymbol(this.$route)
     },
+    isClxScreeningMode() {
+      const value = String(this.$route?.query?.clxScreening || '').trim().toLowerCase()
+      return this.showClxWorkbench || ['1', 'true', 'open'].includes(value)
+    },
     activeCode6() {
       return getSidebarCode6({ symbol: this.routeSymbol, code: this.routeSymbol })
     },
@@ -396,6 +440,57 @@ export default {
         loading: !!this.sidebarLoading[section.key],
         error: this.sidebarErrors[section.key] || ''
       }))
+    },
+    clxHistoryContractValid() {
+      if (!this.clxSignalHistory) return false
+      return (
+        this.clxSignalHistory.profileId === 'production_v1' &&
+        Number(this.clxSignalHistory.switchOpt) === 1 &&
+        this.clxSignalHistory.futureFunctionGuard === true
+      )
+    },
+    clxFilteredMarkers() {
+      return filterClxMarkers(this.clxSignalHistory?.markers || [], {
+        modelKeys: this.clxSelectedModelKeys,
+        conditionKeys: this.clxSelectedConditionKeys,
+      })
+    },
+    clxTimelineGroups() {
+      const groups = new Map()
+      this.clxFilteredMarkers.forEach((marker) => {
+        if (!groups.has(marker.triggerDate)) groups.set(marker.triggerDate, [])
+        groups.get(marker.triggerDate).push(marker)
+      })
+      return Array.from(groups.entries())
+        .map(([tradeDate, markers]) => ({
+          tradeDate,
+          markers,
+          modelKeys: Array.from(new Set(markers.map((item) => item.modelKey))).sort(),
+          count: markers.length,
+        }))
+        .sort((left, right) => right.tradeDate.localeCompare(left.tradeDate))
+    },
+    clxSelectedMarker() {
+      return (this.clxSignalHistory?.markers || []).find((item) => item.id === this.clxSelectedMarkerId) || null
+    },
+    clxModelOptions() {
+      if (this.clxCatalog.models.length) return this.clxCatalog.models
+      return Array.from(new Set((this.clxSignalHistory?.markers || []).map((item) => item.modelKey)))
+        .sort()
+        .map((key) => ({ key, label: key, description: '' }))
+    },
+    clxConditionOptions() {
+      if (this.clxCatalog.conditions.length) return this.clxCatalog.conditions
+      return Array.from(new Set((this.clxSignalHistory?.markers || []).map((item) => item.conditionKey).filter(Boolean)))
+        .sort()
+        .map((key) => ({ key, label: key }))
+    },
+    clxHistoryState() {
+      if (!this.showClxWorkbench) return null
+      if (this.clxHistoryLoading) return { kind: 'loading', message: 'CLX 历史信号加载中' }
+      if (this.clxHistoryError) return { kind: 'error', message: this.clxHistoryError }
+      if (!this.clxFilteredMarkers.length) return { kind: 'empty', message: '当前可见范围没有 CLX 历史信号' }
+      return null
     },
     guardianGuideRows() {
       const buyActive = Array.isArray(this.guardianState?.buy_active)
@@ -510,7 +605,8 @@ export default {
     emptyMessage() {
       return getKlineSlimEmptyMessage({
         resolvingDefaultSymbol: this.resolvingDefaultSymbol,
-        resolveError: this.defaultSymbolResolveError
+        resolveError: this.defaultSymbolResolveError,
+        clxScreening: this.isClxScreeningMode
       })
     },
     chanlunStructure() {
@@ -613,6 +709,235 @@ export default {
   beforeUnmount: klineSlimController.beforeUnmount,
   methods: {
     ...klineSlimController.methods,
+    applyClxRouteState(routeState = parseKlineClxQuery(this.$route.query)) {
+      this.clxAssetType = resolveClxAssetType(this.routeSymbol, routeState.assetType)
+      this.clxSelectedModelKeys = [...routeState.modelKeys]
+      this.clxSelectedConditionKeys = [...routeState.conditionKeys]
+      this.clxMarkerMode = routeState.markerMode
+      this.showClxWorkbench = routeState.workbenchOpen
+      if (this.showClxWorkbench) {
+        closeOtherPanels(this, 'showClxWorkbench')
+      }
+    },
+    async syncClxRouteState() {
+      const routeState = parseKlineClxQuery(this.$route.query)
+      await this.$router.replace({
+        path: '/kline-slim',
+        query: buildKlineClxQuery({
+          ...this.$route.query,
+          ...(this.showClxWorkbench ? { clxScreening: '1' } : {}),
+        }, {
+          scopeId: routeState.scopeId,
+          assetType: this.clxAssetType,
+          modelKeys: this.clxSelectedModelKeys,
+          conditionKeys: this.clxSelectedConditionKeys,
+          markerMode: this.clxMarkerMode,
+          workbenchOpen: this.showClxWorkbench,
+        }),
+      })
+    },
+    async handleClxScreeningSelection({ row, scope } = {}) {
+      const symbol = String(row?.symbol || '').trim()
+      if (!symbol) return
+
+      const routeState = parseKlineClxQuery(this.$route.query)
+      const assetType = resolveClxAssetType(symbol, row?.assetType || row?.raw?.asset_type)
+      const scopeId = String(scope?.scopeId || routeState.scopeId || '').trim()
+      const tradeDate = String(scope?.tradeDate || '').trim()
+
+      closeOtherPanels(this, 'showClxWorkbench')
+      this.showClxWorkbench = true
+      this.clxAssetType = assetType
+      await this.$router.replace({
+        path: '/kline-slim',
+        query: buildKlineClxQuery({
+          ...this.$route.query,
+          symbol,
+          period: this.currentPeriod || '1d',
+          ...(tradeDate ? { endDate: tradeDate } : {}),
+          clxScreening: '1',
+        }, {
+          scopeId,
+          assetType,
+          modelKeys: this.clxSelectedModelKeys,
+          conditionKeys: this.clxSelectedConditionKeys,
+          markerMode: this.clxMarkerMode,
+          workbenchOpen: true,
+        }),
+      })
+    },
+    async loadClxCatalog() {
+      if (this.clxCatalog.models.length) return this.clxCatalog
+      try {
+        this.clxCatalog = normalizeClxCatalog(await clxDailySelectionApi.getModelCatalog())
+      } catch (error) {
+        this.clxCatalog = normalizeClxCatalog({})
+      }
+      return this.clxCatalog
+    },
+    async toggleClxWorkbench() {
+      if (!this.routeSymbol) return
+      if (this.showClxWorkbench) {
+        await this.closeClxWorkbench()
+        return
+      }
+      closeOtherPanels(this, 'showClxWorkbench')
+      this.showClxWorkbench = true
+      await Promise.allSettled([this.loadClxCatalog(), this.loadClxHistory()])
+      await this.syncClxRouteState()
+      this.scheduleRender()
+    },
+    async closeClxWorkbench() {
+      this.showClxWorkbench = false
+      this.clxSelectedMarkerId = ''
+      this.abortClxHistoryRequest()
+      await this.syncClxRouteState()
+      this.scheduleRender()
+    },
+    abortClxHistoryRequest() {
+      this.clxHistoryAbortController?.abort?.()
+      this.clxHistoryAbortController = null
+      this.clxHistoryRequestId += 1
+      this.clxHistoryRequestKey = ''
+      this.clxHistoryDesiredKey = ''
+      this.clxHistoryLoading = false
+    },
+    async loadClxHistory({ force = false } = {}) {
+      if (!this.showClxWorkbench || !this.routeSymbol) {
+        this.abortClxHistoryRequest()
+        return null
+      }
+      const symbol = this.routeSymbol
+      const assetType = this.clxAssetType || resolveClxAssetType(symbol)
+      const endDate = this.endDateModel
+      const barCount = this.clxHistoryBarCount
+      const requestKey = buildClxHistoryRequestKey({ symbol, assetType, endDate, barCount })
+      this.clxHistoryDesiredKey = requestKey
+      if (!force && this.clxSignalHistory && this.clxHistoryLoadedKey === requestKey) {
+        return this.clxSignalHistory
+      }
+      if (!force && this.clxHistoryLoading && this.clxHistoryRequestKey === requestKey) return null
+
+      this.clxHistoryAbortController?.abort?.()
+      if (this.clxHistoryLoadedKey !== requestKey) {
+        this.clxSignalHistory = null
+        this.clxHistoryLoadedKey = ''
+      }
+      const abortController = new AbortController()
+      const requestId = ++this.clxHistoryRequestId
+      this.clxHistoryAbortController = abortController
+      this.clxHistoryRequestKey = requestKey
+      this.clxHistoryLoading = true
+      this.clxHistoryError = ''
+      this.clxHistoryVersion += 1
+      try {
+        const payload = await clxDailySelectionApi.getSignalHistory({
+          symbol,
+          assetType,
+          period: '1d',
+          endDate,
+          barCount,
+          modelKeys: [],
+          conditionKeys: [],
+          includeRaw: true,
+        }, { signal: abortController.signal })
+        if (
+          requestId !== this.clxHistoryRequestId ||
+          requestKey !== this.clxHistoryRequestKey ||
+          requestKey !== this.clxHistoryDesiredKey ||
+          abortController.signal.aborted ||
+          !this.showClxWorkbench
+        ) return null
+        const history = normalizeClxSignalHistory(payload)
+        this.clxSignalHistory = history
+        this.clxHistoryLoadedKey = requestKey
+        if (history.profileId !== 'production_v1' || Number(history.switchOpt) !== 1) {
+          this.clxHistoryError = 'CLX 历史合同不一致：仅绘制 production_v1 / switch_opt=1'
+        } else if (history.futureFunctionGuard !== true) {
+          this.clxHistoryError = 'CLX 历史未来函数检查未通过'
+        }
+        this.clxHistoryVersion += 1
+        this.scheduleRender()
+        return history
+      } catch (error) {
+        if (
+          requestId !== this.clxHistoryRequestId ||
+          requestKey !== this.clxHistoryDesiredKey ||
+          abortController.signal.aborted
+        ) return null
+        this.clxSignalHistory = null
+        this.clxHistoryLoadedKey = ''
+        this.clxHistoryError = Number(error?.response?.status) === 404
+          ? 'CLX 历史信号服务尚未部署'
+          : 'CLX 历史信号加载失败'
+        this.clxHistoryVersion += 1
+        this.scheduleRender()
+        return null
+      } finally {
+        if (requestId === this.clxHistoryRequestId) {
+          this.clxHistoryLoading = false
+          this.clxHistoryRequestKey = ''
+          this.clxHistoryAbortController = null
+        }
+      }
+    },
+    async handleClxVisibilityChange() {
+      if (this.clxSelectedModelKeys.length > 1 && this.clxSelectedModelKeys.includes('__NONE__')) {
+        this.clxSelectedModelKeys = this.clxSelectedModelKeys.filter((key) => key !== '__NONE__')
+      }
+      if (this.clxSelectedMarkerId && !this.clxFilteredMarkers.some((item) => item.id === this.clxSelectedMarkerId)) {
+        this.clxSelectedMarkerId = ''
+      }
+      this.scheduleRender()
+      await this.syncClxRouteState()
+    },
+    async selectAllClxModels() {
+      this.clxSelectedModelKeys = this.clxModelOptions.map((item) => item.key)
+      await this.handleClxVisibilityChange()
+    },
+    async clearClxModels() {
+      this.clxSelectedModelKeys = ['__NONE__']
+      await this.handleClxVisibilityChange()
+    },
+    async selectTriggeredClxModels() {
+      this.clxSelectedModelKeys = Array.from(new Set((this.clxSignalHistory?.markers || []).map((item) => item.modelKey))).sort()
+      await this.handleClxVisibilityChange()
+    },
+    async handleClxHistoryBarCountChange(value) {
+      this.clxHistoryBarCount = Number(value) || 250
+      await this.loadClxHistory({ force: true })
+    },
+    handleClxChartMarkerSelect(group) {
+      const marker = group?.markers?.[0]
+      if (marker) this.selectClxMarker(marker, { focus: false })
+    },
+    selectClxMarker(marker, { focus = true } = {}) {
+      if (!marker?.id) return
+      this.clxSelectedMarkerId = marker.id
+      this.clxWorkbenchTab = 'detail'
+      this.scheduleRender()
+      if (focus) {
+        this.$nextTick(() => {
+          window.requestAnimationFrame(() => this.chartController?.focusClxMarker?.(marker.id))
+        })
+      }
+    },
+    navigateClxMarker(offset) {
+      const markers = this.clxFilteredMarkers
+      if (!markers.length) return
+      const currentIndex = Math.max(0, markers.findIndex((item) => item.id === this.clxSelectedMarkerId))
+      const nextIndex = Math.max(0, Math.min(markers.length - 1, currentIndex + offset))
+      this.selectClxMarker(markers[nextIndex])
+    },
+    getClxModelColor(modelKey) {
+      return getClxModelColor(modelKey)
+    },
+    formatClxEvidenceValue(evidence) {
+      if (!evidence || typeof evidence !== 'object') return String(evidence ?? '-')
+      const value = evidence.value ?? evidence.actual ?? evidence.result ?? evidence.reference_value ??
+        evidence.trigger ?? evidence.trigger_code ?? evidence.status
+      return value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '-')
+    },
     async loadHoldingList() {
       this.sidebarLoading.holding = true
       this.sidebarErrors.holding = ''
@@ -676,7 +1001,8 @@ export default {
         onLegendChange: this.handleSlimLegendSelectionChange,
         onViewportChange: this.handleSlimViewportChange,
         onPriceGuideDrag: this.handlePriceGuideDrag,
-        onPriceGuideDragEnd: this.handlePriceGuideDragEnd
+        onPriceGuideDragEnd: this.handlePriceGuideDragEnd,
+        onClxMarkerSelect: this.handleClxChartMarkerSelect
       })
       this.publishBrowserTestHooks()
       this.chart.showLoading(echartsConfig.loadingOption)
@@ -712,6 +1038,7 @@ export default {
       }
     },
     resetSlimDataState() {
+      this.abortMainDataRequest()
       this.lastError = ''
       this.lastRenderedVersion = ''
       this.mainVersion = ''
@@ -728,6 +1055,14 @@ export default {
       this.chartViewport = createKlineSlimViewportState()
       this.resetViewportOnNextRender = true
       this.resetOrderReviewState()
+      this.resetClxHistoryState()
+    },
+    abortMainDataRequest() {
+      this.mainRequestId += 1
+      this.mainAbortController?.abort?.()
+      this.mainAbortController = null
+      this.mainRequestKey = ''
+      this.mainLoading = false
     },
     resetOrderReviewState() {
       this.orderReviewRequestId += 1
@@ -737,6 +1072,19 @@ export default {
       this.orderReviewRequestKey = ''
       this.orderReviewLoadedKey = ''
       this.orderReviewVersion += 1
+    },
+    resetClxHistoryState() {
+      this.clxHistoryAbortController?.abort?.()
+      this.clxHistoryAbortController = null
+      this.clxHistoryRequestId += 1
+      this.clxSignalHistory = null
+      this.clxHistoryLoading = false
+      this.clxHistoryError = ''
+      this.clxHistoryRequestKey = ''
+      this.clxHistoryDesiredKey = ''
+      this.clxHistoryLoadedKey = ''
+      this.clxSelectedMarkerId = ''
+      this.clxHistoryVersion += 1
     },
     getOrderReviewTimelineParams() {
       return buildOrderReviewTimelineParams({
@@ -1092,6 +1440,9 @@ export default {
         ...this.orderReviewLegendSelected,
         ...(selected && typeof selected === 'object' ? selected : {}),
       })
+      if (selected && Object.prototype.hasOwnProperty.call(selected, CLX_SIGNAL_LEGEND_NAME)) {
+        this.clxLegendSelected = selected[CLX_SIGNAL_LEGEND_NAME] !== false
+      }
       this.visibleChanlunPeriods = getVisibleChanlunPeriods({
         currentPeriod: this.currentPeriod,
         selected: this.periodLegendSelected
@@ -1119,22 +1470,52 @@ export default {
       return nextVersion
     },
     async fetchMainData(token) {
-      if (this.mainLoading || !this.routeSymbol) {
+      const request = {
+        symbol: this.routeSymbol,
+        period: this.currentPeriod,
+        endDate: this.endDateModel || undefined,
+        realtimeCache: this.isRealtimeMode,
+        barCount: DEFAULT_KLINE_SLIM_BAR_COUNT
+      }
+      if (!request.symbol) {
         return
       }
+
+      const requestKey = JSON.stringify([
+        request.symbol,
+        request.period,
+        request.endDate || '',
+        !!request.realtimeCache
+      ])
+      if (
+        this.mainLoading &&
+        this.mainRequestKey === requestKey &&
+        this.mainAbortController &&
+        !this.mainAbortController.signal.aborted
+      ) {
+        return
+      }
+
+      this.mainAbortController?.abort?.()
+      const requestId = ++this.mainRequestId
+      const controller = new AbortController()
+      this.mainRequestKey = requestKey
+      this.mainAbortController = controller
       this.mainLoading = true
+      const isCurrentOwner = () => (
+        requestId === this.mainRequestId &&
+        requestKey === this.mainRequestKey &&
+        controller === this.mainAbortController &&
+        token === this.routeToken
+      )
       try {
-        const payload = await futureApi.stockData({
-          symbol: this.routeSymbol,
-          period: this.currentPeriod,
-          endDate: this.endDateModel || undefined,
-          realtimeCache: this.isRealtimeMode,
-          barCount: DEFAULT_KLINE_SLIM_BAR_COUNT
+        const payload = await futureApi.stockData(request, {
+          signal: controller.signal
         })
-        if (token !== this.routeToken || !payload) {
+        if (!isCurrentOwner() || !payload) {
           return
         }
-        const nextVersion = this.cacheChanlunPeriodPayload(this.currentPeriod, payload)
+        const nextVersion = this.cacheChanlunPeriodPayload(request.period, payload)
         if (!nextVersion) {
           return
         }
@@ -1149,11 +1530,14 @@ export default {
           this.loadOrderReviewTimeline()
         }
       } catch (error) {
-        if (token === this.routeToken) {
+        if (isCurrentOwner() && error?.name !== 'AbortError' && !controller.signal.aborted) {
           this.lastError = '主图刷新失败'
         }
       } finally {
-        this.mainLoading = false
+        if (isCurrentOwner()) {
+          this.mainLoading = false
+          this.mainAbortController = null
+        }
       }
     },
     async loadSubjectPriceDetail(options = {}) {

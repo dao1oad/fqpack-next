@@ -48,7 +48,8 @@ cdef extern from "chanlun/czsc.h":
         int force_wave_stick_count
         int allow_pivot_across
         int merge_non_complehensive_wave
-        
+        int ext_opt
+
     int count_vertexes(vector[float] vertexes, int i, int j)
     vector[Pivot] locate_pivots(
         vector[float] vertexes,
@@ -57,11 +58,11 @@ cdef extern from "chanlun/czsc.h":
         int direction,
         int i,
         int j)
-    
+
     vector[Bar] recognise_bars(int length, vector[float] h, vector[float] l)
     vector[StdBar] recognise_std_bars(int length, vector[float] h, vector[float] l)
     vector[float] recognise_swing(int length, vector[float] h, vector[float] l)
-    vector[float] recognise_bi(int length, vector[float] h, vector[float] l, ChanOptions& chan_options)
+    vector[float] recognise_bi(int length, vector[float] h, vector[float] l, const vector[float] close, ChanOptions& chan_options)
     vector[float] recognise_duan(int length, vector[float] bi, vector[float] h, vector[float] l)
     vector[Pivot] recognise_pivots(
         int length,

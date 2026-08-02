@@ -91,9 +91,17 @@ class Chanlun:
             length, self.high_price_list, self.low_price_list
         )
 
-        self.bi_signal_list = imps[self.imp].fq_recognise_bi(
-            length, self.high_price_list, self.low_price_list
-        )
+        if self.imp == 'cl4':
+            self.bi_signal_list = imps[self.imp].fq_recognise_bi(
+                length,
+                self.high_price_list,
+                self.low_price_list,
+                self.close_price_list,
+            )
+        else:
+            self.bi_signal_list = imps[self.imp].fq_recognise_bi(
+                length, self.high_price_list, self.low_price_list
+            )
         self.bi_data = self._signal_to_data(self.bi_signal_list)
 
         self.duan_signal_list = imps[self.imp].fq_recognise_duan(

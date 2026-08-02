@@ -1,6 +1,7 @@
 const OVERLAY_PANEL_KEYS = Object.freeze([
   'showPriceGuidePanel',
   'showChanlunStructurePanel',
+  'showClxWorkbench',
 ])
 
 export const buildInitialKlineSlimPageState = ({
@@ -10,10 +11,27 @@ export const buildInitialKlineSlimPageState = ({
   currentPeriod,
   showPriceGuidePanel: false,
   showChanlunStructurePanel: false,
+  showClxWorkbench: false,
 })
 
 export const buildKlineSlimRouteSymbol = (route = {}) => {
   return String(route?.query?.symbol || '').trim()
+}
+
+export const buildClxHistoryRequestKey = ({
+  symbol = '',
+  assetType = '',
+  endDate = '',
+  barCount = 250,
+} = {}) => {
+  const resolvedSymbol = String(symbol || '').trim()
+  if (!resolvedSymbol) return ''
+  return [
+    resolvedSymbol,
+    String(assetType || '').trim().toLowerCase(),
+    String(endDate || '').trim() || 'latest',
+    Number(barCount) || 250,
+  ].join('__')
 }
 
 export const closeOtherPanels = (state = {}, keepKey = '') => {

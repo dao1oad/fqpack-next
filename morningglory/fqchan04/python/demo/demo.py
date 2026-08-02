@@ -1,7 +1,6 @@
 from typing import Any, Dict, List
 
 import akshare as ak
-
 from fqchan04 import (
     fq_recognise_bars,
     fq_recognise_bi,
@@ -88,7 +87,10 @@ class Chanlun:
         )
 
         self.bi_signal_list = fq_recognise_bi(
-            length, self.high_price_list, self.low_price_list
+            length,
+            self.high_price_list,
+            self.low_price_list,
+            self.close_price_list,
         )
         self.bi_data = self._signal_to_data(self.bi_signal_list)
 

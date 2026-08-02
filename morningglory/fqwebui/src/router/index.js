@@ -3,6 +3,7 @@ import {
   resolveDocumentTitle,
   resolveRouteMetaTitle,
 } from './pageMeta.mjs'
+import { buildClxDailyScreeningRedirect } from './clxDailyScreeningRedirect.mjs'
 
 const StockControl = () => import('../views/StockControl.vue')
 const MultiPeriod = () => import('../views/MultiPeriod.vue')
@@ -70,6 +71,11 @@ const routes = [
     path: '/daily-screening',
     name: 'daily-screening',
     component: DailyScreening
+  }),
+  withRouteTitle({
+    path: '/clx-daily-screening',
+    name: 'clx-daily-screening',
+    redirect: buildClxDailyScreeningRedirect
   }),
   withRouteTitle({
     path: '/gantt/stocks/:plateKey',

@@ -1,7 +1,11 @@
 import { sortHoldingItemsByAmountDesc } from './kline-slim-sidebar.mjs'
 
 export function shouldResolveDefaultSymbol(query) {
-  return !String(query?.symbol || '').trim()
+  const hasSymbol = Boolean(String(query?.symbol || '').trim())
+  const opensClxWorkspace = ['1', 'true', 'open'].includes(
+    String(query?.clxScreening || query?.clxWorkbench || '').trim().toLowerCase()
+  )
+  return !hasSymbol && !opensClxWorkspace
 }
 
 export function pickFirstHoldingSymbol(positions) {
@@ -30,7 +34,8 @@ export function canApplyResolvedKlineSlimRoute({
 
 export function getKlineSlimEmptyMessage({
   resolvingDefaultSymbol,
-  resolveError
+  resolveError,
+  clxScreening = false
 }) {
   if (resolveError) {
     return resolveError
@@ -38,5 +43,7 @@ export function getKlineSlimEmptyMessage({
   if (resolvingDefaultSymbol) {
     return '正在读取持仓，准备默认标的...'
   }
-  return '请输入或通过 query 传入 `symbol`，例如 `/kline-slim?symbol=sh510050`'
+  return clxScreening
+    ? '请从左侧 CLX 筛选结果选择标的'
+    : '请在顶部输入代码，或从左侧持仓股/股票池选择标的'
 }

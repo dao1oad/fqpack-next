@@ -1,7 +1,9 @@
 add_rules("mode.release", "mode.debug")
 
--- 全局设置 UTF-8 编码
+-- 全局设置 UTF-8 编码和静态运行时库
 if is_plat("windows") then
+    -- 静态链接运行时库，不依赖 vcredist
+    set_runtimes("MT")
     add_cxxflags("/utf-8")
     add_cflags("/utf-8")
 end
@@ -44,6 +46,15 @@ target("tdx64")
     add_defines("_X64")
     add_cxflags("/EHsc")
 
+target("mt4")
+    add_global_defines()
+    set_kind("shared")
+    set_arch("x86")
+    set_targetdir("mt4")
+    set_basename("fqchan04")
+    add_files_recursive("cpp")
+    add_cxflags("/EHsc")
+
 target("mt5")
     add_global_defines()
     set_kind("shared")
@@ -53,7 +64,7 @@ target("mt5")
     add_files_recursive("cpp")
     add_defines("_X64")
     add_cxflags("/EHsc")
-    
+
 -- 编译KT交易师
 target("kt")
     add_global_defines()

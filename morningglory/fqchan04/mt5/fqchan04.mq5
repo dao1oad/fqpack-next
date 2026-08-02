@@ -3,7 +3,7 @@
 //|                             Copyright 2000-2026, MetaQuotes Ltd. |
 //|                                                     www.mql5.com |
 //+------------------------------------------------------------------+
-#property copyright "公众号：mywildquant"
+#property copyright "公众号：kldctymp"
 #property link      "https://mp.weixin.qq.com/s/xKBIlmBp9iyYg7wpLc5bPw"
 #property version   "1.00"
 #property indicator_chart_window
@@ -45,7 +45,7 @@ double    TrendBuffer[]; // 缠论走势类型连线
 double    ZSBuffer[];   // 缠论中枢数据（用于检测中枢边界）
 //--- import DLL
 #import "fqchan04.dll"
-   void FQ_BI(int count, double &out[], const double &high[], const double &low[], int bi_mode);
+   void FQ_BI(int count, double &out[], const double &high[], const double &low[], const double &close[], int bi_mode);
    void FQ_DUAN(int count, double &out[], const double &high[], const double &low[], const double &bi[]);
    void FQ_TREND(int count, double &out[], const double &duan[], const double &high[], const double &low[]);
    void FQ_ZSZG(int count, double &out[], const double &duan[], const double &bi[], const double &high[], const double &low[], int bi_mode);
@@ -134,7 +134,7 @@ int OnCalculate(const int rates_total,
    ArrayInitialize(ZSBuffer,0.0);
 
    // 先计算笔
-   FQ_BI(rates_total, BiBuffer, high, low, InpBiMode);
+   FQ_BI(rates_total, BiBuffer, high, low, close, InpBiMode);
 
    // 再计算段（需要笔的结果）
    FQ_DUAN(rates_total, DuanBuffer, high, low, BiBuffer);

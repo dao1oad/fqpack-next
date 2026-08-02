@@ -6,7 +6,7 @@ import {
   resolveRouteMetaTitle,
 } from './pageMeta.mjs'
 
-test('daily screening is exposed in header nav and route title map', () => {
+test('legacy daily screening metadata remains resolvable for compatible deep links', () => {
   assert.deepEqual(getHeaderNavTarget('dailyScreening'), {
     label: '每日选股',
     path: '/daily-screening',

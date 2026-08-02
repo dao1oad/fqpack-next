@@ -66,6 +66,29 @@
 
 排障时先判断问题属于“启动配置”还是“运行参数”，再去对应真值源排查。
 
+## CLX 日线计算合同
+
+CLX 日线选股的 evaluation profile 是版本化算法合同，不是 `/system-settings` 可编辑业务参数。当前定义在 `freshquant/clx_daily_selection/contracts.py`，正式值固定为：
+
+- `id=production_v1`
+- `switch_opt=1`
+- `algorithm_version=clx18-production-v1`
+- `data_version=qfq-daily-v1`
+- `universe_version=postclose-ready-v1`
+- `wave_opt=1560`
+- `stretch_opt=0`
+- `trend_opt=0`
+- `bar_count=1200`
+- `model_keys=S0000..S0017`
+- `condition_catalog_version=clx18-condition-v1`
+- `line_definition_version=ma250-v1`
+
+服务启动时会从完整 profile 生成 `parameter_hash`。profile 不是 `production_v1 / switch_opt=1`，或模型目录不是完整 18 个时，服务直接拒绝计算。
+
+旧 `fq_clxs_all` 默认 `switch_opt=0` 只属于 `legacy_sall_v0` 兼容口径，不可通过环境变量或页面把新日选切回 switch0。算法参数、数据版本或解释合同发生变化时，应新建版本并让 finalizer 阻断跨版本 join，而不是原地覆盖既有 partition。
+
+CLX 不新增独立 Mongo/Redis 连接配置；API 与 Dagster 继续读取 FreshQuant 现有基础设施配置。运行前需要确保当前环境安装的 `fqcopilot` 暴露 production batch、单模型入口和 S0002 evidence helper；具体状态由 `/api/clx-daily-selection/health` 返回。行情 provider 通过 shared strict `freshquant.data.qfq_reader` 读取 `qfq_ready` 冻结的 Stock + ETF active A/B snapshot pair，并对 `bar_count=1200` 的 full-profile window 采用 fail-closed：所有实际返回的 BFQ bar 日期必须有同一冻结 snapshot 的有限正 QFQ 因子，缺口报 `QFQ_DATA_NOT_READY`，不通过配置回退为 `adj=1`。
+
 ## Mongo 系统设置（params）
 
 除基础设施配置外，当前系统仍通过 `freshquant.params` 保存一部分运行时业务参数。

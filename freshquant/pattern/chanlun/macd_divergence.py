@@ -1,8 +1,16 @@
-from fqcopilot import fq_clxs  # type: ignore
 from fqchan04 import fq_recognise_bi  # type: ignore
+from fqcopilot import fq_clxs  # type: ignore
 
 
-def locate_macd_divergence(datetime_list, high_list, low_list, open_list, close_list, bi_list=None, min_pivot_num=2):
+def locate_macd_divergence(
+    datetime_list,
+    high_list,
+    low_list,
+    open_list,
+    close_list,
+    bi_list=None,
+    min_pivot_num=2,
+):
     """
     使用fq_clxs函数计算MACD背驰信号
 
@@ -20,7 +28,7 @@ def locate_macd_divergence(datetime_list, high_list, low_list, open_list, close_
 
     # 如果没有提供笔信号数据，内部计算
     if bi_list is None:
-        bi_list = fq_recognise_bi(length, high_list, low_list)
+        bi_list = fq_recognise_bi(length, high_list, low_list, close_list)
 
     # 使用默认成交量数据
     volume_list = [1.0] * length
@@ -32,7 +40,7 @@ def locate_macd_divergence(datetime_list, high_list, low_list, open_list, close_
         'price': [],
         'stop_lose_price': [],
         'zhongshu_count': [],
-        'tag': []
+        'tag': [],
     }
 
     bearish_divergence = {
@@ -41,7 +49,7 @@ def locate_macd_divergence(datetime_list, high_list, low_list, open_list, close_
         'price': [],
         'stop_lose_price': [],
         'zhongshu_count': [],
-        'tag': []
+        'tag': [],
     }
 
     try:
@@ -53,10 +61,10 @@ def locate_macd_divergence(datetime_list, high_list, low_list, open_list, close_
             open_list,
             close_list,
             volume_list,
-            wave_opt=1560,    # 默认参数
-            stretch_opt=0,    # 默认参数
-            trend_opt=1,      # 默认参数
-            model_opt=8       # 8表示计算背驰信号
+            wave_opt=1560,  # 默认参数
+            stretch_opt=0,  # 默认参数
+            trend_opt=1,  # 默认参数
+            model_opt=8,  # 8表示计算背驰信号
         )
 
         # 遍历信号，寻找背驰点
@@ -117,7 +125,4 @@ def locate_macd_divergence(datetime_list, high_list, low_list, open_list, close_
         # 如果fq_clxs调用失败，返回空结果
         print(f"Error calling fq_clxs: {e}")
 
-    return {
-        'bullish': bullish_divergence,
-        'bearish': bearish_divergence
-    }
+    return {'bullish': bullish_divergence, 'bearish': bearish_divergence}

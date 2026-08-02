@@ -83,7 +83,11 @@ def _clxs_last_signal(
 
 
 def _ensure_bi_list(
-    data: dict[str, Any], *, high_list: list[float], low_list: list[float]
+    data: dict[str, Any],
+    *,
+    high_list: list[float],
+    low_list: list[float],
+    close_list: list[float],
 ) -> list[int]:
     bi = data.get("_bi_signal_list")
     if isinstance(bi, list) and len(bi) == len(high_list):
@@ -99,7 +103,10 @@ def _ensure_bi_list(
         return [0] * len(high_list)
 
     try:
-        return [int(x) for x in fq_recognise_bi(len(high_list), high_list, low_list)]
+        return [
+            int(x)
+            for x in fq_recognise_bi(len(high_list), high_list, low_list, close_list)
+        ]
     except Exception:
         return [0] * len(high_list)
 
@@ -134,7 +141,12 @@ def calculate_guardian_signals_latest(
         return []
 
     idx = n - 1
-    bi_list = _ensure_bi_list(data, high_list=high_list, low_list=low_list)
+    bi_list = _ensure_bi_list(
+        data,
+        high_list=high_list,
+        low_list=low_list,
+        close_list=close_list,
+    )
 
     out: list[GuardianSignal] = []
 

@@ -4,47 +4,24 @@
 
 ### 编译前提
 
-#### 安装vcpkg
+- xmake：`winget install Xmake-io.Xmake`
+- VS BuildTools + C++ 工具集：`winget install Microsoft.VisualStudio.BuildTools --override "--passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`
 
-```
-scoop install vcpkg
-```
+### 编译命令
 
-安装后设置环境变量，VCPKG_ROOT指向安装的根目录，如下是我的安装目录。
+```bash
+# 编译全部目标
+xmake build
 
-```
-set VCPKG_ROOT=C:\Users\xxxxxxxx\scoop\apps\vcpkg\current
-setx VCPKG_ROOT C:\Users\xxxxxxxx\scoop\apps\vcpkg\current
-```
-
-#### 使用vcpkg安装poco
-
-```
-vcpkg install poco
+# 或单独编译
+xmake build tdx64    # 通达信64位
+xmake build jzt      # 金字塔64位
+xmake build jzt32    # 金字塔32位
+xmake build dzh      # 大智慧64位
+xmake build mt5      # MT5
 ```
 
-### Visual Studio 2019 或者 Visual Studio 2022
-
-编译通达信/大智慧/交易师等32位版本用
-
-```cmd
-cmake -A Win32 -B build32
-cmake --build build32 --config Release
-```
-
-编译金字塔64位版本用
-
-```cmd
-cmake . -B buildJzt
-cmake --build buildJzt --config Release
-```
-
-编译大智慧64位版本用
-
-```cmd
-cmake -D MAKE_DZH=1 . -B buildDzh
-cmake --build buildDzh --config Release
-```
+编译产物输出到各目标的 `dlls/` 目录。
 
 ## 参数类型说明
 
@@ -117,3 +94,5 @@ TREND6_PIVOT_DD|95|六级走势中枢低低
 模型类型编码|模型类型值|模型说明|需要参数
 ------|------|------|------
 CLX_S001|1|走势下跌+上涨笔中枢完备|HIGH,LOW,OPEN.CLOSE,WAVE,STRETCH,TREND1
+CLX_S016|16|支撑/阻力区间反转|HIGH,LOW,OPEN.CLOSE,WAVE,STRETCH
+CLX_S017|17|支撑/阻力区间反转（笔级别）|HIGH,LOW,OPEN.CLOSE,WAVE,SWING

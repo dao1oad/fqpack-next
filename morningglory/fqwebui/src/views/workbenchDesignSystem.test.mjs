@@ -415,6 +415,8 @@ test('MyHeader.vue renders navigation from grouped metadata instead of hardcoded
   assert.match(headerSource, /const meta = HEADER_NAV_TARGETS\[key\] \|\| \{\}/)
   assert.match(headerSource, /<el-button-group v-for="\(\s*group,\s*groupIndex\s*\) in headerNavGroups"/)
   assert.match(headerSource, /<el-button\s+v-for="item in group"/)
+  assert.match(headerSource, /this\.\$router\.push\(\{[\s\S]*path: target\.path,[\s\S]*query: target\.query/)
+  assert.doesNotMatch(headerSource, /window\.open/)
   assert.doesNotMatch(headerSource, /@click="goSetting"/)
   assert.doesNotMatch(headerSource, /jumpToControl\('futures'\)/)
   assert.doesNotMatch(headerSource, /jumpToControl\('runtime'\)/)
