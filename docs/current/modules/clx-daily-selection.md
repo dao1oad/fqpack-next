@@ -10,6 +10,7 @@
 - 在页面明确展示 partial，但只把双 partition 校验通过的 batch 标为 final
 - 提供批次、结果、解释证据、统计和单标的历史 marker API
 - 为桌面 `/kline-slim` 的筛选、K 线和历史信号三栏提供同一套服务端事实
+- 让用户先把已发布 final 批次中的结果加入人工篮子，再把确认后的篮子原子覆盖到通达信固定分组 `clx_18 / CLX_18.blk`
 
 旧 `/daily-screening` 的 12 模型 scope、集合和 `daily_screening_ready` marker 保持原语义，不参与本模块的 partition、batch 或默认页面结果。
 
@@ -19,6 +20,7 @@
 - 计算服务：`freshquant/clx_daily_selection/service.py`
 - 原生引擎 adapter：`freshquant/clx_daily_selection/engine.py`
 - 日线数据 provider：`freshquant/clx_daily_selection/market_data.py`
+- 通达信 BLK 编码与原子落盘：`freshquant/clx_daily_selection/tdx_export.py`
 - Mongo repository：`freshquant/clx_daily_selection/repository.py`
 - HTTP blueprint：`freshquant/rear/clx_daily_selection/routes.py`
 - Dagster job：`fqdagster.defs.jobs.clx_daily_selection`
@@ -157,11 +159,14 @@ S0002 entrypoint 3 额外使用 `fq_s0002_entrypoint3_evidence` 区分吞没与�
 - `GET /api/clx-daily-selection/batches/<batch_id>/summary`
 - `GET|POST /api/clx-daily-selection/batches/<batch_id>/results`
 - `POST /api/clx-daily-selection/batches/<batch_id>/results/query`
+- `POST /api/clx-daily-selection/batches/<batch_id>/results/sync-selected-to-tdx`
 - `GET /api/clx-daily-selection/batches/<batch_id>/results/<asset_type>/<symbol>`
 - `GET /api/clx-daily-selection/batches/<batch_id>/statistics`
 - `GET /api/clx-daily-selection/history/signals`
 
 `/batches` 与 `/batches/latest` 默认只返回 publication 已完成（`published/not_required`）的 final；显式传 `include_partial=1` 才把普通 partial 以及 `pending/publishing/failed` publication 纳入候选，后者对外仍投影为 partial。
+
+`/results/sync-selected-to-tdx` 的请求体只接受人工篮子的 `items`，不接受客户端筛选条件替代标的身份。目标批次必须同时满足 `is_final=true / release_status=final / publication.status=published`，且 Stock、ETF partition 都为 `completed`。服务端按 batch 的不可变 partition membership 逐项重验篮子成员；`items` 只接受同一 batch 中 `distinct_model_count >= 1` 的正式命中结果，不属于该 batch 的标的以及已 evaluated 但没有命中的标的都拒绝，整次导入失败并保留旧文件。验证通过后按稳定顺序去重编码，以 GBK+CRLF 临时文件加原子替换覆盖 `D:/new_tdx/T0002/blocknew/CLX_18.blk`。编码、校验或替换失败时旧文件保持不变。市场前缀为深沪北 `1 / 0 / 2`，响应返回实际 `written_count`。固定组已由 `blocknew.cfg` 注册为显示名 `clx_18`，日常导入只覆盖 BLK 文件。
 
 `/history/signals` 当前只接受 `period=1d`，`barCount` 范围为 `1..2000`。`endDate` 可显式传入；省略时由 provider 解析该标的最新交易日。响应包含 bar 等长的模型序列、压缩 marker、bar 等长的 `line_series`（当前正式计算 MA250，其他未接入连线保持 unknown）、`calculation_profile`、`future_function_guard`、`input_bar_asof`、实际 `end_date`、`query_hash`，以及真实的 `qfq_snapshot_id / qfq_factor_asof / qfq_effective_version / qfq_provenance`。HTTP ETag 同时绑定 `query_hash` 与 `qfq_effective_version`，并返回 `X-QFQ-Effective-Version`，QFQ snapshot 切换后旧缓存不会继续命中。
 
@@ -190,14 +195,20 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 
 `/kline-slim?clxScreening=1&clxWorkbench=1&period=1d` 是 CLX 唯一正式页面入口，桌面采用“筛选结果 / K 线 / 信号工作台”三栏。裸 `/kline-slim` 仍保持普通持仓/股票池模式：
 
-- 左栏 `CLX 日线选股`
+- 左栏 `每日选股 · 结果筛选`
   - 默认选择最新 `published/not_required` final；用户显式选择时才查看 partial 或 publication 中间态。
   - scope 摘要展示交易日、profile、股票/ETF partition 与 partial/final 状态。
   - 支持资产、模型、条件、方向、三态线关系、最少模型数和代码/名称搜索；查询保持服务端排序，并使用 cursor 继续加载，不在浏览器端伪造全量分页。
   - scope 或筛选条件改变时重置 cursor；切换 K 线标的、marker 显示条件或右栏详情不重置左栏筛选和已加载列表。
+  - 同一 scope 的筛选请求期间保留上一份稳定列表并标记 `aria-busy / 更新中`，成功后原子替换；失败仍保留旧列表并提供重试，不以短暂空白冒充零结果。
   - 结果卡展示资产类型、模型数、条件数和模型键摘要；点击卡片直接成为当前标的。
+  - 每条结果都可加入或取消人工篮子；同一 batch、同一页面 session 内，篮子跨筛选条件和 cursor page 保留，切换 batch 或开启另一 session 时不混用。
+  - “全选当前筛选结果”遍历当前完整 filter 结果并与已有篮子取 union，不只选择已经加载的当前页；“清空”只清空当前 batch/session 的篮子。
+  - 最终动作显示“导入 N 只”。只有篮子非空且目标 batch 为已发布完整结果时可用；请求只发送篮子 `items`，运行中防重复点击。
+  - 每日选股左筛选栏使用自身暗色主题，不改变其他行情区域的视觉样式。
 - 中栏 `K 线`
   - 复用既有多周期主图、缠论结构、标的设置和可选交易复盘能力。
+  - 行情图表与每日选股的各周期样式差异继续维持原有行为；人工篮子与通达信导入不改变既有 K 线展示合同。
   - 从左栏选择标的时，同步 `symbol / asset type`，并把当前 `scope.tradeDate` 写入 `endDate`；主 K 线和历史 CLX 信号因此使用同一盘后截面。
 - 右栏 `CLX 信号工作台`
   - 分为“显示控制 / 信号时间轴 / 信号详情”。

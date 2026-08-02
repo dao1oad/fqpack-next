@@ -103,6 +103,33 @@ def query_results(batch_id: str):
         return _invalid_request(exc)
 
 
+@clx_daily_selection_bp.post("/batches/<batch_id>/results/sync-selected-to-tdx")
+def sync_selected_results_to_tdx(batch_id: str):
+    try:
+        return jsonify(
+            _get_service().sync_selected_results_to_tdx(batch_id, _json_payload())
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "旧分组已保留" not in message:
+            message = f"{message}；旧分组已保留"
+        return _invalid_request(ValueError(message))
+    except RuntimeError as exc:
+        message = str(exc)
+        if "旧分组已保留" not in message:
+            message = f"{message}；旧分组已保留"
+        return (
+            jsonify(
+                {
+                    "code": "tdx_sync_failed",
+                    "message": message,
+                    "retryable": True,
+                }
+            ),
+            500,
+        )
+
+
 @clx_daily_selection_bp.route("/batches/<batch_id>/results", methods=["GET", "POST"])
 def get_results(batch_id: str):
     if request.method == "POST":

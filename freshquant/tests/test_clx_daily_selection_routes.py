@@ -272,6 +272,75 @@ def test_results_post_rejects_list_limit(monkeypatch):
     }
 
 
+def test_sync_selected_results_to_tdx_route_forwards_only_explicit_items(monkeypatch):
+    batch_id = "clx-2026-07-31-production_v1-final"
+    captured = {}
+
+    class Service:
+        def sync_selected_results_to_tdx(self, requested_batch_id, payload):
+            captured["call"] = (requested_batch_id, payload)
+            return {
+                "group_name": "clx_18",
+                "file_name": "CLX_18.blk",
+                "requested_count": 2,
+                "written_count": 2,
+                "scope_id": requested_batch_id,
+                "trade_date": "2026-07-31",
+            }
+
+    response = make_client(monkeypatch, Service()).post(
+        f"/api/clx-daily-selection/batches/{batch_id}/results/sync-selected-to-tdx",
+        json={
+            "items": [
+                {"asset_type": "stock", "symbol": "000001"},
+                {"asset_type": "etf", "symbol": "159577"},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["written_count"] == 2
+    assert response.get_json()["group_name"] == "clx_18"
+    assert captured["call"] == (
+        batch_id,
+        {
+            "items": [
+                {"asset_type": "stock", "symbol": "000001"},
+                {"asset_type": "etf", "symbol": "159577"},
+            ]
+        },
+    )
+
+
+def test_sync_selected_results_to_tdx_route_reports_failure_and_old_group(monkeypatch):
+    batch_id = "clx-2026-07-31-production_v1-final"
+
+    class Service:
+        def sync_selected_results_to_tdx(self, _batch_id, _payload):
+            raise RuntimeError("replace denied")
+
+    response = make_client(monkeypatch, Service()).post(
+        f"/api/clx-daily-selection/batches/{batch_id}/results/sync-selected-to-tdx",
+        json={"items": [{"asset_type": "stock", "symbol": "000001"}]},
+    )
+
+    assert response.status_code == 500
+    assert response.get_json() == {
+        "code": "tdx_sync_failed",
+        "message": "replace denied；旧分组已保留",
+        "retryable": True,
+    }
+
+
+def test_obsolete_filter_export_route_is_not_registered(monkeypatch):
+    response = make_client(monkeypatch, object()).post(
+        "/api/clx-daily-selection/batches/batch/results/sync-to-tdx",
+        json={"items": [{"asset_type": "stock", "symbol": "000001"}]},
+    )
+
+    assert response.status_code == 404
+
+
 def test_history_signals_route_normalizes_query_and_exposes_etag(monkeypatch):
     captured = {}
 

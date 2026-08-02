@@ -26,7 +26,7 @@ position_management:
   mongo_database: freshquant_position_management
 
 tdx:
-  home: D:/tdx_biduan
+  home: D:/new_tdx
   hq:
     endpoint: http://127.0.0.1:15001
 

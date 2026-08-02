@@ -151,8 +151,11 @@ async function mockApis(page, requestLog, {
   activeBatch = partialBatch,
   batchPayloads = [],
   resultRowsByBatch = {},
+  resultFailureCounts = {},
+  emptyResultQueries = [],
   responseDelays = {},
   statisticsPayload = {},
+  tdxImportPayload = { success: true, group_name: 'clx_18', written_count: 321 },
 } = {}) {
   const knownBatches = new Map()
   for (const batch of [
@@ -229,16 +232,51 @@ async function mockApis(page, requestLog, {
     if (resultsMatch) {
       const batchId = decodeURIComponent(resultsMatch[1])
       const batch = knownBatches.get(batchId)
-      requestLog.resultQueries.push(request.postDataJSON?.() || {})
+      const query = request.postDataJSON?.() || {}
+      requestLog.resultQueries.push(query)
       await waitForResponse('results', batchId)
+      const failureKey = String(query.q || '')
+      if (Number(resultFailureCounts[failureKey] || 0) > 0) {
+        resultFailureCounts[failureKey] -= 1
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: '筛选结果更新失败' }),
+        })
+        return
+      }
+      const allRows = emptyResultQueries.includes(String(query.q || ''))
+        ? []
+        : resultRowsByBatch[batchId] || [resultRow]
+      const offset = Math.max(0, Number(query.cursor) || 0)
+      const limit = Math.max(1, Math.min(200, Number(query.limit) || 100))
+      const pageRows = allRows.slice(offset, offset + limit)
+      const nextCursor = offset + limit < allRows.length ? String(offset + limit) : ''
       await route.fulfill({
         status: batch ? 200 : 404,
         contentType: 'application/json',
         body: JSON.stringify({
           ...(batch || {}),
-          rows: resultRowsByBatch[batchId] || [resultRow],
-          total: (resultRowsByBatch[batchId] || [resultRow]).length,
+          rows: pageRows,
+          total: allRows.length,
+          next_cursor: nextCursor,
         }),
+      })
+      return
+    }
+
+    const tdxImportMatch = pathname.match(/^\/api\/clx-daily-selection\/batches\/([^/]+)\/results\/sync-selected-to-tdx$/)
+    if (tdxImportMatch) {
+      const batchId = decodeURIComponent(tdxImportMatch[1])
+      requestLog.tdxImports = [...(requestLog.tdxImports || []), {
+        batchId,
+        payload: request.postDataJSON?.() || {},
+      }]
+      await waitForResponse('tdxImport', batchId)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(tdxImportPayload),
       })
       return
     }
@@ -609,4 +647,261 @@ test('a delayed old result cannot overwrite a window-external deep link while it
     RACE_SCOPE_B,
   ])
   expect(requestLog.statisticsRequests).toBe(0)
+})
+
+test('final published basket uses sibling row actions, dark surfaces and selected-only import once while loading', async ({ page }) => {
+  const requestLog = {
+    summaryRequests: [],
+    resultQueries: [],
+    statisticsRequests: 0,
+    historyQueries: [],
+    tdxImports: [],
+  }
+  await mockApis(page, requestLog, {
+    batchItems: [finalBatch],
+    latestPayload: { batch: finalBatch },
+    activeBatch: finalBatch,
+    responseDelays: { tdxImport: 350 },
+    tdxImportPayload: { success: true, group_name: 'clx_18', written_count: 1 },
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  const rowItem = page.locator('.clx-selection-panel__row-item').first()
+  await expect(rowItem.getByRole('button')).toHaveCount(2)
+  const urlBeforeBasketToggle = page.url()
+  await rowItem.getByRole('button', { name: '加入通达信 平安银行' }).click()
+  await expect(rowItem).toContainText('已加入')
+  await expect(page).toHaveURL(urlBeforeBasketToggle)
+
+  const scopeSelect = page.getByRole('combobox', { name: '每日选股结果批次' })
+  await expect(scopeSelect).toBeVisible()
+  await page.locator('.clx-selection-panel .el-select__wrapper').first().click()
+  await expect(page.locator('.el-popper.clx-market-dark-popper[aria-hidden="false"]')).toBeVisible()
+  const colors = await page.evaluate(() => {
+    const style = (selector) => {
+      const element = document.querySelector(selector)
+      const computed = element ? window.getComputedStyle(element) : null
+      return {
+        background: computed?.backgroundColor || '',
+        color: computed?.color || '',
+      }
+    }
+    const parseRgb = (value) => (String(value).match(/[\d.]+/g) || []).slice(0, 3).map(Number)
+    const luminance = (value) => {
+      const channels = parseRgb(value).map((channel) => {
+        const normalized = channel / 255
+        return normalized <= 0.03928
+          ? normalized / 12.92
+          : ((normalized + 0.055) / 1.055) ** 2.4
+      })
+      return channels.length === 3
+        ? 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+        : 0
+    }
+    const panel = style('.clx-selection-panel')
+    const foreground = luminance(panel.color)
+    const background = luminance(panel.background)
+    const basket = style('.clx-selection-panel__basket-toggle[aria-pressed="true"]')
+    const basketForeground = luminance(basket.color)
+    const basketBackground = luminance(basket.background)
+    return {
+      panel,
+      row: style('.clx-selection-panel__row-item'),
+      input: style('.clx-selection-panel .el-input__wrapper'),
+      popper: style('.el-popper.clx-market-dark-popper[aria-hidden="false"]'),
+      basket,
+      contrast: (Math.max(foreground, background) + 0.05) /
+        (Math.min(foreground, background) + 0.05),
+      basketContrast: (Math.max(basketForeground, basketBackground) + 0.05) /
+        (Math.min(basketForeground, basketBackground) + 0.05),
+    }
+  })
+  await page.keyboard.press('Escape')
+  for (const surface of [colors.panel, colors.row, colors.input, colors.popper, colors.basket]) {
+    expect(surface.background).not.toBe('rgb(255, 255, 255)')
+  }
+  expect(colors.contrast).toBeGreaterThan(4.5)
+  expect(colors.basketContrast).toBeGreaterThan(4.5)
+
+  const button = page.getByRole('button', { name: '导入通达信（1）', exact: true })
+  await expect(button).toBeEnabled()
+  await button.click()
+  await expect(button).toBeDisabled()
+  await button.click({ force: true })
+  await expect(page.getByText('已导入通达信分组 clx_18，共 1 只（已覆盖原分组）')).toBeVisible()
+  await expect(button).toBeEnabled()
+  await expect(rowItem).toContainText('已加入')
+
+  expect(requestLog.tdxImports).toEqual([{
+    batchId: FINAL_BATCH_ID,
+    payload: {
+      items: [{ asset_type: 'stock', symbol: 'sz000001' }],
+    },
+  }])
+})
+
+test('select-all freezes the current filter and unions every result beyond the first 100 rows', async ({ page }) => {
+  const requestLog = {
+    summaryRequests: [],
+    resultQueries: [],
+    statisticsRequests: 0,
+    historyQueries: [],
+    tdxImports: [],
+  }
+  const allRows = Array.from({ length: 205 }, (_, index) => ({
+    ...resultRow,
+    asset_type: index % 5 === 0 ? 'etf' : 'stock',
+    symbol: String(index + 1).padStart(6, '0'),
+    code: String(index + 1).padStart(6, '0'),
+    name: `筛选标的${index + 1}`,
+  }))
+  await mockApis(page, requestLog, {
+    batchItems: [finalBatch],
+    latestPayload: { batch: finalBatch },
+    activeBatch: finalBatch,
+    resultRowsByBatch: { [FINAL_BATCH_ID]: allRows },
+    responseDelays: { results: 120 },
+    tdxImportPayload: { success: true, group_name: 'clx_18', written_count: 205 },
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('已加载 100 / 205')).toBeVisible()
+  const selectAllQueryStart = requestLog.resultQueries.length
+  const selectAll = page.getByRole('button', { name: '全选当前筛选结果' })
+  await selectAll.click()
+  await expect(selectAll).toBeDisabled()
+  await selectAll.dispatchEvent('click')
+  await expect(page.getByText('待导入 205 只')).toBeVisible()
+  await expect(selectAll).toBeEnabled()
+
+  const fullQueries = requestLog.resultQueries
+    .slice(selectAllQueryStart)
+    .filter((query) => query.limit === 200)
+  expect(fullQueries.map((query) => query.cursor)).toEqual(['', '200'])
+  expect(fullQueries.every((query) => query.scope_id === FINAL_BATCH_ID)).toBe(true)
+
+  await page.getByRole('button', { name: '导入通达信（205）', exact: true }).click()
+  await expect(page.getByText('已导入通达信分组 clx_18，共 205 只（已覆盖原分组）')).toBeVisible()
+  expect(requestLog.tdxImports).toHaveLength(1)
+  expect(requestLog.tdxImports[0].payload.items).toHaveLength(205)
+})
+
+test('basket remains isolated per batch and restores from session storage after route changes and reload', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const scopeA = { ...finalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
+  const scopeB = { ...finalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
+  const rowA = { ...resultRow, symbol: '000001', code: '000001', name: '批次A标的' }
+  const rowB = { ...resultRow, symbol: '510050', code: '510050', asset_type: 'etf', name: '批次B标的' }
+  await mockApis(page, requestLog, {
+    batchItems: [scopeA, scopeB],
+    latestPayload: { batch: scopeA },
+    activeBatch: scopeA,
+    resultRowsByBatch: { [RACE_SCOPE_A]: [rowA], [RACE_SCOPE_B]: [rowB] },
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`, { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '加入通达信 批次A标的' }).click()
+  await expect(page.getByText('待导入 1 只')).toBeVisible()
+
+  await pushClxScopeRoute(page, RACE_SCOPE_B)
+  await expect(page.getByText('批次B标的')).toBeVisible()
+  await expect(page.getByText('待导入 0 只')).toBeVisible()
+  await page.getByRole('button', { name: '加入通达信 批次B标的' }).click()
+
+  await pushClxScopeRoute(page, RACE_SCOPE_A)
+  await expect(page.getByText('批次A标的')).toBeVisible()
+  await expect(page.getByRole('button', { name: '取消加入通达信 批次A标的' })).toBeVisible()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('button', { name: '取消加入通达信 批次A标的' })).toBeVisible()
+  await expect(page.getByText('待导入 1 只')).toBeVisible()
+})
+
+test('scope navigation aborts select-all and releases its loading state for the new batch', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const scopeA = { ...finalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
+  const scopeB = { ...finalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
+  const rowsA = Array.from({ length: 205 }, (_, index) => ({
+    ...resultRow,
+    symbol: String(index + 1).padStart(6, '0'),
+    code: String(index + 1).padStart(6, '0'),
+    name: `批次A标的${index + 1}`,
+  }))
+  const rowB = { ...resultRow, symbol: '510050', code: '510050', asset_type: 'etf', name: '批次B标的' }
+  await mockApis(page, requestLog, {
+    batchItems: [scopeA, scopeB],
+    latestPayload: { batch: scopeA },
+    activeBatch: scopeA,
+    resultRowsByBatch: { [RACE_SCOPE_A]: rowsA, [RACE_SCOPE_B]: [rowB] },
+    responseDelays: { results: { [RACE_SCOPE_A]: 350 } },
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('已加载 100 / 205')).toBeVisible()
+  const selectAll = page.getByRole('button', { name: '全选当前筛选结果' })
+  await selectAll.click()
+  await expect(selectAll).toBeDisabled()
+
+  await pushClxScopeRoute(page, RACE_SCOPE_B)
+  await expect(page.getByText('批次B标的')).toBeVisible()
+  await expect(page.getByRole('button', { name: '全选当前筛选结果' })).toBeEnabled()
+  await expect(page.locator('.clx-selection-panel')).toHaveAttribute('aria-busy', 'false')
+  await expect(page.getByText('待导入 0 只')).toBeVisible()
+})
+
+test('empty filters disable select-all but keep a non-empty basket importable, and partial batches stay ineligible', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  await mockApis(page, requestLog, {
+    batchItems: [finalBatch, partialBatch],
+    latestPayload: { batch: finalBatch },
+    activeBatch: finalBatch,
+    emptyResultQueries: ['无结果'],
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '加入通达信 平安银行' }).click()
+  await page.getByRole('textbox', { name: '搜索代码或名称' }).fill('无结果')
+  await expect(page.getByText('当前筛选条件下没有标的。')).toBeVisible()
+  await expect(page.getByRole('button', { name: '全选当前筛选结果' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '导入通达信（1）', exact: true })).toBeEnabled()
+
+  await pushClxScopeRoute(page, PARTIAL_BATCH_ID)
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect(page.getByRole('button', { name: '加入通达信 平安银行' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '全选当前筛选结果' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '导入通达信（0）', exact: true })).toBeDisabled()
+})
+
+test('filter refresh keeps the last stable list visible and retry replaces it after an error', async ({ page }) => {
+  const requestLog = {
+    summaryRequests: [],
+    resultQueries: [],
+    statisticsRequests: 0,
+    historyQueries: [],
+  }
+  await mockApis(page, requestLog, {
+    batchItems: [finalBatch],
+    latestPayload: { batch: finalBatch },
+    activeBatch: finalBatch,
+    resultFailureCounts: { '银行': 1 },
+    responseDelays: { results: 250 },
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('平安银行')).toBeVisible()
+
+  await page.getByRole('textbox', { name: '搜索代码或名称' }).fill('银行')
+  await expect(page.getByText('更新中 · 旧结果保留')).toBeVisible()
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect(page.getByText('筛选结果更新失败')).toBeVisible()
+  await expect(page.getByText('平安银行')).toBeVisible()
+
+  await page.getByRole('button', { name: '重试' }).click()
+  await expect(page.getByText('筛选结果更新失败')).toBeHidden()
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect.poll(() => requestLog.resultQueries.filter((query) => query.q === '银行').length).toBe(2)
+
+  await page.getByRole('button', { name: '刷新 CLX 筛选批次和结果' }).click()
+  await expect(page.getByText('更新中 · 旧结果保留')).toBeVisible()
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect(page.getByText('已加载 1 / 1')).toBeVisible()
 })

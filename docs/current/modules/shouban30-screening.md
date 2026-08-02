@@ -27,7 +27,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 - `stock_pools`
 - `must_pool`
 - `bootstrap_config.tdx.home or TDX_HOME`
-- `D:\tdx_biduan\T0002\blocknew\30RYZT.blk`
+- `D:\new_tdx\T0002\blocknew\30RYZT.blk`
 
 ## 数据流
 
@@ -125,7 +125,9 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 - `must_pool` 使用 `workspace_order_hint` 作为 `.blk` 输出顺序真值；缺失时回退 `updated_at / created_at / datetime desc`
 - 当前缠论过滤版本是 `1d_v1`
 - 通达信目录解析口径固定为：先读 `bootstrap_config.tdx.home`，未配置时回退 `TDX_HOME`
-- Docker 并行部署下，`fq_apiserver` 当前必须挂载 `${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}` 到 `/opt/tdx`
+- Docker 并行部署下，正式 workflow job env 或人工部署进程必须显式设置 `FQPACK_TDX_SYNC_DIR=D:/new_tdx`，让 `fq_apiserver` 把宿主机目录挂载到 `/opt/tdx`；Compose 定义中的 `D:/tdx_biduan` 仅为兼容回退，不作为正式目录真值
+- `fq_apiserver` 通过正式 `env_file` 的 `FRESHQUANT_TDX__HOME=/opt/tdx` 解析容器内通达信目录；service `env_file` 不参与宿主机路径的 Compose 插值
+- Shouban30 只覆盖 `30RYZT.blk`；CLX 人工篮子使用同一挂载下独立的 `CLX_18.blk`，两类同步动作不会互相覆盖文件
 - 默认分类：
   - `三十涨停Pro预选`
   - `三十涨停Pro自选`
@@ -135,7 +137,7 @@ Shouban30 模块负责“30 天首板”盘后筛选结果展示、`pre_pool / s
 
 - 页面或 gantt routes 改动后，重建 API 与 Web UI。
 - 读模型逻辑改动后，重跑 Dagster。
-- 工作区与 `.blk` 同步逻辑改动后，必须在宿主机验证 `D:\tdx_biduan\T0002\blocknew\30RYZT.blk` 写入。
+- 工作区与 `.blk` 同步逻辑改动后，必须同时验证宿主机 `D:\new_tdx\T0002\blocknew\30RYZT.blk` 与容器 `/opt/tdx/T0002/blocknew/30RYZT.blk` 指向同一内容；CLX 的 `CLX_18.blk` 验收按 `docs/current/deployment.md` 独立执行。
 
 ## 排障点
 

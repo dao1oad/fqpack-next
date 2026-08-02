@@ -94,6 +94,13 @@ def test_shared_cn_security_classification_boundaries(code, expected):
 def test_index_minute_fetch_does_not_call_to_qfq(monkeypatch, index_modules):
     index_data, _index_quote = index_modules
 
+    class _NoopCacheStorage:
+        def get(self, _key):
+            return None
+
+        def set(self, _key, _value, **_kwargs):
+            return None
+
     class _IndexData:
         data = _bars()
 
@@ -104,6 +111,9 @@ def test_index_minute_fetch_does_not_call_to_qfq(monkeypatch, index_modules):
         index_data,
         "QA_fetch_index_min_adv",
         lambda *_args, **_kwargs: _IndexData(),
+    )
+    monkeypatch.setattr(
+        index_data.redis_cache, "storage", _NoopCacheStorage(), raising=False
     )
 
     result = index_data.fq_data_QA_fetch_index_min_adv(

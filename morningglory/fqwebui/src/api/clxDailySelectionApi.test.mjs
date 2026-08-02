@@ -9,6 +9,7 @@ test('CLX API uses fixed batch result path and raw history camelCase contract', 
   assert.match(source, /assetType,/)
   assert.match(source, /conditionKeys:/)
   assert.match(source, /includeRaw: includeRaw \? 1 : 0/)
+  assert.match(source, /batches\/\$\{encodePath\(batchId\)\}\/results\/sync-selected-to-tdx`/)
 })
 
 test('Kline requests unfiltered raw history and passes an abort signal', async () => {

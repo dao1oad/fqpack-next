@@ -68,6 +68,11 @@ def test_compose_apiserver_mounts_tdx_sync_dir() -> None:
     assert "target: /opt/tdx" in text
 
 
+def test_production_deploy_sets_tdx_sync_dir() -> None:
+    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+    assert "FQPACK_TDX_SYNC_DIR: D:/new_tdx" in text
+
+
 def test_ci_uses_uv_sync() -> None:
     text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "uv sync --frozen" in text

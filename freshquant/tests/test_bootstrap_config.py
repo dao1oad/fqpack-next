@@ -47,6 +47,7 @@ def test_load_bootstrap_config_reads_yaml_and_env_override(monkeypatch, tmp_path
     monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
     monkeypatch.setenv("FRESHQUANT_MONGODB__PORT", "27099")
     monkeypatch.setenv("FRESHQUANT_RUNTIME__LOG_DIR", "D:/override/runtime")
+    monkeypatch.setenv("FRESHQUANT_TDX__HOME", "/opt/tdx")
 
     import freshquant.bootstrap_config as bootstrap_module
 
@@ -65,7 +66,7 @@ def test_load_bootstrap_config_reads_yaml_and_env_override(monkeypatch, tmp_path
     assert config.position_management.mongo_database == (
         "freshquant_position_management_runtime"
     )
-    assert config.tdx.home == "D:/tdx_biduan"
+    assert config.tdx.home == "/opt/tdx"
     assert config.tdx.hq_endpoint == "http://127.0.0.1:15001"
     assert config.api.base_url == "http://127.0.0.1:15000"
     assert config.xtdata.port == 58611
