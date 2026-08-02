@@ -675,7 +675,13 @@ def _initial_stock_capital_date(*, code: str, db) -> str | None:
     return min(candidates) if candidates else None
 
 
-def _load_bfq_coverage(*, kind: str, code: str, db=DBQuantAxis) -> dict[str, Any]:
+def _load_bfq_coverage(
+    *,
+    kind: str,
+    code: str,
+    db=DBQuantAxis,
+    listing_date_loader: Callable[[str], Any] | None = None,
+) -> dict[str, Any]:
     if kind not in BFQ_COLLECTIONS:
         raise ValueError(f"unsupported BFQ kind: {kind}")
     code6 = normalize_code(code)
@@ -699,6 +705,8 @@ def _load_bfq_coverage(*, kind: str, code: str, db=DBQuantAxis) -> dict[str, Any
     listing_date = (
         _initial_stock_capital_date(code=code6, db=db) if kind == "stock" else None
     )
+    if listing_date is None and listing_date_loader is not None:
+        listing_date = _date_key(listing_date_loader(code6))
     for row in cursor:
         value = row.get("date") if isinstance(row, Mapping) else None
         if isinstance(row, Mapping) and _is_bfq_sentinel_row(row):
@@ -775,8 +783,10 @@ def _select_bfq_dates(
     selected = [date for date in dates if not target_date or date <= target_date]
     if selected:
         return selected
-    if sentinel_rows and not dates:
+    if sentinel_rows and not dates and not prelisting_rows:
         reason = "sentinel_only_bfq_history"
+    elif prelisting_rows and not dates:
+        reason = "prelisting_only_bfq_history"
     elif dates and target_date:
         reason = "no_bfq_history_by_target"
     else:
@@ -1480,6 +1490,30 @@ class XtDataQfqClient:
             earliest = next_earliest
         return bars
 
+    def load_open_date(self, code: str, *, market: str | None = None) -> str | None:
+        xtdata = self._get_xtdata()
+        if not self.connected and hasattr(xtdata, "connect"):
+            xtdata.connect(port=self.port)
+            self.connected = True
+        if not hasattr(xtdata, "get_instrument_detail"):
+            return None
+        detail = xtdata.get_instrument_detail(to_xt_code(code, market=market))
+        if not isinstance(detail, Mapping):
+            return None
+        value = detail.get("OpenDate")
+        text = str(value or "").strip()
+        if not (
+            (len(text) == 8 and text.isdigit())
+            or (
+                len(text) == 10
+                and text[4] == "-"
+                and text[7] == "-"
+                and text.replace("-", "").isdigit()
+            )
+        ):
+            return None
+        return _date_key(text)
+
     def load_front_ratio_bars(
         self,
         code: str,
@@ -1823,6 +1857,7 @@ def audit_qfq_slot(
     factor_asof: str | None = None,
     bars_loader: Callable[..., Any] | None = None,
     front_ratio_loader: Callable[..., Any] | None = None,
+    listing_date_loader: Callable[[str], Any] | None = None,
     source_tail_days: int | None = None,
     progress_callback: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
@@ -1842,7 +1877,12 @@ def audit_qfq_slot(
     for code in universe["codes"]:
         if progress_callback:
             progress_callback()
-        coverage = _load_bfq_coverage(kind=scope, code=code, db=db)
+        coverage = _load_bfq_coverage(
+            kind=scope,
+            code=code,
+            db=db,
+            listing_date_loader=listing_date_loader,
+        )
         expected = _select_bfq_dates(
             code=code,
             coverage=coverage,
@@ -1916,6 +1956,7 @@ def _bootstrap_scope(
     codes: Iterable[str] | None,
     loader: Callable[..., Any],
     front_ratio_loader: Callable[..., Any] | None,
+    listing_date_loader: Callable[[str], Any] | None,
     now_provider=None,
     progress_callback: Callable[[], None] | None = None,
     publish_callback: Callable[[Callable[[], Any]], Any] | None = None,
@@ -1932,7 +1973,12 @@ def _bootstrap_scope(
     for code in universe["codes"]:
         if progress_callback:
             progress_callback()
-        coverage = _load_bfq_coverage(kind=scope, code=code, db=db)
+        coverage = _load_bfq_coverage(
+            kind=scope,
+            code=code,
+            db=db,
+            listing_date_loader=listing_date_loader,
+        )
         expected = _select_bfq_dates(
             code=code,
             coverage=coverage,
@@ -1960,6 +2006,7 @@ def _bootstrap_scope(
         db=db,
         codes=included,
         factor_asof=target_date,
+        listing_date_loader=listing_date_loader,
         progress_callback=progress_callback,
     )
     if not audit_a["ok"]:
@@ -1977,6 +2024,7 @@ def _bootstrap_scope(
         db=db,
         codes=included,
         factor_asof=target_date,
+        listing_date_loader=listing_date_loader,
         progress_callback=progress_callback,
     )
     if not audit_b["ok"] or audit_a["rows"] != audit_b["rows"]:
@@ -2036,6 +2084,7 @@ def _update_scope(
     codes: Iterable[str] | None,
     loader: Callable[..., Any],
     front_ratio_loader: Callable[..., Any] | None,
+    listing_date_loader: Callable[[str], Any] | None,
     tail_days: int,
     min_grace_seconds: int,
     force_full_rebuild: bool,
@@ -2081,7 +2130,12 @@ def _update_scope(
         for code in universe["codes"]:
             if progress_callback:
                 progress_callback()
-            coverage = _load_bfq_coverage(kind=scope, code=code, db=db)
+            coverage = _load_bfq_coverage(
+                kind=scope,
+                code=code,
+                db=db,
+                listing_date_loader=listing_date_loader,
+            )
             expected = _select_bfq_dates(
                 code=code,
                 coverage=coverage,
@@ -2128,6 +2182,7 @@ def _update_scope(
             db=db,
             codes=included,
             factor_asof=target_date,
+            listing_date_loader=listing_date_loader,
             progress_callback=progress_callback,
         )
         if not audit["ok"]:
@@ -2178,6 +2233,7 @@ def sync_qfq_factors(
     codes: Iterable[str] | None = None,
     bars_loader: Callable[..., Any] | None = None,
     front_ratio_loader: Callable[..., Any] | None = None,
+    listing_date_loader: Callable[[str], Any] | None = None,
     xtdata_client: XtDataQfqClient | None = None,
     tail_days: int = DEFAULT_TAIL_AUDIT_DAYS,
     min_grace_seconds: int = DEFAULT_READER_GRACE_SECONDS,
@@ -2201,6 +2257,9 @@ def sync_qfq_factors(
     gap_proof_loader = front_ratio_loader
     if gap_proof_loader is None and bars_loader is None:
         gap_proof_loader = client.load_front_ratio_bars
+    resolved_listing_date_loader = listing_date_loader
+    if resolved_listing_date_loader is None and bars_loader is None:
+        resolved_listing_date_loader = client.load_open_date
     result: dict[str, Any] = {
         "source": QFQ_SOURCE,
         "writer": QFQ_WRITER,
@@ -2240,6 +2299,7 @@ def sync_qfq_factors(
                     codes=codes,
                     loader=loader,
                     front_ratio_loader=gap_proof_loader,
+                    listing_date_loader=resolved_listing_date_loader,
                     now_provider=now_provider,
                     progress_callback=lease_heartbeat.pulse,
                     publish_callback=lease_heartbeat.run_fenced_publish,
@@ -2252,6 +2312,7 @@ def sync_qfq_factors(
                     codes=codes,
                     loader=loader,
                     front_ratio_loader=gap_proof_loader,
+                    listing_date_loader=resolved_listing_date_loader,
                     tail_days=tail_days,
                     min_grace_seconds=min_grace_seconds,
                     force_full_rebuild=force_full_rebuild,

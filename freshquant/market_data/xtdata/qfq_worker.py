@@ -210,15 +210,20 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "audit":
         marker = validate_qfq_marker(get_qfq_marker(scope=args.scope), scope=args.scope)
         slot = args.slot or str(marker["active_slot"])
-        source_client = XtDataQfqClient() if args.mode in {"tail", "full"} else None
+        source_client = XtDataQfqClient()
         payload = audit_qfq_slot(
             scope=args.scope,
             slot=slot,
             codes=[args.code] if args.code else None,
-            bars_loader=(source_client.load_daily_bars if source_client else None),
-            front_ratio_loader=(
-                source_client.load_front_ratio_bars if source_client else None
+            bars_loader=(
+                source_client.load_daily_bars if args.mode in {"tail", "full"} else None
             ),
+            front_ratio_loader=(
+                source_client.load_front_ratio_bars
+                if args.mode in {"tail", "full"}
+                else None
+            ),
+            listing_date_loader=source_client.load_open_date,
             source_tail_days=args.tail_days if args.mode == "tail" else None,
         )
         if not payload["ok"]:

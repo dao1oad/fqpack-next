@@ -474,6 +474,59 @@ def test_later_capital_change_does_not_define_a_listing_boundary():
     assert qfq.load_bfq_dates(kind="stock", code="000012", db=db) == ["1992-01-07"]
 
 
+def test_stock_falls_back_to_xtdata_open_date_when_initial_capital_is_missing():
+    db = _DB(
+        stock_list=[{"code": "000028", "name": "Stock"}],
+        stock_day=[
+            {"code": "000028", "date": "1993-06-01"},
+            {"code": "000028", "date": "1993-08-09"},
+        ],
+    )
+
+    result = qfq.sync_stock_adj_all(
+        target_date="1993-08-09",
+        db=db,
+        bars_loader=_loader_for({"000028": [("1993-08-09", 10.0, 0.0)]}),
+        listing_date_loader=lambda _code: "1993-08-09",
+    )
+
+    coverage = result["by_scope"]["stock"]["coverage"]
+    assert coverage["prelisting_rows_excluded"] == 1
+    assert coverage["prelisting"][0]["listing_date"] == "1993-08-09"
+    assert [row["date"] for row in db["stock_adj_qfq_a"].rows] == ["1993-08-09"]
+
+
+def test_stock_initial_capital_date_takes_priority_over_xtdata_open_date():
+    calls = []
+    db = _DB(
+        stock_list=[{"code": "000028", "name": "Stock"}],
+        stock_day=[
+            {"code": "000028", "date": "1993-08-09"},
+            {"code": "000028", "date": "1993-09-01"},
+        ],
+        stock_xdxr=[
+            {
+                "code": "000028",
+                "date": "1993-09-01",
+                "category": 5,
+                "shares_before": 0.0,
+                "shares_after": 100.0,
+            }
+        ],
+    )
+
+    result = qfq.sync_stock_adj_all(
+        target_date="1993-09-01",
+        db=db,
+        bars_loader=_loader_for({"000028": [("1993-09-01", 10.0, 0.0)]}),
+        listing_date_loader=lambda code: calls.append(code) or "1993-08-09",
+    )
+
+    assert calls == []
+    assert result["by_scope"]["stock"]["coverage"]["prelisting_rows_excluded"] == 1
+    assert [row["date"] for row in db["stock_adj_qfq_a"].rows] == ["1993-09-01"]
+
+
 def test_audit_checks_terminal_factor_and_recurrence():
     bars = _bars(
         [
@@ -774,6 +827,79 @@ def test_bootstrap_does_not_exclude_near_miss_sentinel_bfq_row():
                 "close": empty,
                 "preClose": empty,
             },
+        )
+
+    assert not db["qfq_ready"].rows
+
+
+def test_bootstrap_skips_etf_history_entirely_before_xtdata_open_date():
+    loaded_codes = []
+    sentinel = 5.877471754e-39
+    db = _DB(
+        etf_list=[
+            {"code": "161022", "name": "Converted ETF"},
+            {"code": "510050", "name": "Tradable ETF"},
+        ],
+        index_day=[
+            {
+                "code": "161022",
+                "date": "2019-12-30",
+                "vol": sentinel,
+                "amount": sentinel,
+            },
+            {
+                "code": "161022",
+                "date": "2019-12-31",
+                "vol": sentinel,
+                "amount": sentinel,
+            },
+            {"code": "161022", "date": "2020-01-02"},
+            {"code": "161022", "date": "2020-01-03"},
+            {"code": "510050", "date": "2026-07-31"},
+        ],
+    )
+
+    def load_bars(code, *, start_time, end_time):
+        loaded_codes.append(code)
+        return _bars([("2026-07-31", 2.5, 0.0)])
+
+    result = qfq.sync_etf_adj_all(
+        target_date="2026-07-31",
+        db=db,
+        bars_loader=load_bars,
+        listing_date_loader=lambda code: (
+            "2024-01-31" if code == "161022" else "2005-02-23"
+        ),
+    )
+
+    coverage = result["by_scope"]["etf"]["coverage"]
+    assert loaded_codes == ["510050"]
+    assert coverage["sentinel_rows_excluded"] == 2
+    assert coverage["prelisting_rows_excluded"] == 2
+    assert coverage["skipped"] == [
+        {
+            "code": "161022",
+            "reason": "prelisting_only_bfq_history",
+            "sentinel_rows": 2,
+        }
+    ]
+
+
+def test_missing_etf_open_date_keeps_prefix_bfq_rows_fail_closed():
+    db = _DB(
+        etf_list=[{"code": "161022", "name": "ETF"}],
+        index_day=[
+            {"code": "161022", "date": "2020-01-02"},
+            {"code": "161022", "date": "2024-01-31"},
+        ],
+    )
+
+    with pytest.raises(qfq.QFQSyncError, match="unbounded XTData source gap"):
+        qfq.sync_etf_adj_all(
+            target_date="2024-01-31",
+            db=db,
+            bars_loader=_loader_for({"161022": [("2024-01-31", 1.0, 0.0)]}),
+            listing_date_loader=lambda _code: None,
         )
 
     assert not db["qfq_ready"].rows
@@ -1591,6 +1717,78 @@ def test_xtdata_client_uses_configured_port_and_none_dividend(monkeypatch):
 
     client.load_front_ratio_bars("000001", start_time="20260102", end_time="20260102")
     assert calls[-1][1]["dividend_type"] == "front_ratio"
+
+
+def test_xtdata_client_loads_and_validates_instrument_open_date():
+    calls = []
+
+    class _XtData:
+        def connect(self, *, port):
+            calls.append(("connect", port))
+
+        def get_instrument_detail(self, code):
+            calls.append(("detail", code))
+            return {
+                "000028.SZ": {"OpenDate": "19930809"},
+                "161022.SZ": {"OpenDate": 20240131},
+                "510050.SH": {"OpenDate": "20241340"},
+            }[code]
+
+    client = qfq.XtDataQfqClient(_XtData(), port=58612)
+
+    assert client.load_open_date("000028") == "1993-08-09"
+    assert client.load_open_date("161022") == "2024-01-31"
+    assert client.load_open_date("510050") is None
+    assert calls == [
+        ("connect", 58612),
+        ("detail", "000028.SZ"),
+        ("detail", "161022.SZ"),
+        ("detail", "510050.SH"),
+    ]
+
+
+def test_sync_uses_same_default_client_for_bars_and_listing_date():
+    calls = []
+
+    class _Client:
+        def load_daily_bars(self, code, *, start_time, end_time):
+            calls.append(("bars", code))
+            return _bars([("1993-08-09", 10.0, 0.0)])
+
+        def load_front_ratio_bars(self, code, *, start_time, end_time):
+            raise AssertionError("no source gap")
+
+        def load_open_date(self, code):
+            calls.append(("open_date", code))
+            return "1993-08-09"
+
+    db = _DB(
+        stock_list=[{"code": "000028", "name": "Stock"}],
+        stock_day=[
+            {"code": "000028", "date": "1993-06-01"},
+            {"code": "000028", "date": "1993-08-09"},
+        ],
+    )
+
+    qfq.sync_stock_adj_all(target_date="1993-08-09", db=db, xtdata_client=_Client())
+
+    assert ("bars", "000028") in calls
+    assert calls.count(("open_date", "000028")) == 3
+
+
+def test_custom_bars_loader_does_not_implicitly_connect_for_open_date():
+    class _Client:
+        def load_open_date(self, _code):
+            raise AssertionError("custom source must stay isolated")
+
+    db = _stock_db(["2026-01-02"])
+
+    qfq.sync_stock_adj_all(
+        target_date="2026-01-02",
+        db=db,
+        bars_loader=_loader_for({"000001": [("2026-01-02", 10.0, 0.0)]}),
+        xtdata_client=_Client(),
+    )
 
 
 def test_xtdata_client_downloads_missing_history_prefix():
