@@ -695,7 +695,7 @@ Get-Content D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log -Tail 200
 
 - `worker --once` 返回 `waiting_for_bfq` 时，先在 Dagster 核对最新 `stock_data_job` / `etf_data_job`，以及 `freshquant.dagster_pipeline_markers` 中相应 `pipeline_key` 的成功文档；QFQ worker 不绕过 BFQ ready gate。
 - XTData 连接或历史下载失败时，先恢复 MiniQMT / XTData 端口，再重新执行 `worker --once`；worker 会把中断的 inactive `building` 状态恢复为可重试的 `failed`。
-- 出现 `XTData history prefix download made no progress` 时，保留 worker 停止状态并检查 QMT 下载任务和本地历史缓存；该错误表示向前分页后最早交易日未变化，重复启动 worker 不会形成完整快照。
+- 出现 `XTData history prefix download made no progress` 时，先核对 error 的 source role：primary `none` loader 会把该 code 记录为 `source_prefix_unavailable`，其余 code 审计通过时 worker 可继续发布；若 scope 内所有 code 均被隔离，update 拒绝发布空 ready snapshot 并保留 active slot。来自 `front_ratio` proof loader 的同类错误仍中止 scope。两种情况都应检查 QMT 下载任务和本地历史缓存，再决定是否重建 inactive slot。
 - 返回 `writer lease is held` 时，先确认 Supervisor worker 或人工 build / rollback 是否仍在运行；正常 lease 会持续续期并在命令结束时释放，崩溃遗留 lease 到期后由下一轮原子接管，不要并发启动第二个 writer。
 - `audit --mode structure` 只确认 Mongo 结构；递推或 XTData source 对账必须用 `--mode tail|full`。审计失败时保留 active slot，修复源数据或日期轴后用 `build --scope <stock|etf> --target-date YYYY-MM-DD` 重建 inactive slot；不要手工修改 `active_slot` 或在 active 集合上原地修补。
 - `coverage.sentinel_rows_excluded` / `codes_with_sentinel_rows` 表示 BFQ 中精确 QASU 浮点占位行已被排除，`skipped[].reason=sentinel_only_bfq_history` 表示该标的没有可交易 BFQ 历史。`prelisting_rows_excluded` / `codes_with_prelisting_rows` / `prelisting[]` 只记录 `OpenDate` 不晚于最后有效 BFQ 时已证明的上市前脏行。`terminal_history_rows_excluded` / `codes_with_terminal_history` / `terminal_history[]` 要求 `IsTrading=false`、`OpenDate` 晚于最后有效 BFQ，且边界之后存在 QASU sentinel：`skipped[].reason=nontrading_terminal_history` 只将它排除出当前 QFQ build，保留 BFQ，旧生命周期 QFQ 读取仍 fail closed。缺少任一证据时不排除 BFQ，后续 source audit 继续阻断发布。

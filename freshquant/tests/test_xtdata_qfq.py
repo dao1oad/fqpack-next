@@ -1721,6 +1721,44 @@ def test_update_excludes_primary_history_prefix_no_progress():
     assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
 
 
+def test_update_rejects_snapshot_when_all_codes_are_source_excluded():
+    dates = ["2026-01-02", "2026-01-05"]
+    codes = ("000001", "000002")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": dates[0]} for code in codes],
+    )
+    prefix_unavailable = False
+
+    def loader(_code, **_kwargs):
+        if prefix_unavailable:
+            raise qfq.QFQSyncError(
+                "history prefix unavailable",
+                stats={"failure": "history_prefix_no_progress"},
+            )
+        return _bars([(dates[0], 10.0, 0.0)])
+
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=loader)
+    db["stock_day"].rows.extend({"code": code, "date": dates[1]} for code in codes)
+    prefix_unavailable = True
+
+    with pytest.raises(qfq.QFQSyncError, match="no included QFQ codes") as caught:
+        qfq.sync_stock_adj_all(
+            target_date=dates[-1],
+            db=db,
+            bars_loader=loader,
+            min_grace_seconds=0,
+        )
+
+    assert len(caught.value.stats["source_exclusions"]) == 2
+    marker = db["qfq_ready"].rows[0]
+    assert marker["active_slot"] == "a"
+    assert marker["slots"]["a"]["status"] == "ready"
+    assert marker["slots"]["b"]["status"] == "failed"
+    assert {row["code"] for row in db["stock_adj_qfq_a"].rows} == set(codes)
+    assert not db["stock_adj_qfq_b"].rows
+
+
 def test_incremental_update_reloads_context_when_tail_starts_on_source_gap():
     dates = [
         "2026-01-02",

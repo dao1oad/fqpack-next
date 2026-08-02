@@ -2502,6 +2502,11 @@ def _update_scope(
             stats["rows_written"] += int(result["rows_written"])
             _record_source_gap_summary(coverage_summary, code=code, stats=result)
             included.append(code)
+        if not included:
+            raise QFQSyncError(
+                f"{scope} update has no included QFQ codes",
+                stats={"source_exclusions": source_exclusions[:100]},
+            )
         stale_codes = _distinct_codes(collection) - set(included)
         if stale_codes and force_full_rebuild:
             collection.delete_many({"code": {"$in": sorted(stale_codes)}})
