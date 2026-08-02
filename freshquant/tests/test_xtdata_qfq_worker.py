@@ -125,9 +125,16 @@ def test_worker_consumes_latest_success_marker_for_each_scope():
         calls.append(kwargs)
         return {"ready": True}
 
+    factor_db = _DB(
+        qfq_ready=[
+            _marker(scope="stock", asof="2026-01-01"),
+            _marker(scope="etf", asof="2026-01-01"),
+        ]
+    )
+
     result = qfq_worker.run_pending_once(
         marker_db=marker_db,
-        factor_db=_DB(),
+        factor_db=factor_db,
         sync_fn=sync_fn,
     )
 
@@ -225,6 +232,32 @@ def test_worker_waits_when_bfq_marker_is_missing():
     assert result["by_scope"]["stock"]["status"] == "waiting_for_bfq"
 
 
+def test_worker_requires_manual_bootstrap_when_qfq_marker_is_missing():
+    marker_db = _DB(
+        dagster_pipeline_markers=[
+            {
+                "pipeline_key": "stock_postclose_ready",
+                "trade_date": "2026-01-05",
+                "status": "success",
+            }
+        ]
+    )
+    called = []
+
+    result = qfq_worker.run_pending_once(
+        scopes=["stock"],
+        marker_db=marker_db,
+        factor_db=_DB(),
+        sync_fn=lambda **kwargs: called.append(kwargs),
+    )
+
+    assert not called
+    assert result["by_scope"]["stock"] == {
+        "status": "bootstrap_required",
+        "target_date": "2026-01-05",
+    }
+
+
 def test_worker_scope_failure_does_not_block_other_scope():
     marker_db = _DB(
         dagster_pipeline_markers=[
@@ -248,9 +281,16 @@ def test_worker_scope_failure_does_not_block_other_scope():
             raise RuntimeError("stock sync failed")
         return {"ready": True}
 
+    factor_db = _DB(
+        qfq_ready=[
+            _marker(scope="stock", asof="2026-01-01"),
+            _marker(scope="etf", asof="2026-01-01"),
+        ]
+    )
+
     result = qfq_worker.run_pending_once(
         marker_db=marker_db,
-        factor_db=_DB(),
+        factor_db=factor_db,
         sync_fn=sync_fn,
     )
 

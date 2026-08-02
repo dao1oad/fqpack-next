@@ -7,11 +7,7 @@ from QUANTAXIS import QA_fetch_stock_day_adv, QA_fetch_stock_min_adv
 from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime, QA_util_time_stamp
 from talib import ATR
 
-from freshquant.data.adj_intraday import (
-    apply_qfq_with_intraday_override,
-    fetch_intraday_override,
-    fetch_qfq_adj_df,
-)
+from freshquant.data.qfq_reader import apply_qfq_to_bars
 from freshquant.database.cache import redis_cache
 from freshquant.db import DBfreshquant
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
@@ -41,28 +37,16 @@ def _apply_stock_qfq(
     start: datetime | None,
     end: datetime | None,
 ) -> pd.DataFrame:
-    if data is None or len(data) == 0 or start is None or end is None:
+    if data is None or len(data) == 0:
         return data
-    start_date = start.strftime("%Y-%m-%d")
-    end_date = end.strftime("%Y-%m-%d")
     base_code = normalize_to_base_code(code)
-    adj = fetch_qfq_adj_df(
-        coll_name="stock_adj",
-        code=base_code,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    override = fetch_intraday_override(
-        coll_name="stock_adj_intraday",
-        code=base_code,
-        trade_date=end_date,
-    )
-    return apply_qfq_with_intraday_override(
+    adjusted, _metadata = apply_qfq_to_bars(
         data,
-        adj,
-        override=override,
+        scope="stock",
+        code=base_code,
         datetime_col="datetime",
     )
+    return adjusted
 
 
 def _filter_trade_date_realtime_rows(rows: pd.DataFrame) -> pd.DataFrame:
@@ -386,7 +370,6 @@ def fq_data_stock_resample_120min(data):
     return data
 
 
-@redis_cache.memoize(expiration=60 * 60 * 24)
 def fq_data_stock_fetch_atr(
     code: str,
     start: Optional[datetime] = None,

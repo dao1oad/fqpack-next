@@ -38,6 +38,10 @@ FACTOR_COLLECTIONS = {
     },
 }
 LEGACY_FACTOR_COLLECTIONS = {"stock": "stock_adj", "etf": "etf_adj"}
+INTRADAY_OVERRIDE_COLLECTIONS = {
+    "stock": "stock_adj_intraday",
+    "etf": "etf_adj_intraday",
+}
 # BFQ is the coverage authority for each factor universe.  ``index_day`` is
 # intentionally used for ETF history because QUANTAXIS stores exchange-traded
 # funds in that collection alongside real indexes.
@@ -1415,6 +1419,197 @@ def _mark_inactive_failed(
     )
 
 
+def _snapshot_anchor_factor(
+    *, db, collection: str, code: str, anchor_date: str
+) -> float:
+    document = db[collection].find_one(
+        {"code": code, "date": {"$lte": anchor_date}},
+        projection={"_id": 0, "date": 1, "adj": 1},
+        sort=[("date", -1)],
+    )
+    document_date = _date_key((document or {}).get("date"))
+    try:
+        factor = float((document or {})["adj"])
+    except (KeyError, TypeError, ValueError):
+        factor = float("nan")
+    if document_date != anchor_date or not math.isfinite(factor) or factor <= 0:
+        raise QFQSyncError(
+            f"snapshot override anchor is unavailable for code={code} "
+            f"date={anchor_date} collection={collection}"
+        )
+    return factor
+
+
+def _restore_intraday_override_bindings(*, db, scope: str, changes) -> None:
+    collection = db[INTRADAY_OVERRIDE_COLLECTIONS[scope]]
+    failures: list[dict[str, str]] = []
+    for change in reversed(changes):
+        update: dict[str, Any] = {"$set": dict(change["before"])}
+        if not change["before_has_factor_asof"]:
+            update["$unset"] = {"base_factor_asof": ""}
+        result = collection.update_one(change["restore_query"], update)
+        if int(getattr(result, "matched_count", 0)) != 1:
+            failures.append(
+                {
+                    "code": change["code"],
+                    "trade_date": change["trade_date"],
+                }
+            )
+    if failures:
+        raise QFQSyncError(
+            f"{scope} intraday override binding restore lost",
+            stats={"failures": failures},
+        )
+
+
+def _rebind_intraday_overrides(
+    *,
+    db,
+    scope: str,
+    source_slot: Mapping[str, Any],
+    target_slot: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    target_factor_asof = _date_key(target_slot.get("factor_asof"))
+    if not target_factor_asof:
+        raise QFQSyncError(f"{scope} target QFQ factor_asof is invalid")
+    source_snapshot = str(source_slot.get("snapshot_id") or "")
+    target_snapshot = str(target_slot.get("snapshot_id") or "")
+    source_collection = str(source_slot.get("collection") or "")
+    target_collection = str(target_slot.get("collection") or "")
+    if not all(
+        (source_snapshot, target_snapshot, source_collection, target_collection)
+    ):
+        raise QFQSyncError(f"{scope} QFQ override rebind metadata is incomplete")
+
+    collection = db[INTRADAY_OVERRIDE_COLLECTIONS[scope]]
+    documents = [dict(item) for item in collection.find({}, {"_id": 0})]
+    changes: list[dict[str, Any]] = []
+    try:
+        for document in documents:
+            status = str(document.get("status") or "").strip().lower()
+            if status and status not in {"active", "ready"}:
+                continue
+            trade_date = _date_key(document.get("trade_date"))
+            if not trade_date or trade_date <= target_factor_asof:
+                continue
+            raw_code = str(document.get("code") or "").strip()
+            code = normalize_code(raw_code)
+            if raw_code != code or not code:
+                raise QFQSyncError(f"{scope} intraday override code is invalid")
+            bound_snapshot = str(document.get("base_snapshot_id") or "")
+            if bound_snapshot not in {source_snapshot, target_snapshot}:
+                raise QFQSyncError(
+                    f"{scope} intraday override snapshot is stale for "
+                    f"code={code} trade_date={trade_date}"
+                )
+            source_factor_asof = str(source_slot.get("factor_asof") or "")
+            bound_factor_asof = str(document.get("base_factor_asof") or "")
+            anchor_date = _date_key(document.get("base_anchor_date"))
+            if not anchor_date:
+                raise QFQSyncError(
+                    f"{scope} intraday override anchor date is invalid for code={code}"
+                )
+            try:
+                source_scale = float(document["anchor_scale"])
+            except (KeyError, TypeError, ValueError):
+                source_scale = float("nan")
+            if not math.isfinite(source_scale) or source_scale <= 0:
+                raise QFQSyncError(
+                    f"{scope} intraday override anchor scale is invalid for code={code}"
+                )
+            if bound_snapshot == target_snapshot:
+                if bound_factor_asof != target_factor_asof:
+                    raise QFQSyncError(
+                        f"{scope} intraday override factor_asof is stale for "
+                        f"code={code} trade_date={trade_date}"
+                    )
+                _snapshot_anchor_factor(
+                    db=db,
+                    collection=target_collection,
+                    code=code,
+                    anchor_date=anchor_date,
+                )
+                continue
+            if bound_factor_asof and bound_factor_asof != source_factor_asof:
+                raise QFQSyncError(
+                    f"{scope} intraday override factor_asof is stale for "
+                    f"code={code} trade_date={trade_date}"
+                )
+            source_factor = _snapshot_anchor_factor(
+                db=db,
+                collection=source_collection,
+                code=code,
+                anchor_date=anchor_date,
+            )
+            target_factor = _snapshot_anchor_factor(
+                db=db,
+                collection=target_collection,
+                code=code,
+                anchor_date=anchor_date,
+            )
+            target_scale = source_factor * source_scale / target_factor
+            if not math.isfinite(target_scale) or target_scale <= 0:
+                raise QFQSyncError(
+                    f"{scope} rebound intraday override scale is invalid for code={code}"
+                )
+
+            before_has_factor_asof = "base_factor_asof" in document
+            before = {
+                "base_snapshot_id": source_snapshot,
+                "anchor_scale": source_scale,
+            }
+            if before_has_factor_asof:
+                before["base_factor_asof"] = document.get("base_factor_asof")
+            after = {
+                "base_snapshot_id": target_snapshot,
+                "base_factor_asof": target_factor_asof,
+                "anchor_scale": float(target_scale),
+            }
+            update_query: dict[str, Any] = {
+                "code": code,
+                "trade_date": trade_date,
+                "base_snapshot_id": source_snapshot,
+                "anchor_scale": source_scale,
+            }
+            if before_has_factor_asof:
+                update_query["base_factor_asof"] = document.get("base_factor_asof")
+            if "updated_at" in document:
+                update_query["updated_at"] = document.get("updated_at")
+            result = collection.update_one(update_query, {"$set": after})
+            if int(getattr(result, "matched_count", 0)) != 1:
+                raise QFQSyncError(
+                    f"{scope} intraday override rebind CAS lost for "
+                    f"code={code} trade_date={trade_date}"
+                )
+            restore_query = {
+                "code": code,
+                "trade_date": trade_date,
+                "base_snapshot_id": target_snapshot,
+                "base_factor_asof": target_factor_asof,
+                "anchor_scale": float(target_scale),
+            }
+            if "updated_at" in document:
+                restore_query["updated_at"] = document.get("updated_at")
+            changes.append(
+                {
+                    "code": code,
+                    "trade_date": trade_date,
+                    "before": before,
+                    "before_has_factor_asof": before_has_factor_asof,
+                    "restore_query": restore_query,
+                }
+            )
+    except Exception:
+        try:
+            _restore_intraday_override_bindings(db=db, scope=scope, changes=changes)
+        except Exception as restore_error:
+            raise QFQSyncError(
+                f"{scope} intraday override rebind failed and restore failed"
+            ) from restore_error
+        raise
+    return changes
+
+
 def _publish_inactive_slot(
     *,
     db,
@@ -1435,21 +1630,69 @@ def _publish_inactive_slot(
         published_at=_utc_iso(now_provider),
         source_exclusions=source_exclusions,
     )
-    result = db[READY_COLLECTION].update_one(
-        {
-            "scope": scope,
-            "active_slot": active_slot,
-            f"slots.{active_slot}.snapshot_id": active_snapshot,
-            f"slots.{inactive_slot}.status": "building",
-        },
-        {
-            "$set": {
-                "active_slot": inactive_slot,
-                f"slots.{inactive_slot}": slot_document,
-            }
-        },
+    rebound_overrides = _rebind_intraday_overrides(
+        db=db,
+        scope=scope,
+        source_slot=marker["slots"][active_slot],
+        target_slot=slot_document,
     )
+    try:
+        result = db[READY_COLLECTION].update_one(
+            {
+                "scope": scope,
+                "active_slot": active_slot,
+                f"slots.{active_slot}.snapshot_id": active_snapshot,
+                f"slots.{inactive_slot}.status": "building",
+            },
+            {
+                "$set": {
+                    "active_slot": inactive_slot,
+                    f"slots.{inactive_slot}": slot_document,
+                }
+            },
+        )
+    except Exception as exc:
+        try:
+            current = validate_qfq_marker(
+                get_qfq_marker(scope=scope, db=db), scope=scope
+            )
+        except Exception as read_error:
+            raise QFQSyncError(
+                f"{scope} QFQ marker publish outcome is unknown"
+            ) from read_error
+        current_active = str(current["active_slot"])
+        if (
+            current_active == inactive_slot
+            and str(current["slots"][inactive_slot].get("snapshot_id") or "")
+            == slot_document["snapshot_id"]
+        ):
+            return current
+        if (
+            current_active == active_slot
+            and str(current["slots"][active_slot].get("snapshot_id") or "")
+            == active_snapshot
+        ):
+            try:
+                _restore_intraday_override_bindings(
+                    db=db, scope=scope, changes=rebound_overrides
+                )
+            except Exception as restore_error:
+                raise QFQSyncError(
+                    f"{scope} QFQ marker publish failed and override restore failed"
+                ) from restore_error
+            raise QFQSyncError(f"{scope} QFQ marker publish failed") from exc
+        raise QFQSyncError(
+            f"{scope} QFQ marker publish outcome is inconsistent",
+            stats={
+                "expected_source_slot": active_slot,
+                "expected_target_slot": inactive_slot,
+                "observed_active_slot": current_active,
+            },
+        ) from exc
     if int(getattr(result, "matched_count", 0)) != 1:
+        _restore_intraday_override_bindings(
+            db=db, scope=scope, changes=rebound_overrides
+        )
         raise QFQSyncError(f"{scope} QFQ marker CAS publish lost")
     return validate_qfq_marker(get_qfq_marker(scope=scope, db=db), scope=scope)
 
@@ -1462,26 +1705,72 @@ def _rollback_active_slot_locked(
     target_slot = _inactive_slot_name(marker)
     if marker["slots"][target_slot].get("status") != "ready":
         raise QFQSyncError(f"{scope} rollback slot is not ready")
-    result = db[READY_COLLECTION].update_one(
-        {
-            "scope": scope,
-            "active_slot": active_slot,
-            f"slots.{active_slot}.snapshot_id": marker["slots"][active_slot][
-                "snapshot_id"
-            ],
-            f"slots.{target_slot}.snapshot_id": marker["slots"][target_slot][
-                "snapshot_id"
-            ],
-            f"slots.{target_slot}.status": "ready",
-        },
-        {
-            "$set": {
-                "active_slot": target_slot,
-                f"slots.{target_slot}.published_at": _utc_iso(now_provider),
-            }
-        },
+    rebound_overrides = _rebind_intraday_overrides(
+        db=db,
+        scope=scope,
+        source_slot=marker["slots"][active_slot],
+        target_slot=marker["slots"][target_slot],
     )
+    source_snapshot = str(marker["slots"][active_slot]["snapshot_id"])
+    target_snapshot = str(marker["slots"][target_slot]["snapshot_id"])
+    try:
+        result = db[READY_COLLECTION].update_one(
+            {
+                "scope": scope,
+                "active_slot": active_slot,
+                f"slots.{active_slot}.snapshot_id": source_snapshot,
+                f"slots.{target_slot}.snapshot_id": target_snapshot,
+                f"slots.{target_slot}.status": "ready",
+            },
+            {
+                "$set": {
+                    "active_slot": target_slot,
+                    f"slots.{target_slot}.published_at": _utc_iso(now_provider),
+                }
+            },
+        )
+    except Exception as exc:
+        try:
+            current = validate_qfq_marker(
+                get_qfq_marker(scope=scope, db=db), scope=scope
+            )
+        except Exception as read_error:
+            raise QFQSyncError(
+                f"{scope} QFQ rollback marker outcome is unknown"
+            ) from read_error
+        current_active = str(current["active_slot"])
+        if (
+            current_active == target_slot
+            and str(current["slots"][target_slot].get("snapshot_id") or "")
+            == target_snapshot
+        ):
+            return current
+        if (
+            current_active == active_slot
+            and str(current["slots"][active_slot].get("snapshot_id") or "")
+            == source_snapshot
+        ):
+            try:
+                _restore_intraday_override_bindings(
+                    db=db, scope=scope, changes=rebound_overrides
+                )
+            except Exception as restore_error:
+                raise QFQSyncError(
+                    f"{scope} QFQ rollback marker failed and override restore failed"
+                ) from restore_error
+            raise QFQSyncError(f"{scope} QFQ rollback marker failed") from exc
+        raise QFQSyncError(
+            f"{scope} QFQ rollback marker outcome is inconsistent",
+            stats={
+                "expected_source_slot": active_slot,
+                "expected_target_slot": target_slot,
+                "observed_active_slot": current_active,
+            },
+        ) from exc
     if int(getattr(result, "matched_count", 0)) != 1:
+        _restore_intraday_override_bindings(
+            db=db, scope=scope, changes=rebound_overrides
+        )
         raise QFQSyncError(f"{scope} QFQ rollback CAS lost")
     return validate_qfq_marker(get_qfq_marker(scope=scope, db=db), scope=scope)
 

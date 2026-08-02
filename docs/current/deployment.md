@@ -197,18 +197,18 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/xt_account_sync/**` | XT 主动查询统一 worker（仓位管理 + 订单管理） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/xt_auto_repay/**` | XT 自动还款 worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/tpsl/**` | TPSL | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |
-| `freshquant/market_data/**` | XTData producer / consumer、adj refresh worker、QFQ shadow worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`；必要时重新 prewarm |
+| `freshquant/market_data/**` | XTData producer / consumer、adj refresh worker、QFQ A/B worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data -BridgeIfServiceUnavailable`；必要时重新 prewarm |
 | `freshquant/data/index.py` / `freshquant/quote/index.py` / `freshquant/instrument/general.py` / `freshquant/chanlun_service.py` / `freshquant/chanlun_structure_service.py` | Index BFQ API / 分类 / Chanlun 读取链 | 重建 `fq_apiserver` |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
 | `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
-| `freshquant/data/etf_adj_sync.py` | ETF 前复权 xdxr/adj Dagster 同步链路 | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
+| `freshquant/data/etf_adj_sync.py` | ETF legacy xdxr/adj 过渡写入链（已非在线 reader 真值） | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
 | `freshquant/daily_screening/**` | 每日选股 API 与 `fqscreening` 读模型 | 重建 API；如改动影响自动任务语义，补跑 Dagster 每日筛选任务 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
 | `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
 
-### XTData QFQ shadow worker
+### XTData QFQ A/B worker 与 reader 激活
 
 `fqnext_xtdata_qfq_worker` 属于 `market_data` 宿主机 surface。部署后先确认 Supervisor 状态，再检查两个 scope 的 marker 与 active slot：
 
@@ -238,7 +238,9 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 & D:\fqpack\freshquant-2026.2.23\.venv\Scripts\python.exe -m freshquant.market_data.xtdata.qfq_worker rollback --scope stock
 ```
 
-该 worker 当前只发布 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b` shadow 快照；部署它不会切换仍在读取 `stock_adj` / `etf_adj` 的线上 Stock / ETF 消费者，也不替代现有 XDXR / ETF adj writer。Dagster ready asset 或 `dagster.yaml` 同时变更时，还必须按 `dagster` surface 重部署 webserver / daemon。`check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 对 `market_data` surface 会自动执行 `status --strict`，marker 缺失或落后时 health gate 失败。
+部署 reader 前必须先确认 Stock / ETF active slot 均为 `ready` 且 full audit 通过。激活后 Stock / ETF API、StrategyConsumer、Chan、ATR/holding/threshold 统一读取 marker 指向的 A/B 快照；marker/coverage/override 证明失败返回 `QFQ_DATA_NOT_READY`，三条 Stock Kline API 返回 HTTP 503。StrategyConsumer 必须先成功写 raw realtime bar，再做 QFQ 派生；Redis key/payload 与常驻窗口绑定 effective adjustment version。Dagster ready asset 或 `dagster.yaml` 同时变更时，还必须按 `dagster` surface 重部署 webserver / daemon。`check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 对 `market_data` surface 会自动执行 `status --strict`，marker 缺失或落后时 health gate 失败。
+
+PR2a reader 激活期间，旧 Stock / ETF factor writer 可能仍由现有 Dagster 依赖链执行，但其输出已不是在线读取真值；`stock_adj` / `etf_adj` 继续保留用于过渡观察。回退时先用 CAS 将 marker 切回上一 ready slot，清理或等待旧 adjustment-version Redis key 失效，再重启 API 与 StrategyConsumer 使常驻窗口按回切后的 snapshot reload。
 
 - `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接
 - 管理员桥接恢复后，脚本会先确认目标 programs 是否已经 settled 到 `RUNNING`；只有仍未恢复时，才继续补做第二次 `restart-surfaces`
@@ -319,7 +321,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 
 - API 蓝图能返回，不是只监听端口。
 - Web UI 页面不是空白页。
-- XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积；涉及 QFQ shadow writer 时，`fqnext_xtdata_qfq_worker` 为 `RUNNING`，且 `status --strict` / active-slot `audit --mode full` 通过。
+- XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积；涉及 QFQ A/B writer/reader 时，`fqnext_xtdata_qfq_worker` 为 `RUNNING`，`status --strict` / active-slot `audit --mode full` 通过，Stock / ETF strict-reader health 与 versioned cache/window reload 通过。
 - 宿主机 deployment surface 修改后，`fqnext-supervisord` 保持 `Running`，且 `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 能返回目标 program 为 `RUNNING`。
 - 如果本轮有实际 deploy，`check_freshquant_runtime_post_deploy.ps1` 的 verify 结果必须 `passed=true`，且 `failures` 为空。
 

@@ -305,8 +305,34 @@ def _get_realtime_cache_payload(
     if not is_supported_realtime_period(period_backend):
         return None
 
+    from freshquant.carnation.enum_instrument import InstrumentType
+    from freshquant.data.qfq_reader import resolve_qfq_read_metadata
+    from freshquant.instrument.general import query_instrument_type
+    from freshquant.trading.trade_date_guard import is_cn_a_trade_date
+
+    instrument_type = query_instrument_type(symbol)
+    if instrument_type == InstrumentType.INDEX_CN:
+        adjustment_version = "bfq"
+    elif instrument_type in {InstrumentType.STOCK_CN, InstrumentType.ETF_CN}:
+        scope = "etf" if instrument_type == InstrumentType.ETF_CN else "stock"
+        today = pd.Timestamp.now(tz="Asia/Shanghai").strftime("%Y-%m-%d")
+        metadata, _override = resolve_qfq_read_metadata(
+            scope=scope,
+            code=symbol,
+            trade_date=today if is_cn_a_trade_date(today) else None,
+        )
+        adjustment_version = metadata.effective_version
+    else:
+        return None
+
     try:
-        cached = redis_db.get(get_redis_cache_key(symbol, period_backend))
+        cached = redis_db.get(
+            get_redis_cache_key(
+                symbol,
+                period_backend,
+                adjustment_version=adjustment_version,
+            )
+        )
     except Exception as exc:  # pragma: no cover
         logging.warning(
             "chanlun_structure redis read failed for %s %s: %s", symbol, period, exc
@@ -406,8 +432,12 @@ def get_chanlun_structure(
             )
 
     if df is None:
+        from freshquant.data.qfq_reader import QFQDataNotReadyError
+
         try:
             df = _fetch_kline_df(symbol, period, end_date)
+        except QFQDataNotReadyError:
+            raise
         except Exception as exc:
             return {
                 "ok": False,

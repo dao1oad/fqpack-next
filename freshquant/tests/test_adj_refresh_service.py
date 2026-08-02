@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from freshquant.data.qfq_reader import QFQDataNotReadyError
 from freshquant.market_data.xtdata.adj_refresh_service import AdjRefreshService
 from freshquant.market_data.xtdata.adj_refresh_worker import (
     main,
@@ -37,6 +38,14 @@ class FakeXtDataAdjClient:
         return self.close_pairs.get((code, trade_date))
 
 
+def _active_snapshot(kind):
+    return {
+        "collection": f"{kind}_adj_qfq_a",
+        "snapshot_id": f"{kind}-snapshot-v1",
+        "factor_asof": "2026-03-08",
+    }
+
+
 class FakeSyncService:
     def __init__(self, result=None):
         self.calls = 0
@@ -62,10 +71,24 @@ class SequencedRefreshService:
 
 def test_sync_adj_refresh_once_writes_stock_and_etf_intraday_overrides():
     repository = InMemoryAdjRefreshRepository(
-        {
+        base_adj_docs={
             ("stock", "sz000001", "2026-03-08"): {"date": "2026-03-08", "adj": 2.0},
             ("etf", "sh510050", "2026-03-08"): {"date": "2026-03-08", "adj": 1.5},
-        }
+        },
+        shadow_adj_docs={
+            (
+                "stock",
+                "sz000001",
+                "2026-03-08",
+                "stock_adj_qfq_a",
+            ): {"date": "2026-03-08", "adj": 2.0},
+            (
+                "etf",
+                "sh510050",
+                "2026-03-08",
+                "etf_adj_qfq_a",
+            ): {"date": "2026-03-08", "adj": 1.5},
+        },
     )
     market_client = FakeXtDataAdjClient(
         {
@@ -80,6 +103,7 @@ def test_sync_adj_refresh_once_writes_stock_and_etf_intraday_overrides():
         trade_date_provider=lambda: date(2026, 3, 9),
         prev_trade_date_provider=lambda: date(2026, 3, 8),
         now_provider=lambda: datetime(2026, 3, 9, 1, 20, tzinfo=timezone.utc),
+        snapshot_provider=_active_snapshot,
     )
 
     result = service.sync_once()
@@ -97,9 +121,17 @@ def test_sync_adj_refresh_once_writes_stock_and_etf_intraday_overrides():
 
 def test_sync_adj_refresh_once_uses_repository_anchor_date_for_xtdata_pair():
     repository = InMemoryAdjRefreshRepository(
-        {
+        base_adj_docs={
             ("stock", "sz000001", "2026-03-08"): {"date": "2026-03-07", "adj": 2.0},
-        }
+        },
+        shadow_adj_docs={
+            (
+                "stock",
+                "sz000001",
+                "2026-03-08",
+                "stock_adj_qfq_a",
+            ): {"date": "2026-03-07", "adj": 2.0},
+        },
     )
     market_client = FakeXtDataAdjClient(
         {
@@ -113,6 +145,7 @@ def test_sync_adj_refresh_once_uses_repository_anchor_date_for_xtdata_pair():
         trade_date_provider=lambda: date(2026, 3, 9),
         prev_trade_date_provider=lambda: date(2026, 3, 8),
         now_provider=lambda: datetime(2026, 3, 9, 1, 20, tzinfo=timezone.utc),
+        snapshot_provider=_active_snapshot,
     )
 
     result = service.sync_once()
@@ -166,6 +199,114 @@ def test_intraday_override_binds_to_active_shadow_snapshot():
     assert document["base_factor_asof"] == "2026-03-08"
     assert document["anchor_scale"] == pytest.approx(1.2)
     assert document["legacy_anchor_scale"] == pytest.approx(0.9)
+
+
+def test_snapshot_bound_override_does_not_require_legacy_anchor():
+    repository = InMemoryAdjRefreshRepository(
+        shadow_adj_docs={
+            (
+                "stock",
+                "sz000001",
+                "2026-03-08",
+                "stock_adj_qfq_a",
+            ): {"date": "2026-03-08", "adj": 1.5}
+        }
+    )
+    service = AdjRefreshService(
+        repository=repository,
+        market_client=FakeXtDataAdjClient(
+            {
+                ("sz000001", "2026-03-08"): {
+                    "front_close": 18.0,
+                    "raw_close": 10.0,
+                }
+            }
+        ),
+        code_loader=lambda: ["sz000001"],
+        trade_date_provider=lambda: date(2026, 3, 9),
+        prev_trade_date_provider=lambda: date(2026, 3, 8),
+        snapshot_provider=lambda kind: {
+            "collection": f"{kind}_adj_qfq_a",
+            "snapshot_id": f"{kind}-snapshot-v1",
+            "factor_asof": "2026-03-08",
+        },
+    )
+
+    result = service.sync_once()
+
+    assert result["count"] == 1
+    document = repository.saved_docs["stock"][0]
+    assert document["base_snapshot_id"] == "stock-snapshot-v1"
+    assert document["anchor_scale"] == pytest.approx(1.2)
+    assert "legacy_anchor_scale" not in document
+
+
+def test_snapshot_resolution_failure_keeps_existing_binding_unchanged():
+    existing = {
+        "code": "000001",
+        "trade_date": "2026-03-09",
+        "base_snapshot_id": "stock-snapshot-v0",
+        "base_factor_asof": "2026-03-07",
+        "anchor_scale": 0.8,
+    }
+    repository = InMemoryAdjRefreshRepository(
+        base_adj_docs={
+            ("stock", "sz000001", "2026-03-08"): {
+                "date": "2026-03-08",
+                "adj": 2.0,
+            }
+        }
+    )
+    repository.saved_docs["stock"] = [dict(existing)]
+
+    def fail_snapshot(_kind):
+        raise RuntimeError("marker unavailable")
+
+    service = AdjRefreshService(
+        repository=repository,
+        market_client=FakeXtDataAdjClient(),
+        code_loader=lambda: ["sz000001"],
+        trade_date_provider=lambda: date(2026, 3, 9),
+        prev_trade_date_provider=lambda: date(2026, 3, 8),
+        snapshot_provider=fail_snapshot,
+    )
+
+    with pytest.raises(QFQDataNotReadyError, match="snapshot resolution failed"):
+        service.sync_once()
+
+    assert repository.saved_docs["stock"] == [existing]
+
+
+def test_missing_snapshot_anchor_never_falls_back_to_legacy_binding():
+    existing = {
+        "code": "000001",
+        "trade_date": "2026-03-09",
+        "base_snapshot_id": "stock-snapshot-v0",
+        "base_factor_asof": "2026-03-07",
+        "anchor_scale": 0.8,
+    }
+    repository = InMemoryAdjRefreshRepository(
+        base_adj_docs={
+            ("stock", "sz000001", "2026-03-08"): {
+                "date": "2026-03-08",
+                "adj": 2.0,
+            }
+        }
+    )
+    repository.saved_docs["stock"] = [dict(existing)]
+    service = AdjRefreshService(
+        repository=repository,
+        market_client=FakeXtDataAdjClient(),
+        code_loader=lambda: ["sz000001"],
+        trade_date_provider=lambda: date(2026, 3, 9),
+        prev_trade_date_provider=lambda: date(2026, 3, 8),
+        snapshot_provider=_active_snapshot,
+    )
+
+    result = service.sync_once()
+
+    assert result["count"] == 0
+    assert repository.saved_docs["stock"] == [existing]
 
 
 def test_worker_run_once_calls_sync_service():

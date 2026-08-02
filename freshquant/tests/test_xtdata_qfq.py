@@ -2287,6 +2287,240 @@ def test_marker_cas_failure_keeps_old_active_visible():
     assert qfq.resolve_active_slot(scope="stock", db=db)["slot"] == "a"
 
 
+def test_marker_switch_and_rollback_rebind_live_intraday_override():
+    target_date = "2026-01-02"
+    db = _stock_db([target_date])
+    loader = _loader_for({"000001": [(target_date, 10.0, 0.0)]})
+    qfq.sync_stock_adj_all(target_date=target_date, db=db, bars_loader=loader)
+    active_a = qfq.resolve_active_slot(scope="stock", db=db)
+    db["stock_adj_intraday"].rows.append(
+        {
+            "code": "000001",
+            "trade_date": "2026-01-05",
+            "base_anchor_date": target_date,
+            "base_snapshot_id": active_a["snapshot_id"],
+            "base_factor_asof": active_a["factor_asof"],
+            "anchor_scale": 0.8,
+            "updated_at": "override-v1",
+        }
+    )
+
+    updated = qfq.sync_stock_adj_all(
+        target_date=target_date,
+        db=db,
+        bars_loader=loader,
+        force_full_rebuild=True,
+        min_grace_seconds=0,
+    )
+
+    active_b = updated["by_scope"]["stock"]["marker"]["slots"]["b"]
+    override = db["stock_adj_intraday"].rows[0]
+    assert override["base_snapshot_id"] == active_b["snapshot_id"]
+    assert override["base_factor_asof"] == active_b["factor_asof"]
+    assert override["anchor_scale"] == pytest.approx(0.8)
+
+    rolled_back = qfq.rollback_active_slot(scope="stock", db=db)
+
+    override = db["stock_adj_intraday"].rows[0]
+    assert rolled_back["active_slot"] == "a"
+    assert override["base_snapshot_id"] == active_a["snapshot_id"]
+    assert override["base_factor_asof"] == active_a["factor_asof"]
+    assert override["anchor_scale"] == pytest.approx(0.8)
+
+
+def test_rollback_keeps_future_override_already_bound_to_target_snapshot():
+    dates = ["2026-01-02", "2026-01-05"]
+    db = _stock_db(dates[:1])
+    loader = _loader_for({"000001": [(dates[0], 10.0, 0.0), (dates[1], 10.0, 10.0)]})
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=loader)
+    active_a = qfq.resolve_active_slot(scope="stock", db=db)
+    db["stock_adj_intraday"].rows.append(
+        {
+            "code": "000001",
+            "trade_date": dates[1],
+            "base_anchor_date": dates[0],
+            "base_snapshot_id": active_a["snapshot_id"],
+            "base_factor_asof": active_a["factor_asof"],
+            "anchor_scale": 0.8,
+            "updated_at": "override-v1",
+        }
+    )
+    db["stock_day"].rows.append({"code": "000001", "date": dates[1]})
+
+    updated = qfq.sync_stock_adj_all(
+        target_date=dates[1],
+        db=db,
+        bars_loader=loader,
+        min_grace_seconds=0,
+    )
+
+    override_before = dict(db["stock_adj_intraday"].rows[0])
+    assert updated["by_scope"]["stock"]["marker"]["active_slot"] == "b"
+    assert override_before["base_snapshot_id"] == active_a["snapshot_id"]
+
+    rolled_back = qfq.rollback_active_slot(scope="stock", db=db)
+
+    assert rolled_back["active_slot"] == "a"
+    assert db["stock_adj_intraday"].rows[0] == override_before
+
+
+def test_marker_cas_failure_restores_intraday_override_binding():
+    target_date = "2026-01-02"
+    db = _stock_db([target_date])
+    loader = _loader_for({"000001": [(target_date, 10.0, 0.0)]})
+    qfq.sync_stock_adj_all(target_date=target_date, db=db, bars_loader=loader)
+    active = qfq.resolve_active_slot(scope="stock", db=db)
+    db["stock_adj_intraday"].rows.append(
+        {
+            "code": "000001",
+            "trade_date": "2026-01-05",
+            "base_anchor_date": target_date,
+            "base_snapshot_id": active["snapshot_id"],
+            "base_factor_asof": active["factor_asof"],
+            "anchor_scale": 0.8,
+            "updated_at": "override-v1",
+        }
+    )
+    original_update = db["qfq_ready"].update_one
+    calls = 0
+
+    def fail_publish(query, update, upsert=False):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            return _Result()
+        return original_update(query, update, upsert=upsert)
+
+    db["qfq_ready"].update_one = fail_publish
+
+    with pytest.raises(qfq.QFQSyncError, match="CAS publish lost"):
+        qfq.sync_stock_adj_all(
+            target_date=target_date,
+            db=db,
+            bars_loader=loader,
+            force_full_rebuild=True,
+            min_grace_seconds=0,
+        )
+
+    override = db["stock_adj_intraday"].rows[0]
+    assert qfq.resolve_active_slot(scope="stock", db=db)["slot"] == "a"
+    assert override["base_snapshot_id"] == active["snapshot_id"]
+    assert override["base_factor_asof"] == active["factor_asof"]
+    assert override["anchor_scale"] == pytest.approx(0.8)
+
+
+def test_marker_publish_exception_after_commit_keeps_rebound_override():
+    target_date = "2026-01-02"
+    db = _stock_db([target_date])
+    loader = _loader_for({"000001": [(target_date, 10.0, 0.0)]})
+    qfq.sync_stock_adj_all(target_date=target_date, db=db, bars_loader=loader)
+    active = qfq.resolve_active_slot(scope="stock", db=db)
+    db["stock_adj_intraday"].rows.append(
+        {
+            "code": "000001",
+            "trade_date": "2026-01-05",
+            "base_anchor_date": target_date,
+            "base_snapshot_id": active["snapshot_id"],
+            "base_factor_asof": active["factor_asof"],
+            "anchor_scale": 0.8,
+            "updated_at": "override-v1",
+        }
+    )
+    original_update = db["qfq_ready"].update_one
+    calls = 0
+
+    def lose_publish_response(query, update, upsert=False):
+        nonlocal calls
+        calls += 1
+        result = original_update(query, update, upsert=upsert)
+        if calls == 2:
+            raise RuntimeError("publish response lost")
+        return result
+
+    db["qfq_ready"].update_one = lose_publish_response
+
+    updated = qfq.sync_stock_adj_all(
+        target_date=target_date,
+        db=db,
+        bars_loader=loader,
+        force_full_rebuild=True,
+        min_grace_seconds=0,
+    )
+
+    active_b = updated["by_scope"]["stock"]["marker"]["slots"]["b"]
+    override = db["stock_adj_intraday"].rows[0]
+    assert updated["by_scope"]["stock"]["marker"]["active_slot"] == "b"
+    assert override["base_snapshot_id"] == active_b["snapshot_id"]
+    assert override["base_factor_asof"] == active_b["factor_asof"]
+
+
+def test_rollback_marker_exception_restores_source_override_binding():
+    target_date = "2026-01-02"
+    db = _stock_db([target_date])
+    loader = _loader_for({"000001": [(target_date, 10.0, 0.0)]})
+    qfq.sync_stock_adj_all(target_date=target_date, db=db, bars_loader=loader)
+    active = qfq.resolve_active_slot(scope="stock", db=db)
+    db["stock_adj_intraday"].rows.append(
+        {
+            "code": "000001",
+            "trade_date": "2026-01-05",
+            "base_anchor_date": target_date,
+            "base_snapshot_id": active["snapshot_id"],
+            "base_factor_asof": active["factor_asof"],
+            "anchor_scale": 0.8,
+            "updated_at": "override-v1",
+        }
+    )
+
+    def fail_rollback_update(*_args, **_kwargs):
+        raise RuntimeError("rollback update failed")
+
+    db["qfq_ready"].update_one = fail_rollback_update
+
+    with pytest.raises(qfq.QFQSyncError, match="rollback marker failed"):
+        qfq.rollback_active_slot(scope="stock", db=db)
+
+    override = db["stock_adj_intraday"].rows[0]
+    assert qfq.resolve_active_slot(scope="stock", db=db)["slot"] == "a"
+    assert override["base_snapshot_id"] == active["snapshot_id"]
+    assert override["base_factor_asof"] == active["factor_asof"]
+    assert override["anchor_scale"] == pytest.approx(0.8)
+
+
+def test_rebind_ignores_inactive_intraday_override_statuses():
+    target_date = "2026-01-02"
+    db = _stock_db([target_date])
+    loader = _loader_for({"000001": [(target_date, 10.0, 0.0)]})
+    qfq.sync_stock_adj_all(target_date=target_date, db=db, bars_loader=loader)
+    inactive_overrides = [
+        {
+            "code": code,
+            "trade_date": "2026-01-05",
+            "base_anchor_date": target_date,
+            "base_snapshot_id": "stale-snapshot",
+            "anchor_scale": 0.8,
+            "status": status,
+        }
+        for code, status in zip(
+            ("000002", "000003", "000004"),
+            ("expired", "disabled", "failed"),
+            strict=True,
+        )
+    ]
+    db["stock_adj_intraday"].rows.extend(inactive_overrides)
+
+    updated = qfq.sync_stock_adj_all(
+        target_date=target_date,
+        db=db,
+        bars_loader=loader,
+        force_full_rebuild=True,
+        min_grace_seconds=0,
+    )
+
+    assert updated["by_scope"]["stock"]["marker"]["active_slot"] == "b"
+    assert db["stock_adj_intraday"].rows == inactive_overrides
+
+
 def test_rollback_swaps_only_between_ready_slots():
     dates = ["2026-01-02", "2026-01-05"]
     rows = [(dates[0], 10.0, 0.0), (dates[1], 10.0, 10.0)]

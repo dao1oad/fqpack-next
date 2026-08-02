@@ -1,16 +1,30 @@
+import json
 import sys
 import types
 
 import pandas as pd
 import pytest
 
+from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.chanlun_structure_service import (
     DEFAULT_BAR_LIMIT,
+    _get_realtime_cache_payload,
     _sanitize_kline_df,
     build_chanlun_structure_payload,
     build_dataframe_from_cache_payload,
     get_chanlun_structure,
 )
+from freshquant.util.period import get_redis_cache_key
+
+
+class _FakeRedis:
+    def __init__(self, payload):
+        self.payload = payload
+        self.keys = []
+
+    def get(self, key):
+        self.keys.append(key)
+        return self.payload
 
 
 def test_build_dataframe_from_cache_payload_keeps_ohlcv_alignment():
@@ -176,6 +190,38 @@ def test_sanitize_kline_df_handles_datetime_as_index_and_column():
         "2026-03-07 09:35",
     ]
     assert clean["open"].tolist() == [10.0, 20.0]
+
+
+def test_chanlun_index_cache_uses_bfq_adjustment_version(monkeypatch):
+    payload = {"symbol": "sh000001", "period": "5m"}
+    redis = _FakeRedis(json.dumps(payload))
+    redis_module = types.ModuleType("freshquant.database.redis")
+    redis_module.redis_db = redis
+    monkeypatch.setitem(sys.modules, "freshquant.database.redis", redis_module)
+    monkeypatch.setattr(
+        "freshquant.instrument.general.query_instrument_type",
+        lambda _symbol: InstrumentType.INDEX_CN,
+    )
+
+    result = _get_realtime_cache_payload("sh000001", "5m", None)
+
+    assert result == payload
+    assert redis.keys == [
+        get_redis_cache_key("sh000001", "5min", adjustment_version="bfq")
+    ]
+
+
+def test_chanlun_unknown_instrument_never_reads_unversioned_cache(monkeypatch):
+    redis = _FakeRedis(json.dumps({"source": "stale-unversioned"}))
+    redis_module = types.ModuleType("freshquant.database.redis")
+    redis_module.redis_db = redis
+    monkeypatch.setitem(sys.modules, "freshquant.database.redis", redis_module)
+    monkeypatch.setattr(
+        "freshquant.instrument.general.query_instrument_type", lambda _symbol: None
+    )
+
+    assert _get_realtime_cache_payload("unknown", "5m", None) is None
+    assert redis.keys == []
 
 
 def test_get_chanlun_structure_sanitizes_realtime_cache_before_fullcalc(monkeypatch):

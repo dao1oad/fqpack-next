@@ -24,8 +24,7 @@ ETF 在 FreshQuant 中与 A 股共用大部分接口，但有几处语义不同�
 - `python -m freshquant.cli etf save`
   - 同步 `etf_list`
   - 同步 `index_day/index_min` 口径的 ETF 历史数据
-  - 同步 `quantaxis.etf_xdxr`
-  - 重算 `quantaxis.etf_adj`
+  - 过渡期仍同步 `quantaxis.etf_xdxr` 并重算 `quantaxis.etf_adj`，但两者已不是在线 reader 真值
 
 ## 与普通 A 股的差异
 
@@ -35,10 +34,10 @@ ETF 在 FreshQuant 中与 A 股共用大部分接口，但有几处语义不同�
 
 ETF 当前前复权链路：
 
-- `TDX get_xdxr_info -> quantaxis.etf_xdxr -> quantaxis.etf_adj -> /api/stock_data`
-- `category=11` 的扩缩股事件会写入 `suogu`
-- 页面日线/分钟线会读取 `etf_adj`；如果 `etf_xdxr` 缺失，前复权会整段退化成 `adj=1.0`
-- `sync_etf_xdxr_all()` 当前默认在上游返回空结果时保留旧 `etf_xdxr`，避免单次空响应把历史扩缩股事件清空
+- `ETF BFQ ready -> XTData preClose -> etf_adj_qfq_a/b inactive slot -> full audit -> qfq_ready active_slot -> freshquant.data.qfq_reader`
+- 页面、策略与共享 QuantAxis 适配层每次读取 active marker，严格校验 snapshot、coverage、正因子、重复键、source exclusion 与 snapshot-bound intraday override
+- 合同不满足时返回 `QFQ_DATA_NOT_READY`；Stock/ETF Kline HTTP 路由映射为 503，不回退 `adj=1.0` 或 legacy 集合
+- `quantaxis.etf_xdxr` / `quantaxis.etf_adj` 在 PR2a 过渡期仍可能由现有 schedule 更新，但不再是在线 reader 真值
 
 ## 当前排查
 
@@ -54,9 +53,7 @@ ETF 当前前复权链路：
 
 ### ETF 前复权在扩缩股日前后不连续
 
-- 先查 `quantaxis.etf_xdxr` 是否存在目标 ETF 的 `category=11` / `suogu`
-- 再查 `quantaxis.etf_adj` 是否在事件日前生成了 `adj<1`
-- 最后查 `/api/stock_data?period=1d&symbol=<code>&endDate=<date>` 是否已经返回复权后的 close
-- 如果历史事件缺失，先执行：
-  - `python -m freshquant.cli etf.xdxr save --code 512000`
-  - `python -m freshquant.cli etf.adj save --code 512000`
+- 执行 `python -m freshquant.market_data.xtdata.qfq_worker status --scope etf --strict`，核对 active snapshot 的 `factor_asof`
+- 对目标代码执行 `python -m freshquant.market_data.xtdata.qfq_worker audit --scope etf --mode full --code 512000`
+- 核对 `quantaxis.qfq_ready` 指向的 active collection、该 code 的 factor coverage 与响应 `adjustment_version`
+- 若 active slot 审计失败，在 QFQ writer 独占 lease 下人工执行 `build --scope etf --target-date YYYY-MM-DD`；不手工修改 marker，不回填 legacy `etf_adj`

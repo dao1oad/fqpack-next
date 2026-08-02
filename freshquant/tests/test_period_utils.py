@@ -14,3 +14,7 @@ def test_period_convert_roundtrip():
 
 def test_cache_key_format():
     assert get_redis_cache_key("sz000001", "5min") == "CACHE:KLINE:sz000001:5min"
+    assert (
+        get_redis_cache_key("sz000001", "5min", adjustment_version="snapshot-v2")
+        == "CACHE:KLINE:sz000001:5min:snapshot-v2"
+    )

@@ -48,8 +48,13 @@ def is_supported_realtime_period(period: str) -> bool:
     return p in {"1min", "5min", "15min", "30min", "1d"}
 
 
-def get_redis_cache_key(code: str, period_backend: str) -> str:
-    return f"{CACHE_KLINE_PREFIX}:{(code or '').lower()}:{to_backend_period(period_backend)}"
+def get_redis_cache_key(
+    code: str, period_backend: str, *, adjustment_version: str | None = None
+) -> str:
+    key = f"{CACHE_KLINE_PREFIX}:{(code or '').lower()}:{to_backend_period(period_backend)}"
+    if adjustment_version:
+        return f"{key}:{adjustment_version}"
+    return key
 
 
 def get_redis_queue_key(prefix: str, shard: int) -> str:

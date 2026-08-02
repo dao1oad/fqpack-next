@@ -2,13 +2,13 @@
 
 ## 职责
 
-XTData 链路负责把宿主机 XTData 行情转换成 FreshQuant 可消费的实时事件流，并维护独立的盘后 QFQ shadow 快照。它承担五件事：
+XTData 链路负责把宿主机 XTData 行情转换成 FreshQuant 可消费的实时事件流，并维护盘后 QFQ A/B 快照。它承担五件事：
 
 - 从 XTQuant 订阅当前监控池的全量行情。
 - 把 tick 推入 Redis 分片队列。
 - 合成 1 分钟 bar，并继续向下游发布 bar close 事件。
 - 在 consumer 侧做 prewarm、结构计算、实时缓存与运行观测。
-- 在盘后 BFQ ready 后，以 XTData 日线 `preClose` 构建和审计 Stock / ETF A/B QFQ shadow 快照。
+- 在盘后 BFQ ready 后，以 XTData 日线 `preClose` 构建和审计 Stock / ETF A/B QFQ 快照，供共享 strict reader 在线读取。
 
 ## 入口
 
@@ -16,7 +16,7 @@ XTData 链路负责把宿主机 XTData 行情转换成 FreshQuant 可消费的�
   - `python -m freshquant.market_data.xtdata.market_producer`
 - consumer
   - `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
-- QFQ shadow worker
+- QFQ A/B worker
   - `python -m freshquant.market_data.xtdata.qfq_worker worker`
 - QFQ 运维 CLI
   - `python -m freshquant.market_data.xtdata.qfq_worker status --strict`
@@ -61,14 +61,14 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - `OneMinuteBarGenerator` 和 `StrategyConsumer` 都会通过 FreshQuant A 股交易日历拦截非交易日 bar；周末/节假日 tick 不生成 bar，非交易日 `BAR_CLOSE` 不写入 `stock_realtime/index_realtime`。
 - consumer prewarm、股票分钟线 API 拼接与 ETF/index K 线查询都会过滤非交易日 realtime 行，避免历史脏数据继续进入 Redis Kline cache 或 `/api/stock_data` 返回值。
 
-### QFQ shadow 链
+### QFQ A/B 链
 
-`Dagster Stock/ETF BFQ + 旧复权 writer -> postclose ready marker -> fqnext_xtdata_qfq_worker -> XTData preClose -> inactive A/B slot -> audit -> qfq_ready active_slot`
+`Dagster Stock/ETF BFQ + 过渡期 legacy writer -> postclose ready marker -> fqnext_xtdata_qfq_worker -> XTData incremental -> inactive A/B slot -> full audit -> qfq_ready active_slot CAS`
 
 - Stock 数据集合为 `stock_adj_qfq_a` / `stock_adj_qfq_b`，ETF 数据集合为 `etf_adj_qfq_a` / `etf_adj_qfq_b`。
 - `quantaxis.qfq_ready` 对每个 scope 使用一个原子双槽 marker；构建 inactive slot 期间 active slot 保持只读，inactive slot 审计成功后才切换。
 - `quantaxis.qfq_writer_locks` 对每个 scope 只允许一个带过期时间并由后台线程持续续期的 writer lease；单次 XTData 请求或 Mongo `$out` 阻塞时仍续租，发布前重新核对 owner。中断的 `building` 仅由下一位 lease owner 恢复，人工 build / rollback 不与 Supervisor worker 并发写。
-- 首次 bootstrap 先构建并审计 A，再复制和审计 B，之后发布双槽 marker；日更只对 inactive slot 写入。
+- 首次 bootstrap / 历史 backfill 只通过人工 `qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD [--full]` 执行：先构建并审计 A，再复制和审计 B，之后发布双槽 marker。正常 worker 缺少 marker 时返回 `bootstrap_required`；日更只对 inactive slot 写入。
 - XTData field-table 以日期列为交易日，epoch 回退按 Asia/Shanghai 还原；`dividend_type=none` 日线的 `preClose` 仍是 canonical 因子来源，常规边先在真实 XTData 日期轴递推，再投影到有效 BFQ coverage。
 - BFQ 中 `vol` 与 `amount` 同时等于 QASU 浮点哨兵的占位行不进入 coverage。Stock 优先以 `stock_xdxr` 中最早满足 `category=5`、`shares_before=0`、`shares_after>0` 的初始股本记录作为上市边界；缺少该记录时才回退 XTData instrument detail 的 `OpenDate`，ETF 也使用同一证据。只有 `OpenDate` 不晚于最后一条有效 BFQ 时才将其解释为上市边界；若 `IsTrading=false`、`OpenDate` 晚于全部有效 BFQ，且该边界之后还有 QASU sentinel 证据，则分类为 `nontrading_terminal_history`，仅从当前 QFQ build universe 排除并保留 BFQ 历史；该旧生命周期没有 XTData `preClose` 因子时 reader 仍 fail closed。缺失、无效或缺少任一终止证据的 `OpenDate` 不排除 BFQ，source 前后缀缺口仍 fail closed。
 - BFQ-only 日期仅在两个真实 XTData bar 之间，且同日期轴的 `front_ratio.close / none.close` 在缺口两端容差内相等时桥接；该稀疏边按无调整处理，缺失日期写入相同因子，并记录 `source_gap_rows_bridged`、`codes_with_source_gaps`、`source_gaps[]`。
@@ -76,8 +76,10 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - 完整 source 区间下载后仍无 `none` bars 的 code 同样不生成空因子或 `1.0`，并记录 `{code, reason=source_empty_bars}`。A/B 各自保留自己的 `source_exclusions[]`，rollback 随 slot 一起恢复。tail 请求为空必须先用完整 BFQ 区间复核；`front_ratio` proof 为空不属于该分类，继续 fail closed。
 - primary `none` loader 完成单调前缀分页后仍报告 `history_prefix_no_progress` 时，该 code 记录 `{code, reason=source_prefix_unavailable}` 并从本轮 slot 隔离；同一错误来自 `front_ratio` proof loader 时仍中止 scope。普通 unbounded prefix/suffix、proof 缺失和日期轴不一致不进入该分类。
 - XTData 长区间下载只返回近期后缀时，QFQ client 会以当前最早缓存日的前一日为边界继续向前分页，直至覆盖请求起点；任一页未把最早日期向前推进时立即报错，不发布不完整快照。
-- 当前 Stock / ETF 在线 reader 和旧 `stock_xdxr`、`etf_xdxr -> etf_adj` writer 均未切换；A/B 发布不会改变现有 Kline 或策略读取结果。
-- 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ shadow scope。
+- Stock / ETF 在线 reader 统一使用 `freshquant.data.qfq_reader`：每个请求重新解析 marker 指向的 active slot，严格验证 snapshot、请求日期覆盖、正因子、重复键、source exclusion 与 snapshot-bound override；失败统一为 `QFQ_DATA_NOT_READY`，Stock Kline API 映射 HTTP 503。
+- StrategyConsumer 先落 raw realtime bar，再执行严格 QFQ 派生；Redis Kline key/payload 和常驻窗口绑定 effective adjustment version，版本变化后旧缓存 miss、窗口 reload。
+- 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 在 PR2a 过渡期仍可能由现有 schedule 执行，但 `stock_adj` / `etf_adj` 已不再作为在线读取真值。
+- 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ scope。
 
 ## 存储
 
@@ -163,9 +165,10 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - 检查 tick 分片队列是否有目标 code。
 - 检查 producer 是否在向 `REDIS_TICK_QUEUE_PREFIX:<shard>` 推送。
 
-### QFQ shadow 不更新
+### QFQ A/B 不更新或 reader 返回 503
 
 - 检查 `fqnext_xtdata_qfq_worker` Supervisor 状态与 `D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log`。
 - 执行 `python -m freshquant.market_data.xtdata.qfq_worker worker --once`，区分 `waiting_for_bfq`、`current`、`published` 与错误结果。
 - 执行 `status --strict` 核对 active 截止日与盘后 marker，执行 `audit --scope stock|etf --mode full` 对 active slot 做 XTData source-aware 审计；快速排查可先用 `--mode structure`。
-- 页面仍读取旧 Stock / ETF 因子；shadow 集合已更新但页面未变化，不代表 QFQ worker 失败。
+- 若 active slot 已更新但页面仍是旧结果，核对响应/Redis payload 的 `adjustment_version` 与 marker `snapshot_id`；旧 version key 不应被新 reader 命中。
+- `QFQ_DATA_NOT_READY/503` 时先核对 active slot `status=ready`、请求 code/date coverage、`source_exclusions[]` 和 intraday override 的 `base_snapshot_id`，不回退到 BFQ 或 `1.0`。

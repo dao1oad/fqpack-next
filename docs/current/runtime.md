@@ -8,7 +8,7 @@
 - Mongo 通过 `127.0.0.1:27027` 接入 Docker `fq_mongodb`；宿主机链路不要再使用 `127.0.0.1:27017`。
 - `fqnext-supervisord` 宿主机底座与其托管的交易/运行链 Python 进程。
 - Guardian monitor。
-- XTData producer / consumer / adj refresh worker / QFQ shadow worker（XTData producer 启动阶段遇到可重试的 XTData 连接失败时会在进程内退避重试；交易时段若订阅链 stale，则先 `resubscribe`，持续 stale 再升级为 `xtdata.connect() + resubscribe`。`xtdata_adj_refresh_worker` 在启动或计划刷新遇到可重试的 XTData 连接失败时，会退避后重建新的 refresh service / XTData client 再继续同步。`fqnext_xtdata_qfq_worker` 读取 Dagster 盘后 ready marker，再以 XTData `preClose` 更新 Stock / ETF A/B shadow 快照。）
+- XTData producer / consumer / adj refresh worker / QFQ canonical worker（XTData producer 启动阶段遇到可重试的 XTData 连接失败时会在进程内退避重试；交易时段若订阅链 stale，则先 `resubscribe`，持续 stale 再升级为 `xtdata.connect() + resubscribe`。`xtdata_adj_refresh_worker` 在启动或计划刷新遇到可重试的 XTData 连接失败时，会退避后重建新的 refresh service / XTData client 再继续同步。`fqnext_xtdata_qfq_worker` 读取 Dagster 盘后 ready marker，再以 XTData `preClose` 更新 Stock / ETF A/B canonical 快照。）
 - XT account sync worker（作为 XT 账户数据的增量补偿同步入口，默认每 15 秒轮询 `assets / credit_detail / positions / orders / trades`；其中 `credit_detail` 保持高频刷新以驱动仓位管理状态，只把新增 `orders / trades` 送入 ingest；`credit_subjects` 只在启动和每日计划时间做低频同步，并在启动时做一次单标的实时仓位 fallback 种子刷新；若 `positions` 快照为空或严重缩水、但同轮 `credit_detail.market_value` 仍显著为正，则该轮快照会进入 quarantine，不覆盖 `xt_positions`，也不触发自动平账；这个 quarantine 现在也覆盖小账户单票/双票严重缩水的场景，同时 worker 会记录 warning 说明 quarantine 原因；对 `xtquant connect/subscribe` 可重试失败，worker 会在退避后重建新的 XT sync service/client 再继续同步）。
 - XT auto repay worker（默认每 30 分钟低频巡检一次已同步的 `credit_detail` 快照，只处理普通融资负债；盘中命中候选后才即时执行一次 `query_credit_detail()` 二次确认，再走 `CREDIT_DIRECT_CASH_REPAY`；固定在 `14:55` 做日终硬结算、`15:05` 做一次补偿重试；`broker_submit_mode=observe_only` 时只记录事件，不真实提交还款）。
 - TPSL tick listener。
@@ -56,15 +56,17 @@
 - 冷记忆目录：`.codex/memory`
 - 热记忆 Mongo database：`fq_memory`
 
-## XTData QFQ shadow 运行口径
+## XTData QFQ A/B 运行口径
 
 - Supervisor program 为 `fqnext_xtdata_qfq_worker`，并与 `fqnext_xtdata_adj_refresh_worker` 同属 `fqnext_reference_data` group；它运行在 Windows 宿主机，默认每 60 秒检查一次盘后就绪状态。
 - worker 从 `freshquant.dagster_pipeline_markers` 读取 `pipeline_key=stock_postclose_ready` / `etf_postclose_ready` 的最新成功文档，再把目标交易日传给 XTData QFQ writer。
-- `stock_postclose_ready` 在股票日线、分钟线、质量股票池快照和旧 `stock_xdxr` writer 完成后发布；`etf_postclose_ready` 在 ETF 日线/分钟线及旧 `etf_xdxr -> etf_adj` writer 完成后发布。
-- shadow 快照与发布 marker 写在 QuantAxis Mongo：数据集合为 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`，marker 集合为 `qfq_ready`；`qfq_writer_locks` 以 scope 唯一后台 heartbeat lease 强制 worker、人工 build 与 rollback 串行，单次 XTData 下载或 Mongo `$out` 阻塞期间也会持续续租，发布前再次核对 owner。
+- `stock_postclose_ready` 在股票日线、分钟线、质量股票池快照和过渡期旧 `stock_xdxr` writer 完成后发布；`etf_postclose_ready` 在 ETF 日线/分钟线及过渡期旧 `etf_xdxr -> etf_adj` writer 完成后发布。
+- A/B 快照与发布 marker 写在 QuantAxis Mongo：数据集合为 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`，marker 集合为 `qfq_ready`；`qfq_writer_locks` 以 scope 唯一后台 heartbeat lease 强制 worker、人工 build 与 rollback 串行，单次 XTData 下载或 Mongo `$out` 阻塞期间也会持续续租，发布前再次核对 owner。
 - QFQ coverage 排除 `vol/amount` 同时命中 QASU 浮点哨兵的 BFQ 占位行；XTData 多出的真实交易日仍参与完整递推，之后才投影到有效 BFQ 日期。bootstrap、update 与 audit JSON 的 `coverage` 字段记录 sentinel 和无有效历史标的计数。
-- 当前 Stock / ETF 在线 reader 继续读取 `stock_adj` / `etf_adj`，旧 writer 继续运行；QFQ worker 的发布只更新 shadow 链。
-- 真实 Index 当前固定读取 BFQ 日线/分钟线与 `index_realtime`，不读取 `stock_adj`、`etf_adj` 或 QFQ shadow 集合。
+- Stock / ETF 在线 reader 每次请求从 `qfq_ready` 解析 active slot；marker、coverage、factor 或 snapshot-bound override 不满足合同时 fail closed 为 `QFQ_DATA_NOT_READY`。Redis Kline 与 StrategyConsumer 常驻窗口按 effective adjustment version 隔离，marker/override 版本变化会 miss/reload。
+- 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 在 PR2a 过渡期仍可能由现有 schedule 执行；`stock_adj` / `etf_adj` 集合继续保留但不再作为在线真值。
+- 真实 Index 当前固定读取 BFQ 日线/分钟线与 `index_realtime`，不读取 `stock_adj`、`etf_adj` 或 QFQ A/B 集合。
+- 首次 bootstrap 与历史 backfill 只通过人工 `qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD [--full]` 执行；正常 worker 遇到缺失 `qfq_ready` marker 返回 `bootstrap_required`，不自动构建全历史。
 - 运维 CLI 入口为 `python -m freshquant.market_data.xtdata.qfq_worker`，子命令为 `worker`、`build`、`audit`、`status`、`rollback`；`status --strict` 检查 active 截止日是否追平盘后 ready marker，`audit --mode structure|tail|full` 分别执行结构、近期 XTData 递推和全历史 XTData 递推审计。
 
 ## 会话与记忆口径

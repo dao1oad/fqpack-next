@@ -33,13 +33,15 @@
 
 ## 当前行情复权边界
 
-- Stock / ETF 线上读取链仍使用 `quantaxis.stock_adj` / `quantaxis.etf_adj`；现有 `stock_xdxr`、`etf_xdxr -> etf_adj` 写入链继续运行。
-- `freshquant.market_data.xtdata.qfq` 以 XTData 日线 `preClose` 生成独立的 Stock / ETF QFQ shadow 快照：
+- Stock / ETF 线上读取统一由 `freshquant.data.qfq_reader` 解析 `quantaxis.qfq_ready` 指向的 active A/B 快照；reader 每次请求重新解析 marker，不缓存 collection pointer。
+- `freshquant.market_data.xtdata.qfq` 以 XTData 日线 `preClose` 生成 Stock / ETF QFQ A/B 快照：
   - Stock：`stock_adj_qfq_a` / `stock_adj_qfq_b`
   - ETF：`etf_adj_qfq_a` / `etf_adj_qfq_b`
   - `quantaxis.qfq_ready` 以每个 `scope` 的单文档保存 `active_slot` 与两个槽位的快照元数据。
-- shadow writer 只构建 inactive slot，审计通过后再原子切换 `active_slot`；`worker`、人工 `build` 与 `rollback` 共用 `qfq_writer_locks` 的 scope 唯一 lease，回滚也只切换 marker，不改写 active 集合。
-- 当前 Stock / ETF reader 尚未读取 `*_adj_qfq_a/b`，因此 shadow 快照发布不会改变 API、策略或实时 Kline 的复权结果。
+- writer 只构建 inactive slot，审计通过后再原子切换 `active_slot`；`worker`、人工 `build` 与 `rollback` 共用 `qfq_writer_locks` 的 scope 唯一 lease。回滚会先将仍需生效的 intraday override 重新绑定到目标 snapshot，再以 CAS 切换 marker；factor A/B 集合本身不改写。
+- reader 要求 active slot 为 `ready`，并严格校验请求 bar 的日期覆盖、正因子、重复键、source exclusion 和 snapshot-bound intraday override；证明失败统一抛出 `QFQ_DATA_NOT_READY`，三条 Stock Kline API 统一返回 HTTP 503。
+- Redis Kline key/payload 与 StrategyConsumer 常驻窗口绑定 effective adjustment version（active `snapshot_id` 加匹配的 override version）；版本变化时旧 cache miss、常驻窗口重载。
+- 旧 `stock_adj` / `etf_adj` 不再是线上 reader 真值。
 - 真实 Index 的日线、分钟线和实时合并固定使用 BFQ；Index 路径不读取 Stock / ETF 因子，实时数据读取 `freshquant.index_realtime`。
 
 ## 订单相关核心调用链

@@ -20,35 +20,25 @@ from QUANTAXIS.QAData.data_resample import (
 )
 from QUANTAXIS.QAUtil import (
     DATABASE,
-    QA_util_code_tolist,
-    QA_util_date_valid,
     QA_util_log_info,
     QA_util_to_json_from_pandas,
 )
 
+from freshquant.data.qfq_reader import apply_qfq_to_bars
 
-def _QA_fetch_stock_adj(code, start, end, format='pd', collections=DATABASE.stock_adj):
-    """获取股票复权系数 ADJ"""
 
-    start = str(start)[0:10]
-    end = str(end)[0:10]
-    # code= [code] if isinstance(code,str) else code
-
-    # code checking
-    code = QA_util_code_tolist(code)
-
-    if QA_util_date_valid(end):
-
-        cursor = collections.find(
-            {'code': {'$in': code}, "date": {"$lte": end, "$gte": start}},
-            {"_id": 0},
-            batch_size=10000,
+def _apply_strict_stock_qfq(data: pd.DataFrame) -> pd.DataFrame:
+    adjusted = []
+    for code in data.index.get_level_values("code").unique():
+        code_data = data.xs(code, level="code", drop_level=False)
+        code_adjusted, _metadata = apply_qfq_to_bars(
+            code_data,
+            scope="stock",
+            code=str(code),
+            ohlc_cols=("open", "high", "low", "close", "high_limit", "low_limit"),
         )
-        # res=[QA_util_dict_remove_key(data, '_id') for data in cursor]
-
-        res = pd.DataFrame([item for item in cursor])
-        res.date = pd.to_datetime(res.date, utc=False)
-        return res.set_index('date', drop=False)
+        adjusted.append(code_adjusted)
+    return pd.concat(adjusted).sort_index()
 
 
 class QA_DataStruct_Stock_day(_quotation_base):
@@ -89,35 +79,8 @@ class QA_DataStruct_Stock_day(_quotation_base):
             #     return self.new(pd.concat(list(map(
             #         lambda x: QA_data_stock_to_fq(self.data[self.data['code'] == x]), self.code))), self.type, 'qfq')
             else:
-                try:
-                    date = self.date
-                    adj = _QA_fetch_stock_adj(
-                        list(self.code), str(date[0])[0:10], str(date[-1])[0:10]
-                    ).set_index(['date', 'code'])
-                    data = self.data.join(adj)
-                    data['adj'].fillna(method='ffill', inplace=True)
-                    for col in ['open', 'high', 'low', 'close']:
-                        data[col] = data[col] * data['adj']
-                    # data['volume'] = data['volume'] / \
-                    #     data['adj'] if 'volume' in data.columns else data['vol']/data['adj']
-
-                    data['volume'] = (
-                        data['volume'] if 'volume' in data.columns else data['vol']
-                    )
-                    try:
-                        data['high_limit'] = data['high_limit'] * data['adj']
-                        data['low_limit'] = data['high_limit'] * data['adj']
-                    except:
-                        pass
-                    return self.new(data, self.type, 'qfq')
-                except Exception as e:
-                    print(e)
-                    print('use old model qfq')
-                    return self.new(
-                        self.groupby(level=1).apply(QA_data_stock_to_fq, 'qfq'),
-                        self.type,
-                        'qfq',
-                    )
+                data = _apply_strict_stock_qfq(self.data)
+                return self.new(data, self.type, 'qfq')
         else:
             QA_util_log_info(
                 'none support type for qfq Current type is: %s' % self.if_fq
@@ -284,39 +247,8 @@ class QA_DataStruct_Stock_min(_quotation_base):
             #     data.if_fq = 'qfq'
             #     return data
             else:
-                try:
-                    date = self.date
-                    adj = _QA_fetch_stock_adj(
-                        self.code.to_list(), str(date[0])[0:10], str(date[-1])[0:10]
-                    )
-                    adj = adj.assign(date=adj.date.apply(lambda x: x.date())).set_index(
-                        ['date', 'code']
-                    )
-                    u = self.data.reset_index()
-                    u = u.assign(date=u.datetime.apply(lambda x: x.date()))
-                    u = u.set_index(['date', 'code'], drop=False)
-
-                    data = u.join(adj).set_index(['datetime', 'code'])
-                    data['adj'].fillna(method='ffill', inplace=True)
-                    for col in ['open', 'high', 'low', 'close']:
-                        data[col] = data[col] * data['adj']
-                    # data['volume'] = data['volume'] / \
-                    #     data['adj']
-                    # data['volume'] = data['volume']  if 'volume' in data.columns else data['vol']
-                    try:
-                        data['high_limit'] = data['high_limit'] * data['adj']
-                        data['low_limit'] = data['high_limit'] * data['adj']
-                    except:
-                        pass
-                    return self.new(data, self.type, 'qfq')
-                except Exception as e:
-                    print(e)
-                    print('use old model qfq')
-                    return self.new(
-                        self.groupby(level=1).apply(QA_data_stock_to_fq, 'qfq'),
-                        self.type,
-                        'qfq',
-                    )
+                data = _apply_strict_stock_qfq(self.data)
+                return self.new(data, self.type, 'qfq')
 
         else:
             QA_util_log_info(

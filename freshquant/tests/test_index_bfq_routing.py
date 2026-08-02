@@ -202,8 +202,8 @@ def test_strategy_consumer_index_read_never_reads_factor(monkeypatch):
     monkeypatch.setattr(strategy_consumer, "DBfreshquant", _EmptyDatabase())
     monkeypatch.setattr(
         strategy_consumer,
-        "fetch_qfq_adj_df",
-        lambda **_kwargs: (_ for _ in ()).throw(
+        "apply_qfq_to_bars",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("Index must not read adj")
         ),
     )
