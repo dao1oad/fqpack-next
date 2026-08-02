@@ -63,7 +63,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 ### QFQ A/B 链
 
-`Dagster Stock/ETF BFQ + 过渡期 legacy writer -> postclose ready marker -> fqnext_xtdata_qfq_worker -> XTData incremental -> inactive A/B slot -> full audit -> qfq_ready active_slot CAS`
+`Dagster Stock/ETF BFQ ready -> postclose ready marker -> fqnext_xtdata_qfq_worker -> XTData incremental -> inactive A/B slot -> full audit -> qfq_ready active_slot CAS`
 
 - Stock 数据集合为 `stock_adj_qfq_a` / `stock_adj_qfq_b`，ETF 数据集合为 `etf_adj_qfq_a` / `etf_adj_qfq_b`。
 - `quantaxis.qfq_ready` 对每个 scope 使用一个原子双槽 marker；构建 inactive slot 期间 active slot 保持只读，inactive slot 审计成功后才切换。
@@ -78,7 +78,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - XTData 长区间下载只返回近期后缀时，QFQ client 会以当前最早缓存日的前一日为边界继续向前分页，直至覆盖请求起点；任一页未把最早日期向前推进时立即报错，不发布不完整快照。
 - Stock / ETF 在线 reader 统一使用 `freshquant.data.qfq_reader`：每个请求重新解析 marker 指向的 active slot，严格验证 snapshot、请求日期覆盖、正因子、重复键、source exclusion 与 snapshot-bound override；失败统一为 `QFQ_DATA_NOT_READY`，Stock Kline API 映射 HTTP 503。
 - StrategyConsumer 先落 raw realtime bar，再执行严格 QFQ 派生；Redis Kline key/payload 和常驻窗口绑定 effective adjustment version，版本变化后旧缓存 miss、窗口 reload。
-- 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 在 PR2a 过渡期仍可能由现有 schedule 执行，但 `stock_adj` / `etf_adj` 已不再作为在线读取真值。
+- 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 不在正常 schedule，仅保留为人工 legacy 运维入口；`stock_adj` / `etf_adj` 至少保留 7 个交易日但不再作为在线读取真值。
 - 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ scope。
 
 ## 存储

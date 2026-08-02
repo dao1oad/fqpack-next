@@ -84,7 +84,6 @@ def test_stock_and_etf_jobs_bound_runtime_and_failed_run_retries(monkeypatch):
         "stock_block",
         "stock_day",
         "stock_min",
-        "stock_xdxr",
         "refresh_quality_stock_universe_snapshot",
         "stock_postclose_ready_asset",
     }
@@ -92,8 +91,6 @@ def test_stock_and_etf_jobs_bound_runtime_and_failed_run_retries(monkeypatch):
         "etf_list",
         "etf_day",
         "etf_min",
-        "etf_xdxr",
-        "etf_adj",
         "etf_postclose_ready_asset",
     }
     assert set(module.index_data_job.selection.asset_names) == {

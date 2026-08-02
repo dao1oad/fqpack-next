@@ -202,7 +202,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
 | `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
-| `freshquant/data/etf_adj_sync.py` | ETF legacy xdxr/adj 过渡写入链（已非在线 reader 真值） | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
+| `freshquant/data/etf_adj_sync.py` | ETF legacy xdxr/adj 人工运维入口 | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
 | `freshquant/daily_screening/**` | 每日选股 API 与 `fqscreening` 读模型 | 重建 API；如改动影响自动任务语义，补跑 Dagster 每日筛选任务 |
 | `freshquant/clx_daily_selection/**` | CLX 日线计算服务、API 读链与 Dagster partition/finalizer 共用逻辑 | 重建 API；重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
 | `freshquant/rear/clx_daily_selection/**` | CLX 日线 HTTP API | 重建 API |
@@ -262,7 +262,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 
 部署 reader 前必须先确认 Stock / ETF active slot 均为 `ready` 且 full audit 通过。激活后 Stock / ETF API、StrategyConsumer、Chan、ATR/holding/threshold 统一读取 marker 指向的 A/B 快照；marker/coverage/override 证明失败返回 `QFQ_DATA_NOT_READY`，三条 Stock Kline API 返回 HTTP 503。StrategyConsumer 必须先成功写 raw realtime bar，再做 QFQ 派生；Redis key/payload 与常驻窗口绑定 effective adjustment version。Dagster ready asset 或 `dagster.yaml` 同时变更时，还必须按 `dagster` surface 重部署 webserver / daemon。`check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 对 `market_data` surface 会自动执行 `status --strict`，marker 缺失或落后时 health gate 失败。
 
-PR2a reader 激活期间，旧 Stock / ETF factor writer 可能仍由现有 Dagster 依赖链执行，但其输出已不是在线读取真值；`stock_adj` / `etf_adj` 继续保留用于过渡观察。回退时先用 CAS 将 marker 切回上一 ready slot，清理或等待旧 adjustment-version Redis key 失效，再重启 API 与 StrategyConsumer 使常驻窗口按回切后的 snapshot reload。
+strict-reader health 通过后停止旧 Stock / ETF factor writers，但保留 `stock_adj` / `etf_adj` 至少 7 个交易日且不再写入。回退时先用 CAS 将 marker 切回上一 ready slot，清理或等待旧 adjustment-version Redis key 失效，再重启 API 与 StrategyConsumer 使常驻窗口按回切后的 snapshot reload。
 
 - `script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces` 当前会先做 surface reconcile；若首次重启失败且启用了 `-BridgeIfServiceUnavailable`，即使 `fqnext-supervisord` service 仍是 `Running`，也允许触发一次管理员桥接
 - 管理员桥接恢复后，脚本会先确认目标 programs 是否已经 settled 到 `RUNNING`；只有仍未恢复时，才继续补做第二次 `restart-surfaces`

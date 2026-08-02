@@ -60,11 +60,11 @@
 
 - Supervisor program 为 `fqnext_xtdata_qfq_worker`，并与 `fqnext_xtdata_adj_refresh_worker` 同属 `fqnext_reference_data` group；它运行在 Windows 宿主机，默认每 60 秒检查一次盘后就绪状态。
 - worker 从 `freshquant.dagster_pipeline_markers` 读取 `pipeline_key=stock_postclose_ready` / `etf_postclose_ready` 的最新成功文档，再把目标交易日传给 XTData QFQ writer。
-- `stock_postclose_ready` 在股票日线、分钟线、质量股票池快照和过渡期旧 `stock_xdxr` writer 完成后发布；`etf_postclose_ready` 在 ETF 日线/分钟线及过渡期旧 `etf_xdxr -> etf_adj` writer 完成后发布。
+- `stock_postclose_ready` 在股票日线、分钟线和质量股票池快照完成后发布；`etf_postclose_ready` 在 ETF 日线与分钟线完成后发布。正常 schedule 不再选择旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset。
 - A/B 快照与发布 marker 写在 QuantAxis Mongo：数据集合为 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`，marker 集合为 `qfq_ready`；`qfq_writer_locks` 以 scope 唯一后台 heartbeat lease 强制 worker、人工 build 与 rollback 串行，单次 XTData 下载或 Mongo `$out` 阻塞期间也会持续续租，发布前再次核对 owner。
 - QFQ coverage 排除 `vol/amount` 同时命中 QASU 浮点哨兵的 BFQ 占位行；XTData 多出的真实交易日仍参与完整递推，之后才投影到有效 BFQ 日期。bootstrap、update 与 audit JSON 的 `coverage` 字段记录 sentinel 和无有效历史标的计数。
 - Stock / ETF 在线 reader 每次请求从 `qfq_ready` 解析 active slot；marker、coverage、factor 或 snapshot-bound override 不满足合同时 fail closed 为 `QFQ_DATA_NOT_READY`。Redis Kline 与 StrategyConsumer 常驻窗口按 effective adjustment version 隔离，marker/override 版本变化会 miss/reload。
-- 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 在 PR2a 过渡期仍可能由现有 schedule 执行；`stock_adj` / `etf_adj` 集合继续保留但不再作为在线真值。
+- 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 仅保留为人工 legacy 运维入口；`stock_adj` / `etf_adj` 集合至少保留 7 个交易日且不再作为在线真值。
 - 真实 Index 当前固定读取 BFQ 日线/分钟线与 `index_realtime`，不读取 `stock_adj`、`etf_adj` 或 QFQ A/B 集合。
 - 首次 bootstrap 与历史 backfill 只通过人工 `qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD [--full]` 执行；正常 worker 遇到缺失 `qfq_ready` marker 返回 `bootstrap_required`，不自动构建全历史。
 - 运维 CLI 入口为 `python -m freshquant.market_data.xtdata.qfq_worker`，子命令为 `worker`、`build`、`audit`、`status`、`rollback`；`status --strict` 检查 active 截止日是否追平盘后 ready marker，`audit --mode structure|tail|full` 分别执行结构、近期 XTData 递推和全历史 XTData 递推审计。
