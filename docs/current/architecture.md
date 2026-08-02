@@ -56,9 +56,9 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 
 ### 读链
 
-`freshquant_clx_daily_selection -> /api/clx-daily-selection/* -> /clx-daily-screening -> /kline-slim CLX sidebar/workbench -> ECharts CLX marker series`
+`freshquant_clx_daily_selection -> /api/clx-daily-selection/* -> /kline-slim CLX mode 左栏筛选结果 -> 当前 symbol/endDate K 线 -> 右栏 CLX 信号工作台 -> ECharts CLX marker series`
 
-新链使用独立数据库、API、页面路由和 `clx_daily_selection_ready` marker。旧 `/daily-screening`、`fqscreening` 与 `daily_screening_ready` 继续保持 12 模型链的原有语义。
+新链使用独立数据库、API 和 `clx_daily_selection_ready` marker，统一页面入口为 `/kline-slim?clxScreening=1&clxWorkbench=1&period=1d`。裸 `/kline-slim` 仍是普通行情模式；`/clx-daily-screening` 只把兼容 query 映射后重定向到 CLX mode，不再挂载第二套页面状态。旧 `/daily-screening`、`fqscreening` 与 `daily_screening_ready` 继续保持 12 模型链的原有语义。
 ## 当前行情复权边界
 
 - Stock / ETF 线上读取统一由 `freshquant.data.qfq_reader` 解析 `quantaxis.qfq_ready` 指向的 active A/B 快照；reader 每次请求重新解析 marker，不缓存 collection pointer。
@@ -170,12 +170,15 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
   - `entries + entry_slices + takeprofit + stoploss`
 - `KlineSlim`
   - `entries + entry stoploss + guardian/takeprofit + 可选订单级交易复盘覆盖层`
-  - CLX 左栏读取选定 final/显式 partial scope；右侧工作台按 `production_v1` 历史响应控制模型/条件和 marker 可见性
+  - CLX 左栏是完整选股工作区：读取选定 final/显式 partial scope，支持资产、模型、条件、方向、线关系、最少模型数和文本查询，并按服务端 cursor 追加结果
+  - 点击左栏标的时更新当前 symbol/asset type，并把 `scope.tradeDate` 映射为 K 线与历史信号共同使用的 `endDate`
+  - 左栏“筛选哪些标的”的模型/条件状态与右栏“显示哪些历史 marker”的模型/条件状态分别维护，切换任一侧都不静默改写另一侧
+  - 中栏继续提供唯一 K 线主图；右侧工作台按 `production_v1` 历史响应控制 marker 可见性、时间轴和证据详情
   - CLX marker 由 renderer 生成独立 ECharts scatter series，并由 controller 处理点击、聚焦和 tooltip
-- `ClxDailyScreening`
-  - 默认读取最新 `published/not_required` final；显式选择时才展示 partial 或 publication 中间态
-  - 展示 stock/ETF partition 状态、attempt、hash、结果筛选和逐 membership 证据
-  - 跨资产统计只来自 finalizer 通过后的完整 batch
+- `/clx-daily-screening` 兼容入口
+  - 保留旧收藏和深链可达性，将 `scope_id / asset_types / model_keys / condition_keys` 等兼容 query 映射为 `/kline-slim` 的 CLX 查询状态后重定向
+  - 不挂载独立筛选页面，也不维护第二份 scope、筛选、选中标的或分页状态
+  - 正式导航、人工操作和 Web 健康检查都以 `/kline-slim` 的 CLX mode query 为准
 - `PositionReview`
   - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
   - 与 `KlineSlim` 共享订单级时间线投影：信号、订单聚合成交、数量对比和连续持仓使用同一口径

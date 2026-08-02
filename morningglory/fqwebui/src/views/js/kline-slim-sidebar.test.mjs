@@ -2,24 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  buildClxSidebarQueryKey,
   buildSidebarSections,
   normalizeSidebarItem,
 } from './kline-slim-sidebar.mjs'
-
-test('CLX sidebar query key ignores client-only marker filters until server filtering is enabled', () => {
-  assert.equal(buildClxSidebarQueryKey({
-    scopeId: 'scope-a',
-    modelKeys: ['S0007'],
-    conditionKeys: ['buy'],
-  }), 'scope-a__all')
-  assert.equal(buildClxSidebarQueryKey({
-    scopeId: 'scope-a',
-    onlyCurrentFilters: true,
-    modelKeys: ['S0007'],
-    conditionKeys: ['buy'],
-  }), 'scope-a__S0007|buy')
-})
 
 test('normalizeSidebarItem formats holding runtime summary like subject-management runtime column', () => {
   const item = normalizeSidebarItem({
@@ -70,19 +55,4 @@ test('buildSidebarSections sorts holding items by position size descending and k
     holdingSection.items.map((item) => item.titleLabel),
     ['招商银行(600036)', '工商银行(601398)', '平安银行(000001)', '宁德时代(300750)']
   )
-})
-
-test('buildSidebarSections sorts CLX facts by distinct models, conditions and symbol', () => {
-  const sections = buildSidebarSections({
-    clxSelectionItems: [
-      { symbol: 'sz000003', distinct_model_count: 2, distinct_condition_count: 8 },
-      { symbol: 'sz000002', distinct_model_count: 3, distinct_condition_count: 1 },
-      { symbol: 'sz000001', distinct_model_count: 3, distinct_condition_count: 2 },
-    ],
-    expandedKey: 'clx_daily_selection',
-  })
-  const clxSection = sections.find((section) => section.key === 'clx_daily_selection')
-
-  assert.deepEqual(clxSection.items.map((item) => item.symbol), ['sz000001', 'sz000002', 'sz000003'])
-  assert.equal(clxSection.items[0].secondaryLabel, '3模型 · 2条件')
 })

@@ -35,7 +35,6 @@ import {
   getSidebarCode6,
   toggleSidebarExpandedKey
 } from '../klineSlimSidebar.mjs'
-import { buildClxSidebarQueryKey } from './kline-slim-sidebar.mjs'
 import {
   SUPPORTED_CHANLUN_PERIODS,
   DEFAULT_MAIN_PERIOD,
@@ -64,13 +63,7 @@ import {
 import { normalizeOrderReviewTimeline } from '../orderReviewTimeline.mjs'
 import klineSlimController from '../klineSlimController.mjs'
 import {
-  buildClxSelectionQueryPayload,
-  getClxPartitionStatusMeta,
-  getClxScopeStatusMeta,
   normalizeClxCatalog,
-  normalizeClxScope,
-  normalizeClxScopes,
-  normalizeClxSelectionQuery,
 } from '../clxDailySelection.mjs'
 import {
   buildKlineClxQuery,
@@ -373,15 +366,6 @@ export default {
       orderReviewLoadedKey: '',
       orderReviewVersion: 0,
       clxCatalog: normalizeClxCatalog({}),
-      clxSelectionItems: [],
-      clxSidebarScope: null,
-      clxLatestObservedScope: null,
-      clxSidebarOnlyCurrentFilters: false,
-      clxSidebarRequestId: 0,
-      clxSidebarRequestKey: '',
-      clxSidebarLoadedKey: '',
-      clxSidebarBatchesAbortController: null,
-      clxSidebarResultsAbortController: null,
       showClxWorkbench: pageState.showClxWorkbench,
       clxSignalHistory: null,
       clxHistoryLoading: false,
@@ -405,14 +389,12 @@ export default {
       stockPools: [],
       prePools: [],
       sidebarLoading: {
-        clx_daily_selection: false,
         holding: false,
         must_pool: false,
         stock_pools: false,
         stock_pre_pools: false
       },
       sidebarErrors: {
-        clx_daily_selection: '',
         holding: '',
         must_pool: '',
         stock_pools: '',
@@ -436,6 +418,10 @@ export default {
     routeSymbol() {
       return buildKlineSlimRouteSymbol(this.$route)
     },
+    isClxScreeningMode() {
+      const value = String(this.$route?.query?.clxScreening || '').trim().toLowerCase()
+      return this.showClxWorkbench || ['1', 'true', 'open'].includes(value)
+    },
     activeCode6() {
       return getSidebarCode6({ symbol: this.routeSymbol, code: this.routeSymbol })
     },
@@ -444,7 +430,6 @@ export default {
     },
     sidebarSections() {
       return buildSidebarSections({
-        clxSelectionItems: this.clxSelectionItems,
         holdings: this.holdings,
         mustPools: this.mustPools,
         stockPools: this.stockPools,
@@ -499,18 +484,6 @@ export default {
       return Array.from(new Set((this.clxSignalHistory?.markers || []).map((item) => item.conditionKey).filter(Boolean)))
         .sort()
         .map((key) => ({ key, label: key }))
-    },
-    clxScopeStatusMeta() {
-      return getClxScopeStatusMeta(this.clxSidebarDisplayScope || {})
-    },
-    clxSidebarDisplayScope() {
-      return this.clxSidebarScope || this.clxLatestObservedScope
-    },
-    clxStockPartitionMeta() {
-      return getClxPartitionStatusMeta(this.clxSidebarDisplayScope?.partitions?.stock, 'stock')
-    },
-    clxEtfPartitionMeta() {
-      return getClxPartitionStatusMeta(this.clxSidebarDisplayScope?.partitions?.etf, 'etf')
     },
     clxHistoryState() {
       if (!this.showClxWorkbench) return null
@@ -632,7 +605,8 @@ export default {
     emptyMessage() {
       return getKlineSlimEmptyMessage({
         resolvingDefaultSymbol: this.resolvingDefaultSymbol,
-        resolveError: this.defaultSymbolResolveError
+        resolveError: this.defaultSymbolResolveError,
+        clxScreening: this.isClxScreeningMode
       })
     },
     chanlunStructure() {
@@ -743,20 +717,52 @@ export default {
       this.showClxWorkbench = routeState.workbenchOpen
       if (this.showClxWorkbench) {
         closeOtherPanels(this, 'showClxWorkbench')
-        this.expandedSidebarKey = 'clx_daily_selection'
       }
     },
     async syncClxRouteState() {
       const routeState = parseKlineClxQuery(this.$route.query)
       await this.$router.replace({
         path: '/kline-slim',
-        query: buildKlineClxQuery(this.$route.query, {
+        query: buildKlineClxQuery({
+          ...this.$route.query,
+          ...(this.showClxWorkbench ? { clxScreening: '1' } : {}),
+        }, {
           scopeId: routeState.scopeId,
           assetType: this.clxAssetType,
           modelKeys: this.clxSelectedModelKeys,
           conditionKeys: this.clxSelectedConditionKeys,
           markerMode: this.clxMarkerMode,
           workbenchOpen: this.showClxWorkbench,
+        }),
+      })
+    },
+    async handleClxScreeningSelection({ row, scope } = {}) {
+      const symbol = String(row?.symbol || '').trim()
+      if (!symbol) return
+
+      const routeState = parseKlineClxQuery(this.$route.query)
+      const assetType = resolveClxAssetType(symbol, row?.assetType || row?.raw?.asset_type)
+      const scopeId = String(scope?.scopeId || routeState.scopeId || '').trim()
+      const tradeDate = String(scope?.tradeDate || '').trim()
+
+      closeOtherPanels(this, 'showClxWorkbench')
+      this.showClxWorkbench = true
+      this.clxAssetType = assetType
+      await this.$router.replace({
+        path: '/kline-slim',
+        query: buildKlineClxQuery({
+          ...this.$route.query,
+          symbol,
+          period: this.currentPeriod || '1d',
+          ...(tradeDate ? { endDate: tradeDate } : {}),
+          clxScreening: '1',
+        }, {
+          scopeId,
+          assetType,
+          modelKeys: this.clxSelectedModelKeys,
+          conditionKeys: this.clxSelectedConditionKeys,
+          markerMode: this.clxMarkerMode,
+          workbenchOpen: true,
         }),
       })
     },
@@ -769,147 +775,6 @@ export default {
       }
       return this.clxCatalog
     },
-    async loadClxSidebar({ force = false } = {}) {
-      const routeState = parseKlineClxQuery(this.$route.query)
-      const requestKey = buildClxSidebarQueryKey({
-        scopeId: routeState.scopeId,
-        onlyCurrentFilters: this.clxSidebarOnlyCurrentFilters,
-        modelKeys: routeState.modelKeys,
-        conditionKeys: routeState.conditionKeys,
-      })
-      if (!force && this.clxSidebarLoadedKey === requestKey) return this.clxSelectionItems
-      if (!force && this.sidebarLoading.clx_daily_selection && this.clxSidebarRequestKey === requestKey) return null
-
-      this.clxSidebarBatchesAbortController?.abort?.()
-      this.clxSidebarResultsAbortController?.abort?.()
-      const batchesAbortController = new AbortController()
-      const requestId = ++this.clxSidebarRequestId
-      this.clxSidebarBatchesAbortController = batchesAbortController
-      this.clxSidebarResultsAbortController = null
-      this.clxSidebarRequestKey = requestKey
-      if (this.clxSidebarLoadedKey !== requestKey) {
-        this.clxSelectionItems = []
-        this.clxSidebarScope = null
-      }
-      this.sidebarLoading.clx_daily_selection = true
-      this.sidebarErrors.clx_daily_selection = ''
-      try {
-        const [batchesPayload] = await Promise.all([
-          clxDailySelectionApi.getBatches(
-            { limit: 30, includePartial: true },
-            { signal: batchesAbortController.signal },
-          ),
-          this.loadClxCatalog(),
-        ])
-        if (
-          requestId !== this.clxSidebarRequestId ||
-          requestKey !== this.clxSidebarRequestKey ||
-          batchesAbortController.signal.aborted
-        ) return null
-        const batches = normalizeClxScopes(batchesPayload)
-        this.clxLatestObservedScope = batches[0] || null
-        const explicitScope = Boolean(routeState.scopeId)
-        let scope = explicitScope
-          ? batches.find((item) => item.scopeId === routeState.scopeId)
-          : batches.find((item) => item.isFinal)
-        if (!scope && !explicitScope) {
-          try {
-            const latestPayload = await clxDailySelectionApi.getLatestBatch(
-              { includePartial: false },
-              { signal: batchesAbortController.signal },
-            )
-            if (
-              requestId !== this.clxSidebarRequestId ||
-              requestKey !== this.clxSidebarRequestKey ||
-              batchesAbortController.signal.aborted
-            ) return null
-            const latestFinal = normalizeClxScope(
-              latestPayload?.batch || latestPayload?.data?.batch || latestPayload,
-            )
-            if (latestFinal.isFinal) scope = latestFinal
-          } catch (error) {
-            if (
-              requestId !== this.clxSidebarRequestId ||
-              requestKey !== this.clxSidebarRequestKey ||
-              batchesAbortController.signal.aborted
-            ) return null
-            scope = null
-          }
-        }
-        if (!scope?.scopeId) {
-          this.clxSelectionItems = []
-          this.clxSidebarScope = null
-          this.clxSidebarLoadedKey = requestKey
-          this.sidebarErrors.clx_daily_selection = explicitScope
-            ? '指定 CLX 批次不存在'
-            : this.clxLatestObservedScope?.isPartial
-              ? '暂无完整结果，可显式查看最新部分结果'
-              : 'CLX 日线结果尚未发布'
-          return null
-        }
-
-        const resultsAbortController = new AbortController()
-        this.clxSidebarResultsAbortController = resultsAbortController
-        const resultPayload = await clxDailySelectionApi.queryBatchResults(
-          scope.scopeId,
-          buildClxSelectionQueryPayload({
-            scopeId: scope.scopeId,
-            modelKeys: this.clxSidebarOnlyCurrentFilters ? routeState.modelKeys : [],
-            conditionKeys: this.clxSidebarOnlyCurrentFilters ? routeState.conditionKeys : [],
-            limit: 200,
-          }),
-          { signal: resultsAbortController.signal },
-        )
-        if (
-          requestId !== this.clxSidebarRequestId ||
-          requestKey !== this.clxSidebarRequestKey ||
-          resultsAbortController.signal.aborted
-        ) return null
-        const result = normalizeClxSelectionQuery(resultPayload)
-        this.clxSidebarScope = scope
-        this.clxSelectionItems = result.rows.map((item) => item.raw)
-        this.clxSidebarLoadedKey = requestKey
-        return this.clxSelectionItems
-      } catch (error) {
-        if (
-          requestId !== this.clxSidebarRequestId ||
-          requestKey !== this.clxSidebarRequestKey ||
-          batchesAbortController.signal.aborted ||
-          this.clxSidebarResultsAbortController?.signal?.aborted
-        ) return null
-        this.clxSelectionItems = []
-        this.clxSidebarScope = null
-        this.clxSidebarLoadedKey = ''
-        this.sidebarErrors.clx_daily_selection = Number(error?.response?.status) === 404
-          ? 'CLX 日线结果尚未发布'
-          : 'CLX 日线结果加载失败'
-      } finally {
-        if (requestId === this.clxSidebarRequestId && requestKey === this.clxSidebarRequestKey) {
-          this.sidebarLoading.clx_daily_selection = false
-          this.clxSidebarBatchesAbortController = null
-          this.clxSidebarResultsAbortController = null
-        }
-      }
-    },
-    async toggleClxSidebarFilterMode(value) {
-      this.clxSidebarOnlyCurrentFilters = Boolean(value)
-      await this.loadClxSidebar()
-    },
-    async selectLatestObservedClxScope() {
-      const scopeId = this.clxLatestObservedScope?.scopeId
-      if (!scopeId) return
-      await this.$router.replace({
-        path: '/kline-slim',
-        query: buildKlineClxQuery(this.$route.query, {
-          scopeId,
-          assetType: this.clxAssetType,
-          modelKeys: this.clxSelectedModelKeys,
-          conditionKeys: this.clxSelectedConditionKeys,
-          markerMode: this.clxMarkerMode,
-          workbenchOpen: this.showClxWorkbench,
-        }),
-      })
-    },
     async toggleClxWorkbench() {
       if (!this.routeSymbol) return
       if (this.showClxWorkbench) {
@@ -918,8 +783,7 @@ export default {
       }
       closeOtherPanels(this, 'showClxWorkbench')
       this.showClxWorkbench = true
-      this.expandedSidebarKey = 'clx_daily_selection'
-      await Promise.allSettled([this.loadClxCatalog(), this.loadClxSidebar(), this.loadClxHistory()])
+      await Promise.allSettled([this.loadClxCatalog(), this.loadClxHistory()])
       await this.syncClxRouteState()
       this.scheduleRender()
     },

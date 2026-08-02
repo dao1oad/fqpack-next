@@ -62,6 +62,13 @@ test('canApplyResolvedKlineSlimRoute rejects stale or inactive routes', () => {
   )
 })
 
+test('CLX unified entry waits for the screening result instead of selecting an unrelated holding', () => {
+  assert.equal(shouldResolveDefaultSymbol({}), true)
+  assert.equal(shouldResolveDefaultSymbol({ clxScreening: '1' }), false)
+  assert.equal(shouldResolveDefaultSymbol({ clxWorkbench: '1' }), false)
+  assert.equal(shouldResolveDefaultSymbol({ symbol: 'sz000001' }), false)
+})
+
 test('getKlineSlimEmptyMessage prefers resolving text before generic empty text', () => {
   assert.equal(
     getKlineSlimEmptyMessage({ resolvingDefaultSymbol: true, resolveError: '' }),
@@ -69,7 +76,15 @@ test('getKlineSlimEmptyMessage prefers resolving text before generic empty text'
   )
   assert.equal(
     getKlineSlimEmptyMessage({ resolvingDefaultSymbol: false, resolveError: '' }),
-    '请输入或通过 query 传入 `symbol`，例如 `/kline-slim?symbol=sh510050`'
+    '请在顶部输入代码，或从左侧持仓股/股票池选择标的'
+  )
+  assert.equal(
+    getKlineSlimEmptyMessage({
+      resolvingDefaultSymbol: false,
+      resolveError: '',
+      clxScreening: true
+    }),
+    '请从左侧 CLX 筛选结果选择标的'
   )
   assert.equal(
     getKlineSlimEmptyMessage({

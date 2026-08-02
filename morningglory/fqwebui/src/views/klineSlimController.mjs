@@ -85,9 +85,6 @@ export const klineSlimController = {
   beforeUnmount() {
     this.routeToken += 1
     this.abortMainDataRequest()
-    this.clxSidebarRequestId += 1
-    this.clxSidebarBatchesAbortController?.abort?.()
-    this.clxSidebarResultsAbortController?.abort?.()
     this.resolvingDefaultSymbol = false
     document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('resize', this.handleResize)
@@ -113,7 +110,6 @@ export const klineSlimController = {
   methods: {
     async loadSidebarData() {
       await Promise.allSettled([
-        this.loadClxSidebar(),
         this.loadHoldingList(),
         this.loadMustPools(),
         this.loadStockPools(),
@@ -133,7 +129,6 @@ export const klineSlimController = {
       const clxRouteState = parseKlineClxQuery(this.$route.query)
       if (this.lastHandledChartRouteKey && this.lastHandledChartRouteKey === chartRouteKey) {
         this.applyClxRouteState(clxRouteState)
-        this.loadClxSidebar()
         if (this.showClxWorkbench && this.routeSymbol) {
           this.loadClxHistory()
         } else {
@@ -232,7 +227,6 @@ export const klineSlimController = {
         })
       }
       this.refreshVisibleChanlunPeriods(this.routeToken)
-      this.loadClxSidebar()
       if (this.showClxWorkbench) {
         this.loadClxHistory()
       }

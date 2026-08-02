@@ -324,6 +324,17 @@ async function pushClxScopeRoute(page, scopeId) {
   }, scopeId)
 }
 
+async function pushDailySelectionNav(page) {
+  await page.evaluate(async () => {
+    const router = document.querySelector('#app')?.__vue_app__?.config?.globalProperties?.$router
+    if (!router) throw new Error('Vue router is not available')
+    await router.push({
+      path: '/kline-slim',
+      query: { clxScreening: '1', clxWorkbench: '1', period: '1d' },
+    })
+  })
+}
+
 test.beforeAll(async () => {
   test.setTimeout(120000)
   cleanupServerPort(DEV_SERVER_PORT)
@@ -349,27 +360,29 @@ test.afterAll(async () => {
   await rm(PREVIEW_ARTIFACTS.outDir, { recursive: true, force: true })
 })
 
-test('partial page stays explicit and Kline renders guarded CLX markers', async ({ page }) => {
+test('legacy entry opens the unified workbench, keeps partial explicit and renders guarded CLX markers', async ({ page }) => {
   const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
   await page.setViewportSize({ width: 1600, height: 900 })
   await mockApis(page, requestLog)
 
   await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('最新运行 2026-03-10')).toBeVisible()
-  await expect(page.getByText('股票已完成')).toBeVisible()
-  await expect(page.getByText('ETF运行中')).toBeVisible()
+  await expect(page).toHaveURL(/\/kline-slim\?.*clxScreening=1/)
+  await expect(page.getByRole('complementary', { name: 'CLX 筛选工作台' })).toBeVisible()
+  await expect(page.getByText('暂无正式完整结果；可在上方显式选择部分批次。')).toBeVisible()
   expect(requestLog.resultQueries).toHaveLength(0)
 
-  await page.getByRole('button', { name: '查看部分结果' }).click()
-  await expect(page.getByText(/当前是部分结果/)).toBeVisible()
+  await page.goto(
+    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${PARTIAL_BATCH_ID}&period=5m`,
+    { waitUntil: 'domcontentloaded' },
+  )
+  await expect(page).toHaveURL(new RegExp(`clxScope=${PARTIAL_BATCH_ID}`))
+  await expect(page.locator('.clx-selection-panel__status')).toContainText('部分结果')
+  await expect(page.locator('.clx-selection-panel__status')).toContainText('股票已完成')
+  await expect(page.locator('.clx-selection-panel__status')).toContainText('ETF运行中')
   await expect(page.getByText('平安银行')).toBeVisible()
   await expect.poll(() => requestLog.resultQueries.length).toBe(1)
   expect(requestLog.statisticsRequests).toBe(0)
 
-  await page.goto(
-    `${DEV_SERVER_URL}/kline-slim?symbol=sz000001&period=5m&endDate=2026-03-10&clxScope=${PARTIAL_BATCH_ID}&clxWorkbench=1`,
-    { waitUntil: 'domcontentloaded' },
-  )
   await expect(page.locator('.kline-slim-clx-workbench')).toBeVisible()
   await expect(page.locator('.clx-workbench-meta')).toContainText('production_v1')
   await expect.poll(() => requestLog.historyQueries.length).toBeGreaterThan(0)
@@ -416,6 +429,27 @@ test('partial page stays explicit and Kline renders guarded CLX markers', async 
   expect(Number.isFinite(rendered.y)).toBe(true)
   expect(rendered.y).toBeGreaterThan(0)
   expect(rendered.nonTransparentPixels).toBeGreaterThan(100)
+
+  for (const width of [1200, 1280, 1600]) {
+    await page.setViewportSize({ width, height: 900 })
+    const layout = await page.evaluate(() => {
+      const body = document.querySelector('.kline-slim-body')
+      const chart = document.querySelector('.kline-slim-content')
+      const workbench = document.querySelector('.kline-slim-clx-workbench')
+      const chartRect = chart?.getBoundingClientRect()
+      const workbenchRect = workbench?.getBoundingClientRect()
+      return {
+        chartRight: chartRect?.right,
+        workbenchLeft: workbenchRect?.left,
+        workbenchPosition: workbench ? window.getComputedStyle(workbench).position : '',
+        bodyClientWidth: body?.clientWidth,
+        bodyScrollWidth: body?.scrollWidth,
+      }
+    })
+    expect(layout.workbenchPosition).not.toMatch(/^(absolute|fixed)$/)
+    expect(layout.chartRight).toBeLessThanOrEqual(layout.workbenchLeft + 1)
+    expect(layout.bodyScrollWidth).toBeLessThanOrEqual(layout.bodyClientWidth + 1)
+  }
 })
 
 test('latest final outside the 30 mixed-scope window remains the complete default', async ({ page }) => {
@@ -432,21 +466,51 @@ test('latest final outside the 30 mixed-scope window remains the complete defaul
   await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
-  await expect(page.locator('.clx-scope-select')).toContainText('2026-02-28')
-  await expect(page.locator('.clx-scope-select')).toContainText(FINAL_BATCH_ID)
-  await expect(page.getByText('最新运行 2026-03-30')).toBeVisible()
+  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-02-28')
   await expect(page.getByText('平安银行')).toBeVisible()
-  await expect(page.locator('.clx-kpi-row')).toContainText('候选2')
-  await expect(page.locator('.clx-kpi-row')).toContainText('股票命中1')
-  await expect(page.locator('.clx-kpi-row')).toContainText('ETF命中1')
   await expect.poll(() => requestLog.resultQueries.length).toBe(1)
-  await expect.poll(() => requestLog.statisticsRequests).toBe(1)
   expect(requestLog.resultQueries[0].scope_id).toBe(FINAL_BATCH_ID)
+  expect(requestLog.statisticsRequests).toBe(0)
+  await expect(page.locator('.kline-slim-clx-workbench')).toContainText('production_v1')
+})
 
-  await page.getByRole('tab', { name: '统计' }).click()
-  await expect(page.locator('.clx-statistics-grid')).toContainText('资产分组')
-  await expect(page.locator('.clx-statistics-grid')).toContainText('S0003')
-  await expect(page.getByText(/当前是部分结果/)).toHaveCount(0)
+test('same-page 每日选股 re-entry restores the default final and first selected symbol', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  await mockApis(page, requestLog, {
+    batchItems: buildNewerPartialWindow(),
+    latestPayload: { batch: finalBatch },
+    activeBatch: finalBatch,
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect(page).toHaveURL(/clxScope=.*symbol=sz000001/)
+  await expect.poll(() => requestLog.resultQueries.length).toBe(1)
+
+  await pushDailySelectionNav(page)
+
+  await expect(page).toHaveURL(new RegExp(`clxScope=${FINAL_BATCH_ID}.*symbol=sz000001`))
+  await expect(page.getByRole('button', { name: /平安银行 sz000001/ })).toHaveAttribute('aria-current', 'true')
+  await expect.poll(() => requestLog.resultQueries.length).toBe(2)
+})
+
+test('a filter changed during initial results loading schedules the current request and clears loading', async ({ page }) => {
+  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  await mockApis(page, requestLog, {
+    batchItems: [finalBatch],
+    latestPayload: { batch: finalBatch },
+    activeBatch: finalBatch,
+    responseDelays: { results: 500 },
+  })
+
+  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => requestLog.resultQueries.length).toBe(1)
+  await page.getByRole('textbox', { name: '搜索代码或名称' }).fill('银行')
+
+  await expect.poll(() => requestLog.resultQueries.length).toBe(2)
+  expect(requestLog.resultQueries[1].q).toBe('银行')
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await expect(page.locator('.clx-selection-panel')).toHaveAttribute('aria-busy', 'false')
 })
 
 test('an explicit final scope deep link outside the 30-item window loads all final views', async ({ page }) => {
@@ -465,19 +529,13 @@ test('an explicit final scope deep link outside the 30-item window loads all fin
   )
 
   await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
-  await expect(page.locator('.clx-scope-select')).toContainText('2026-01-30')
-  await expect(page.locator('.clx-scope-select')).toContainText(DEEP_LINK_BATCH_ID)
-  await expect(page.getByText('最新运行 2026-03-30')).toBeVisible()
+  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-01-30')
   await expect(page.getByText('平安银行')).toBeVisible()
   await expect.poll(() => requestLog.summaryRequests).toEqual([DEEP_LINK_BATCH_ID])
   await expect.poll(() => requestLog.resultQueries.length).toBe(1)
-  await expect.poll(() => requestLog.statisticsRequests).toBe(1)
   expect(requestLog.resultQueries[0].scope_id).toBe(DEEP_LINK_BATCH_ID)
-
-  await page.getByRole('tab', { name: '统计' }).click()
-  await expect(page.locator('.clx-statistics-grid')).toContainText('资产分组')
-  await expect(page.locator('.clx-statistics-grid')).toContainText('S0003')
-  await expect(page.getByText(/当前是部分结果/)).toHaveCount(0)
+  expect(requestLog.statisticsRequests).toBe(0)
+  await expect(page).toHaveURL(new RegExp(`clxScope=${DEEP_LINK_BATCH_ID}`))
 })
 
 test('a route change during bootstrap invalidates the captured initial scope', async ({ page }) => {
@@ -503,11 +561,13 @@ test('a route change during bootstrap invalidates the captured initial scope', a
   await expect.poll(() => requestLog.batchRequests || 0).toBeGreaterThan(0)
   await pushClxScopeRoute(page, RACE_SCOPE_B)
 
-  await expect(page).toHaveURL(new RegExp(`scope_id=${RACE_SCOPE_B}`))
-  await expect(page.locator('.clx-scope-select')).toContainText(RACE_SCOPE_B)
+  await expect(page).toHaveURL(new RegExp(`clxScope=${RACE_SCOPE_B}`))
+  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-01-29')
   await expect(page.getByText('新导航结果')).toBeVisible()
   await expect(page.getByText('旧导航结果')).toHaveCount(0)
-  await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toEqual([RACE_SCOPE_B])
+  await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toContain(RACE_SCOPE_B)
+  expect(requestLog.resultQueries.at(-1).scope_id).toBe(RACE_SCOPE_B)
+  expect(requestLog.resultQueries.filter((item) => item.scope_id === RACE_SCOPE_B)).toHaveLength(1)
 })
 
 test('a delayed old result cannot overwrite a window-external deep link while its summary loads', async ({ page }) => {
@@ -538,15 +598,15 @@ test('a delayed old result cannot overwrite a window-external deep link while it
   await pushClxScopeRoute(page, RACE_SCOPE_B)
 
   await page.waitForTimeout(220)
-  await expect(page).toHaveURL(new RegExp(`scope_id=${RACE_SCOPE_B}`))
+  await expect(page).toHaveURL(new RegExp(`clxScope=${RACE_SCOPE_B}`))
   await expect(page.getByText('迟到旧结果')).toHaveCount(0)
 
-  await expect(page.locator('.clx-scope-select')).toContainText(RACE_SCOPE_B)
+  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-01-29')
   await expect(page.getByText('权威深链结果')).toBeVisible()
   await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
   await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toEqual([
     RACE_SCOPE_A,
     RACE_SCOPE_B,
   ])
-  await expect.poll(() => requestLog.statisticsScopeIds || []).toContain(RACE_SCOPE_B)
+  expect(requestLog.statisticsRequests).toBe(0)
 })

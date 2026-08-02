@@ -23,18 +23,15 @@ test('CLX history desired key changes with asset type and query inputs', () => {
   assert.equal(buildClxHistoryRequestKey({ symbol: '' }), '')
 })
 
-test('KlineSlim aborts and fences CLX history and sidebar requests across route changes and teardown', () => {
+test('KlineSlim aborts and fences CLX history requests across route changes and teardown', () => {
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
   const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
 
   assert.match(scriptSource, /clxHistoryDesiredKey/)
   assert.match(scriptSource, /requestKey !== this\.clxHistoryDesiredKey/)
   assert.match(scriptSource, /abortClxHistoryRequest\(\)/)
-  assert.match(scriptSource, /clxSidebarBatchesAbortController/)
-  assert.match(scriptSource, /clxSidebarResultsAbortController/)
-  assert.match(scriptSource, /requestKey !== this\.clxSidebarRequestKey/)
-  assert.match(controllerSource, /this\.clxSidebarBatchesAbortController\?\.abort\?\.\(\)/)
-  assert.match(controllerSource, /this\.clxSidebarResultsAbortController\?\.abort\?\.\(\)/)
+  assert.doesNotMatch(scriptSource, /loadClxSidebar/)
+  assert.doesNotMatch(controllerSource, /clxSidebar/)
   assert.match(controllerSource, /else \{\s*this\.abortClxHistoryRequest\(\)/)
 })
 

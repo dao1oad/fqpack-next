@@ -185,7 +185,6 @@ test('first 1d chart route discards the data default 5m legend selection', () =>
       refreshes.push(period)
       return Promise.resolve()
     },
-    loadClxSidebar() {},
     ensureRealtimePolling() {}
   }
 

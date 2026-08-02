@@ -258,10 +258,13 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 ## Web UI 路由
 
 - `/kline-slim`
+  - 裸路径保持普通持仓/股票池行情模式；加 `clxScreening=1&clxWorkbench=1`后进入 CLX 统一工作台，左栏选股筛选与 cursor 列表、中栏 K 线、右栏历史信号操作共享当前 scope/symbol/endDate 上下文
+  - `clxScope` 为共享 scope；左栏筛选使用 `clxFilter*`，右栏 marker 显示使用 `clxModels / clxConditions / clxMarkerMode`，两组模型/条件状态互不覆盖；cursor 只属于当前列表请求链，不写入 URL
+- `/clx-daily-screening`
+  - 兼容旧收藏和深链的 redirect；旧 `clxModels / clxConditions` 按原页面语义迁移到左栏 `clxFilterModels / clxFilterConditions`，进入 `/kline-slim?clxScreening=1&clxWorkbench=1&period=1d`，不再提供独立页面
 - `/position-management`
 - `/position-review`
 - `/runtime-observability`
 - `/gantt`
 - `/gantt/shouban30`
 - `/daily-screening`
-- `/clx-daily-screening`

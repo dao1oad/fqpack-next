@@ -11,22 +11,6 @@ const createDeferred = () => {
   return { promise, resolve }
 }
 
-const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0))
-
-const createScopePayload = (scopeId) => ({
-  items: [{
-    batch_id: scopeId,
-    trade_date: '2026-08-01',
-    status: 'running',
-    release_status: 'partial',
-    is_final: false,
-    partitions: {
-      stock: { status: 'completed' },
-      etf: { status: 'running' },
-    },
-  }],
-})
-
 const createHistoryPayload = (markerId, triggerDate) => ({
   calculation_profile: {
     id: 'production_v1',
@@ -38,7 +22,7 @@ const createHistoryPayload = (markerId, triggerDate) => ({
   },
 })
 
-test('Kline CLX request lifecycle aborts old keys and ignores late history and sidebar responses', async () => {
+test('Kline CLX request lifecycle aborts old keys and ignores late history responses', async () => {
   const server = await createServer({
     root: process.cwd(),
     server: { middlewareMode: true },
@@ -53,8 +37,6 @@ test('Kline CLX request lifecycle aborts old keys and ignores late history and s
     ])
     const originalApi = {
       getSignalHistory: clxDailySelectionApi.getSignalHistory,
-      getBatches: clxDailySelectionApi.getBatches,
-      queryBatchResults: clxDailySelectionApi.queryBatchResults,
     }
 
     try {
@@ -91,60 +73,6 @@ test('Kline CLX request lifecycle aborts old keys and ignores late history and s
 
       assert.equal(historyVm.clxSignalHistory.markers[0].id, 'current-marker')
       assert.equal(historyVm.clxHistoryLoadedKey, 'sz000001__etf__2026-08-01__250')
-
-      const batchCalls = []
-      const resultCalls = []
-      clxDailySelectionApi.getBatches = (params, config) => {
-        const pending = createDeferred()
-        batchCalls.push({ params, signal: config.signal, pending })
-        return pending.promise
-      }
-      clxDailySelectionApi.queryBatchResults = (scopeId, data, config) => {
-        const pending = createDeferred()
-        resultCalls.push({ scopeId, data, signal: config.signal, pending })
-        return pending.promise
-      }
-
-      const sidebarVm = {
-        ...component.data(),
-        $route: { query: { clxScope: 'scope-a' } },
-        loadClxCatalog: async () => null,
-      }
-      sidebarVm.loadClxSidebar = component.methods.loadClxSidebar.bind(sidebarVm)
-
-      const oldSidebarRequest = sidebarVm.loadClxSidebar()
-      sidebarVm.$route.query = {
-        clxScope: 'scope-b',
-        clxModels: 'S0003',
-      }
-      sidebarVm.clxSidebarOnlyCurrentFilters = true
-      const currentSidebarRequest = sidebarVm.loadClxSidebar()
-
-      assert.equal(batchCalls.length, 2)
-      assert.equal(batchCalls[0].signal.aborted, true)
-
-      batchCalls[1].pending.resolve(createScopePayload('scope-b'))
-      await nextTask()
-      assert.deepEqual(resultCalls.map(({ scopeId }) => scopeId), ['scope-b'])
-      assert.deepEqual(resultCalls[0].data.model_keys, ['S0003'])
-
-      resultCalls[0].pending.resolve({
-        rows: [{
-          asset_type: 'stock',
-          symbol: 'sz000002',
-          name: 'current-result',
-          model_keys: ['S0003'],
-          condition_keys: ['buy'],
-        }],
-        total: 1,
-      })
-      await currentSidebarRequest
-      batchCalls[0].pending.resolve(createScopePayload('scope-a'))
-      await oldSidebarRequest
-
-      assert.equal(sidebarVm.clxSidebarScope.scopeId, 'scope-b')
-      assert.deepEqual(sidebarVm.clxSelectionItems.map(({ symbol }) => symbol), ['sz000002'])
-      assert.equal(sidebarVm.clxSidebarLoadedKey, 'scope-b__S0003|')
     } finally {
       Object.assign(clxDailySelectionApi, originalApi)
     }

@@ -2,7 +2,7 @@
 
 ## 职责
 
-`/kline-slim` 负责单标的多周期图表、缠论结构、标的设置浮层、订单复盘覆盖层和 CLX 日线信号工作台。当前与订单账本相关的部分已经切到 `position entry` 语义；CLX 部分只读取 `production_v1 / switch_opt=1` 的服务端事实。
+`/kline-slim` 负责单标的多周期图表、缠论结构、标的设置浮层和订单复盘覆盖层。带 `clxScreening=1&clxWorkbench=1` 时进入 CLX 统一工作台，把日线筛选结果、当前标的 K 线与历史信号操作放在同一页面；裸路径仍保持普通持仓/股票池模式。订单账本相关部分使用 `position entry` 语义，CLX 部分只读取 `production_v1 / switch_opt=1` 的服务端事实。
 
 ## 入口
 
@@ -44,7 +44,10 @@
 
 ## 当前页面结构
 
-- 主图与多周期结构
+- 三栏统一布局
+  - 左栏：CLX 批次/scope、完整筛选条件和 cursor 结果列表
+  - 中栏：当前标的主图与多周期结构
+  - 右栏：CLX 信号显示控制、时间轴和证据详情
 - 标的设置浮层
   - 止盈价
   - Guardian 阶梯价
@@ -55,11 +58,13 @@
   - 主 K 线保留为唯一价格图；关联信号和订单聚合成交标记叠加在价格层
   - 策略应有量、实际成交量和连续持仓在同一时间轴的下方轨道显示
   - 可跳转到 `/position-review?symbol=<symbol>` 查看完整复盘工作台
-- 左栏 `CLX日线选股` section
+- 左栏 `CLX日线选股`
   - 默认使用最新 `published/not_required` final；只有用户显式选择时才使用 partial 或 publication 中间态
   - 同时显示 scope、股票/ETF partition 状态；单侧 completed 不显示为完整结果
+  - 支持资产、模型、条件、方向、三态线关系、最少模型数与代码/名称搜索
   - 标的按去重模型数降序、条件数降序、symbol 升序排列
-  - hover 显示模型、条件、最近触发、scope 和 profile 摘要
+  - 服务端 cursor 逐段加载；scope 或筛选改变时重置 cursor，切换当前标的不清空已加载结果
+  - 结果卡展示资产类型、模型数、条件数和模型键摘要；点击后在同页更新中栏 K 线和右栏信号
 - 右侧 `CLX 信号工作台`
   - `显示控制`：历史范围、同日 marker 聚合/逐条、模型和条件筛选
   - `信号时间轴`：按触发日列出当前可见 marker，点击后聚焦图表
@@ -85,12 +90,14 @@
 - `CLX 左栏`
   - 先请求 batch 列表和默认 latest `published/not_required` final，再查询当前 scope 结果
   - `include_partial=1` 只用于观察最新运行/发布状态；未显式选择 partial 时，左栏仍保持 latest published final
+  - 按资产、模型、条件、方向、线关系、最少模型数与搜索词构造服务端查询，并使用响应 `next_cursor` 追加结果；筛选改变时丢弃旧 cursor 链
   - stock/ETF 任一 marker success 即可形成本侧 partial；另一侧不构成左栏数据产生的启动门禁
+  - 选择结果时把该行 `symbol / asset_type` 设为当前标的，并将选定 `scope.tradeDate` 映射成 `endDate`，使 K 线和历史信号锚定同一截面
 - `CLX 信号工作台`
   - 按当前 symbol、asset type、日线 endDate（缺省时由服务端解析最新交易日）、barCount、模型/条件请求 `/api/clx-daily-selection/history/signals`
   - 只在 `profile=production_v1`、`switch_opt=1` 且 `future_function_guard.passed=true` 时把 marker 交给 chart renderer
-  - URL 保存 `clxScope / clxModels / clxConditions / clxMarkerMode / clxWorkbench`，刷新和返回时恢复同一可见状态
-  - 模型/条件筛选只改变已经计算的 marker 可见性，不重新定义或重算服务端信号
+  - URL 以共享 `clxScope`、左栏 `clxFilter*`、当前 symbol/asset type、period/endDate 与右栏 `clxModels / clxConditions / clxMarkerMode` 分别保存状态；cursor 只属于当前列表请求链，刷新后按已恢复的筛选从首批重新加载
+  - 右栏模型/条件只改变已经计算的 marker 可见性，不重新定义或重算服务端信号，也不改写左栏的结果筛选；左栏模型/条件改变时同样保留右栏显示选择
 
 ## 当前边界
 
@@ -99,6 +106,7 @@
 - 图表页不再直接展示长 `buy_lot_id`
 - 交易复盘是可选只读覆盖层，不改变 K 线主图、订单账本、持仓真值或策略执行逻辑
 - CLX 工作台也是只读覆盖层，不写 batch、partition、选股结果、股票池或策略参数
+- `/kline-slim` 的 CLX mode query 是 CLX 正式入口；裸路径保留普通模式，`/clx-daily-screening` 只执行兼容 query 映射与 redirect，不再承载独立工作台
 - partial 只允许明确展示已完成 partition，不能冒充 final；跨资产统计仍由 CLX finalizer 的完整 batch 提供
 - 旧 `/daily-screening` 的 12 模型结果不混入 Kline CLX section
 - 信号仅在后端给出明确关联时显示；无关联信号不依据时间或价格补配
@@ -128,6 +136,18 @@
 - 若只存在单侧完成，显式查 `/api/clx-daily-selection/batches/latest?include_partial=1`，确认页面显示的是 partial 而不是完整结果
 - 查当前 scope 的 `/batches/<batch_id>/results` 是否包含目标资产 partition
 - 查左栏“仅当前筛选”是否把模型或条件过滤为空
+
+### 从旧 CLX 地址进入后没有恢复筛选
+
+- 确认浏览器最终路由为 `/kline-slim`；`/clx-daily-screening` 只应短暂作为兼容入口
+- 核对旧 `scope_id / asset_types / model_keys / condition_keys` 是否映射到统一工作台的左栏状态；旧 `clxModels / clxConditions` 也应迁移为 `clxFilterModels / clxFilterConditions`
+- 确认 redirect 保留无关的 `symbol / period / endDate` query，且没有把左栏模型/条件写入右栏 marker 显示状态
+
+### 点击筛选结果后 K 线日期不一致
+
+- 查所选 scope 是否有规范 `tradeDate`
+- 确认结果选择把 `scope.tradeDate` 写入 URL `endDate`，随后主 K 线与 `/history/signals` 请求都使用该值
+- 若用户之后手工改变 `endDate`，只更新当前图表/历史窗口，不回写或伪造 scope 交易日
 
 ### 图上没有 CLX marker
 

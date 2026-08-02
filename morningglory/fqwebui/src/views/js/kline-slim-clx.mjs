@@ -56,6 +56,142 @@ const normalizeAssetType = (value) => {
   return normalized === 'etf' || normalized === 'stock' ? normalized : ''
 }
 
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key)
+
+const firstPresent = (value, keys = []) => {
+  const source = value && typeof value === 'object' ? value : {}
+  const key = keys.find((item) => hasOwn(source, item))
+  return key ? source[key] : undefined
+}
+
+const uniqueTextList = (value, normalize = toText) => Array.from(new Set(
+  toArray(value).map(normalize).filter(Boolean)
+))
+
+const isOpenFlag = (value) => ['1', 'true', 'open'].includes(toText(value).toLowerCase())
+
+const normalizeLineFilter = (value) => {
+  const normalized = toText(value).toLowerCase()
+  return ['yes', 'no', 'unknown'].includes(normalized) ? normalized : ''
+}
+
+const CLX_LINE_FILTER_QUERY_KEYS = Object.freeze({
+  above_chanlun_line: 'clxFilterAboveChanlun',
+  above_ma250: 'clxFilterAboveMa250',
+  above_reference_line: 'clxFilterAboveReference',
+})
+
+export const CLX_LEGACY_QUERY_KEYS = Object.freeze([
+  'scope_id',
+  'asset_type',
+  'asset_types',
+  'clxAssets',
+  'model_keys',
+  'condition_keys',
+  'directions',
+  'clxDirections',
+  'min_model_count',
+  'clxMinModels',
+  'q',
+  'line_flags',
+  'above_chanlun_line',
+  'above_ma250',
+  'above_reference_line',
+])
+
+export const stripLegacyClxQueryAliases = (query = {}) => {
+  const canonical = { ...(query || {}) }
+  CLX_LEGACY_QUERY_KEYS.forEach((key) => delete canonical[key])
+  return canonical
+}
+
+const parseLegacyLineFlags = (value) => {
+  let source = value
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source)
+    } catch {
+      source = Object.fromEntries(toArray(source).map((item) => {
+        const match = item.match(/^([^:=]+)[:=](.+)$/)
+        return match ? [match[1].trim(), match[2].trim()] : ['', '']
+      }).filter(([key]) => key))
+    }
+  }
+  return source && typeof source === 'object' && !Array.isArray(source) ? source : {}
+}
+
+export const parseKlineClxScreeningQuery = (query = {}) => {
+  const legacyLineFlags = parseLegacyLineFlags(query.line_flags)
+  const lineFlags = Object.fromEntries(Object.entries(CLX_LINE_FILTER_QUERY_KEYS).map(([field, key]) => {
+    const raw = firstPresent(query, [key, field])
+    return [field, normalizeLineFilter(raw === undefined ? legacyLineFlags[field] : raw)]
+  }))
+  return {
+    screeningOpen: isOpenFlag(query.clxScreening),
+    scopeId: toText(firstPresent(query, ['clxScope', 'scope_id'])),
+    q: toText(firstPresent(query, ['clxFilterQ', 'q'])),
+    assetTypes: uniqueTextList(
+      firstPresent(query, ['clxFilterAssets', 'asset_types', 'clxAssets']),
+      normalizeAssetType,
+    ),
+    modelKeys: uniqueTextList(firstPresent(query, ['clxFilterModels']), normalizeModelKey),
+    conditionKeys: uniqueTextList(firstPresent(query, ['clxFilterConditions'])),
+    directions: uniqueTextList(
+      firstPresent(query, ['clxFilterDirections', 'directions', 'clxDirections']),
+      (value) => toText(value).toLowerCase(),
+    ),
+    minModelCount: Math.max(1, toNumber(
+      firstPresent(query, ['clxFilterMinModels', 'min_model_count', 'clxMinModels']),
+      1,
+    )),
+    lineFlags,
+  }
+}
+
+export const buildKlineClxScreeningQuery = (currentQuery = {}, state = {}) => {
+  const legacySignalAssetType = normalizeAssetType(
+    firstPresent(currentQuery, ['clxAssetType', 'asset_type']),
+  )
+  const legacySignalModelKeys = uniqueTextList(
+    firstPresent(currentQuery, ['clxModels', 'model_keys']),
+    normalizeModelKey,
+  )
+  const legacySignalConditionKeys = uniqueTextList(
+    firstPresent(currentQuery, ['clxConditions', 'condition_keys']),
+  )
+  const query = stripLegacyClxQueryAliases(currentQuery)
+  if (!toText(query.clxAssetType) && legacySignalAssetType) {
+    query.clxAssetType = legacySignalAssetType
+  }
+  if (!toText(query.clxModels) && legacySignalModelKeys.length) {
+    query.clxModels = legacySignalModelKeys.join(',')
+  }
+  if (!toText(query.clxConditions) && legacySignalConditionKeys.length) {
+    query.clxConditions = legacySignalConditionKeys.join(',')
+  }
+  const setOrDelete = (key, value) => {
+    if (value) query[key] = value
+    else delete query[key]
+  }
+
+  setOrDelete('clxScreening', state.screeningOpen ? '1' : '')
+  setOrDelete('clxScope', toText(state.scopeId))
+  setOrDelete('clxFilterQ', toText(state.q))
+  setOrDelete('clxFilterAssets', uniqueTextList(state.assetTypes, normalizeAssetType).join(','))
+  setOrDelete('clxFilterModels', uniqueTextList(state.modelKeys, normalizeModelKey).join(','))
+  setOrDelete('clxFilterConditions', uniqueTextList(state.conditionKeys).join(','))
+  setOrDelete(
+    'clxFilterDirections',
+    uniqueTextList(state.directions, (value) => toText(value).toLowerCase()).join(','),
+  )
+  const minModelCount = Math.max(1, toNumber(state.minModelCount, 1))
+  setOrDelete('clxFilterMinModels', minModelCount > 1 ? String(minModelCount) : '')
+  Object.entries(CLX_LINE_FILTER_QUERY_KEYS).forEach(([field, key]) => {
+    setOrDelete(key, normalizeLineFilter(state.lineFlags?.[field]))
+  })
+  return query
+}
+
 export const resolveClxAssetType = (symbol, explicitAssetType = '') => {
   const explicit = normalizeAssetType(explicitAssetType)
   if (explicit) return explicit
@@ -75,50 +211,20 @@ export const getClxModelColor = (modelKey) => {
   return CLX_MODEL_COLORS[Number.isInteger(index) ? index % CLX_MODEL_COLORS.length : 0]
 }
 
-export const normalizeClxSidebarItem = (value = {}) => {
-  const raw = value && typeof value === 'object' ? value : {}
-  const symbol = toText(raw.symbol || raw.code)
-  const code = toText(raw.code || symbol.replace(/\D/g, ''))
-  const distinctModelCount = toNumber(raw.distinct_model_count ?? raw.model_count, 0)
-  const distinctConditionCount = toNumber(raw.distinct_condition_count ?? raw.condition_count, 0)
-  return {
-    symbol,
-    code,
-    code6: /^\d{6}$/.test(code) ? code : symbol.replace(/\D/g, '').slice(-6),
-    name: toText(raw.name || raw.stock_name),
-    assetType: resolveClxAssetType(symbol, raw.asset_type),
-    distinctModelCount,
-    distinctConditionCount,
-    modelKeys: toArray(raw.model_keys).map(normalizeModelKey),
-    conditionKeys: toArray(raw.condition_keys),
-    latestTrigger: toText(raw.latest_trigger || raw.trigger_date),
-    titleLabel: [toText(raw.name || raw.stock_name), code || symbol].filter(Boolean).join(' '),
-    secondaryLabel: `${distinctModelCount}模型 · ${distinctConditionCount}条件`,
-    raw,
-  }
-}
-
-export const sortClxSidebarItems = (items = []) => {
-  return (Array.isArray(items) ? items : [])
-    .map((item) => item?.raw ? item : normalizeClxSidebarItem(item))
-    .sort((left, right) => (
-      right.distinctModelCount - left.distinctModelCount ||
-      right.distinctConditionCount - left.distinctConditionCount ||
-      left.symbol.localeCompare(right.symbol)
-    ))
-}
-
 export const parseKlineClxQuery = (query = {}) => ({
-  scopeId: toText(query.clxScope || query.scope_id),
-  assetType: normalizeAssetType(query.clxAssetType || query.asset_type),
-  modelKeys: toArray(query.clxModels || query.model_keys).map(normalizeModelKey),
-  conditionKeys: toArray(query.clxConditions || query.condition_keys),
+  scopeId: toText(firstPresent(query, ['clxScope', 'scope_id'])),
+  assetType: normalizeAssetType(firstPresent(query, ['clxAssetType', 'asset_type'])),
+  modelKeys: uniqueTextList(firstPresent(query, ['clxModels', 'model_keys']), normalizeModelKey),
+  conditionKeys: uniqueTextList(firstPresent(query, ['clxConditions', 'condition_keys'])),
   markerMode: toText(query.clxMarkerMode) || 'aggregate',
-  workbenchOpen: ['1', 'true', 'open'].includes(toText(query.clxWorkbench).toLowerCase()),
+  workbenchOpen: isOpenFlag(query.clxWorkbench),
 })
 
 export const buildKlineClxQuery = (currentQuery = {}, state = {}) => {
-  const query = { ...(currentQuery || {}) }
+  const query = buildKlineClxScreeningQuery(
+    currentQuery,
+    parseKlineClxScreeningQuery(currentQuery),
+  )
   const setOrDelete = (key, value) => {
     if (value) query[key] = value
     else delete query[key]

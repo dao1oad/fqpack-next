@@ -88,14 +88,27 @@
 
     <div
       class="kline-slim-body"
-      :class="{ 'has-clx-workbench': showClxWorkbench }"
+      :class="{
+        'has-clx-screening': isClxScreeningMode,
+        'has-clx-workbench': showClxWorkbench,
+      }"
     >
-      <aside class="kline-slim-sidebar">
-        <section
-          v-for="section in sidebarSections"
-          :key="section.key"
-          class="sidebar-section"
-        >
+      <aside
+        class="kline-slim-sidebar"
+        :class="{ 'kline-slim-sidebar--clx': isClxScreeningMode }"
+        :aria-label="isClxScreeningMode ? 'CLX 筛选工作台' : '标的列表'"
+      >
+        <ClxSelectionPanel
+          v-if="isClxScreeningMode"
+          :active-symbol="routeSymbol"
+          @select="handleClxScreeningSelection"
+        />
+        <template v-else>
+          <section
+            v-for="section in sidebarSections"
+            :key="section.key"
+            class="sidebar-section"
+          >
           <header class="sidebar-section-header">
             <button
               type="button"
@@ -111,36 +124,6 @@
           </header>
           <transition name="sidebar-section-collapse">
             <div v-show="section.expanded" class="sidebar-section-body">
-              <div v-if="section.key === 'clx_daily_selection'" class="clx-sidebar-scope">
-                <div class="clx-sidebar-scope__head">
-                  <span>{{ clxSidebarDisplayScope?.tradeDate || '暂无批次' }}</span>
-                  <StatusChip :variant="clxScopeStatusMeta.variant">{{ clxScopeStatusMeta.label }}</StatusChip>
-                </div>
-                <div class="clx-sidebar-scope__partitions">
-                  <StatusChip :variant="clxStockPartitionMeta.variant">{{ clxStockPartitionMeta.label }}</StatusChip>
-                  <StatusChip :variant="clxEtfPartitionMeta.variant">{{ clxEtfPartitionMeta.label }}</StatusChip>
-                </div>
-                <div v-if="clxSidebarDisplayScope?.isFailed" class="sidebar-section-empty error-text">
-                  {{ clxScopeStatusMeta.detail }}
-                </div>
-                <el-switch
-                  :model-value="clxSidebarOnlyCurrentFilters"
-                  size="small"
-                  inline-prompt
-                  active-text="当前筛选"
-                  inactive-text="全部结果"
-                  @change="toggleClxSidebarFilterMode"
-                />
-                <el-button
-                  v-if="!clxSidebarScope && clxLatestObservedScope?.isPartial"
-                  size="small"
-                  type="warning"
-                  plain
-                  @click="selectLatestObservedClxScope"
-                >
-                  查看部分结果
-                </el-button>
-              </div>
               <div v-if="section.loading" class="sidebar-section-empty">加载中...</div>
               <div v-else-if="section.error" class="sidebar-section-empty error-text">
                 {{ section.error }}
@@ -154,10 +137,10 @@
                 >
                   <el-popover
                     placement="right-start"
-                    :width="section.key === 'clx_daily_selection' ? 420 : 860"
+                    :width="860"
                     popper-class="kline-slim-reason-popper"
                     trigger="hover"
-                    @show="section.key !== 'clx_daily_selection' && handleReasonPopoverShow(item)"
+                    @show="handleReasonPopoverShow(item)"
                   >
                     <template #reference>
                       <button
@@ -172,32 +155,7 @@
                         </span>
                       </button>
                     </template>
-                    <div v-if="section.key === 'clx_daily_selection'" class="clx-sidebar-popover">
-                      <div class="clx-sidebar-popover__head">
-                        <strong>{{ item.name || item.code6 }}</strong>
-                        <span>{{ item.symbol || item.code6 }}</span>
-                      </div>
-                      <div class="clx-sidebar-popover__counts">
-                        <StatusChip variant="info">{{ item.distinctModelCount }} 模型</StatusChip>
-                        <StatusChip variant="muted">{{ item.distinctConditionCount }} 条件</StatusChip>
-                        <StatusChip variant="muted">{{ item.latestTrigger || '-' }}</StatusChip>
-                      </div>
-                      <div class="clx-sidebar-popover__models">
-                        <span
-                          v-for="modelKey in item.modelKeys"
-                          :key="modelKey"
-                          :style="{ borderColor: getClxModelColor(modelKey) }"
-                        >{{ modelKey }}</span>
-                      </div>
-                      <div v-if="item.conditionKeys.length" class="clx-sidebar-popover__conditions">
-                        {{ item.conditionKeys.join(' / ') }}
-                      </div>
-                      <div class="clx-sidebar-popover__meta">
-                        <span>scope {{ clxSidebarDisplayScope?.scopeId || '-' }}</span>
-                        <span>profile {{ clxSidebarDisplayScope?.profileId || '-' }}</span>
-                      </div>
-                    </div>
-                    <div v-else class="reason-popover">
+                    <div class="reason-popover">
                       <div class="reason-popover-head">
                         <span>{{ item.name || item.code6 }}</span>
                         <span>{{ item.code6 }}</span>
@@ -249,7 +207,8 @@
               </div>
             </div>
           </transition>
-        </section>
+          </section>
+        </template>
       </aside>
 
       <section class="kline-slim-content">
@@ -696,7 +655,11 @@
           {{ emptyMessage }}
         </div>
       </section>
-      <aside v-if="showClxWorkbench" class="kline-slim-clx-workbench">
+      <aside
+        v-if="showClxWorkbench"
+        class="kline-slim-clx-workbench"
+        aria-label="CLX 信号工作台"
+      >
         <header class="clx-workbench-header">
           <div>
             <div class="clx-workbench-title-row">
@@ -873,6 +836,7 @@
 </template>
 
 <script>
+import ClxSelectionPanel from './components/ClxSelectionPanel.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import StatusChip from '../components/workbench/StatusChip.vue'
 import klineSlim from './js/kline-slim'
@@ -889,6 +853,7 @@ export default {
   klineSlimLegacyBridge,
   components: {
     ...(klineSlim.components || {}),
+    ClxSelectionPanel,
     WorkbenchPage,
     StatusChip,
   },
@@ -939,12 +904,13 @@ export default {
   grid-template-columns 280px minmax(0, 1fr)
   flex 1
   min-height 0
+  overflow hidden
+
+.kline-slim-body.has-clx-screening:not(.has-clx-workbench)
+  grid-template-columns 320px minmax(0, 1fr)
 
 .kline-slim-body.has-clx-workbench
-  grid-template-columns 304px minmax(720px, 1fr) clamp(340px, 24vw, 380px)
-  overflow-x auto
-  overflow-y hidden
-  scrollbar-gutter stable
+  grid-template-columns 320px minmax(0, 1fr) clamp(320px, 25vw, 360px)
 
 .kline-slim-sidebar
   width auto
@@ -954,6 +920,10 @@ export default {
   border-right 1px solid rgba(127, 127, 122, 0.2)
   background linear-gradient(180deg, rgba(20, 26, 34, 0.98), rgba(14, 18, 24, 0.98))
   overflow-y auto
+
+.kline-slim-sidebar--clx
+  padding 0
+  overflow hidden
 
 .sidebar-section
   margin-bottom 14px
@@ -1699,20 +1669,6 @@ export default {
 .error-text
   color #fca5a5
 
-.clx-sidebar-scope
-  display flex
-  flex-direction column
-  gap 7px
-  margin-bottom 8px
-  padding 8px
-  border 1px solid rgba(148, 163, 184, 0.2)
-  border-radius 6px
-  background rgba(15, 23, 42, 0.55)
-
-.clx-sidebar-scope__head,
-.clx-sidebar-scope__partitions,
-.clx-sidebar-popover__head,
-.clx-sidebar-popover__counts,
 .clx-workbench-title-row,
 .clx-workbench-meta,
 .clx-workbench-status,
@@ -1723,48 +1679,13 @@ export default {
   align-items center
   gap 7px
 
-.clx-sidebar-scope__head,
-.clx-sidebar-popover__head,
 .clx-workbench-section__head,
 .clx-timeline-day header,
 .clx-marker-detail header
   justify-content space-between
 
-.clx-sidebar-scope__partitions,
-.clx-sidebar-popover__counts,
 .clx-workbench-status
   flex-wrap wrap
-
-.clx-sidebar-popover
-  display flex
-  flex-direction column
-  gap 10px
-  color #1f2937
-
-.clx-sidebar-popover__head span,
-.clx-sidebar-popover__meta,
-.clx-sidebar-popover__conditions
-  color #64748b
-  font-size 12px
-
-.clx-sidebar-popover__models
-  display flex
-  flex-wrap wrap
-  gap 5px
-
-.clx-sidebar-popover__models span
-  padding 2px 6px
-  border 1px solid #94a3b8
-  border-radius 4px
-  background #f8fafc
-  font-family ui-monospace, SFMono-Regular, Consolas, monospace
-  font-size 11px
-
-.clx-sidebar-popover__meta
-  display grid
-  grid-template-columns 1fr
-  gap 4px
-  overflow-wrap anywhere
 
 .kline-slim-clx-workbench
   position sticky
@@ -2001,6 +1922,9 @@ export default {
 
   .price-panel-row-editor--multi
     flex-wrap wrap
+
+  .kline-slim-body.has-clx-workbench
+    grid-template-columns 280px minmax(0, 1fr) 320px
 
 @media (max-width: 900px)
   .kline-slim-body:not(.has-clx-workbench)

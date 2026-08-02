@@ -9,7 +9,7 @@
 - 分别消费股票、ETF 盘后 ready marker，独立生成不可变 partition 输出
 - 在页面明确展示 partial，但只把双 partition 校验通过的 batch 标为 final
 - 提供批次、结果、解释证据、统计和单标的历史 marker API
-- 为桌面 `/clx-daily-screening` 与 `/kline-slim` 提供同一套服务端事实
+- 为桌面 `/kline-slim` 的筛选、K 线和历史信号三栏提供同一套服务端事实
 
 旧 `/daily-screening` 的 12 模型 scope、集合和 `daily_screening_ready` marker 保持原语义，不参与本模块的 partition、batch 或默认页面结果。
 
@@ -23,9 +23,12 @@
 - HTTP blueprint：`freshquant/rear/clx_daily_selection/routes.py`
 - Dagster job：`fqdagster.defs.jobs.clx_daily_selection`
 - Dagster sensor：`fqdagster.defs.sensors.clx_daily_selection`
-- 页面：`morningglory/fqwebui/src/views/ClxDailyScreening.vue`
+- 统一页面：`morningglory/fqwebui/src/views/KlineSlim.vue`
+- 页面状态与控制器：`morningglory/fqwebui/src/views/js/kline-slim.js`、`morningglory/fqwebui/src/views/klineSlimController.mjs`
 - 页面合同：`morningglory/fqwebui/src/views/clxDailySelection.mjs`
+- 左栏组件：`morningglory/fqwebui/src/views/components/ClxSelectionPanel.vue`
 - Kline CLX 投影：`morningglory/fqwebui/src/views/js/kline-slim-clx.mjs`
+- 兼容路由：`morningglory/fqwebui/src/router/index.js`
 
 ## 计算 profile
 
@@ -181,26 +184,34 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 - 输入：`stock_postclose_ready`、`etf_postclose_ready`
 - 输出：`clx_daily_selection_ready`
 
-## 桌面页面
+## 统一桌面工作台
 
-### `/clx-daily-screening`
+### `/kline-slim` CLX mode
 
-- 顶部展示交易日、profile、算法/数据版本、股票/ETF partition 和 partial/final 状态。
-- 默认选择最新 `published/not_required` final；用户可显式切换并查看 partial 或 publication 中间态。
-- 页面把 `/batches/latest` 的权威 final 合入最近 30 条混合批次列表；URL 显式 `scope_id` 不在该窗口时，先以 `/batches/<batch_id>/summary` 取回并稳定去重加入列表。权威 summary 决定该 scope 的 partial/final 状态，只有 final 才请求和展示跨资产统计。
-- 左侧按资产、模型、条件、方向、三态线关系和最少模型数筛选。
-- 中栏显示服务端排序结果与分页；统计和批次页签展示 final 统计或独立 partition 元数据。
-- 右栏显示 raw signal、entrypoint、model condition 和 evidence。
-- 选中标的可带 `scope / model / condition` query 深链到 `/kline-slim`。
+`/kline-slim?clxScreening=1&clxWorkbench=1&period=1d` 是 CLX 唯一正式页面入口，桌面采用“筛选结果 / K 线 / 信号工作台”三栏。裸 `/kline-slim` 仍保持普通持仓/股票池模式：
 
-### `/kline-slim`
+- 左栏 `CLX 日线选股`
+  - 默认选择最新 `published/not_required` final；用户显式选择时才查看 partial 或 publication 中间态。
+  - scope 摘要展示交易日、profile、股票/ETF partition 与 partial/final 状态。
+  - 支持资产、模型、条件、方向、三态线关系、最少模型数和代码/名称搜索；查询保持服务端排序，并使用 cursor 继续加载，不在浏览器端伪造全量分页。
+  - scope 或筛选条件改变时重置 cursor；切换 K 线标的、marker 显示条件或右栏详情不重置左栏筛选和已加载列表。
+  - 结果卡展示资产类型、模型数、条件数和模型键摘要；点击卡片直接成为当前标的。
+- 中栏 `K 线`
+  - 复用既有多周期主图、缠论结构、标的设置和可选交易复盘能力。
+  - 从左栏选择标的时，同步 `symbol / asset type`，并把当前 `scope.tradeDate` 写入 `endDate`；主 K 线和历史 CLX 信号因此使用同一盘后截面。
+- 右栏 `CLX 信号工作台`
+  - 分为“显示控制 / 信号时间轴 / 信号详情”。
+  - 历史 marker 通过 `/history/signals` 加载；marker 按当前日/周/月 K 线日期锚定，并由 chart renderer 生成真实 ECharts scatter series。
+  - 同日 marker 可聚合或逐条显示，点击 marker 会联动时间轴、图表聚焦和证据详情。
+  - 只有历史响应满足 `production_v1 / switch_opt=1` 且 `future_function_guard.passed=true` 时，CLX series 才进入可见状态。
 
-- 左栏新增 `CLX日线选股` section，显示 scope、股票/ETF partition 状态，并按模型数、条件数、symbol 排序。
-- 标的 hover 展示模型、条件、最近触发、scope 和 profile 摘要。
-- 右侧 `CLX 信号工作台` 分为“显示控制 / 信号时间轴 / 信号详情”。
-- 历史 marker 通过 `/history/signals` 加载，模型/条件筛选只控制可见性。
-- marker 会按当前日/周/月 K 线日期锚定，并由 chart renderer 生成真实 ECharts scatter series；同日 marker 可聚合或逐条显示，点击 marker 会联动时间轴和证据详情。
-- 只有历史响应满足 `production_v1 / switch_opt=1` 且 `future_function_guard.passed=true` 时，CLX series 才进入可见状态。
+左栏的模型/条件表示“哪些标的进入筛选结果”，右栏的模型/条件表示“当前标的显示哪些历史 marker”。两组状态独立保存：左栏使用 `clxFilterModels / clxFilterConditions`，右栏继续使用 `clxModels / clxConditions`；修改左栏会重新请求结果，但不改变右栏 marker 可见性，修改右栏只影响图层与时间轴，不改变左栏结果集合。URL 保存共享 `clxScope`、左栏 `clxFilter*`、当前 symbol/asset type、period/endDate 与右栏显示状态；cursor 只保存在当前列表请求链，刷新后按 URL 筛选从首批重新加载。
+
+### `/clx-daily-screening` 兼容入口
+
+- 旧收藏或深链仍可进入该路径；路由把 `scope_id / asset_types / model_keys / condition_keys` 等兼容 query 映射到统一工作台状态后重定向至 `/kline-slim`。旧页面的 `clxModels / clxConditions` 也按筛选语义迁移为 `clxFilterModels / clxFilterConditions`，并强制打开筛选栏、信号栏和日线周期。
+- 该路径不再挂载独立筛选页面，不维护第二份 scope、筛选、分页或选中标的状态。
+- 顶部导航、部署验收和日常操作统一使用 `/kline-slim` 的 CLX mode query。
 
 ## 部署与健康检查
 
@@ -215,8 +226,10 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/health
 Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/model-catalog
 Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/batches/latest
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/clx-daily-screening
+Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/kline-slim?clxScreening=1&clxWorkbench=1&period=1d'
 ```
+
+浏览器验收还应打开带旧 query 的 `/clx-daily-screening`，确认最终地址为 `/kline-slim` 且 scope 与筛选状态已恢复；仅看到旧路径返回 SPA shell 不代表兼容重定向完成。
 
 健康接口应报告原生 batch、单模型和 S0002 evidence 能力；`model-catalog` 应返回 18 个模型和 `production_v1 / switch_opt=1`。没有 `published/not_required` final 时，默认 `batches/latest` 可以返回较早已发布 final 或 `no_ready_batch`；`pending/publishing/failed` 与普通 partial 都不能充当 final 健康证据。
 

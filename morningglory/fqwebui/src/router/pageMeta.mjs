@@ -61,7 +61,12 @@ export const HEADER_NAV_TARGETS = {
   },
   clxDailyScreening: {
     label: '每日选股',
-    path: '/clx-daily-screening',
+    path: '/kline-slim',
+    query: {
+      clxScreening: '1',
+      clxWorkbench: '1',
+      period: '1d',
+    },
     buttonType: 'primary',
     plain: true,
     size: 'small',

@@ -22,15 +22,13 @@ test('buildSidebarSections keeps fixed order and sidebar metadata', () => {
 
   assert.deepEqual(
     sections.map(section => section.key),
-    ['clx_daily_selection', 'holding', 'must_pool', 'stock_pools', 'stock_pre_pools']
+    ['holding', 'must_pool', 'stock_pools', 'stock_pre_pools']
   )
   assert.deepEqual(
     sections.map(section => section.label),
-    ['CLX日线选股', '持仓股', 'must_pool', 'stock_pools', 'stock_pre_pools']
+    ['持仓股', 'must_pool', 'stock_pools', 'stock_pre_pools']
   )
-  assert.equal(sections.find(section => section.key === 'clx_daily_selection').expanded, false)
   assert.equal(sections.find(section => section.key === 'holding').expanded, true)
-  assert.equal(sections.find(section => section.key === 'clx_daily_selection').deletable, false)
   assert.equal(sections.find(section => section.key === 'holding').deletable, false)
   assert.equal(sections.find(section => section.key === 'must_pool').deletable, true)
 })
@@ -137,10 +135,11 @@ test('getReasonPanelMessage returns loading error and empty states', () => {
   assert.equal(getReasonPanelMessage({ loading: false, error: '', items: [{ date: '2026-03-05' }] }), '')
 })
 
-test('KlineSlim keeps the wide reason popover and a compact CLX popover', async () => {
+test('KlineSlim keeps the wide reason popover', async () => {
   const content = await readFile(new URL('../src/views/KlineSlim.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /:width="section\.key === 'clx_daily_selection' \? 420 : 860"/)
+  assert.match(content, /:width="860"/)
+  assert.doesNotMatch(content, /clx-sidebar-popover/)
   assert.match(
     content,
     /grid-template-columns 110px 72px 120px minmax\(140px, 1fr\) minmax\(0, 2fr\)/

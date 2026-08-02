@@ -299,7 +299,7 @@
 ## 当前边界
 
 - `/gantt/shouban30` 仍是板块工作台；每日选股除了消费其读模型与缠论快照语义，也直接复用其共享工作区接口。
-- 本模块仍是旧 12 模型 `/daily-screening` 链；独立 18 模型 CLX 工作台位于 `/clx-daily-screening`，使用 `freshquant_clx_daily_selection` 与 `clx_daily_selection_ready`，两者不共用 scope、集合、API 或默认结果。
+- 本模块仍是旧 12 模型 `/daily-screening` 链；独立 18 模型 CLX 工作台统一位于 `/kline-slim`，使用 `freshquant_clx_daily_selection` 与 `clx_daily_selection_ready`，两者不共用 scope、集合、API 或默认结果。`/clx-daily-screening` 仅为兼容 redirect。
 - `daily_screening_postclose_sensor` 继续等待自己的股票/Gantt 上游合同；这条旧链的门禁不适用于 CLX。CLX 的 stock/ETF marker 各自 success 即启动本侧 partition，双侧只门控 CLX finalizer、正式发布和跨资产统计。
 - 页面查询不会重新触发算法运行。
 - API 仍保留旧执行接口，但当前页面不再使用。

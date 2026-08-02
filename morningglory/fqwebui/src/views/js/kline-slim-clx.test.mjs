@@ -2,15 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  CLX_LEGACY_QUERY_KEYS,
   aggregateClxMarkersByBar,
   anchorClxMarkersToBars,
   buildKlineClxQuery,
+  buildKlineClxScreeningQuery,
   filterClxMarkers,
   normalizeClxSignalHistory,
-  normalizeClxSidebarItem,
   parseKlineClxQuery,
+  parseKlineClxScreeningQuery,
   resolveClxAssetType,
-  sortClxSidebarItems,
 } from './kline-slim-clx.mjs'
 
 const markers = [
@@ -18,16 +19,6 @@ const markers = [
   { id: 'b', modelKey: 'S0007', conditionKey: 'buy', triggerDate: '2026-07-30', direction: 'buy' },
   { id: 'c', modelKey: 'S0009', conditionKey: 'sell', triggerDate: '2026-07-31', direction: 'sell' },
 ]
-
-test('CLX sidebar order is distinct models desc, distinct conditions desc, symbol asc', () => {
-  const sorted = sortClxSidebarItems([
-    { symbol: 'sz000003', distinct_model_count: 2, distinct_condition_count: 5 },
-    { symbol: 'sz000002', distinct_model_count: 3, distinct_condition_count: 1 },
-    { symbol: 'sz000001', distinct_model_count: 3, distinct_condition_count: 2 },
-  ])
-
-  assert.deepEqual(sorted.map((item) => item.symbol), ['sz000001', 'sz000002', 'sz000003'])
-})
 
 test('daily markers anchor to the close bar of a minute chart and aggregate same-day signals', () => {
   const anchored = anchorClxMarkersToBars({
@@ -147,7 +138,6 @@ test('Kline CLX route keeps explicit asset type and ETF prefix fallback covers 5
   assert.equal(resolveClxAssetType('sh520001'), 'etf')
   assert.equal(resolveClxAssetType('sh530001'), 'etf')
   assert.equal(resolveClxAssetType('sz000001'), 'stock')
-  assert.equal(normalizeClxSidebarItem({ symbol: 'sh520001', asset_type: 'etf' }).assetType, 'etf')
 })
 
 test('the explicit no-model sentinel stays distinct from S0000 and hides every marker', () => {
@@ -163,4 +153,178 @@ test('the explicit no-model sentinel stays distinct from S0000 and hides every m
   assert.equal(query.clxModels, '__NONE__')
   assert.deepEqual(filterClxMarkers(markers, { modelKeys: routeState.modelKeys }), [])
   assert.notEqual(query.clxModels, 'S0000')
+})
+
+test('screening filters and signal marker visibility use independent URL namespaces', () => {
+  const query = {
+    clxScreening: '1',
+    clxScope: 'scope-20260731',
+    clxFilterModels: 'S0001,S0003',
+    clxFilterConditions: 'breakout',
+    clxModels: 'S0007',
+    clxConditions: 'fallback_fractal',
+  }
+
+  assert.deepEqual(parseKlineClxScreeningQuery(query).modelKeys, ['S0001', 'S0003'])
+  assert.deepEqual(parseKlineClxScreeningQuery(query).conditionKeys, ['breakout'])
+  assert.deepEqual(parseKlineClxQuery(query).modelKeys, ['S0007'])
+  assert.deepEqual(parseKlineClxQuery(query).conditionKeys, ['fallback_fractal'])
+
+  const screeningQuery = buildKlineClxScreeningQuery(query, {
+    screeningOpen: true,
+    scopeId: 'scope-20260731',
+    modelKeys: ['S0009'],
+    conditionKeys: ['trend'],
+    lineFlags: {},
+  })
+  assert.equal(screeningQuery.clxFilterModels, 'S0009')
+  assert.equal(screeningQuery.clxFilterConditions, 'trend')
+  assert.equal(screeningQuery.clxModels, 'S0007')
+  assert.equal(screeningQuery.clxConditions, 'fallback_fractal')
+})
+
+test('alias-only Kline signal state survives the screening writer without becoming left filters', () => {
+  const legacy = {
+    clxScreening: '1',
+    clxWorkbench: '1',
+    asset_type: 'etf',
+    model_keys: 'S7',
+    condition_keys: 'fallback_fractal',
+  }
+  const screeningState = parseKlineClxScreeningQuery(legacy)
+  const query = buildKlineClxScreeningQuery(legacy, screeningState)
+
+  assert.deepEqual(screeningState.assetTypes, [])
+  assert.deepEqual(screeningState.modelKeys, [])
+  assert.deepEqual(screeningState.conditionKeys, [])
+  assert.deepEqual(parseKlineClxQuery(query), {
+    scopeId: '',
+    assetType: 'etf',
+    modelKeys: ['S0007'],
+    conditionKeys: ['fallback_fractal'],
+    markerMode: 'aggregate',
+    workbenchOpen: true,
+  })
+  assert.equal(Object.hasOwn(query, 'asset_type'), false)
+  assert.equal(Object.hasOwn(query, 'model_keys'), false)
+  assert.equal(Object.hasOwn(query, 'condition_keys'), false)
+})
+
+test('screening query round-trips canonical filters and removes every legacy alias', () => {
+  const legacy = {
+    scope_id: 'legacy-scope',
+    asset_type: 'etf',
+    asset_types: 'stock,etf',
+    clxAssets: 'stock',
+    model_keys: 'S1',
+    condition_keys: 'legacy-condition',
+    directions: 'buy',
+    clxDirections: 'sell',
+    min_model_count: '3',
+    clxMinModels: '4',
+    q: 'legacy query',
+    line_flags: '{"above_ma250":"no"}',
+    above_chanlun_line: 'yes',
+    above_ma250: 'no',
+    above_reference_line: 'unknown',
+    clxModels: 'S0017',
+    clxConditions: 'visible-marker',
+  }
+  const query = buildKlineClxScreeningQuery(legacy, {
+    screeningOpen: true,
+    scopeId: 'canonical-scope',
+    q: '中证',
+    assetTypes: ['stock', 'etf', 'stock'],
+    modelKeys: ['s2'],
+    conditionKeys: ['breakout'],
+    directions: ['BUY'],
+    minModelCount: 2,
+    lineFlags: {
+      above_chanlun_line: 'yes',
+      above_ma250: 'no',
+      above_reference_line: 'unknown',
+    },
+  })
+
+  assert.deepEqual(parseKlineClxScreeningQuery(query), {
+    screeningOpen: true,
+    scopeId: 'canonical-scope',
+    q: '中证',
+    assetTypes: ['stock', 'etf'],
+    modelKeys: ['S0002'],
+    conditionKeys: ['breakout'],
+    directions: ['buy'],
+    minModelCount: 2,
+    lineFlags: {
+      above_chanlun_line: 'yes',
+      above_ma250: 'no',
+      above_reference_line: 'unknown',
+    },
+  })
+  assert.equal(query.clxModels, 'S0017')
+  assert.equal(query.clxConditions, 'visible-marker')
+  ;[
+    'scope_id', 'asset_type', 'asset_types', 'clxAssets', 'model_keys',
+    'condition_keys', 'directions', 'clxDirections', 'min_model_count',
+    'clxMinModels', 'q', 'line_flags', 'above_chanlun_line', 'above_ma250',
+    'above_reference_line',
+  ].forEach((key) => assert.equal(Object.hasOwn(query, key), false, key))
+})
+
+test('signal query writer consumes aliases once without letting them rebound', () => {
+  const query = buildKlineClxQuery({
+    scope_id: 'legacy-scope',
+    asset_type: 'stock',
+    model_keys: 'S0001',
+    condition_keys: 'legacy-condition',
+    q: 'legacy query',
+    clxFilterModels: 'S0003',
+  }, {
+    scopeId: 'canonical-scope',
+    assetType: 'etf',
+    modelKeys: ['S0007'],
+    conditionKeys: ['visible-marker'],
+    markerMode: 'aggregate',
+    workbenchOpen: true,
+  })
+
+  assert.equal(query.clxScope, 'canonical-scope')
+  assert.equal(query.clxAssetType, 'etf')
+  assert.equal(query.clxModels, 'S0007')
+  assert.equal(query.clxConditions, 'visible-marker')
+  assert.equal(query.clxFilterModels, 'S0003')
+  assert.equal(query.clxFilterQ, 'legacy query')
+  assert.equal(Object.hasOwn(query, 'scope_id'), false)
+  assert.equal(Object.hasOwn(query, 'asset_type'), false)
+  assert.equal(Object.hasOwn(query, 'model_keys'), false)
+  assert.equal(Object.hasOwn(query, 'condition_keys'), false)
+  assert.equal(Object.hasOwn(query, 'q'), false)
+})
+
+test('signal query writer preserves unambiguous legacy left filters while promoting ambiguous aliases right', () => {
+  const legacy = {
+    clxScreening: '1',
+    clxWorkbench: '1',
+    scope_id: 'legacy-scope',
+    q: '银行',
+    asset_types: 'stock,etf',
+    directions: 'buy',
+    min_model_count: '3',
+    line_flags: '{"above_ma250":"yes"}',
+    asset_type: 'etf',
+    model_keys: 'S7',
+    condition_keys: 'fallback_fractal',
+  }
+  const query = buildKlineClxQuery(legacy, parseKlineClxQuery(legacy))
+
+  assert.equal(query.clxScope, 'legacy-scope')
+  assert.equal(query.clxFilterQ, '银行')
+  assert.equal(query.clxFilterAssets, 'stock,etf')
+  assert.equal(query.clxFilterDirections, 'buy')
+  assert.equal(query.clxFilterMinModels, '3')
+  assert.equal(query.clxFilterAboveMa250, 'yes')
+  assert.equal(query.clxAssetType, 'etf')
+  assert.equal(query.clxModels, 'S0007')
+  assert.equal(query.clxConditions, 'fallback_fractal')
+  CLX_LEGACY_QUERY_KEYS.forEach((key) => assert.equal(Object.hasOwn(query, key), false, key))
 })

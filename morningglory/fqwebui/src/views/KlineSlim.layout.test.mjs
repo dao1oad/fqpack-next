@@ -7,17 +7,24 @@ const mediumLayoutStart = source.indexOf('@media (max-width: 1200px)')
 const mediumLayoutEnd = source.indexOf('@media (max-width: 900px)')
 const mediumLayoutBlock = source.slice(mediumLayoutStart, mediumLayoutEnd)
 
-test('KlineSlim gives CLX a dedicated third column while keeping chart tools as overlays', () => {
+test('KlineSlim unifies CLX selection, chart and signal workbench without page-level overflow', () => {
   assert.equal(
     source.includes('.kline-slim-body\n  position relative\n  display grid\n  grid-template-columns 280px minmax(0, 1fr)'),
     true
   )
   assert.equal(
-    source.includes('.kline-slim-body.has-clx-workbench\n  grid-template-columns 304px minmax(720px, 1fr) clamp(340px, 24vw, 380px)'),
+    source.includes('.kline-slim-body.has-clx-workbench\n  grid-template-columns 320px minmax(0, 1fr) clamp(320px, 25vw, 360px)'),
     true
   )
-  assert.match(source, /class="kline-slim-body"\s+:class="\{ 'has-clx-workbench': showClxWorkbench \}"/)
-  assert.match(source, /<aside v-if="showClxWorkbench" class="kline-slim-clx-workbench">/)
+  assert.match(source, /'has-clx-screening': isClxScreeningMode/)
+  assert.match(source, /'has-clx-workbench': showClxWorkbench/)
+  assert.match(source, /<ClxSelectionPanel[\s\S]*v-if="isClxScreeningMode"/)
+  assert.match(source, /overflow hidden/)
+  assert.doesNotMatch(source, /minmax\(720px, 1fr\)/)
+  assert.match(
+    source,
+    /<aside\s+v-if="showClxWorkbench"\s+class="kline-slim-clx-workbench"/
+  )
   assert.doesNotMatch(source, /kline-slim-clx-workbench kline-slim-overlay-panel/)
   assert.match(source, /\.kline-slim-clx-workbench\n  position sticky\n  top 0\n  align-self stretch/)
   assert.match(source, /\.kline-slim-clx-workbench[\s\S]*height 100%[\s\S]*overflow hidden/)
@@ -34,7 +41,7 @@ test('KlineSlim gives CLX a dedicated third column while keeping chart tools as 
   assert.equal(source.includes('has-side-panel'), false)
 })
 
-test('KlineSlim medium breakpoint keeps the flow layout and narrows the merged 标的设置 overlay', () => {
+test('KlineSlim medium breakpoint keeps the CLX workbench in its own grid column', () => {
   assert.equal(
     mediumLayoutBlock.includes('.kline-slim-toolbar\n    align-items flex-start\n    flex-direction column'),
     true
@@ -55,6 +62,11 @@ test('KlineSlim medium breakpoint keeps the flow layout and narrows the merged �
     mediumLayoutBlock.includes('.price-panel-row-editor\n    grid-column 1 / -1'),
     true
   )
+  assert.equal(
+    mediumLayoutBlock.includes('.kline-slim-body.has-clx-workbench\n    grid-template-columns 280px minmax(0, 1fr) 320px'),
+    true
+  )
+  assert.doesNotMatch(mediumLayoutBlock, /\.kline-slim-clx-workbench[\s\S]*position (?:absolute|fixed)/)
 })
 
 test('KlineSlim price guide rows no longer reserve standalone title or subtitle columns', () => {
