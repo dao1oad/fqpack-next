@@ -8,6 +8,7 @@ from loguru import logger
 
 from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.config import settings
+from freshquant.data.qfq_reader import apply_qfq_to_bars
 from freshquant.database.cache import (
     get_cache_version,
     in_memory_cache,
@@ -122,12 +123,11 @@ def accStockTrades(acc: List, cur: Dict):
     return acc
 
 
-@in_memory_cache.memoize(expiration=900)
 def _compute_atr_last_stock(
     inst_code_base: str, date_str: str, period: int
 ) -> tuple[float, float]:
     """
-    计算 A 股个股在给定周期下的最新 ATR 值，并使用内存缓存避免重复计算。
+    计算 A 股个股在给定周期下的最新 ATR 值。
     """
     from QUANTAXIS.QAFetch.QAQuery_Advance import QA_fetch_stock_day_adv
     from talib import ATR
@@ -136,7 +136,12 @@ def _compute_atr_last_stock(
     start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
     end_date = dt.strftime("%Y-%m-%d")
     data = QA_fetch_stock_day_adv(inst_code_base, start_date, end_date)
-    data = data.to_qfq().data
+    data, _metadata = apply_qfq_to_bars(
+        data.data,
+        scope="stock",
+        code=inst_code_base,
+        date_col="date",
+    )
     atr_value = ATR(data.high.values, data.low.values, data.close.values, period)
     return float(atr_value[-1]), float(data.close.values[-1])
 
@@ -160,7 +165,6 @@ def _compute_atr_last_index(
     return float(atr_value[-1]), float(data.close.values[-1])
 
 
-@in_memory_cache.memoize(expiration=900)
 def _query_grid_interval(inst_code_base: str, date_str: str) -> float:
     instrument_code = normalize_to_inst_code_with_suffix(inst_code_base)
     cfg = get_grid_interval_config(instrument_code)
@@ -200,7 +204,7 @@ def accArrangedStockTrades(acc: List, cur: Dict, lotAmount: int):
                 acc = insertStockPosition(acc, item)
                 cur["quantity"] = cur["quantity"] - quantity
                 cur["amount"] = cur["amount"] - quantity * item["price"]
-                code = cur.get("symbol") or cur.get("code")
+                code = str(cur.get("symbol") or cur.get("code") or "")
                 date_str = datetime.strptime(str(cur["date"]), "%Y%m%d").strftime(
                     "%Y-%m-%d"
                 )

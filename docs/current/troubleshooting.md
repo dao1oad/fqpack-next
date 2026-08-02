@@ -617,12 +617,12 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 
 ## ETF 前复权未生效但 Dagster run 显示成功
 
-本节排查当前线上 `etf_xdxr -> etf_adj` 旧写入链；Stock / ETF 在线 reader 仍消费这条链。
+本节只排查 PR2a 过渡期仍可能由现有 schedule 执行的 `etf_xdxr -> etf_adj` 旧写入链。Stock / ETF 在线 reader 已改为读取 `qfq_ready` marker 指向的 A/B 快照；旧集合不再是在线读取真值。
 
 现象：
 
 - KlineSlim / ETF 日线在拆分、扩缩股之后仍显示 bfq 价格
-- `quantaxis.etf_xdxr` 缺少目标 ETF 的历史事件，但 Dagster `etf_data_schedule` 显示成功
+- 过渡期 Dagster run 或人工执行 legacy `etf.xdxr` / `etf.adj` 后，`quantaxis.etf_xdxr` 仍缺少目标 ETF 的历史事件
 - `quantaxis.etf_adj` 在事件日前后仍全部为 `1.0`
 
 先检查：
@@ -649,7 +649,7 @@ print(sync_etf_xdxr_all(codes=['512800']))
 - 当前实现会对 ETF xdxr 首次空结果做 fresh connection retry，并在全量同步时周期性重建 TDX 连接
 - 当前实现会在 batch host 连接失败时自动切到下一个可用 HQ host；fresh connection retry 的目标 host 若连不上，也会继续轮转其他 HQ host，而不是把 run 记成成功或打成 `bool` context manager 异常
 - retry 仍超时或为空时，优先核对该 code 在不同 TDX host 上是否一致为空；对确实为空但库里已有历史回填的 ETF，允许保留旧文档
-- Dagster `etf_xdxr` 资产会对本次同步中 `empty/preserved` 的可疑 code 追加一次近期覆盖审计；如果近窗口内源侧有事件但库里没有，或者所有 HQ host 都不可达，asset 会直接 fail，不再把 run 记成成功
+- Dagster `etf_xdxr` asset 会对本次同步中 `empty/preserved` 的可疑 code 追加一次近期覆盖审计；如果近窗口内源侧有事件但库里没有，或者所有 HQ host 都不可达，asset 会直接 fail
 - 如果 API / KlineSlim 在 `/api/stock_data` 上直接报 `redis.exceptions.ConnectionError: Error 111 connecting to 127.0.0.1:6379`，优先检查 Docker compose 是否把宿主机 `.env` 里的 Redis 地址误透传进容器；正式口径应由 `docker/compose.parallel.yaml` 显式覆盖为 `FRESHQUANT_REDIS__HOST=fq_redis`、`FRESHQUANT_REDIS__PORT=6379`
 - 如果 compose Redis 覆盖修复已经 merge，但 formal deploy 的 `plan.json` 仍显示 `deployment_required=false`，优先检查 changed paths 是否包含 `docker/compose.parallel.yaml`；当前正式口径要求这类 compose 运行时变更必须触发全量受管 Docker 并行环境容器重建/重启。
 - 对单券立即修复可执行：
@@ -670,14 +670,14 @@ print(audit_recent_etf_xdxr_coverage(recent_days=365))
 '@ | py -3.12 -m uv run -`
 - 正式修复后，重新部署 Dagster，并再跑一次 formal deploy health check / runtime verify
 
-## XTData QFQ shadow 快照不更新或审计失败
+## XTData QFQ 快照不更新、reader 503 或审计失败
 
 现象：
 
 - `fqnext_xtdata_qfq_worker` 为 `FATAL` / `BACKOFF`，或 stderr 持续出现 `QFQ_DATA_NOT_READY`
 - `quantaxis.qfq_ready` 缺少 `scope=stock` / `scope=etf` 文档，active slot 的 `factor_asof` 落后于对应盘后 ready marker
 - inactive slot 长时间停在 `building` / `failed`，或 `audit` 返回日期轴、唯一性、非正因子、末日因子或递推恒等式错误
-- `stock_adj_qfq_a/b` / `etf_adj_qfq_a/b` 已更新，但页面或策略结果没有变化
+- `stock_adj_qfq_a/b` / `etf_adj_qfq_a/b` 已更新，但页面或策略仍返回旧版本，或 Stock Kline API 返回 `QFQ_DATA_NOT_READY/503`
 
 先检查：
 
@@ -694,6 +694,7 @@ Get-Content D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log -Tail 200
 处理：
 
 - `worker --once` 返回 `waiting_for_bfq` 时，先在 Dagster 核对最新 `stock_data_job` / `etf_data_job`，以及 `freshquant.dagster_pipeline_markers` 中相应 `pipeline_key` 的成功文档；QFQ worker 不绕过 BFQ ready gate。
+- `worker --once` 返回 `bootstrap_required` 时，在确认没有其他 QFQ writer/lease 后人工执行 `build --scope <stock|etf> --target-date YYYY-MM-DD [--full]`；正常 worker 不自动触发首次全历史 bootstrap。
 - XTData 连接或历史下载失败时，先恢复 MiniQMT / XTData 端口，再重新执行 `worker --once`；worker 会把中断的 inactive `building` 状态恢复为可重试的 `failed`。
 - 出现 `XTData history prefix download made no progress` 时，先核对 error 的 source role：primary `none` loader 会把该 code 记录为 `source_prefix_unavailable`，其余 code 审计通过时 worker 可继续发布；若 scope 内所有 code 均被隔离，update 拒绝发布空 ready snapshot 并保留 active slot。来自 `front_ratio` proof loader 的同类错误仍中止 scope。两种情况都应检查 QMT 下载任务和本地历史缓存，再决定是否重建 inactive slot。
 - 返回 `writer lease is held` 时，先确认 Supervisor worker 或人工 build / rollback 是否仍在运行；正常 lease 会持续续期并在命令结束时释放，崩溃遗留 lease 到期后由下一轮原子接管，不要并发启动第二个 writer。
@@ -705,8 +706,8 @@ Get-Content D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log -Tail 200
 - `XTData source gap crosses an adjustment` 的稳定 failure code 是 `source_adjustment_gap_unproven`；bootstrap/update 对该 code 做 per-code fail-closed exclusion，其他 code 可继续发布。`unbounded XTData source gap`、`requires front_ratio proof`、`front_ratio date axis mismatch` 及其他 proof 错误仍中止 scope。
 - `history_prefix_no_progress` 只有来自 primary `none` loader 时映射为 `source_prefix_unavailable`；来自 `front_ratio` proof loader 时仍中止 scope。它不同于 projection 发现的普通 unbounded prefix/suffix，后者继续阻断发布。
 - 怀疑 XTData 修订发生在默认 60 个交易日回看窗口之前时，使用同一 active 截止日执行 `build --scope <stock|etf> --target-date YYYY-MM-DD --full`；该命令重算整个 inactive scope，且不接受早于 active `factor_asof` 的日期。
-- 回切前先确认另一槽为 `ready` 并单独执行 `audit --slot <a|b>`，然后使用 `rollback --scope <stock|etf>`；回切只更新原子 marker。
-- 页面或策略结果未变化是当前边界：Stock / ETF 在线 reader 仍读取 `stock_adj` / `etf_adj`，A/B 集合是 shadow 数据。真实 Index 则固定使用 BFQ，不读取 ETF 因子。
+- 回切前先确认另一槽为 `ready` 并单独执行 `audit --slot <a|b>`，然后使用 `rollback --scope <stock|etf>`；命令会先将仍需生效的 intraday override 重新绑定到目标 snapshot，再以 CAS 切换 marker，factor A/B 集合本身不改写。
+- Stock / ETF 在线 reader 每次请求重新解析 active slot；先核对 marker 的 `snapshot_id/factor_asof/source_exclusions`、请求日期覆盖和同 snapshot 的 intraday override。Redis Kline key/payload 与 StrategyConsumer 常驻窗口均绑定 effective adjustment version；marker 或 override 版本变化后应 miss/reload，不要复制旧版本 cache key。真实 Index 固定使用 BFQ，不读取 Stock / ETF 因子。
 
 ## xt_account_sync worker 启动即 Fatal
 
@@ -811,32 +812,29 @@ print(inspect.signature(resolve_stock_account))
 
 ## ETF 前复权错误
 
-本节排查当前线上 `etf_adj` 消费链；`etf_adj_qfq_a/b` 是独立 shadow 集合。
+本节排查当前线上 XTData QFQ A/B 消费链。
 
 现象：
 - ETF 在页面上跨扩缩股日出现价格断层
 - 例如事件日后 close 约为事件日前的一半，但事件日前没有按前复权回落
+- API 返回 `QFQ_DATA_NOT_READY/503`
 
 先检查：
-- `python -m freshquant.cli etf.xdxr save --code 512000`
-- `python -m freshquant.cli etf.adj save --code 512000`
-- `python -m freshquant.cli etf.xdxr save --code 512800`
-- `python -m freshquant.cli etf.adj save --code 512800`
-- 查询 `quantaxis.etf_xdxr` 是否存在 `category=11` / `suogu`
-- 查询 `quantaxis.etf_adj` 是否在事件日前生成了 `adj=0.5` 这类因子
+- `python -m freshquant.market_data.xtdata.qfq_worker status --scope etf --strict`
+- `python -m freshquant.market_data.xtdata.qfq_worker audit --scope etf --mode full --code 512000`
+- 查询 `quantaxis.qfq_ready` 指向的 `etf_adj_qfq_a/b` active collection，核对该 code 的日期 coverage、`snapshot_id` 与正因子
 - 请求 `/api/stock_data?period=1d&symbol=512000&endDate=2025-08-08`
 
 常见根因：
-- `quantaxis.etf_xdxr` 缺失扩缩股事件，导致 `etf_adj` 整段生成成 `1.0`
-- ETF 历史库已更新，但没有重跑 `etf_xdxr -> etf_adj`
-- 旧实现把上游空响应当真，单次同步把已有 `etf_xdxr` 清空
+- active marker 落后最新 `etf_postclose_ready`，或 active slot 没有覆盖请求日期
+- 请求 code 被 active slot `source_exclusions[]` 审计隔离
+- intraday override 的 `base_snapshot_id` 与当前 active snapshot 不一致
+- Redis Kline / StrategyConsumer 常驻窗口仍绑定旧 `adjustment_version`
 
 处理：
-- 优先重跑 `etf.xdxr` 和 `etf.adj`
-- 如果是全市场历史缺口，执行一次 ETF 全量回填：
-  - `python -m freshquant.cli etf.xdxr save`
-  - `python -m freshquant.cli etf.adj save`
-- 如果库里 `etf_adj` 已正确，而页面仍错误，再查 `/api/stock_data` 所在运行面是否仍在读旧库或旧容器
+- active slot 审计失败时，在单一 writer lease 下执行 `build --scope etf --target-date YYYY-MM-DD`；首次 bootstrap / 全历史 backfill 需要人工入口，正常 worker 不自动执行
+- audit 通过后核对 marker CAS 与 reader deploy SHA，再重启受影响 reader/consumer 运行面以清空常驻旧版本
+- 不手工修改 `active_slot`，不把 legacy `etf_adj` 回填成在线真值
 
 ## Web 页面空白
 

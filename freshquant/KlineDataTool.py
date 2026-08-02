@@ -128,7 +128,6 @@ def get_future_data_v2(symbol, period, endDate=None, monitor=1):
     return kline_data
 
 
-@in_memory_cache.memoize(expiration=3)
 def get_stock_data(
     symbol,
     period,

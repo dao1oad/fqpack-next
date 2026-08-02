@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from freshquant.bootstrap_config import bootstrap_config
+from freshquant.data.qfq_reader import QFQDataNotReadyError
 from freshquant.db import DBQuantAxis
 from freshquant.market_data.xtdata.pools import (
     load_monitor_codes,
@@ -48,12 +49,9 @@ def _default_code_loader() -> list[str]:
 
 
 def _default_snapshot_provider(kind: str) -> dict[str, Any] | None:
-    try:
-        from freshquant.market_data.xtdata.qfq import resolve_active_slot
+    from freshquant.market_data.xtdata.qfq import resolve_active_slot
 
-        return resolve_active_slot(scope=kind, db=DBQuantAxis)
-    except Exception:
-        return None
+    return resolve_active_slot(scope=kind, db=DBQuantAxis)
 
 
 def _is_retryable_xtdata_error(error: Exception) -> bool:
@@ -257,14 +255,55 @@ class AdjRefreshService:
             "base_anchor_date": base_anchor_date,
             "updated_at": updated_at,
         }
-        snapshots = {kind: self.snapshot_provider(kind) for kind in ("stock", "etf")}
+        codes = list(self.code_loader() or [])
+        required_kinds = {
+            "etf" if _is_index_like_code(code) else "stock" for code in codes
+        }
+        snapshots: dict[str, dict[str, Any]] = {}
+        for kind in required_kinds:
+            try:
+                snapshot = self.snapshot_provider(kind)
+            except Exception as exc:
+                raise QFQDataNotReadyError(
+                    f"active QFQ snapshot resolution failed: {exc}", scope=kind
+                ) from exc
+            if not isinstance(snapshot, dict) or not all(
+                str(snapshot.get(field) or "").strip()
+                for field in ("collection", "snapshot_id", "factor_asof")
+            ):
+                raise QFQDataNotReadyError(
+                    "active QFQ snapshot metadata is incomplete", scope=kind
+                )
+            snapshots[kind] = snapshot
 
-        for code in list(self.code_loader() or []):
+        for code in codes:
             kind = "etf" if _is_index_like_code(code) else "stock"
-            anchor_doc = self.repository.get_base_anchor(kind, code, base_anchor_date)
-            if not anchor_doc or anchor_doc.get("adj") in (None, 0):
+            snapshot = snapshots[kind]
+            snapshot_anchor_loader = getattr(
+                self.repository, "get_snapshot_anchor", None
+            )
+            if not callable(snapshot_anchor_loader):
+                raise QFQDataNotReadyError(
+                    "active QFQ snapshot anchor reader is unavailable",
+                    scope=kind,
+                    code=code,
+                )
+            try:
+                snapshot_anchor = snapshot_anchor_loader(
+                    kind, code, base_anchor_date, snapshot
+                )
+            except Exception as exc:
+                raise QFQDataNotReadyError(
+                    f"active QFQ snapshot anchor lookup failed: {exc}",
+                    scope=kind,
+                    code=code,
+                ) from exc
+            legacy_anchor = self.repository.get_base_anchor(
+                kind, code, base_anchor_date
+            )
+            if not snapshot_anchor or snapshot_anchor.get("adj") in (None, 0):
                 continue
-            effective_anchor_date = str(anchor_doc.get("date") or base_anchor_date)
+            effective_anchor_date = str(snapshot_anchor.get("date") or base_anchor_date)
 
             close_pair = self.market_client.get_daily_close_pair(
                 code, effective_anchor_date
@@ -274,40 +313,25 @@ class AdjRefreshService:
 
             raw_close = float(close_pair.get("raw_close") or 0.0)
             front_close = float(close_pair.get("front_close") or 0.0)
-            base_adj = float(anchor_doc.get("adj") or 0.0)
-            if raw_close <= 0 or front_close <= 0 or base_adj <= 0:
+            anchor_adj = float(snapshot_anchor.get("adj") or 0.0)
+            if raw_close <= 0 or front_close <= 0 or anchor_adj <= 0:
                 continue
 
             target_adj = front_close / raw_close
-            legacy_anchor_scale = target_adj / base_adj
             document = {
                 "code": normalize_to_base_code(code),
                 "trade_date": trade_date,
                 "base_anchor_date": effective_anchor_date,
-                "anchor_scale": float(legacy_anchor_scale),
-                "legacy_anchor_scale": float(legacy_anchor_scale),
+                "anchor_scale": float(target_adj / anchor_adj),
+                "base_snapshot_id": str(snapshot["snapshot_id"]),
+                "base_factor_asof": str(snapshot["factor_asof"]),
                 "source": "xtdata_front_raw",
                 "updated_at": updated_at,
             }
-            snapshot = snapshots.get(kind) or {}
-            snapshot_anchor_loader = getattr(
-                self.repository, "get_snapshot_anchor", None
-            )
-            snapshot_anchor = (
-                snapshot_anchor_loader(kind, code, base_anchor_date, snapshot)
-                if snapshot.get("snapshot_id") and snapshot_anchor_loader
-                else None
-            )
-            snapshot_anchor_date = str((snapshot_anchor or {}).get("date") or "")
-            snapshot_adj = float((snapshot_anchor or {}).get("adj") or 0.0)
-            if (
-                snapshot.get("snapshot_id")
-                and snapshot_anchor_date == effective_anchor_date
-                and snapshot_adj > 0
-            ):
-                document["anchor_scale"] = float(target_adj / snapshot_adj)
-                document["base_snapshot_id"] = str(snapshot["snapshot_id"])
-                document["base_factor_asof"] = str(snapshot.get("factor_asof") or "")
+            legacy_anchor_date = str((legacy_anchor or {}).get("date") or "")
+            legacy_adj = float((legacy_anchor or {}).get("adj") or 0.0)
+            if legacy_anchor_date == effective_anchor_date and legacy_adj > 0:
+                document["legacy_anchor_scale"] = float(target_adj / legacy_adj)
             self.repository.upsert_intraday_override(kind, document)
             result["count"] += 1
             result[f"{kind}_count"] += 1

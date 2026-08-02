@@ -57,21 +57,26 @@ def run_pending_once(
                 continue
             target_date = str(postclose.get("trade_date") or "")[:10]
             marker = get_qfq_marker(scope=scope, db=factor_db)
-            if marker:
-                marker = validate_qfq_marker(marker, scope=scope)
-                active_slot = str(marker["active_slot"])
-                inactive_slot = "b" if active_slot == "a" else "a"
-                inactive_building = (
-                    marker["slots"][inactive_slot].get("status") == "building"
-                )
-                if not inactive_building and target_date <= str(
-                    marker["slots"][active_slot]["factor_asof"]
-                ):
-                    result["by_scope"][scope] = {
-                        "status": "current",
-                        "factor_asof": marker["slots"][active_slot]["factor_asof"],
-                    }
-                    continue
+            if marker is None:
+                result["by_scope"][scope] = {
+                    "status": "bootstrap_required",
+                    "target_date": target_date,
+                }
+                continue
+            marker = validate_qfq_marker(marker, scope=scope)
+            active_slot = str(marker["active_slot"])
+            inactive_slot = "b" if active_slot == "a" else "a"
+            inactive_building = (
+                marker["slots"][inactive_slot].get("status") == "building"
+            )
+            if not inactive_building and target_date <= str(
+                marker["slots"][active_slot]["factor_asof"]
+            ):
+                result["by_scope"][scope] = {
+                    "status": "current",
+                    "factor_asof": marker["slots"][active_slot]["factor_asof"],
+                }
+                continue
             published = sync_fn(scope=scope, target_date=target_date, db=factor_db)
             result["by_scope"][scope] = {
                 "status": "published",
@@ -155,7 +160,7 @@ def _scope_values(value: str) -> list[str]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="XTData QFQ shadow writer")
+    parser = argparse.ArgumentParser(description="XTData QFQ canonical writer")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     worker = subparsers.add_parser("worker")

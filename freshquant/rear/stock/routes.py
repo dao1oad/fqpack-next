@@ -24,11 +24,17 @@ from freshquant.data.astock.holding import (
     get_stock_hold_position,
     get_stock_positions,
 )
+from freshquant.data.qfq_reader import (
+    QFQ_DATA_NOT_READY_HTTP_STATUS,
+    QFQDataNotReadyError,
+    resolve_qfq_read_metadata,
+)
 from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info, query_instrument_type
 from freshquant.position.cn_future import queryArrangedCnFutureFillList
 from freshquant.research.cjsd.main import getCjsdList
 from freshquant.trading.dt import fq_trading_fetch_trade_dates
+from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.code import fq_util_code_append_market_code_suffix
 from freshquant.util.encoder import FqJsonEncoder
 from freshquant.util.period import (
@@ -107,7 +113,12 @@ def _get_realtime_stock_data_from_cache(symbol, period, end_date):
     if not is_supported_realtime_period(period_backend):
         return None
 
-    cache_key = get_redis_cache_key(symbol, period_backend)
+    adjustment_version = _resolve_qfq_cache_version(symbol)
+    if adjustment_version is None:
+        return None
+    cache_key = get_redis_cache_key(
+        symbol, period_backend, adjustment_version=adjustment_version
+    )
     try:
         cached = redis_db.get(cache_key)
     except Exception as exc:  # pragma: no cover
@@ -128,6 +139,33 @@ def _get_realtime_stock_data_from_cache(symbol, period, end_date):
         return None
 
     return payload if isinstance(payload, dict) else None
+
+
+def _resolve_qfq_cache_version(symbol):
+    instrument_type = query_instrument_type(symbol)
+    if instrument_type == InstrumentType.INDEX_CN:
+        return "bfq"
+    if instrument_type == InstrumentType.ETF_CN:
+        scope = "etf"
+    elif instrument_type == InstrumentType.STOCK_CN:
+        scope = "stock"
+    else:
+        return None
+    today = datetime.now().strftime("%Y-%m-%d")
+    metadata, _override = resolve_qfq_read_metadata(
+        scope=scope,
+        code=symbol,
+        trade_date=today if is_cn_a_trade_date(today) else None,
+    )
+    return metadata.effective_version
+
+
+def _qfq_data_not_ready_response(error):
+    return Response(
+        json.dumps(error.as_dict(), cls=FqJsonEncoder),
+        mimetype="application/json",
+        status=QFQ_DATA_NOT_READY_HTTP_STATUS,
+    )
 
 
 def _parse_bar_count(raw):
@@ -214,12 +252,15 @@ def stock_data():
         "true",
         "yes",
     }
-    result = None
-    if use_realtime_cache:
-        result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
-        result = _tail_stock_data_payload(result, bar_count)
-    if result is None:
-        result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
+    try:
+        result = None
+        if use_realtime_cache:
+            result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
+            result = _tail_stock_data_payload(result, bar_count)
+        if result is None:
+            result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
+    except QFQDataNotReadyError as error:
+        return _qfq_data_not_ready_response(error)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 
@@ -228,7 +269,10 @@ def stock_data_v2():
     period = request.args.get("period")
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
-    result = get_data_v2(symbol, period, end_date)
+    try:
+        result = get_data_v2(symbol, period, end_date)
+    except QFQDataNotReadyError as error:
+        return _qfq_data_not_ready_response(error)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 
@@ -237,7 +281,10 @@ def stock_data_chanlun_structure():
     period = request.args.get("period")
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
-    result = get_chanlun_structure(symbol, period, end_date)
+    try:
+        result = get_chanlun_structure(symbol, period, end_date)
+    except QFQDataNotReadyError as error:
+        return _qfq_data_not_ready_response(error)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
 
 

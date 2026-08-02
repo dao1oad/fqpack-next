@@ -17,11 +17,7 @@ import pandas as pd
 from loguru import logger
 
 from freshquant.analysis.fullcalc_wrapper import run_fullcalc
-from freshquant.data.adj_intraday import (
-    apply_qfq_with_intraday_override,
-    fetch_intraday_override,
-    fetch_qfq_adj_df,
-)
+from freshquant.data.qfq_reader import apply_qfq_to_bars, read_qfq_factor
 from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.market_data.xtdata.chanlun_payload import build_chanlun_payload
 from freshquant.market_data.xtdata.coalesce import CoalescingScheduler
@@ -328,6 +324,7 @@ class StrategyConsumer:
 
         self._lock = threading.Lock()
         self._windows: dict[tuple[str, str], pd.DataFrame] = {}
+        self._window_versions: dict[str, str] = {}
         self._futures: dict[tuple[str, str], Any] = {}
         self._last_bar_ts: dict[tuple[str, str], int] = {}
         self._known_codes: set[str] = set()
@@ -435,6 +432,7 @@ class StrategyConsumer:
                 if df is None or df.empty:
                     continue
                 key = (code, period)
+                adjustment_version = str(df.attrs.get("qfq_effective_version") or "")
                 try:
                     bar_time = int(pd.to_datetime(df["datetime"].iloc[-1]).timestamp())
                 except Exception:
@@ -447,9 +445,11 @@ class StrategyConsumer:
                         ["datetime", "open", "high", "low", "close", "volume", "amount"]
                     ].copy(),
                     "model_ids": self._model_ids_for(code, period),
+                    "adjustment_version": adjustment_version,
                 }
                 with self._lock:
                     self._windows[key] = df
+                    self._window_versions[code] = adjustment_version
                     if bar_time > 0:
                         self._last_bar_ts[key] = bar_time
                 self._scheduler.update(key, meta)
@@ -496,54 +496,46 @@ class StrategyConsumer:
         """
         if kind == "index":
             return 1.0
-        coll = "stock_adj" if kind == "stock" else "etf_adj"
-        override_coll = "stock_adj_intraday" if kind == "stock" else "etf_adj_intraday"
-        try:
-            override = fetch_intraday_override(
-                coll_name=override_coll,
-                code=base_code6,
-                trade_date=date_str,
-                db=DBQuantAxis,
-            )
-            if override is not None:
-                return 1.0
-        except Exception:
-            pass
-
-        factor = 1.0
-        try:
-            doc = DBQuantAxis[coll].find_one(
-                {"code": str(base_code6), "date": {"$lte": str(date_str)}},
-                sort=[("date", -1)],
-                projection={"_id": 0, "date": 1, "adj": 1},
-            )
-            if doc and doc.get("adj") is not None:
-                factor = float(doc["adj"])
-        except Exception:
-            factor = 1.0
-
-        return float(factor)
+        factor, _metadata = read_qfq_factor(
+            scope=kind,
+            code=base_code6,
+            trade_date=date_str,
+            db=DBQuantAxis,
+        )
+        return factor
 
     def _apply_qfq_to_bar(
         self, *, kind: str, code_prefixed: str, bar: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str]:
         if kind == "index":
-            return bar
+            return bar, "bfq"
         dt: datetime | None = bar.get("datetime")
         if not isinstance(dt, datetime):
-            return bar
+            raise ValueError("bar datetime is required for QFQ")
         base = _base_code(code_prefixed)
         date_str = dt.strftime("%Y-%m-%d")
-        factor = self._get_qfq_factor(kind=kind, base_code6=base, date_str=date_str)
+        factor, metadata = read_qfq_factor(
+            scope=kind,
+            code=base,
+            trade_date=date_str,
+            db=DBQuantAxis,
+        )
         if abs(float(factor) - 1.0) < 1e-9:
-            return bar
+            return bar, metadata.effective_version
         out = dict(bar)
         for col in ("open", "high", "low", "close"):
             try:
                 out[col] = float(out.get(col) or 0.0) * float(factor)
             except Exception:
                 continue
-        return out
+        return out, metadata.effective_version
+
+    def _asset_kind(self, code_prefixed: str) -> str:
+        if self._is_real_index(code_prefixed):
+            return "index"
+        if self._is_index_like(code_prefixed):
+            return "etf"
+        return "stock"
 
     def _is_index_like(self, code_prefixed: str) -> bool:
         try:
@@ -583,8 +575,8 @@ class StrategyConsumer:
         )
 
         base6 = _base_code(code)
-        is_index_like = self._is_index_like(code)
-        is_real_index = self._is_real_index(code)
+        asset_kind = self._asset_kind(code)
+        is_index_like = asset_kind in {"etf", "index"}
 
         hist_coll = "index_min" if is_index_like else "stock_min"
         hist_df = _empty_bar_window_df()
@@ -630,29 +622,6 @@ class StrategyConsumer:
         rt_df = pd.DataFrame(list(rt_cur))
         rt_df = _filter_trade_date_bar_df(rt_df)
 
-        start_date = start_dt.strftime("%Y-%m-%d")
-        end_date = end_dt.strftime("%Y-%m-%d")
-        adj_df = None
-        override = None
-        if not is_real_index:
-            adj_coll = "etf_adj" if is_index_like else "stock_adj"
-            override_coll = (
-                "etf_adj_intraday" if is_index_like else "stock_adj_intraday"
-            )
-            adj_df = fetch_qfq_adj_df(
-                coll_name=adj_coll,
-                code=base6,
-                start_date=start_date,
-                end_date=end_date,
-                db=DBQuantAxis,
-            )
-            override = fetch_intraday_override(
-                coll_name=override_coll,
-                code=base6,
-                trade_date=end_date,
-                db=DBQuantAxis,
-            )
-
         merged = _normalize_bar_window_df(
             pd.concat([hist_df, rt_df], ignore_index=True)
         )
@@ -661,17 +630,22 @@ class StrategyConsumer:
 
         merged = merged.drop_duplicates(subset=["datetime"], keep="last")
         merged = merged.sort_values("datetime")
-        if not is_real_index:
-            merged = apply_qfq_with_intraday_override(
+        if asset_kind != "index":
+            merged, metadata = apply_qfq_to_bars(
                 merged,
-                adj_df,
-                override=override,
+                scope=asset_kind,
+                code=base6,
+                db=DBQuantAxis,
                 datetime_col="datetime",
             )
+            effective_version = metadata.effective_version
+        else:
+            effective_version = "bfq"
 
         if len(merged) > self.max_bars:
             merged = merged.iloc[-self.max_bars :]
         merged = merged.reset_index(drop=True)
+        merged.attrs["qfq_effective_version"] = effective_version
         return merged
 
     def _submit_fullcalc(self, key: tuple[str, str], meta: dict[str, Any]) -> None:
@@ -708,7 +682,13 @@ class StrategyConsumer:
                 bar_time_ts=meta.get("bar_time"),
             )
 
-            cache_key = get_redis_cache_key(payload.code, payload.period_backend)
+            adjustment_version = str(meta.get("adjustment_version") or "")
+            payload.data["adjustment_version"] = adjustment_version
+            cache_key = get_redis_cache_key(
+                payload.code,
+                payload.period_backend,
+                adjustment_version=adjustment_version,
+            )
             redis_db.set(
                 cache_key,
                 json.dumps(payload.data, ensure_ascii=False),
@@ -891,6 +871,7 @@ class StrategyConsumer:
                 continue
             if df is None or df.empty:
                 continue
+            adjustment_version = str(df.attrs.get("qfq_effective_version") or "")
             try:
                 bar_time = int(pd.to_datetime(df["datetime"].iloc[-1]).timestamp())
             except Exception:
@@ -903,9 +884,11 @@ class StrategyConsumer:
                     ["datetime", "open", "high", "low", "close", "volume", "amount"]
                 ].copy(),
                 "model_ids": self._model_ids_for(code, period),
+                "adjustment_version": adjustment_version,
             }
             with self._lock:
                 self._windows[key] = df
+                self._window_versions[code] = adjustment_version
                 if bar_time > 0:
                     self._last_bar_ts[key] = bar_time
             self._scheduler.update(key, meta)
@@ -919,6 +902,7 @@ class StrategyConsumer:
             df = self._load_window_from_db(code=code, period_backend=period)
             if df is None or df.empty:
                 continue
+            adjustment_version = str(df.attrs.get("qfq_effective_version") or "")
             try:
                 bar_time = int(pd.to_datetime(df["datetime"].iloc[-1]).timestamp())
             except Exception:
@@ -931,9 +915,11 @@ class StrategyConsumer:
                     ["datetime", "open", "high", "low", "close", "volume", "amount"]
                 ].copy(),
                 "model_ids": self._model_ids_for(code, period),
+                "adjustment_version": adjustment_version,
             }
             with self._lock:
                 self._windows[key] = df
+                self._window_versions[code] = adjustment_version
                 if bar_time > 0:
                     self._last_bar_ts[key] = bar_time
             self._scheduler.update(key, meta)
@@ -1157,12 +1143,9 @@ class StrategyConsumer:
             "source": "xtdata",
         }
 
-        is_index_like = self._is_index_like(code)
-        is_real_index = self._is_real_index(code)
-        kind = "index" if is_real_index else ("etf" if is_index_like else "stock")
-        coll = "index_realtime" if is_index_like else "stock_realtime"
+        kind = self._asset_kind(code)
+        coll = "index_realtime" if kind in {"etf", "index"} else "stock_realtime"
         bar_store = bar_raw
-        bar_calc = self._apply_qfq_to_bar(kind=kind, code_prefixed=code, bar=bar_raw)
 
         try:
             upsert_realtime_bars(
@@ -1170,6 +1153,20 @@ class StrategyConsumer:
             )
         except Exception as e:
             logger.error(f"[Consumer] save realtime failed {code} {period}: {e}")
+            return
+
+        bar_calc, adjustment_version = self._apply_qfq_to_bar(
+            kind=kind, code_prefixed=code, bar=bar_raw
+        )
+        window_versions = getattr(self, "_window_versions", None)
+        if window_versions is None:
+            window_versions = {}
+            self._window_versions = window_versions
+        previous_version = window_versions.get(code)
+        if previous_version and previous_version != adjustment_version:
+            self._warm_code_from_db(code=code)
+            return
+        window_versions[code] = adjustment_version
 
         key = (code, period)
 
@@ -1233,6 +1230,7 @@ class StrategyConsumer:
                     ["datetime", "open", "high", "low", "close", "volume", "amount"]
                 ].copy(),
                 "model_ids": model_ids,
+                "adjustment_version": adjustment_version,
             }
             if self._catchup_mode:
                 self._dirty_latest[key] = meta

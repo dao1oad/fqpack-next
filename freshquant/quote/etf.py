@@ -4,38 +4,17 @@ from datetime import datetime, time, timedelta
 
 import pandas as pd
 import pymongo
-from loguru import logger
 from QUANTAXIS import QA_fetch_index_day_adv, QA_fetch_index_min_adv
 from QUANTAXIS.QAData.data_resample import QA_data_day_resample
 from QUANTAXIS.QAUtil.QADate import QA_util_datetime_to_strdatetime, QA_util_time_stamp
 
 from freshquant.carnation.config import TIME_DELTA, TZ
-from freshquant.data.adj_intraday import (
-    apply_qfq_with_intraday_override,
-    fetch_intraday_override,
-    fetch_qfq_adj_df,
-)
-from freshquant.database.cache import in_memory_cache, redis_cache
+from freshquant.data.qfq_reader import apply_qfq_to_bars
+from freshquant.database.cache import redis_cache
 from freshquant.db import DBfreshquant
 from freshquant.quote.general import resample3min, resampleStockOrIndex120min
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
-
-
-def _fetch_etf_adj(
-    code: str, start: datetime | None, end: datetime | None
-) -> pd.DataFrame | None:
-    if start is None or end is None:
-        return None
-    docs = fetch_qfq_adj_df(
-        coll_name="etf_adj",
-        code=normalize_to_base_code(code),
-        start_date=start.strftime("%Y-%m-%d"),
-        end_date=end.strftime("%Y-%m-%d"),
-    )
-    if len(docs) == 0:
-        return None
-    return docs
 
 
 def _resolve_etf_history_days(period: str, bar_count=0):
@@ -82,7 +61,6 @@ def _filter_trade_date_realtime_rows(rows: pd.DataFrame) -> pd.DataFrame:
     return rows.loc[mask].copy()
 
 
-@in_memory_cache.memoize(expiration=3)
 def queryEtfCandleSticks(code: str, period: str, endDate=None, bar_count=0):
     if endDate is None or endDate == "":
         end = datetime.now() + timedelta(1)
@@ -193,25 +171,12 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
         data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
 
-    adj = _fetch_etf_adj(code, start_dt, end_dt)
-    if adj is None or len(adj) == 0:
-        start_s = start_dt.strftime("%Y-%m-%d") if start_dt else "N/A"
-        end_s = end_dt.strftime("%Y-%m-%d") if end_dt else "N/A"
-        logger.warning(
-            f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
-        )
-    else:
-        override = fetch_intraday_override(
-            coll_name="etf_adj_intraday",
-            code=code,
-            trade_date=end_dt.strftime("%Y-%m-%d"),
-        )
-        data = apply_qfq_with_intraday_override(
-            data,
-            adj,
-            override=override,
-            datetime_col="datetime",
-        )
+    data, _metadata = apply_qfq_to_bars(
+        data,
+        scope="etf",
+        code=normalize_to_base_code(code),
+        datetime_col="datetime",
+    )
 
     data = data.round(
         {"open": 3, "high": 3, "low": 3, "close": 3, "volume": 2, "amount": 2}
@@ -285,25 +250,12 @@ def queryEtfCandleSticksMin(code, frequence, start=None, end=None):
         data = pd.concat([data, realtime_data_list])
         data.drop_duplicates(subset="datetime", keep="first", inplace=True)
 
-    adj = _fetch_etf_adj(code, start, end)
-    if adj is None or len(adj) == 0:
-        start_s = start.strftime("%Y-%m-%d") if start else "N/A"
-        end_s = end.strftime("%Y-%m-%d") if end else "N/A"
-        logger.warning(
-            f"etf_adj missing for {normalize_to_base_code(code)} [{start_s},{end_s}]"
-        )
-    else:
-        override = fetch_intraday_override(
-            coll_name="etf_adj_intraday",
-            code=code,
-            trade_date=end.strftime("%Y-%m-%d") if end else None,
-        )
-        data = apply_qfq_with_intraday_override(
-            data,
-            adj,
-            override=override,
-            datetime_col="datetime",
-        )
+    data, _metadata = apply_qfq_to_bars(
+        data,
+        scope="etf",
+        code=normalize_to_base_code(code),
+        datetime_col="datetime",
+    )
 
     data = data.round(
         {"open": 3, "high": 3, "low": 3, "close": 3, "volume": 2, "amount": 2}

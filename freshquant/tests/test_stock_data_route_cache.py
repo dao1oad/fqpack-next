@@ -59,6 +59,7 @@ def _install_route_stubs(monkeypatch):
 
     db = types.ModuleType("freshquant.db")
     db.DBfreshquant = {}
+    db.DBQuantAxis = {}
 
     instrument_general = types.ModuleType("freshquant.instrument.general")
     instrument_general.query_instrument_info = lambda *args, **kwargs: {}
@@ -82,6 +83,9 @@ def _install_route_stubs(monkeypatch):
 
     util_code = types.ModuleType("freshquant.util.code")
     util_code.fq_util_code_append_market_code_suffix = lambda code: code
+    util_code.normalize_to_base_code = (
+        lambda code: str(code or "").replace("sz", "").replace("sh", "")
+    )
 
     util_encoder = types.ModuleType("freshquant.util.encoder")
 
@@ -165,11 +169,90 @@ def test_stock_data_uses_fallback_by_default(monkeypatch, stock_routes):
     assert fake_redis.keys == []
 
 
+def test_stock_data_maps_qfq_not_ready_to_503(monkeypatch, stock_routes):
+    def fail(*_args, **_kwargs):
+        raise stock_routes.QFQDataNotReadyError(
+            "active snapshot is missing", scope="stock", code="000001"
+        )
+
+    monkeypatch.setattr(stock_routes, "get_data_v2", fail)
+
+    response = call_stock_data(stock_routes, symbol="sz000001", period="5m")
+
+    assert response.status_code == 503
+    assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
+
+
+def test_stock_data_v2_maps_qfq_not_ready_to_503(monkeypatch, stock_routes):
+    def fail(*_args, **_kwargs):
+        raise stock_routes.QFQDataNotReadyError(
+            "active snapshot is missing", scope="stock", code="000001"
+        )
+
+    monkeypatch.setattr(stock_routes, "get_data_v2", fail)
+    stock_routes.request.args = {"symbol": "sz000001", "period": "5m"}
+
+    response = stock_routes.stock_data_v2()
+
+    assert response.status_code == 503
+    assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
+
+
+def test_stock_data_cache_key_is_bound_to_adjustment_version(monkeypatch, stock_routes):
+    payload = {"symbol": "sz000001", "period": "5m"}
+    fake_redis = FakeRedis(value=json.dumps(payload))
+    monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v2"
+    )
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sz000001",
+        period="5m",
+        realtimeCache="true",
+    )
+
+    assert response.status_code == 200
+    assert fake_redis.keys == [
+        get_redis_cache_key("sz000001", "5min", adjustment_version="snapshot-v2")
+    ]
+
+
+def test_index_cache_key_uses_bfq_version_written_by_strategy_consumer(
+    monkeypatch, stock_routes
+):
+    payload = {"symbol": "sh000001", "period": "5m"}
+    fake_redis = FakeRedis(value=json.dumps(payload))
+    monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes,
+        "query_instrument_type",
+        lambda _symbol: stock_routes.InstrumentType.INDEX_CN,
+    )
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sh000001",
+        period="5m",
+        realtimeCache="true",
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == payload
+    assert fake_redis.keys == [
+        get_redis_cache_key("sh000001", "5min", adjustment_version="bfq")
+    ]
+
+
 def test_stock_data_reads_redis_for_opt_in_realtime_period(monkeypatch, stock_routes):
     cached_payload = {"symbol": "sz000001", "period": "5m", "close": [1, 2, 3]}
     fake_redis = FakeRedis(value=json.dumps(cached_payload))
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
     monkeypatch.setattr(
         stock_routes,
         "get_data_v2",
@@ -182,7 +265,9 @@ def test_stock_data_reads_redis_for_opt_in_realtime_period(monkeypatch, stock_ro
 
     assert response.status_code == 200
     assert response.get_json() == cached_payload
-    assert fake_redis.keys == [get_redis_cache_key("sz000001", "5min")]
+    assert fake_redis.keys == [
+        get_redis_cache_key("sz000001", "5min", adjustment_version="snapshot-v1")
+    ]
 
 
 def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch, stock_routes):
@@ -194,6 +279,9 @@ def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch, stock_rout
         return {"source": "fallback", "symbol": symbol, "period": period}
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
     response = call_stock_data(
@@ -207,7 +295,9 @@ def test_stock_data_falls_back_when_opt_in_cache_missing(monkeypatch, stock_rout
         "period": "15m",
     }
     assert fallback_calls == [("sz000001", "15m", None, 0)]
-    assert fake_redis.keys == [get_redis_cache_key("sz000001", "15min")]
+    assert fake_redis.keys == [
+        get_redis_cache_key("sz000001", "15min", adjustment_version="snapshot-v1")
+    ]
 
 
 def test_stock_data_reads_redis_for_opt_in_1d_period(monkeypatch, stock_routes):
@@ -215,6 +305,9 @@ def test_stock_data_reads_redis_for_opt_in_1d_period(monkeypatch, stock_routes):
     fake_redis = FakeRedis(value=json.dumps(cached_payload))
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
     monkeypatch.setattr(
         stock_routes,
         "get_data_v2",
@@ -227,7 +320,9 @@ def test_stock_data_reads_redis_for_opt_in_1d_period(monkeypatch, stock_routes):
 
     assert response.status_code == 200
     assert response.get_json() == cached_payload
-    assert fake_redis.keys == [get_redis_cache_key("sz000001", "1d")]
+    assert fake_redis.keys == [
+        get_redis_cache_key("sz000001", "1d", adjustment_version="snapshot-v1")
+    ]
 
 
 def test_stock_data_falls_back_when_opt_in_1d_cache_missing(monkeypatch, stock_routes):
@@ -239,6 +334,9 @@ def test_stock_data_falls_back_when_opt_in_1d_cache_missing(monkeypatch, stock_r
         return {"source": "fallback", "symbol": symbol, "period": period}
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
     response = call_stock_data(
@@ -252,7 +350,9 @@ def test_stock_data_falls_back_when_opt_in_1d_cache_missing(monkeypatch, stock_r
         "period": "1d",
     }
     assert fallback_calls == [("sz000001", "1d", None, 0)]
-    assert fake_redis.keys == [get_redis_cache_key("sz000001", "1d")]
+    assert fake_redis.keys == [
+        get_redis_cache_key("sz000001", "1d", adjustment_version="snapshot-v1")
+    ]
 
 
 def test_stock_data_skips_redis_when_end_date_present(monkeypatch, stock_routes):
@@ -264,6 +364,9 @@ def test_stock_data_skips_redis_when_end_date_present(monkeypatch, stock_routes)
         return {"source": "history", "endDate": end_date}
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
     response = call_stock_data(
@@ -298,6 +401,9 @@ def test_stock_data_tails_cache_payload_when_bar_count_is_provided(
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
     monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
+    monkeypatch.setattr(
         stock_routes,
         "get_data_v2",
         lambda *args, **kwargs: pytest.fail("cache hit should not call fallback"),
@@ -316,6 +422,27 @@ def test_stock_data_tails_cache_payload_when_bar_count_is_provided(
     assert response.get_json()["close"] == [3.5, 4.5, 5.5]
 
 
+def test_unknown_instrument_never_reads_unversioned_realtime_cache(
+    monkeypatch, stock_routes
+):
+    fake_redis = FakeRedis(value=json.dumps({"source": "stale-unversioned"}))
+    monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(stock_routes, "query_instrument_type", lambda _symbol: None)
+    monkeypatch.setattr(
+        stock_routes,
+        "get_data_v2",
+        lambda symbol, period, end_date, bar_count=0: {"source": "fallback"},
+    )
+
+    response = call_stock_data(
+        stock_routes, symbol="unknown", period="5m", realtimeCache="1"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"source": "fallback"}
+    assert fake_redis.keys == []
+
+
 def test_stock_data_forwards_bar_count_to_fallback(monkeypatch, stock_routes):
     fake_redis = FakeRedis(value=None)
     fallback_calls = []
@@ -325,6 +452,9 @@ def test_stock_data_forwards_bar_count_to_fallback(monkeypatch, stock_routes):
         return {"source": "fallback", "barCount": bar_count}
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
     response = call_stock_data(
@@ -351,6 +481,9 @@ def test_stock_data_clamps_oversized_bar_count_before_fallback(
         return {"source": "fallback", "barCount": bar_count}
 
     monkeypatch.setattr(stock_routes, "redis_db", fake_redis)
+    monkeypatch.setattr(
+        stock_routes, "_resolve_qfq_cache_version", lambda _symbol: "snapshot-v1"
+    )
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
     response = call_stock_data(

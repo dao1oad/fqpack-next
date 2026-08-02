@@ -10,6 +10,7 @@ import pytest
 
 import freshquant.market_data.xtdata.strategy_consumer as sc
 from freshquant.config import cfg
+from freshquant.data.qfq_reader import QFQDataNotReadyError
 from freshquant.market_data.xtdata.schema import BarCloseEvent
 
 
@@ -83,7 +84,35 @@ class FakeDatabase:
         self._collections = collections
 
     def __getitem__(self, name: str) -> FakeCollection:
+        if name == "qfq_ready":
+            return FakeCollection([_qfq_marker("stock"), _qfq_marker("etf")])
+        if name in {"stock_adj_qfq_a", "stock_adj_qfq_b"}:
+            return self._collections.get("stock_adj", FakeCollection([]))
+        if name in {"etf_adj_qfq_a", "etf_adj_qfq_b"}:
+            return self._collections.get("etf_adj", FakeCollection([]))
+        if name in {"stock_adj_intraday", "etf_adj_intraday"}:
+            return self._collections.get(name, FakeCollection([]))
         return self._collections[name]
+
+
+def _qfq_marker(scope: str) -> dict:
+    return {
+        "scope": scope,
+        "active_slot": "a",
+        "slots": {
+            slot: {
+                "collection": f"{scope}_adj_qfq_{slot}",
+                "snapshot_id": f"{scope}-snapshot-{slot}",
+                "factor_asof": "2099-12-31",
+                "status": "ready",
+                "published_at": "2026-07-31T16:00:00+08:00",
+                "source_exclusions": [],
+            }
+            for slot in ("a", "b")
+        },
+        "source": "xtdata_preclose",
+        "schema_version": 1,
+    }
 
 
 def _matches(doc: dict, query: dict) -> bool:
@@ -315,6 +344,82 @@ def test_handle_bar_close_stores_stock_realtime_as_raw_bar(monkeypatch):
     assert captured["records"][0]["close"] == 10.5
 
 
+def test_handle_bar_close_persists_raw_before_strict_qfq_failure(monkeypatch):
+    now_dt = cfg.TZ.localize(datetime(2026, 7, 6, 9, 35, 0))
+    calls = []
+    monkeypatch.setattr(
+        sc, "upsert_realtime_bars", lambda **kwargs: calls.append(kwargs) or 1
+    )
+    monkeypatch.setattr(
+        sc,
+        "read_qfq_factor",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            QFQDataNotReadyError("factor gap", scope="stock", code="000001")
+        ),
+    )
+
+    consumer = cast(Any, object.__new__(sc.StrategyConsumer))
+    consumer._is_real_index = lambda _code: False
+    consumer._is_index_like = lambda _code: False
+
+    with pytest.raises(QFQDataNotReadyError, match="factor gap"):
+        consumer.handle_bar_close(
+            BarCloseEvent(
+                code="sz000001",
+                period="5min",
+                data={
+                    "time": int(now_dt.timestamp()),
+                    "open": 10.0,
+                    "high": 11.0,
+                    "low": 9.5,
+                    "close": 10.5,
+                    "volume": 1000.0,
+                    "amount": 10000.0,
+                },
+            )
+        )
+
+    assert len(calls) == 1
+    assert calls[0]["records"][0]["close"] == 10.5
+
+
+def test_handle_bar_close_reloads_window_when_snapshot_version_changes(monkeypatch):
+    now_dt = cfg.TZ.localize(datetime(2026, 7, 6, 9, 35, 0))
+    monkeypatch.setattr(sc, "upsert_realtime_bars", lambda **_kwargs: 1)
+    monkeypatch.setattr(
+        sc,
+        "read_qfq_factor",
+        lambda **_kwargs: (
+            1.0,
+            type("Metadata", (), {"effective_version": "snapshot-v2"})(),
+        ),
+    )
+    warmed = []
+    consumer = cast(Any, object.__new__(sc.StrategyConsumer))
+    consumer._is_real_index = lambda _code: False
+    consumer._is_index_like = lambda _code: False
+    consumer._window_versions = {"sz000001": "snapshot-v1"}
+    consumer._warm_code_from_db = lambda **kwargs: warmed.append(kwargs["code"])
+
+    consumer.handle_bar_close(
+        BarCloseEvent(
+            code="sz000001",
+            period="5min",
+            data={
+                "time": int(now_dt.timestamp()),
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.5,
+                "close": 10.5,
+                "volume": 1000.0,
+                "amount": 10000.0,
+            },
+        )
+    )
+
+    assert warmed == ["sz000001"]
+
+
 def test_handle_bar_close_skips_non_trading_day(monkeypatch):
     weekend_dt = cfg.TZ.localize(datetime(2026, 7, 4, 9, 35, 0))
     calls: list[dict[str, Any]] = []
@@ -384,6 +489,14 @@ def test_handle_bar_close_does_not_refresh_symbol_position_snapshot_on_1min(
             return {"symbol": "000001"}
 
     monkeypatch.setattr(sc, "upsert_realtime_bars", lambda **_kwargs: 1)
+    monkeypatch.setattr(
+        sc,
+        "read_qfq_factor",
+        lambda **_kwargs: (
+            1.0,
+            type("Metadata", (), {"effective_version": "stock-snapshot-a"})(),
+        ),
+    )
 
     consumer = cast(Any, object.__new__(sc.StrategyConsumer))
     consumer.max_bars = 32
@@ -492,7 +605,15 @@ def test_load_window_from_db_handles_mixed_datetime_shapes_in_history_docs(
         FakeDatabase(
             {
                 "index_min": FakeCollection(mixed_docs),
-                "etf_adj": FakeCollection([]),
+                "etf_adj": FakeCollection(
+                    [
+                        {
+                            "code": "512000",
+                            "date": bar_1.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        }
+                    ]
+                ),
             }
         ),
     )
@@ -561,7 +682,16 @@ def test_load_window_from_db_ignores_completed_day_realtime_overlap(monkeypatch)
                         },
                     ]
                 ),
-                "etf_adj": FakeCollection([]),
+                "etf_adj": FakeCollection(
+                    [
+                        {
+                            "code": "512000",
+                            "date": value.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        }
+                        for value in (prev_day_bar, today_bar)
+                    ]
+                ),
             }
         ),
     )
@@ -635,7 +765,15 @@ def test_load_window_from_db_filters_non_trading_day_realtime(monkeypatch):
                 "stock_min": FakeCollection(
                     [_make_bar_doc(friday_bar, code="600104", period="5min", open_=9.8)]
                 ),
-                "stock_adj": FakeCollection([]),
+                "stock_adj": FakeCollection(
+                    [
+                        {
+                            "code": "600104",
+                            "date": friday_bar.strftime("%Y-%m-%d"),
+                            "adj": 1.0,
+                        }
+                    ]
+                ),
             }
         ),
     )

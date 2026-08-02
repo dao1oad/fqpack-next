@@ -53,6 +53,7 @@ def _install_route_stubs(monkeypatch):
 
     db = types.ModuleType("freshquant.db")
     db.DBfreshquant = {}
+    db.DBQuantAxis = {}
 
     instrument_general = types.ModuleType("freshquant.instrument.general")
     instrument_general.query_instrument_info = lambda *args, **kwargs: {}
@@ -76,6 +77,9 @@ def _install_route_stubs(monkeypatch):
 
     util_code = types.ModuleType("freshquant.util.code")
     util_code.fq_util_code_append_market_code_suffix = lambda code: code
+    util_code.normalize_to_base_code = (
+        lambda code: str(code or "").replace("sz", "").replace("sh", "")
+    )
 
     util_encoder = types.ModuleType("freshquant.util.encoder")
 
@@ -148,3 +152,20 @@ def test_stock_data_chanlun_structure_route_calls_service(monkeypatch, stock_rou
         "endDate": "2026-03-07",
     }
     assert called["args"] == ("sz000001", "5m", "2026-03-07")
+
+
+def test_stock_data_chanlun_structure_maps_qfq_not_ready_to_503(
+    monkeypatch, stock_routes
+):
+    def fail(*_args, **_kwargs):
+        raise stock_routes.QFQDataNotReadyError(
+            "factor gap", scope="stock", code="000001"
+        )
+
+    monkeypatch.setattr(stock_routes, "get_chanlun_structure", fail)
+    stock_routes.request.args = {"symbol": "sz000001", "period": "5m"}
+
+    response = stock_routes.stock_data_chanlun_structure()
+
+    assert response.status_code == 503
+    assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
