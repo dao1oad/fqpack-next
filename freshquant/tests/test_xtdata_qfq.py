@@ -652,6 +652,41 @@ def test_bootstrap_publishes_audited_source_empty_exclusions():
     )
 
 
+def test_bootstrap_excludes_primary_history_prefix_no_progress():
+    dates = ["2026-01-02", "2026-01-05"]
+    codes = ("000001", "000002")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": value} for code in codes for value in dates],
+    )
+
+    def loader(code, **_kwargs):
+        if code == "000002":
+            raise qfq.QFQSyncError(
+                "history prefix unavailable",
+                stats={"failure": "history_prefix_no_progress"},
+            )
+        return _bars([(dates[0], 10.0, 0.0), (dates[1], 10.0, 10.0)])
+
+    result = qfq.sync_stock_adj_all(target_date=dates[-1], db=db, bars_loader=loader)
+
+    exclusion = {"code": "000002", "reason": "source_prefix_unavailable"}
+    scope = result["by_scope"]["stock"]
+    assert scope["coverage"]["source_prefix_unavailable_excluded"] == 1
+    assert scope["coverage"]["source_prefix_unavailable"] == [exclusion]
+    for slot in ("a", "b"):
+        assert scope["marker"]["slots"][slot]["source_exclusions"] == [exclusion]
+        assert {row["code"] for row in db[f"stock_adj_qfq_{slot}"].rows} == {"000001"}
+    full = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        codes=["000002"],
+        bars_loader=loader,
+    )
+    assert full["ok"] is True
+
+
 def test_marker_source_exclusions_are_validated_and_backward_compatible():
     db = _stock_db(["2026-01-02"])
     qfq.sync_stock_adj_all(
@@ -662,6 +697,11 @@ def test_marker_source_exclusions_are_validated_and_backward_compatible():
     marker = db["qfq_ready"].rows[0]
     for slot in ("a", "b"):
         marker["slots"][slot].pop("source_exclusions")
+    assert qfq.validate_qfq_marker(marker, scope="stock")["active_slot"] == "a"
+
+    marker["slots"]["a"]["source_exclusions"] = [
+        {"code": "000001", "reason": "source_adjustment_gap_unproven"}
+    ]
     assert qfq.validate_qfq_marker(marker, scope="stock")["active_slot"] == "a"
 
     marker["slots"]["a"]["source_exclusions"] = [
@@ -721,12 +761,95 @@ def test_source_empty_exclusion_structure_and_full_audits_are_strict():
         "ok": False,
         "stale_source_exclusion": True,
         "rebuild_required": True,
+        "expected_reason": "source_empty_bars",
+        "observed_reason": None,
     }
 
     db["stock_adj_qfq_a"].rows.append({"code": "000002", "date": target, "adj": 1.0})
     residue = qfq.audit_qfq_slot(scope="stock", slot="a", db=db, codes=["000002"])
     assert residue["ok"] is False
     assert residue["failures"][0]["audit"]["source_exclusion_residue"] == 1
+
+
+def test_source_exclusion_audit_collects_unclassified_source_errors():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    codes = ("000002", "000003")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": value} for code in codes for value in dates],
+    )
+    exclusions = [
+        {"code": code, "reason": "source_adjustment_gap_unproven"} for code in codes
+    ]
+
+    def loader(code, **_kwargs):
+        if code == "000002":
+            return _bars([(dates[-1], 10.0, 0.0)])
+        return pd.DataFrame()
+
+    audit = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        factor_asof=dates[-1],
+        bars_loader=loader,
+        source_exclusions=exclusions,
+    )
+
+    assert audit["ok"] is False
+    assert audit["failed"] == 2
+    failures = {item["code"]: item["audit"] for item in audit["failures"]}
+    assert failures["000002"] == {
+        "ok": False,
+        "stale_source_exclusion": True,
+        "rebuild_required": True,
+        "expected_reason": "source_adjustment_gap_unproven",
+        "observed_reason": None,
+    }
+    assert failures["000003"]["observed_reason"] == "source_empty_bars"
+
+
+def test_full_scope_audit_includes_exclusions_outside_current_universe():
+    target = "2026-01-02"
+    db = _stock_db([target])
+    loader = _loader_for({"000001": [(target, 10.0, 0.0)]})
+    qfq.sync_stock_adj_all(target_date=target, db=db, bars_loader=loader)
+    marker = db["qfq_ready"].rows[0]
+    outside = {"code": "000999", "reason": "source_empty_bars"}
+    marker["slots"]["a"]["source_exclusions"] = [outside]
+    db["stock_adj_qfq_a"].rows.append({"code": "000999", "date": target, "adj": 1.0})
+
+    residue = qfq.audit_qfq_slot(scope="stock", slot="a", db=db)
+    assert residue["codes"] == 2
+    assert residue["failures"][0] == {
+        "code": "000999",
+        "audit": {"ok": False, "source_exclusion_residue": 1},
+    }
+
+    db["stock_adj_qfq_a"].rows = [
+        row for row in db["stock_adj_qfq_a"].rows if row["code"] != "000999"
+    ]
+    full = qfq.audit_qfq_slot(scope="stock", slot="a", db=db, bars_loader=loader)
+    assert full["codes"] == 2
+    assert full["failures"][0]["code"] == "000999"
+    assert full["failures"][0]["audit"] == {
+        "ok": False,
+        "stale_source_exclusion": True,
+        "rebuild_required": True,
+        "expected_reason": "source_empty_bars",
+        "observed_reason": None,
+    }
+
+    requested_current = qfq.audit_qfq_slot(
+        scope="stock", slot="a", db=db, codes=["000001"], bars_loader=loader
+    )
+    assert requested_current["ok"] is True
+    assert requested_current["codes"] == 1
+    requested_exclusion = qfq.audit_qfq_slot(
+        scope="stock", slot="a", db=db, codes=["000999"]
+    )
+    assert requested_exclusion["ok"] is True
+    assert requested_exclusion["codes"] == 1
 
 
 def test_empty_front_ratio_proof_remains_fail_closed():
@@ -742,6 +865,30 @@ def test_empty_front_ratio_proof_remains_fail_closed():
             front_ratio_loader=lambda *_args, **_kwargs: pd.DataFrame(),
         )
 
+    assert caught.value.stats["source_role"] == "front_ratio_proof"
+    assert not db["qfq_ready"].rows
+
+
+def test_history_prefix_no_progress_from_front_ratio_proof_remains_fail_closed():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    db = _stock_db(dates)
+    none_loader = _loader_for({"000001": [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]})
+
+    def front_loader(*_args, **_kwargs):
+        raise qfq.QFQSyncError(
+            "proof history prefix unavailable",
+            stats={"failure": "history_prefix_no_progress"},
+        )
+
+    with pytest.raises(qfq.QFQSyncError) as caught:
+        qfq.sync_stock_adj_all(
+            target_date=dates[-1],
+            db=db,
+            bars_loader=none_loader,
+            front_ratio_loader=front_loader,
+        )
+
+    assert caught.value.stats["failure"] == "history_prefix_no_progress"
     assert caught.value.stats["source_role"] == "front_ratio_proof"
     assert not db["qfq_ready"].rows
 
@@ -812,23 +959,117 @@ def test_bootstrap_bridges_bounded_source_gap_with_constant_front_ratio():
     assert audit["coverage"]["source_gap_rows_bridged"] == 1
 
 
-def test_bootstrap_rejects_source_gap_that_crosses_an_adjustment():
+def test_source_gap_that_crosses_adjustment_has_stable_failure_code():
     dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
-    db = _stock_db(dates)
     none_loader = _loader_for({"000001": [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]})
     changed_front_ratio = _loader_for(
         {"000001": [(dates[0], 5.0, 0.0), (dates[2], 3.2, 4.5)]}
     )
 
-    with pytest.raises(qfq.QFQSyncError, match="crosses an adjustment"):
-        qfq.sync_stock_adj_all(
-            target_date=dates[-1],
-            db=db,
-            bars_loader=none_loader,
-            front_ratio_loader=changed_front_ratio,
+    with pytest.raises(qfq.QFQSyncError, match="crosses an adjustment") as caught:
+        qfq._project_preclose_adj_to_bfq_dates(
+            none_loader("000001", start_time=dates[0], end_time=dates[-1]),
+            code="000001",
+            expected_dates=dates,
+            front_ratio_bars=changed_front_ratio(
+                "000001", start_time=dates[0], end_time=dates[-1]
+            ),
         )
 
-    assert not db["qfq_ready"].rows
+    assert caught.value.stats["failure"] == "source_adjustment_gap_unproven"
+
+
+def test_bootstrap_excludes_unproven_adjustment_gap_and_audits_same_reason():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    codes = ("000001", "000002")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": value} for code in codes for value in dates],
+    )
+    none_payload = {
+        "000001": [
+            (dates[0], 10.0, 0.0),
+            (dates[1], 10.0, 10.0),
+            (dates[2], 10.0, 10.0),
+        ],
+        "000002": [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)],
+    }
+    front_payload = {
+        "000001": [
+            (dates[0], 5.0, 0.0),
+            (dates[1], 5.0, 5.0),
+            (dates[2], 5.0, 5.0),
+        ],
+        "000002": [(dates[0], 5.0, 0.0), (dates[2], 3.2, 4.5)],
+    }
+    none_loader = _loader_for(none_payload)
+    front_loader = _loader_for(front_payload)
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+    )
+
+    exclusion = {"code": "000002", "reason": "source_adjustment_gap_unproven"}
+    scope = result["by_scope"]["stock"]
+    assert scope["coverage"]["source_adjustment_gap_unproven_excluded"] == 1
+    assert scope["coverage"]["source_adjustment_gap_unproven"] == [exclusion]
+    assert {row["code"] for row in db["stock_adj_qfq_a"].rows} == {"000001"}
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
+    for slot in ("a", "b"):
+        assert scope["marker"]["slots"][slot]["source_exclusions"] == [exclusion]
+
+    structure = qfq.audit_qfq_slot(scope="stock", slot="a", db=db, codes=["000002"])
+    assert structure["ok"] is True
+    assert structure["coverage"]["source_adjustment_gap_unproven"] == [exclusion]
+    full = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        codes=["000002"],
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+    )
+    assert full["ok"] is True
+
+    none_payload["000002"] = []
+    different_reason = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        codes=["000002"],
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+    )
+    assert different_reason["ok"] is False
+    assert different_reason["failures"][0]["audit"] == {
+        "ok": False,
+        "stale_source_exclusion": True,
+        "rebuild_required": True,
+        "expected_reason": "source_adjustment_gap_unproven",
+        "observed_reason": "source_empty_bars",
+    }
+
+    none_payload["000002"] = [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]
+    front_payload["000002"] = [(dates[0], 5.0, 0.0), (dates[2], 4.0, 4.5)]
+    recovered_proof = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        codes=["000002"],
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+    )
+    assert recovered_proof["ok"] is False
+    assert recovered_proof["failures"][0]["audit"] == {
+        "ok": False,
+        "stale_source_exclusion": True,
+        "rebuild_required": True,
+        "expected_reason": "source_adjustment_gap_unproven",
+        "observed_reason": None,
+    }
 
 
 def test_bootstrap_rejects_unbounded_source_gap():
@@ -1397,6 +1638,87 @@ def test_incremental_update_bridges_bounded_source_gap():
     assert result["by_scope"]["stock"]["coverage"]["source_gap_rows_bridged"] == 1
     assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == dates
     assert [row["adj"] for row in db["stock_adj_qfq_b"].rows] == [1.0, 1.0, 1.0]
+
+
+def test_update_excludes_unproven_adjustment_gap_from_inactive_slot():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    codes = ("000001", "000002")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": dates[0]} for code in codes],
+    )
+    none_payload = {code: [(dates[0], 10.0, 0.0)] for code in codes}
+    front_payload = {code: [(dates[0], 5.0, 0.0)] for code in codes}
+    none_loader = _loader_for(none_payload)
+    front_loader = _loader_for(front_payload)
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=none_loader)
+    db["stock_day"].rows.extend(
+        {"code": code, "date": value} for code in codes for value in dates[1:]
+    )
+    none_payload["000001"] = [
+        (dates[0], 10.0, 0.0),
+        (dates[1], 10.0, 10.0),
+        (dates[2], 10.0, 10.0),
+    ]
+    none_payload["000002"] = [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]
+    front_payload["000002"] = [(dates[0], 5.0, 0.0), (dates[2], 3.2, 4.5)]
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+        min_grace_seconds=0,
+    )
+
+    exclusion = {"code": "000002", "reason": "source_adjustment_gap_unproven"}
+    scope = result["by_scope"]["stock"]
+    assert scope["stats"]["source_adjustment_gap_unproven_excluded"] == 1
+    assert scope["coverage"]["source_adjustment_gap_unproven"] == [exclusion]
+    assert scope["marker"]["active_slot"] == "b"
+    assert scope["marker"]["slots"]["a"]["source_exclusions"] == []
+    assert scope["marker"]["slots"]["b"]["source_exclusions"] == [exclusion]
+    assert {row["code"] for row in db["stock_adj_qfq_a"].rows} == set(codes)
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
+
+
+def test_update_excludes_primary_history_prefix_no_progress():
+    dates = ["2026-01-02", "2026-01-05"]
+    codes = ("000001", "000002")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": dates[0]} for code in codes],
+    )
+    prefix_unavailable = False
+
+    def loader(code, **_kwargs):
+        if prefix_unavailable and code == "000002":
+            raise qfq.QFQSyncError(
+                "history prefix unavailable",
+                stats={"failure": "history_prefix_no_progress"},
+            )
+        return _bars(
+            [(value, 10.0, 0.0 if value == dates[0] else 10.0) for value in dates]
+        )
+
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=loader)
+    db["stock_day"].rows.extend({"code": code, "date": dates[1]} for code in codes)
+    prefix_unavailable = True
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=loader,
+        min_grace_seconds=0,
+    )
+
+    exclusion = {"code": "000002", "reason": "source_prefix_unavailable"}
+    scope = result["by_scope"]["stock"]
+    assert scope["stats"]["source_prefix_unavailable_excluded"] == 1
+    assert scope["coverage"]["source_prefix_unavailable"] == [exclusion]
+    assert scope["marker"]["slots"]["a"]["source_exclusions"] == []
+    assert scope["marker"]["slots"]["b"]["source_exclusions"] == [exclusion]
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
 
 
 def test_incremental_update_reloads_context_when_tail_starts_on_source_gap():
