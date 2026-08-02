@@ -933,9 +933,7 @@ def test_audit_rejects_factor_rows_for_prelisting_only_bfq_history():
 
     assert audit["ok"] is False
     assert audit["failures"][0]["code"] == "161022"
-    assert audit["failures"][0]["audit"]["extra_dates"] == [
-        ("161022", "2020-01-02")
-    ]
+    assert audit["failures"][0]["audit"]["extra_dates"] == [("161022", "2020-01-02")]
 
 
 def test_bootstrap_failure_never_creates_ready_marker():
