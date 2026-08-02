@@ -16,8 +16,8 @@ def test_compose_images_support_env_overrides() -> None:
     text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
     assert "${FQNEXT_REAR_IMAGE:-fqnext_rear:2026.2.23}" in text
     assert "${FQNEXT_WEBUI_IMAGE:-fqnext_webui:2026.2.23}" in text
-    assert "${FQNEXT_TA_BACKEND_IMAGE:-fqnext_ta_backend:2026.2.23}" in text
-    assert "${FQNEXT_TA_FRONTEND_IMAGE:-fqnext_ta_frontend:2026.2.23}" in text
+    assert "FQNEXT_TA_BACKEND_IMAGE" not in text
+    assert "FQNEXT_TA_FRONTEND_IMAGE" not in text
 
 
 def test_compose_core_rear_services_override_container_redis_host() -> None:

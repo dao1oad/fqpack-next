@@ -124,11 +124,11 @@ def test_cold_memory_deploy_surfaces_cover_current_release_matrix() -> None:
         "freshquant/signal/**",
         "morningglory/fqwebui/**",
         "morningglory/fqdagster/**",
-        "third_party/tradingagents-cn/**",
     ):
         assert expected in deploy_text
 
     assert "runtime/symphony/**" not in deploy_text
+    assert "tradingagents" not in deploy_text.lower()
 
     assert (
         "`freshquant/position_management/**` -> 重部署 API，并重启 `position_management` 宿主机运行面。"

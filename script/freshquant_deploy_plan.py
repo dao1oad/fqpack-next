@@ -11,7 +11,6 @@ SURFACE_ORDER = (
     "web",
     "dagster",
     "qa",
-    "tradingagents",
     "market_data",
     "guardian",
     "position_management",
@@ -29,8 +28,6 @@ SURFACE_ALIASES = {
     "dagster": "dagster",
     "qa": "qa",
     "qawebserver": "qa",
-    "tradingagents": "tradingagents",
-    "tradingagents-cn": "tradingagents",
     "market_data": "market_data",
     "market-data": "market_data",
     "guardian": "guardian",
@@ -48,7 +45,6 @@ DOCKER_SERVICE_MAP = {
     "web": ["fq_webui"],
     "dagster": ["fq_dagster_webserver", "fq_dagster_daemon"],
     "qa": ["fq_qawebserver"],
-    "tradingagents": ["ta_backend", "ta_frontend"],
 }
 
 DOCKER_BUILD_TARGET_MAP = {
@@ -56,7 +52,6 @@ DOCKER_BUILD_TARGET_MAP = {
     "web": ["fq_webui"],
     "dagster": ["fq_apiserver"],
     "qa": ["fq_apiserver"],
-    "tradingagents": ["ta_backend", "ta_frontend"],
 }
 
 HOST_SURFACE_PROGRAMS = {
@@ -95,10 +90,6 @@ HEALTH_CHECK_MAP = {
     "dagster": [
         "http://127.0.0.1:11003/server_info",
     ],
-    "tradingagents": [
-        "http://127.0.0.1:13000/api/health",
-        "http://127.0.0.1:13080/health",
-    ],
 }
 
 ALL_HOST_RUNTIME_SURFACES = (
@@ -117,7 +108,7 @@ FRESHQUANT_MESSAGE_SURFACES = ("market_data", "guardian")
 FRESHQUANT_TRADING_SURFACES = ("api", "dagster", "market_data", "guardian")
 FRESHQUANT_LEGACY_CONFIG_SURFACES = ("dagster", "market_data", "guardian")
 FQXTRADE_RUNTIME_SURFACES = ("order_management",)
-DOCKER_PARALLEL_ALL_SURFACES = ("api", "web", "dagster", "qa", "tradingagents")
+DOCKER_PARALLEL_ALL_SURFACES = ("api", "web", "dagster", "qa")
 DOCKER_PARALLEL_ALL_SERVICES = (
     "fq_mongodb",
     "fq_redis",
@@ -129,8 +120,6 @@ DOCKER_PARALLEL_ALL_SERVICES = (
     "fq_dagster_daemon",
     "fq_qawebserver",
     "fq_webui",
-    "ta_backend",
-    "ta_frontend",
 )
 DOCKER_PARALLEL_COMPOSE_PATH = "docker/compose.parallel.yaml"
 
@@ -345,11 +334,6 @@ PATH_RULES: tuple[PathRule, ...] = (
         prefix="morningglory/fqxtrade/fqxtrade/",
         surfaces=FQXTRADE_RUNTIME_SURFACES,
         notes=("vendored `fqxtrade` 改动会影响 broker / ingest 等宿主机订单链。",),
-    ),
-    PrefixRule(
-        label="tradingagents",
-        prefix="third_party/tradingagents-cn/",
-        surfaces=("tradingagents",),
     ),
     ExactRule(
         label="host-runtime-ctl",

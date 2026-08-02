@@ -67,7 +67,6 @@ def test_bootstrap_without_state_deploys_all_surfaces(
         "web",
         "dagster",
         "qa",
-        "tradingagents",
         "market_data",
         "guardian",
         "position_management",
@@ -79,7 +78,6 @@ def test_bootstrap_without_state_deploys_all_surfaces(
         HEALTH_CHECK_MAP={
             "api": ["http://127.0.0.1:15000/api/runtime/health/summary"],
             "web": ["http://127.0.0.1:18080/"],
-            "tradingagents": ["http://127.0.0.1:13000/api/health"],
         },
         build_deploy_plan=lambda changed_paths=None, explicit_surfaces=None: make_plan(
             surfaces=list(explicit_surfaces or []),
@@ -97,8 +95,6 @@ def test_bootstrap_without_state_deploys_all_surfaces(
                 "fq_dagster_webserver",
                 "fq_dagster_daemon",
                 "fq_qawebserver",
-                "ta_backend",
-                "ta_frontend",
             ],
             host_command=[
                 "powershell",

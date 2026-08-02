@@ -52,32 +52,3 @@ def test_example_env_file_no_longer_contains_proxy_keys() -> None:
         "no_proxy=",
     ):
         assert key not in env_text
-
-
-def test_tradingagents_runtime_no_longer_defines_proxy_settings() -> None:
-    config_text = Path("third_party/tradingagents-cn/app/core/config.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "HTTP_PROXY: str = Field" not in config_text
-    assert "HTTPS_PROXY: str = Field" not in config_text
-    assert "NO_PROXY: str = Field" not in config_text
-    assert "clear_proxy_env_for_current_process()" in config_text
-
-
-def test_tradingagents_example_env_file_no_longer_contains_proxy_keys() -> None:
-    env_text = Path("third_party/tradingagents-cn/.env.example").read_text(
-        encoding="utf-8"
-    )
-
-    for key in (
-        "ALL_PROXY=",
-        "all_proxy=",
-        "HTTP_PROXY=",
-        "http_proxy=",
-        "HTTPS_PROXY=",
-        "https_proxy=",
-        "NO_PROXY=",
-        "no_proxy=",
-    ):
-        assert key not in env_text

@@ -213,7 +213,6 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `morningglory/fqcopilot/**` | CLX 原生扩展 | 用当前远程 main 重新同步 Python 依赖并构建扩展；重建/重启消费扩展的 API 与 Dagster 运行面 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
-| `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
 
 CLX 日线选股变更的部署计划先用共享解析器确认：
 
@@ -342,13 +341,6 @@ docker compose -f docker/compose.parallel.yaml exec -T fq_apiserver `
 
 验收还要核对 API 返回的 `written_count` 等于人工篮子最终数量，文件行数一致，且通达信固定组 `clx_18` 能读取同一批代码。失败场景必须证明旧 `CLX_18.blk` 的 hash 与内容保持不变；不能只以接口返回 2xx 作为通过。
 
-### TradingAgents
-
-```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13000/api/health
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:13080/health
-```
-
 ### Deploy 后运维面检查
 
 本轮有实际 deploy 时，必须先采 baseline，再在接口健康检查通过后执行 verify：
@@ -358,7 +350,7 @@ powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_de
 powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface api,market_data
 ```
 
-- `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`tradingagents`、`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`
+- `DeploymentSurface` 取值固定为：`api`、`web`、`dagster`、`qa`、`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`
 - 输出 JSON 至少包含：`baseline`、`docker_checks`、`service_checks`、`process_checks`、`supervisor_config_checks`、`warnings`、`failures`、`passed`
 - 固定检查基础容器：`fq_mongodb`、`fq_redis`
 - 固定记录宿主机服务：`fqnext-supervisord`

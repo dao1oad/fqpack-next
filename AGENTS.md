@@ -116,7 +116,6 @@
 - `freshquant/data/**` 中影响 Gantt / Shouban30 的改动：重部署 API / Dagster
 - `morningglory/fqwebui/**`：重新构建并部署 Web UI
 - `morningglory/fqdagster/**`：重部署 Dagster
-- `third_party/tradingagents-cn/**`：重部署 `ta_backend` / `ta_frontend`
 
 ## 7. Cleanup
 

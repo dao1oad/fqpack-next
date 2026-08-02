@@ -47,8 +47,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Fetch base branch
+        run: git fetch origin ${{ github.base_ref || 'main' }} --no-tags --prune
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -56,7 +59,7 @@ jobs:
           python-version: "3.12"
 
       - name: Current docs guard
-        run: python script/ci/check_current_docs.py --changed-files-json '${{ needs.changes.outputs.changed_files_json }}'
+        run: python script/ci/check_current_docs.py --base-ref origin/${{ github.base_ref || 'main' }} --head-ref HEAD
 
   pre-commit:
     name: pre-commit
@@ -67,8 +70,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Fetch base branch
+        run: git fetch origin ${{ github.base_ref || 'main' }} --no-tags --prune
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -85,30 +91,7 @@ jobs:
         run: python -m pip install --upgrade pip pre-commit
 
       - name: Run pre-commit (changed files only)
-        env:
-          CHANGED_FILES_JSON: ${{ needs.changes.outputs.changed_files_json }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import subprocess
-          import sys
-
-          changed_files = json.loads(os.environ["CHANGED_FILES_JSON"])
-          if not changed_files:
-              print("No changed files; skipping pre-commit.")
-              raise SystemExit(0)
-
-          command = [
-              "pre-commit",
-              "run",
-              "--show-diff-on-failure",
-              "--color=always",
-              "--files",
-              *changed_files,
-          ]
-          raise SystemExit(subprocess.call(command))
-          PY
+        run: pre-commit run --show-diff-on-failure --color=always --from-ref origin/${{ github.base_ref || 'main' }} --to-ref HEAD
 
   frontend:
     name: frontend

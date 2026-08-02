@@ -62,8 +62,6 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 ```powershell
 $env:FQNEXT_REAR_IMAGE="fqnext_rear:<tag>"
 $env:FQNEXT_WEBUI_IMAGE="fqnext_webui:<tag>"
-$env:FQNEXT_TA_BACKEND_IMAGE="fqnext_ta_backend:<tag>"
-$env:FQNEXT_TA_FRONTEND_IMAGE="fqnext_ta_frontend:<tag>"
 docker compose -f docker/compose.parallel.yaml up -d --build
 ```
 

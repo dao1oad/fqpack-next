@@ -17,8 +17,6 @@ SERVICE_IMAGE_ENV_VARS = {
     "fq_dagster_daemon": "FQNEXT_REAR_IMAGE",
     "fq_qawebserver": "FQNEXT_REAR_IMAGE",
     "fq_webui": "FQNEXT_WEBUI_IMAGE",
-    "ta_backend": "FQNEXT_TA_BACKEND_IMAGE",
-    "ta_frontend": "FQNEXT_TA_FRONTEND_IMAGE",
 }
 
 SERVICE_REGISTRY_PACKAGES = {
@@ -28,8 +26,6 @@ SERVICE_REGISTRY_PACKAGES = {
     "fq_dagster_daemon": "fqnext-rear",
     "fq_qawebserver": "fqnext-rear",
     "fq_webui": "fqnext-webui",
-    "ta_backend": "fqnext-ta-backend",
-    "ta_frontend": "fqnext-ta-frontend",
 }
 
 SHARED_REAR_BUILD_INPUT_PREFIXES = (
@@ -69,14 +65,6 @@ SERVICE_BUILD_INPUT_PREFIXES = {
     "fq_webui": (
         "docker/Dockerfile.web",
         "morningglory/fqwebui/",
-    ),
-    "ta_backend": (
-        "third_party/tradingagents-cn/Dockerfile.backend",
-        "third_party/tradingagents-cn/",
-    ),
-    "ta_frontend": (
-        "third_party/tradingagents-cn/Dockerfile.frontend",
-        "third_party/tradingagents-cn/",
     ),
 }
 

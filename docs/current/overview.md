@@ -34,9 +34,6 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
   - Gantt / 筛选相关读模型作业
 - `runtime/memory/`
   - memory bootstrap 与 context pack
-- `third_party/tradingagents-cn/`
-  - 并行子系统
-
 ## 当前真值
 
 - 代码真值

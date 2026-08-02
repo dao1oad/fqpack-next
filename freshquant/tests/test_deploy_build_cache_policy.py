@@ -56,25 +56,11 @@ def test_compose_uses_web_scoped_context_and_git_sha_build_args() -> None:
     assert "FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}" in text
 
 
-def test_tradingagents_compose_uses_git_sha_build_args() -> None:
-    text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
-
-    assert "ta_backend:" in text
-    assert "ta_frontend:" in text
-    assert text.count("FQ_IMAGE_GIT_SHA: ${FQ_IMAGE_GIT_SHA:-unknown}") >= 4
-
-
 def test_all_dockerfiles_use_git_sha_labels_and_buildkit_cache_mounts() -> None:
     rear_text = Path("docker/Dockerfile.rear").read_text(encoding="utf-8")
     web_text = Path("docker/Dockerfile.web").read_text(encoding="utf-8")
-    ta_backend_text = Path("third_party/tradingagents-cn/Dockerfile.backend").read_text(
-        encoding="utf-8"
-    )
-    ta_frontend_text = Path(
-        "third_party/tradingagents-cn/Dockerfile.frontend"
-    ).read_text(encoding="utf-8")
 
-    for text in (rear_text, web_text, ta_backend_text, ta_frontend_text):
+    for text in (rear_text, web_text):
         assert "ARG FQ_IMAGE_GIT_SHA=unknown" in text
         assert 'LABEL io.freshquant.git_sha="${FQ_IMAGE_GIT_SHA}"' in text
         assert "--mount=type=cache" in text

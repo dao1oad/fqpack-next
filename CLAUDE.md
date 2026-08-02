@@ -51,7 +51,6 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `freshquant/data/`：股票池、持仓、Gantt / Shouban30 读模型
 - `morningglory/fqwebui/`：Vue 3 前端
 - `morningglory/fqdagster/`：Dagster
-- `third_party/tradingagents-cn/`：TradingAgents-CN
 
 ## 运行与部署
 

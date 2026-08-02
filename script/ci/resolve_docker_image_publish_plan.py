@@ -42,24 +42,6 @@ IMAGE_DEFINITIONS = {
             "morningglory/fqwebui/",
         ),
     },
-    "ta-backend": {
-        "image_name": "fqnext-ta-backend",
-        "context": "./third_party/tradingagents-cn",
-        "dockerfile": "./third_party/tradingagents-cn/Dockerfile.backend",
-        "build_input_prefixes": (
-            "third_party/tradingagents-cn/Dockerfile.backend",
-            "third_party/tradingagents-cn/",
-        ),
-    },
-    "ta-frontend": {
-        "image_name": "fqnext-ta-frontend",
-        "context": "./third_party/tradingagents-cn",
-        "dockerfile": "./third_party/tradingagents-cn/Dockerfile.frontend",
-        "build_input_prefixes": (
-            "third_party/tradingagents-cn/Dockerfile.frontend",
-            "third_party/tradingagents-cn/",
-        ),
-    },
 }
 
 

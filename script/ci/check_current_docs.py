@@ -22,7 +22,6 @@ DOC_REQUIRED_PREFIXES = (
     "runtime/",
     "morningglory/fqwebui/src/views/",
     "morningglory/fqdagster/",
-    "third_party/tradingagents-cn/",
 )
 
 DOC_REQUIRED_FILES = (
