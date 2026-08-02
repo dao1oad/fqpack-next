@@ -45,7 +45,7 @@
 
 Schema v2 要求每个新 generation 冻结同一个完整 QFQ snapshot pair。pair 的 `stock / etf` 两侧都包含 `scope / active_slot / collection / snapshot_id / factor_asof / published_at / effective_version / source_exclusions[]`；`effective_version` 等于本次严格读取使用的 `snapshot_id`。`source_exclusions[]` 只保留稳定的 `code / reason` 并按二者排序，规范化后的完整 pair 参与 canonical hash。
 
-服务优先调用 production batch。当前本机运行时没有可用 production batch 入口时，adapter 会逐个调用 `10000..10017`，写入 `calculation_mode=single_model_fallback`；完全缺少 `fq_clxs_all` 时 `fallback_reason=fq_clxs_all_unavailable`，旧批量签名缺少 `switch_opt` 时为 `fq_clxs_all_missing_switch_opt`，两种情况都不回退到 switch0。`qfq-daily-v1` 同时要求进入计算的每个 bar 日期都由 active QFQ snapshot 提供有限且大于 0 的复权因子，不以 `adj=1` 或未复权数据继续计算。规划阶段只对目标日 BFQ 行做 strict-reader availability probe；该 probe 的 `QFQ_DATA_NOT_READY` 标的进入有证据的隔离集合，完整 1200-bar 读取或模型计算阶段的逐标的异常仍按零容忍使本侧 partition 失败。
+服务优先调用 production batch。当前本机运行时没有可用 production batch 入口时，adapter 会逐个调用 `10000..10017`，写入 `calculation_mode=single_model_fallback`；完全缺少 `fq_clxs_all` 时 `fallback_reason=fq_clxs_all_unavailable`，旧批量签名缺少 `switch_opt` 时为 `fq_clxs_all_missing_switch_opt`，两种情况都不回退到 switch0。`qfq-daily-v1` 同时要求进入计算的每个 bar 日期都由 active QFQ snapshot 提供有限且大于 0 的复权因子，不以 `adj=1` 或未复权数据继续计算。`bar_count=1200` 表示最多读取截至目标日最近 1200 根实际存在的 BFQ bar，不是最低行数；短生命周期标的只要末根是目标日且所有实际 BFQ 日期都有同一冻结 snapshot 的 QFQ 因子即可进入计算。规划和执行使用相同窗口，只有实际 BFQ 日期缺因子产生的 `QFQ_DATA_NOT_READY` 才进入有证据的隔离集合，其他读取或模型异常继续 fail-closed。
 
 ## fork-join 调度
 
@@ -64,7 +64,7 @@ Schema v2 要求每个新 generation 冻结同一个完整 QFQ snapshot pair。p
 - `marker_snapshot / marker_snapshot_hash`
 - 完整 `qfq_snapshot_pair / qfq_snapshot_pair_hash` 及两侧 snapshot id
 - 冻结的 `effective_instruments / effective_universe_hash`
-- `universe_evidence`：candidate/effective 数量与 hash、marker source exclusions、strict-reader isolations 及 isolation hash
+- `universe_evidence`：candidate/effective 数量与 hash、marker source exclusions、strict-reader isolations 及 isolation hash，并保存 `reader_probe_bar_count=1200 / reader_probe_contract_version=full-profile-window-v1`
 - `input_snapshot_hash`
 - `partition_id / content_hash`
 - `status / claim_owner / claim_token / lease_expires_at / error`
@@ -75,9 +75,9 @@ Schema v2 要求每个新 generation 冻结同一个完整 QFQ snapshot pair。p
 
 ### 输入冻结与漂移
 
-规划 attempt 前，服务通过严格 QFQ reader 解析 Stock+ETF 两侧 active snapshot，按目标交易日规范化 canonical pair。Stock 与 ETF 各自只规划本侧 raw candidate universe：先按 marker 中通用的 `source_exclusions` 规范化代码并剔除，再对其余标的的目标日 BFQ 行调用 shared strict reader，且要求返回 metadata 与冻结 pair 完全一致。只有错误码为 `QFQ_DATA_NOT_READY` 的逐标的 probe 会被隔离；隔离事实保存 `code / classification / error_code / reason / source` 及 count/hash，`missing_dates` 非空时统一分类为 `target_date_not_covered_by_active_qfq_snapshot`，其他异常在创建 attempt 前直接向上抛出。最终冻结 strict-QFQ-effective universe，断言它与 marker exclusions 无交集且非空，并保存完整 instruments/hash；不向 QFQ marker 伪造新的 `source_exclusions`。
+规划 attempt 前，服务通过严格 QFQ reader 解析 Stock+ETF 两侧 active snapshot，按目标交易日规范化 canonical pair。Stock 与 ETF 各自只规划本侧 raw candidate universe：先按 marker 中通用的 `source_exclusions` 规范化代码并剔除，再对其余标的调用 shared strict reader，读取截至目标日最多 `profile.bar_count` 根实际 BFQ bar，且要求返回 metadata 与冻结 pair 完全一致。只有错误码为 `QFQ_DATA_NOT_READY` 的逐标的 probe 会被隔离；隔离事实保存 `code / classification / error_code / reason / source` 及 count/hash，缺失日期包含目标日时分类为 `target_date_not_covered_by_active_qfq_snapshot`，仅缺历史窗口日期时分类为 `historical_window_not_covered_by_active_qfq_snapshot`，其他异常在创建 attempt 前直接向上抛出。最终冻结 strict-QFQ-effective universe，断言它与 marker exclusions 无交集且非空，并保存完整 instruments/hash；旧 target-day-only probe evidence 不复用，也不向 QFQ marker 伪造新的 `source_exclusions`。
 
-一侧 source exclusion 或目标日缺 QFQ proof 不阻塞另一侧规划，也不让少量已分类异常停掉整个 scope。attempt 执行阶段只读取已冻结的 effective instruments，不重新枚举 raw universe；重试复用同一 marker/pair 下的冻结有效集合。candidate、effective、source-excluded、reader-isolated 的数量必须守恒，任一残余交集、hash/count 不一致或未分类异常都在零 attempt 或零提交边界 fail-closed。
+一侧 source exclusion 或窗口内实际 BFQ 日期缺 QFQ proof 不阻塞另一侧规划，也不让少量已分类异常停掉整个 scope。attempt 执行阶段只读取已冻结的 effective instruments，不重新枚举 raw universe；重试只复用同一 marker/pair 且 probe 窗口合同一致的冻结有效集合。candidate、effective、source-excluded、reader-isolated 的数量必须守恒，任一残余交集、hash/count 不一致或未分类异常都在零 attempt 或零提交边界 fail-closed。
 
 partition 在计算前后各解析一次本侧 ready marker 和完整 Stock+ETF QFQ pair，以 attempt 冻结的 `effective_universe_hash` 重新构造 current selection key，并与规划时冻结的完整 `selection_key` 对比。每只标的的完整历史严格读取还必须返回与 attempt 一致的 `snapshot_id / factor_asof / effective_version / collection` provenance。任一阶段发生 marker 或 pair 漂移、或逐标的 provenance 不一致时，本侧 attempt 结束为 `upstream_drift` 或计算失败，本次输出不提交；另一侧旧 pair 的成功输出保持不可变历史，但新 pair generation 会让两侧 selection key 都失效并重算。
 

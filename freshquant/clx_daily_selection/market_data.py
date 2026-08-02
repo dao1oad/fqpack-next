@@ -70,14 +70,18 @@ class MongoDailyMarketDataProvider:
         symbol: str,
         trade_date: str,
         *,
+        bar_count: int = 1,
         expected_snapshot_metadata=None,
     ) -> dict[str, Any]:
-        """Prove the target-day BFQ row against one frozen QFQ snapshot."""
+        """Prove at most ``bar_count`` BFQ bars against one frozen snapshot."""
+        bar_count = int(bar_count)
+        if bar_count < 1:
+            raise ValueError("bar_count must be positive")
         bars = self.get_daily_bars(
             asset_type,
             symbol,
             trade_date,
-            1,
+            bar_count,
             expected_snapshot_metadata=expected_snapshot_metadata,
         )
         trade_date = self._date_text(trade_date)

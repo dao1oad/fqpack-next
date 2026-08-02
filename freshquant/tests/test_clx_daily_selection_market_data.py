@@ -463,6 +463,53 @@ def test_target_day_qfq_probe_propagates_missing_factor_as_not_ready(
         )
 
 
+def test_full_window_qfq_probe_isolates_an_actual_bfq_date_without_factor(
+    monkeypatch,
+):
+    captured = {}
+
+    def apply_qfq_to_bars(bars, **_kwargs):
+        captured["dates"] = bars["date"].tolist()
+        raise FakeQFQDataNotReadyError(
+            "active QFQ snapshot does not cover requested bars",
+            scope="stock",
+            code="000001",
+            missing_dates=["2026-07-30"],
+        )
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
+    provider = MongoDailyMarketDataProvider(
+        {
+            "stock_day": DailyBarsCollection(
+                [
+                    {
+                        "code": "000001",
+                        "date": "2026-07-30",
+                        "open": 9,
+                        "high": 10,
+                        "low": 8,
+                        "close": 9.5,
+                    },
+                    {
+                        "code": "000001",
+                        "date": "2026-07-31",
+                        "open": 10,
+                        "high": 11,
+                        "low": 9,
+                        "close": 10.5,
+                    },
+                ]
+            )
+        }
+    )
+
+    with pytest.raises(FakeQFQDataNotReadyError) as error:
+        provider.probe_qfq_instrument("stock", "000001", "2026-07-31", bar_count=1200)
+
+    assert captured["dates"] == ["2026-07-30", "2026-07-31"]
+    assert error.value.missing_dates == ("2026-07-30",)
+
+
 @pytest.mark.parametrize(
     ("asset_type", "symbol", "collection_name", "slot"),
     [
@@ -470,7 +517,7 @@ def test_target_day_qfq_probe_propagates_missing_factor_as_not_ready(
         ("etf", "510300", "index_day", "b"),
     ],
 )
-def test_target_day_qfq_probe_accepts_valid_stock_and_etf_codes(
+def test_full_window_qfq_probe_accepts_short_lifecycle_stock_and_etf_codes(
     monkeypatch, asset_type, symbol, collection_name, slot
 ):
     captured = {}
@@ -524,9 +571,20 @@ def test_target_day_qfq_probe_accepts_valid_stock_and_etf_codes(
         asset_type,
         symbol,
         "2026-07-31",
+        bar_count=1200,
         expected_snapshot_metadata=expected,
     )
 
-    assert captured["dates"] == ["2026-07-31"]
+    assert captured["dates"] == ["2026-07-30", "2026-07-31"]
     assert metadata["snapshot_id"] == expected["snapshot_id"]
     assert metadata["active_slot"] == slot
+
+
+@pytest.mark.parametrize("bar_count", [0, -1])
+def test_qfq_probe_requires_a_positive_bar_count(bar_count):
+    provider = MongoDailyMarketDataProvider({})
+
+    with pytest.raises(ValueError, match="bar_count must be positive"):
+        provider.probe_qfq_instrument(
+            "stock", "000001", "2026-07-31", bar_count=bar_count
+        )

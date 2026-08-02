@@ -366,9 +366,10 @@ class FakeMarketDataProvider:
         symbol,
         trade_date,
         *,
+        bar_count=1,
         expected_snapshot_metadata=None,
     ):
-        self.calls.append(("probe", asset_type, symbol, trade_date))
+        self.calls.append(("probe", asset_type, symbol, trade_date, bar_count))
         return deepcopy(expected_snapshot_metadata or qfq_snapshot_pair()[asset_type])
 
     def get_daily_bars(
@@ -616,6 +617,7 @@ def test_strict_reader_isolates_stock_and_etf_target_day_gaps_before_attempt():
             symbol,
             trade_date,
             *,
+            bar_count=1,
             expected_snapshot_metadata=None,
         ):
             if symbol == gaps[asset_type]:
@@ -629,6 +631,7 @@ def test_strict_reader_isolates_stock_and_etf_target_day_gaps_before_attempt():
                 asset_type,
                 symbol,
                 trade_date,
+                bar_count=bar_count,
                 expected_snapshot_metadata=expected_snapshot_metadata,
             )
 
@@ -662,6 +665,98 @@ def test_strict_reader_isolates_stock_and_etf_target_day_gaps_before_attempt():
             plan["universe_evidence"]["reader_isolations"][0]["classification"]
             == "target_date_not_covered_by_active_qfq_snapshot"
         )
+        assert plan["universe_evidence"]["reader_probe_bar_count"] == 1200
+        assert (
+            plan["universe_evidence"]["reader_probe_contract_version"]
+            == "full-profile-window-v1"
+        )
+
+
+def test_full_window_probe_isolates_historical_gap_and_keeps_short_history():
+    class WindowProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [
+                {"symbol": "000001", "name": "short-covered"},
+                {"symbol": "000002", "name": "historical-gap"},
+            ]
+
+        def probe_qfq_instrument(
+            self,
+            asset_type,
+            symbol,
+            trade_date,
+            *,
+            bar_count=1,
+            expected_snapshot_metadata=None,
+        ):
+            self.calls.append(("probe", asset_type, symbol, trade_date, bar_count))
+            if symbol == "000002":
+                raise QFQDataNotReadyError(
+                    "active QFQ snapshot does not cover requested bars",
+                    scope=asset_type,
+                    code=symbol,
+                    missing_dates=["2026-03-18"],
+                )
+            return deepcopy(expected_snapshot_metadata)
+
+    repository = FakeRepository()
+    provider = WindowProvider()
+    service = make_service(repository=repository, provider=provider)
+
+    plan = service.plan_partition("stock", marker("stock"))
+
+    assert [
+        row["symbol"]
+        for row in repository.attempts[plan["attempt_id"]]["effective_instruments"]
+    ] == ["000001"]
+    assert [call[-1] for call in provider.calls if call[0] == "probe"] == [1200, 1200]
+    assert plan["universe_evidence"]["reader_isolations"] == [
+        {
+            "code": "000002",
+            "classification": "historical_window_not_covered_by_active_qfq_snapshot",
+            "error_code": "QFQ_DATA_NOT_READY",
+            "reason": (
+                "QFQ_DATA_NOT_READY: active QFQ snapshot does not cover requested "
+                "bars scope=stock code=000002 missing_dates=['2026-03-18']"
+            ),
+            "source": "strict_qfq_reader",
+        }
+    ]
+
+
+def test_old_target_day_probe_evidence_is_rejected_and_refrozen():
+    repository = FakeRepository()
+    provider = FakeMarketDataProvider()
+    service = make_service(repository=repository, provider=provider)
+    plan = service.plan_partition("stock", marker("stock"))
+    attempt = repository.attempts[plan["attempt_id"]]
+    attempt["universe_evidence"].pop("reader_probe_bar_count")
+    attempt["universe_evidence"].pop("reader_probe_contract_version")
+    stale = {
+        "effective_instruments": deepcopy(attempt["effective_instruments"]),
+        "effective_universe_hash": attempt["effective_universe_hash"],
+        "universe_evidence": deepcopy(attempt["universe_evidence"]),
+    }
+
+    with pytest.raises(RuntimeError, match="reader probe evidence contract mismatch"):
+        service._validate_effective_universe_plan("stock", qfq_snapshot_pair(), stale)
+
+    probe_count = sum(1 for call in provider.calls if call[0] == "probe")
+    refrozen = service._effective_universe_plan(
+        asset_type="stock",
+        trade_date="2026-03-19",
+        marker_snapshot_hash=plan["marker_snapshot_hash"],
+        qfq_pair=qfq_snapshot_pair(),
+        qfq_pair_hash=plan["qfq_snapshot_pair_hash"],
+    )
+
+    assert sum(1 for call in provider.calls if call[0] == "probe") == probe_count + 1
+    assert refrozen["universe_evidence"]["reader_probe_bar_count"] == 1200
+    assert (
+        refrozen["universe_evidence"]["reader_probe_contract_version"]
+        == "full-profile-window-v1"
+    )
 
 
 def test_non_qfq_probe_failure_propagates_before_attempt_creation():

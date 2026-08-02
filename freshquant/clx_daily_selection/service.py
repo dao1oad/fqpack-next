@@ -36,6 +36,7 @@ COMMITTING_ATTEMPT_CLAIM_TTL_SECONDS = 60 * 60
 FINALIZATION_RUNNING_CLAIM_TTL_SECONDS = 10 * 60
 PUBLICATION_CLAIM_TTL_SECONDS = 2 * 60
 PUBLICATION_COMPLETE_STATUSES = frozenset({"published", "not_required"})
+READER_PROBE_CONTRACT_VERSION = "full-profile-window-v1"
 
 
 class PartitionInstrumentError(RuntimeError):
@@ -2631,6 +2632,7 @@ class ClxDailySelectionService:
             and isinstance(latest.get("effective_instruments"), list)
             and str(latest.get("effective_universe_hash") or "").strip()
             and isinstance(latest.get("universe_evidence"), dict)
+            and self._is_current_reader_probe_evidence(latest["universe_evidence"])
         ):
             frozen = {
                 "effective_instruments": deepcopy(latest["effective_instruments"]),
@@ -2684,6 +2686,7 @@ class ClxDailySelectionService:
                     asset_type,
                     symbol,
                     trade_date,
+                    bar_count=int(self.profile["bar_count"]),
                     expected_snapshot_metadata=qfq_pair[asset_type],
                 )
                 self._validate_probed_qfq_metadata(
@@ -2698,7 +2701,9 @@ class ClxDailySelectionService:
                 reader_isolations.append(
                     {
                         "code": symbol,
-                        "classification": self._qfq_isolation_classification(exc),
+                        "classification": self._qfq_isolation_classification(
+                            exc, trade_date=trade_date
+                        ),
                         "error_code": "QFQ_DATA_NOT_READY",
                         "reason": str(exc),
                         "source": "strict_qfq_reader",
@@ -2731,6 +2736,8 @@ class ClxDailySelectionService:
             "reader_isolations": reader_isolations,
             "reader_isolation_count": len(reader_isolations),
             "reader_isolation_hash": canonical_hash(reader_isolations),
+            "reader_probe_bar_count": int(self.profile["bar_count"]),
+            "reader_probe_contract_version": READER_PROBE_CONTRACT_VERSION,
             "isolations": isolations,
             "isolation_count": len(isolations),
             "isolation_hash": canonical_hash(isolations),
@@ -2754,6 +2761,8 @@ class ClxDailySelectionService:
         effective_hash = str(plan.get("effective_universe_hash") or "").strip()
         if not isinstance(instruments, list) or not isinstance(evidence, dict):
             raise TypeError("CLX effective universe plan is incomplete")
+        if not self._is_current_reader_probe_evidence(evidence):
+            raise RuntimeError("CLX reader probe evidence contract mismatch")
         if not instruments:
             raise RuntimeError("CLX effective universe is empty")
         if self._normalize_universe_candidates(instruments) != instruments:
@@ -2900,12 +2909,24 @@ class ClxDailySelectionService:
         return str(getattr(exc, "error_code", "")).strip() == "QFQ_DATA_NOT_READY"
 
     @staticmethod
-    def _qfq_isolation_classification(exc: Exception) -> str:
-        missing_dates = getattr(exc, "missing_dates", ()) or ()
+    def _qfq_isolation_classification(exc: Exception, *, trade_date: str) -> str:
+        missing_dates = {
+            str(value)[:10]
+            for value in (getattr(exc, "missing_dates", ()) or ())
+            if str(value).strip()
+        }
+        if not missing_dates:
+            return "qfq_data_not_ready"
+        if str(trade_date)[:10] in missing_dates:
+            return "target_date_not_covered_by_active_qfq_snapshot"
+        return "historical_window_not_covered_by_active_qfq_snapshot"
+
+    def _is_current_reader_probe_evidence(self, evidence: Mapping[str, Any]) -> bool:
+        contract_version = evidence.get("reader_probe_contract_version")
+        probe_bar_count = evidence.get("reader_probe_bar_count")
         return (
-            "target_date_not_covered_by_active_qfq_snapshot"
-            if missing_dates
-            else "qfq_data_not_ready"
+            contract_version == READER_PROBE_CONTRACT_VERSION
+            and probe_bar_count == int(self.profile["bar_count"])
         )
 
     @staticmethod
