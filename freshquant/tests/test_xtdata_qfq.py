@@ -437,6 +437,43 @@ def test_load_bfq_dates_excludes_qasu_tiny_volume_amount_sentinel():
     ]
 
 
+def test_load_bfq_dates_excludes_rows_before_initial_share_capital_date():
+    db = _DB(
+        stock_day=[
+            {"code": "000012", "date": "1992-01-07", "vol": 820.0},
+            {"code": "000012", "date": "1992-02-28", "vol": 232.0},
+        ],
+        stock_xdxr=[
+            {
+                "code": "000012",
+                "date": "1992-02-28",
+                "category": 5,
+                "shares_before": 0.0,
+                "shares_after": 10_753.25,
+            }
+        ],
+    )
+
+    assert qfq.load_bfq_dates(kind="stock", code="000012", db=db) == ["1992-02-28"]
+
+
+def test_later_capital_change_does_not_define_a_listing_boundary():
+    db = _DB(
+        stock_day=[{"code": "000012", "date": "1992-01-07"}],
+        stock_xdxr=[
+            {
+                "code": "000012",
+                "date": "1992-02-28",
+                "category": 5,
+                "shares_before": 100.0,
+                "shares_after": 200.0,
+            }
+        ],
+    )
+
+    assert qfq.load_bfq_dates(kind="stock", code="000012", db=db) == ["1992-01-07"]
+
+
 def test_audit_checks_terminal_factor_and_recurrence():
     bars = _bars(
         [
@@ -546,10 +583,115 @@ def test_bootstrap_fails_when_valid_bfq_date_is_missing_from_xtdata():
     db = _stock_db(dates)
     loader = _loader_for({"000001": [(dates[0], 10.0, 0.0)]})
 
-    with pytest.raises(qfq.QFQSyncError, match="full QFQ rebuild audit failed"):
+    with pytest.raises(qfq.QFQSyncError, match="unbounded XTData source gap"):
         qfq.sync_stock_adj_all(target_date=dates[-1], db=db, bars_loader=loader)
 
     assert not db["qfq_ready"].rows
+
+
+def test_bootstrap_bridges_bounded_source_gap_with_constant_front_ratio():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    db = _stock_db(dates)
+    none_loader = _loader_for({"000001": [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]})
+    front_ratio_loader = _loader_for(
+        {"000001": [(dates[0], 5.0, 0.0), (dates[2], 4.0, 4.5)]}
+    )
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_ratio_loader,
+    )
+
+    rows = db["stock_adj_qfq_a"].rows
+    assert [row["date"] for row in rows] == dates
+    assert [row["adj"] for row in rows] == [1.0, 1.0, 1.0]
+    coverage = result["by_scope"]["stock"]["coverage"]
+    assert coverage["source_gap_rows_bridged"] == 1
+    assert coverage["codes_with_source_gaps"] == 1
+    assert coverage["source_gaps"][0]["windows"][0]["dates"] == [dates[1]]
+
+    audit = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_ratio_loader,
+    )
+    assert audit["ok"]
+    assert audit["coverage"]["source_gap_rows_bridged"] == 1
+
+
+def test_bootstrap_rejects_source_gap_that_crosses_an_adjustment():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    db = _stock_db(dates)
+    none_loader = _loader_for({"000001": [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]})
+    changed_front_ratio = _loader_for(
+        {"000001": [(dates[0], 5.0, 0.0), (dates[2], 3.2, 4.5)]}
+    )
+
+    with pytest.raises(qfq.QFQSyncError, match="crosses an adjustment"):
+        qfq.sync_stock_adj_all(
+            target_date=dates[-1],
+            db=db,
+            bars_loader=none_loader,
+            front_ratio_loader=changed_front_ratio,
+        )
+
+    assert not db["qfq_ready"].rows
+
+
+def test_bootstrap_rejects_unbounded_source_gap():
+    dates = ["2026-01-02", "2026-01-05"]
+    db = _stock_db(dates)
+
+    with pytest.raises(qfq.QFQSyncError, match="unbounded XTData source gap"):
+        qfq.sync_stock_adj_all(
+            target_date=dates[-1],
+            db=db,
+            bars_loader=_loader_for({"000001": [(dates[1], 10.0, 0.0)]}),
+        )
+
+    assert not db["qfq_ready"].rows
+
+
+def test_bootstrap_reports_prelisting_bfq_exclusion():
+    db = _DB(
+        stock_list=[{"code": "000012", "name": "Stock"}],
+        stock_day=[
+            {"code": "000012", "date": "1992-01-07", "vol": 820.0},
+            {"code": "000012", "date": "1992-02-28", "vol": 232.0},
+        ],
+        stock_xdxr=[
+            {
+                "code": "000012",
+                "date": "1992-02-28",
+                "category": 5,
+                "shares_before": 0.0,
+                "shares_after": 10_753.25,
+            }
+        ],
+    )
+
+    result = qfq.sync_stock_adj_all(
+        target_date="1992-02-28",
+        db=db,
+        bars_loader=_loader_for({"000012": [("1992-02-28", 10.5, 0.0)]}),
+    )
+
+    coverage = result["by_scope"]["stock"]["coverage"]
+    assert coverage["prelisting_rows_excluded"] == 1
+    assert coverage["codes_with_prelisting_rows"] == 1
+    assert coverage["prelisting"] == [
+        {
+            "code": "000012",
+            "listing_date": "1992-02-28",
+            "rows": 1,
+            "dates": ["1992-01-07"],
+        }
+    ]
+    assert [row["date"] for row in db["stock_adj_qfq_a"].rows] == ["1992-02-28"]
 
 
 def test_bootstrap_skips_sentinel_only_etf_with_audited_reason():
@@ -877,6 +1019,131 @@ def test_incremental_update_projects_xtdata_superset_to_bfq_dates():
     assert result["by_scope"]["stock"]["stats"]["incremental"] == 1
     assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == bfq_dates
     assert [row["adj"] for row in db["stock_adj_qfq_b"].rows] == [1.0, 1.0]
+
+
+def test_incremental_update_bridges_bounded_source_gap():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    none_payload = {"000001": [(dates[0], 10.0, 0.0)]}
+    front_payload = {"000001": [(dates[0], 5.0, 0.0)]}
+    db = _stock_db(dates[:1])
+    none_loader = _loader_for(none_payload)
+    front_loader = _loader_for(front_payload)
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=none_loader)
+    db["stock_day"].rows.extend(
+        {"code": "000001", "date": value} for value in dates[1:]
+    )
+    none_payload["000001"] = [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]
+    front_payload["000001"] = [(dates[0], 5.0, 0.0), (dates[2], 4.0, 4.5)]
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+        min_grace_seconds=0,
+    )
+
+    assert result["by_scope"]["stock"]["stats"]["incremental"] == 1
+    assert result["by_scope"]["stock"]["coverage"]["source_gap_rows_bridged"] == 1
+    assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == dates
+    assert [row["adj"] for row in db["stock_adj_qfq_b"].rows] == [1.0, 1.0, 1.0]
+
+
+def test_incremental_update_reloads_context_when_tail_starts_on_source_gap():
+    dates = [
+        "2026-01-02",
+        "2026-01-05",
+        "2026-01-06",
+        "2026-01-07",
+        "2026-01-08",
+        "2026-01-09",
+        "2026-01-12",
+    ]
+    none_payload = {
+        "000001": [
+            (value, 10.0, 0.0 if index == 0 else 10.0)
+            for index, value in enumerate(dates)
+            if value != dates[3]
+        ]
+    }
+    front_payload = {
+        "000001": [
+            (value, 5.0, 0.0 if index == 0 else 5.0)
+            for index, value in enumerate(dates)
+            if value != dates[3]
+        ]
+    }
+    db = _stock_db(dates[:-1])
+    none_loader = _loader_for(none_payload)
+    front_loader = _loader_for(front_payload)
+    qfq.sync_stock_adj_all(
+        target_date=dates[-2],
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+    )
+    db["stock_day"].rows.append({"code": "000001", "date": dates[-1]})
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+        tail_days=3,
+        min_grace_seconds=0,
+    )
+
+    assert result["by_scope"]["stock"]["stats"]["incremental"] == 1
+    assert result["by_scope"]["stock"]["coverage"]["source_gap_rows_bridged"] == 1
+    assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == dates
+
+
+def test_tail_audit_reloads_context_when_window_starts_on_source_gap():
+    dates = [
+        "2026-01-02",
+        "2026-01-05",
+        "2026-01-06",
+        "2026-01-07",
+        "2026-01-08",
+        "2026-01-09",
+    ]
+    none_loader = _loader_for(
+        {
+            "000001": [
+                (value, 10.0, 0.0 if index == 0 else 10.0)
+                for index, value in enumerate(dates)
+                if value != dates[3]
+            ]
+        }
+    )
+    front_loader = _loader_for(
+        {
+            "000001": [
+                (value, 5.0, 0.0 if index == 0 else 5.0)
+                for index, value in enumerate(dates)
+                if value != dates[3]
+            ]
+        }
+    )
+    db = _stock_db(dates)
+    qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+    )
+
+    audit = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        bars_loader=none_loader,
+        front_ratio_loader=front_loader,
+        source_tail_days=3,
+    )
+
+    assert audit["ok"]
+    assert audit["coverage"]["source_gap_rows_bridged"] == 1
 
 
 def test_xtdata_only_corporate_action_day_forces_full_rebuild():
@@ -1321,6 +1588,9 @@ def test_xtdata_client_uses_configured_port_and_none_dividend(monkeypatch):
     assert calls[0] == ("connect", 58611)
     assert calls[-1][1]["dividend_type"] == "none"
     assert calls[-1][1]["fill_data"] is False
+
+    client.load_front_ratio_bars("000001", start_time="20260102", end_time="20260102")
+    assert calls[-1][1]["dividend_type"] == "front_ratio"
 
 
 def test_xtdata_client_downloads_missing_history_prefix():

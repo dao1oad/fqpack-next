@@ -11,6 +11,7 @@ import math
 import re
 import threading
 import uuid
+from bisect import bisect_left
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -393,6 +394,144 @@ def compute_preclose_adj(bars: Any, *, code: str | None = None) -> pd.DataFrame:
     return result
 
 
+def _project_preclose_adj_to_bfq_dates(
+    bars: Any,
+    *,
+    code: str,
+    expected_dates: Iterable[str],
+    front_ratio_bars: Any | None = None,
+    rel_tol: float = 1e-10,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Project a source factor axis while proving any bounded source gaps."""
+
+    day = normalize_xtdata_bars(bars, code=code)
+    expected = sorted(
+        {
+            key
+            for key in (_date_key(value) for value in expected_dates)
+            if key is not None
+        }
+    )
+    source_dates = day["date"].tolist()
+    source_date_set = set(source_dates)
+    missing = [value for value in expected if value not in source_date_set]
+    if not missing:
+        factors = compute_preclose_adj(day, code=code)
+        expected_set = set(expected)
+        rows = [
+            row
+            for row in factors.to_dict(orient="records")
+            if str(row["date"])[:10] in expected_set
+        ]
+        return rows, {"source_gap_rows_bridged": 0, "source_gap_windows": []}
+
+    gap_windows: dict[tuple[str, str], list[str]] = {}
+    for missing_date in missing:
+        index = bisect_left(source_dates, missing_date)
+        if index == 0 or index == len(source_dates):
+            raise QFQSyncError(
+                f"unbounded XTData source gap for code={normalize_code(code)}",
+                stats={
+                    "missing_dates": missing[:20],
+                    "gap_position": "prefix" if index == 0 else "suffix",
+                },
+            )
+        gap_windows.setdefault(
+            (source_dates[index - 1], source_dates[index]), []
+        ).append(missing_date)
+
+    if front_ratio_bars is None:
+        raise QFQSyncError(
+            f"XTData source gap requires front_ratio proof for code={normalize_code(code)}",
+            stats={"missing_dates": missing[:20]},
+        )
+    front = normalize_xtdata_bars(front_ratio_bars, code=code)
+    if front["date"].tolist() != source_dates:
+        raise QFQSyncError(
+            f"XTData front_ratio date axis mismatch for code={normalize_code(code)}",
+            stats={
+                "none_dates": len(source_dates),
+                "front_ratio_dates": len(front),
+            },
+        )
+
+    close = day["close"].to_numpy(dtype=float)
+    preclose = day["preClose"].to_numpy(dtype=float)
+    proof = front["close"].to_numpy(dtype=float) / close
+    if not np.isfinite(proof).all() or (proof <= 0).any():
+        raise QFQSyncError(
+            f"invalid XTData front_ratio proof for code={normalize_code(code)}"
+        )
+    ratios = preclose[1:] / close[:-1]
+    date_indexes = {value: index for index, value in enumerate(source_dates)}
+    windows: list[dict[str, Any]] = []
+    for (left_date, right_date), gap_dates in sorted(gap_windows.items()):
+        left_index = date_indexes[left_date]
+        right_index = date_indexes[right_date]
+        if right_index != left_index + 1:
+            raise QFQSyncError(
+                f"invalid XTData source gap bounds for code={normalize_code(code)}"
+            )
+        if not math.isclose(
+            float(proof[left_index]),
+            float(proof[right_index]),
+            rel_tol=rel_tol,
+            abs_tol=1e-12,
+        ):
+            raise QFQSyncError(
+                f"XTData source gap crosses an adjustment for code={normalize_code(code)}",
+                stats={
+                    "left_date": left_date,
+                    "right_date": right_date,
+                    "missing_dates": gap_dates[:20],
+                    "left_front_ratio": float(proof[left_index]),
+                    "right_front_ratio": float(proof[right_index]),
+                },
+            )
+        ratios[left_index] = 1.0
+        windows.append(
+            {
+                "left_date": left_date,
+                "right_date": right_date,
+                "dates": gap_dates[:20],
+                "rows": len(gap_dates),
+            }
+        )
+
+    factors = np.ones(len(day), dtype=float)
+    factors[:-1] = np.cumprod(ratios[::-1])[::-1]
+    if not np.isfinite(factors).all() or (factors <= 0).any():
+        raise QFQSyncError(
+            f"invalid bridged QFQ factors for code={normalize_code(code)}"
+        )
+    factor_by_date = dict(zip(source_dates, factors, strict=True))
+    for (left_date, right_date), gap_dates in gap_windows.items():
+        factor = float(factor_by_date[right_date])
+        if not math.isclose(
+            float(factor_by_date[left_date]),
+            factor,
+            rel_tol=rel_tol,
+            abs_tol=1e-12,
+        ):
+            raise QFQSyncError(
+                f"bridged XTData factor is discontinuous for code={normalize_code(code)}"
+            )
+        for missing_date in gap_dates:
+            factor_by_date[missing_date] = factor
+    rows = [
+        {
+            "code": normalize_code(code),
+            "date": value,
+            "adj": float(factor_by_date[value]),
+        }
+        for value in expected
+    ]
+    return rows, {
+        "source_gap_rows_bridged": len(missing),
+        "source_gap_windows": windows,
+    }
+
+
 # Names used by callers and older migration notes.
 compute_qfq_factors = compute_preclose_adj
 compute_xtdata_preclose_adj = compute_preclose_adj
@@ -508,6 +647,34 @@ def _is_bfq_sentinel_row(row: Mapping[str, Any]) -> bool:
     )
 
 
+def _initial_stock_capital_date(*, code: str, db) -> str | None:
+    """Return the audited IPO boundary encoded by the first capital record."""
+
+    projection = {
+        "_id": 0,
+        "date": 1,
+        "shares_before": 1,
+        "shares_after": 1,
+    }
+    try:
+        cursor = db["stock_xdxr"].find(
+            {"code": normalize_code(code), "category": 5}, projection
+        )
+    except (AttributeError, KeyError, TypeError):
+        return None
+    candidates: list[str] = []
+    for row in cursor:
+        try:
+            before = float(row.get("shares_before"))
+            after = float(row.get("shares_after"))
+        except (TypeError, ValueError):
+            continue
+        key = _date_key(row.get("date"))
+        if key and math.isclose(before, 0.0, rel_tol=0.0, abs_tol=1e-12) and after > 0:
+            candidates.append(key)
+    return min(candidates) if candidates else None
+
+
 def _load_bfq_coverage(*, kind: str, code: str, db=DBQuantAxis) -> dict[str, Any]:
     if kind not in BFQ_COLLECTIONS:
         raise ValueError(f"unsupported BFQ kind: {kind}")
@@ -527,7 +694,11 @@ def _load_bfq_coverage(*, kind: str, code: str, db=DBQuantAxis) -> dict[str, Any
         cursor = collection.find(query)
     dates: list[str] = []
     sentinel_dates: list[str] = []
+    prelisting_dates: list[str] = []
     invalid: list[Any] = []
+    listing_date = (
+        _initial_stock_capital_date(code=code6, db=db) if kind == "stock" else None
+    )
     for row in cursor:
         value = row.get("date") if isinstance(row, Mapping) else None
         if isinstance(row, Mapping) and _is_bfq_sentinel_row(row):
@@ -536,6 +707,8 @@ def _load_bfq_coverage(*, kind: str, code: str, db=DBQuantAxis) -> dict[str, Any
         key = _date_key(value)
         if key is None:
             invalid.append(value)
+        elif listing_date and key < listing_date:
+            prelisting_dates.append(key)
         else:
             dates.append(key)
     if invalid:
@@ -547,6 +720,9 @@ def _load_bfq_coverage(*, kind: str, code: str, db=DBQuantAxis) -> dict[str, Any
         "dates": sorted(set(dates)),
         "sentinel_rows": len(sentinel_dates),
         "sentinel_dates": sorted(set(sentinel_dates))[:20],
+        "listing_date": listing_date,
+        "prelisting_rows": len(prelisting_dates),
+        "prelisting_dates": sorted(set(prelisting_dates))[:20],
     }
 
 
@@ -560,6 +736,12 @@ def _new_bfq_coverage_summary() -> dict[str, Any]:
     return {
         "sentinel_rows_excluded": 0,
         "codes_with_sentinel_rows": 0,
+        "prelisting_rows_excluded": 0,
+        "codes_with_prelisting_rows": 0,
+        "prelisting": [],
+        "source_gap_rows_bridged": 0,
+        "codes_with_source_gaps": 0,
+        "source_gaps": [],
         "skipped_codes": 0,
         "skipped": [],
     }
@@ -576,6 +758,19 @@ def _select_bfq_dates(
     if sentinel_rows:
         summary["sentinel_rows_excluded"] += sentinel_rows
         summary["codes_with_sentinel_rows"] += 1
+    prelisting_rows = int(coverage.get("prelisting_rows") or 0)
+    if prelisting_rows:
+        summary["prelisting_rows_excluded"] += prelisting_rows
+        summary["codes_with_prelisting_rows"] += 1
+        if len(summary["prelisting"]) < 100:
+            summary["prelisting"].append(
+                {
+                    "code": normalize_code(code),
+                    "listing_date": coverage.get("listing_date"),
+                    "rows": prelisting_rows,
+                    "dates": list(coverage.get("prelisting_dates") or ()),
+                }
+            )
     dates = list(coverage.get("dates") or ())
     selected = [date for date in dates if not target_date or date <= target_date]
     if selected:
@@ -593,6 +788,24 @@ def _select_bfq_dates(
             item["sentinel_rows"] = sentinel_rows
         summary["skipped"].append(item)
     return []
+
+
+def _record_source_gap_summary(
+    summary: dict[str, Any], *, code: str, stats: Mapping[str, Any]
+) -> None:
+    rows = int(stats.get("source_gap_rows_bridged") or 0)
+    if not rows:
+        return
+    summary["source_gap_rows_bridged"] += rows
+    summary["codes_with_source_gaps"] += 1
+    if len(summary["source_gaps"]) < 100:
+        summary["source_gaps"].append(
+            {
+                "code": normalize_code(code),
+                "rows": rows,
+                "windows": list(stats.get("source_gap_windows") or ()),
+            }
+        )
 
 
 def _bfq_download_bounds(
@@ -625,6 +838,7 @@ def audit_factor_snapshot(
     included_codes: Iterable[str] | None = None,
     require_exact_dates: bool = False,
     bars_by_code: Mapping[str, Any] | None = None,
+    source_factors_by_code: Mapping[str, Iterable[Mapping[str, Any]]] | None = None,
     rel_tol: float = 1e-10,
 ) -> dict[str, Any]:
     rows = [dict(item) for item in (documents or ())]
@@ -682,14 +896,21 @@ def audit_factor_snapshot(
             normalized[-1][1], 1.0, rel_tol=0.0, abs_tol=1e-12
         ):
             terminal_not_one.append(code)
+        source_payload = (source_factors_by_code or {}).get(code)
         bars_payload = (bars_by_code or {}).get(code)
-        if bars_payload is not None and normalized:
-            bars = normalize_xtdata_bars(bars_payload, code=code)
+        if (source_payload is not None or bars_payload is not None) and normalized:
             factors = {date: factor for date, factor in normalized}
-            source_rows = compute_preclose_adj(bars, code=code)
-            source_factors = dict(
-                zip(source_rows["date"], source_rows["adj"], strict=True)
-            )
+            if source_payload is not None:
+                source_factors = {
+                    key: float(row["adj"])
+                    for row in source_payload
+                    if (key := _date_key(row.get("date"))) is not None
+                }
+            else:
+                source_rows = compute_preclose_adj(bars_payload, code=code)
+                source_factors = dict(
+                    zip(source_rows["date"], source_rows["adj"], strict=True)
+                )
             if require_exact_dates:
                 source_missing_dates.extend(
                     (code, date) for date in sorted(set(factors) - set(source_factors))
@@ -1209,6 +1430,7 @@ class XtDataQfqClient:
         market: str | None = None,
         start_time: str = "",
         end_time: str = "",
+        dividend_type: str = "none",
     ) -> pd.DataFrame:
         xtdata = self._get_xtdata()
         if not self.connected and hasattr(xtdata, "connect"):
@@ -1225,7 +1447,7 @@ class XtDataQfqClient:
                 period="1d",
                 start_time=start_time,
                 end_time=end_time,
-                dividend_type="none",
+                dividend_type=dividend_type,
                 fill_data=False,
             )
             return normalize_xtdata_bars(payload, code=xt_code)
@@ -1247,11 +1469,32 @@ class XtDataQfqClient:
                 raise QFQSyncError(
                     "XTData history prefix download made no progress "
                     f"for code={xt_code}: earliest={earliest}, "
-                    f"prefix_end={prefix_end}"
+                    f"prefix_end={prefix_end}",
+                    stats={
+                        "failure": "history_prefix_no_progress",
+                        "earliest": earliest,
+                        "prefix_end": prefix_end,
+                    },
                 )
             bars = next_bars
             earliest = next_earliest
         return bars
+
+    def load_front_ratio_bars(
+        self,
+        code: str,
+        *,
+        market: str | None = None,
+        start_time: str = "",
+        end_time: str = "",
+    ) -> pd.DataFrame:
+        return self.load_daily_bars(
+            code,
+            market=market,
+            start_time=start_time,
+            end_time=end_time,
+            dividend_type="front_ratio",
+        )
 
 
 def _call_loader(
@@ -1264,6 +1507,66 @@ def _call_loader(
             return loader(code, start_time, end_time)
         except TypeError:
             return loader(code)
+
+
+def _project_loaded_bars(
+    bars: Any,
+    *,
+    code: str,
+    expected_dates: list[str],
+    front_ratio_loader: Callable[..., Any] | None,
+    load_start: str,
+    load_end: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    normalized = normalize_xtdata_bars(bars, code=code)
+    source_dates = set(normalized["date"])
+    needs_gap_proof = any(value not in source_dates for value in expected_dates)
+    front_ratio_bars = None
+    if needs_gap_proof and front_ratio_loader is not None:
+        front_ratio_bars = _call_loader(front_ratio_loader, code, load_start, load_end)
+    return _project_preclose_adj_to_bfq_dates(
+        normalized,
+        code=code,
+        expected_dates=expected_dates,
+        front_ratio_bars=front_ratio_bars,
+    )
+
+
+def _load_projected_bars(
+    loader: Callable[..., Any],
+    *,
+    code: str,
+    expected_dates: list[str],
+    front_ratio_loader: Callable[..., Any] | None,
+    load_start: str,
+    load_end: str,
+    context_start: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    try:
+        bars = _call_loader(loader, code, load_start, load_end)
+        return _project_loaded_bars(
+            bars,
+            code=code,
+            expected_dates=expected_dates,
+            front_ratio_loader=front_ratio_loader,
+            load_start=load_start,
+            load_end=load_end,
+        )
+    except QFQSyncError as error:
+        needs_context = error.stats.get("gap_position") == "prefix" or (
+            error.stats.get("failure") == "history_prefix_no_progress"
+        )
+        if not context_start or context_start == load_start or not needs_context:
+            raise
+    bars = _call_loader(loader, code, context_start, load_end)
+    return _project_loaded_bars(
+        bars,
+        code=code,
+        expected_dates=expected_dates,
+        front_ratio_loader=front_ratio_loader,
+        load_start=context_start,
+        load_end=load_end,
+    )
 
 
 def _load_existing_factor_rows(
@@ -1289,6 +1592,7 @@ def _audit_code_rows(
     rows: Iterable[Mapping[str, Any]],
     expected_dates: Iterable[str],
     bars: Any | None = None,
+    source_rows: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     code6 = normalize_code(code)
     return audit_factor_snapshot(
@@ -1297,6 +1601,9 @@ def _audit_code_rows(
         included_codes=[code6],
         require_exact_dates=True,
         bars_by_code={code6: bars} if bars is not None else None,
+        source_factors_by_code=(
+            {code6: source_rows} if source_rows is not None else None
+        ),
     )
 
 
@@ -1324,23 +1631,36 @@ def _full_rebuild_code(
     code: str,
     expected_dates: list[str],
     loader: Callable[..., Any],
+    front_ratio_loader: Callable[..., Any] | None,
     reason: str,
 ) -> dict[str, Any]:
     load_start, load_end, expected = _bfq_download_bounds(expected_dates)
     bars = _call_loader(loader, code, load_start, load_end)
-    expected_set = set(expected)
-    rows = [
-        row
-        for row in compute_preclose_adj(bars, code=code).to_dict(orient="records")
-        if str(row["date"])[:10] in expected_set
-    ]
-    audit = _audit_code_rows(code=code, rows=rows, expected_dates=expected, bars=bars)
+    rows, source_stats = _project_loaded_bars(
+        bars,
+        code=code,
+        expected_dates=expected,
+        front_ratio_loader=front_ratio_loader,
+        load_start=load_start,
+        load_end=load_end,
+    )
+    audit = _audit_code_rows(
+        code=code,
+        rows=rows,
+        expected_dates=expected,
+        source_rows=rows,
+    )
     if not audit["ok"]:
         raise QFQSyncError(
             f"full QFQ rebuild audit failed for code={code}", stats=audit
         )
     written = _replace_code_rows(collection=collection, code=code, rows=rows)
-    return {"mode": "full", "reason": reason, "rows_written": written}
+    return {
+        "mode": "full",
+        "reason": reason,
+        "rows_written": written,
+        **source_stats,
+    }
 
 
 def _rows_form_exact_prefix(
@@ -1360,6 +1680,7 @@ def _reconcile_code(
     code: str,
     expected_dates: list[str],
     loader: Callable[..., Any],
+    front_ratio_loader: Callable[..., Any] | None,
     tail_days: int,
 ) -> dict[str, Any]:
     existing = _load_existing_factor_rows(
@@ -1373,6 +1694,7 @@ def _reconcile_code(
             code=code,
             expected_dates=expected_dates,
             loader=loader,
+            front_ratio_loader=front_ratio_loader,
             reason="missing_or_invalid_prefix",
         )
 
@@ -1381,20 +1703,20 @@ def _reconcile_code(
     last_index = expected_dates.index(last_existing)
     tail_start_index = max(0, last_index - max(2, int(tail_days)) + 1)
     tail_dates = expected_dates[tail_start_index:]
-    bars = _call_loader(
+    tail_rows, source_stats = _load_projected_bars(
         loader,
-        code,
-        _xt_date_arg(tail_dates[0]),
-        _xt_date_arg(tail_dates[-1]),
+        code=code,
+        expected_dates=tail_dates,
+        front_ratio_loader=front_ratio_loader,
+        load_start=_xt_date_arg(tail_dates[0]),
+        load_end=_xt_date_arg(tail_dates[-1]),
+        context_start=_xt_date_arg(expected_dates[0]),
     )
-    tail_date_set = set(tail_dates)
-    tail_rows = [
-        row
-        for row in compute_preclose_adj(bars, code=code).to_dict(orient="records")
-        if str(row["date"])[:10] in tail_date_set
-    ]
     tail_audit = _audit_code_rows(
-        code=code, rows=tail_rows, expected_dates=tail_dates, bars=bars
+        code=code,
+        rows=tail_rows,
+        expected_dates=tail_dates,
+        source_rows=tail_rows,
     )
     if not tail_audit["ok"]:
         raise QFQSyncError(f"tail QFQ audit failed for code={code}", stats=tail_audit)
@@ -1405,6 +1727,7 @@ def _reconcile_code(
             code=code,
             expected_dates=expected_dates,
             loader=loader,
+            front_ratio_loader=front_ratio_loader,
             reason="corporate_action_after_inactive_terminal",
         )
 
@@ -1424,6 +1747,7 @@ def _reconcile_code(
             code=code,
             expected_dates=expected_dates,
             loader=loader,
+            front_ratio_loader=front_ratio_loader,
             reason="tail_revision",
         )
 
@@ -1453,6 +1777,7 @@ def _reconcile_code(
         "reason": "ordinary_tail",
         "rows_written": len(missing_dates),
         "previous_last_date": last_existing,
+        **source_stats,
     }
 
 
@@ -1497,6 +1822,7 @@ def audit_qfq_slot(
     codes: Iterable[str] | None = None,
     factor_asof: str | None = None,
     bars_loader: Callable[..., Any] | None = None,
+    front_ratio_loader: Callable[..., Any] | None = None,
     source_tail_days: int | None = None,
     progress_callback: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
@@ -1529,13 +1855,24 @@ def audit_qfq_slot(
             db=db, collection_name=collection.name, code=code
         )
         audit_dates = expected
-        bars = None
+        source_rows = None
         audit_rows = code_rows
         if bars_loader is not None:
             if source_tail_days is not None:
                 audit_dates = expected[-max(2, int(source_tail_days)) :]
             load_start, load_end, audit_dates = _bfq_download_bounds(audit_dates)
-            bars = _call_loader(bars_loader, code, load_start, load_end)
+            source_rows, source_stats = _load_projected_bars(
+                bars_loader,
+                code=code,
+                expected_dates=audit_dates,
+                front_ratio_loader=front_ratio_loader,
+                load_start=load_start,
+                load_end=load_end,
+                context_start=(
+                    _xt_date_arg(expected[0]) if source_tail_days is not None else None
+                ),
+            )
+            _record_source_gap_summary(coverage_summary, code=code, stats=source_stats)
             audit_date_set = set(audit_dates)
             audit_rows = [
                 row for row in code_rows if _date_key(row.get("date")) in audit_date_set
@@ -1544,7 +1881,7 @@ def audit_qfq_slot(
             code=code,
             rows=audit_rows,
             expected_dates=audit_dates,
-            bars=bars,
+            source_rows=source_rows,
         )
         rows += len(audit_rows)
         checked_codes += 1
@@ -1578,6 +1915,7 @@ def _bootstrap_scope(
     db,
     codes: Iterable[str] | None,
     loader: Callable[..., Any],
+    front_ratio_loader: Callable[..., Any] | None,
     now_provider=None,
     progress_callback: Callable[[], None] | None = None,
     publish_callback: Callable[[Callable[[], Any]], Any] | None = None,
@@ -1608,8 +1946,10 @@ def _bootstrap_scope(
             code=code,
             expected_dates=expected,
             loader=loader,
+            front_ratio_loader=front_ratio_loader,
             reason="bootstrap",
         )
+        _record_source_gap_summary(coverage_summary, code=code, stats=result)
         rows_written += int(result["rows_written"])
         included.append(code)
     if not included:
@@ -1695,6 +2035,7 @@ def _update_scope(
     db,
     codes: Iterable[str] | None,
     loader: Callable[..., Any],
+    front_ratio_loader: Callable[..., Any] | None,
     tail_days: int,
     min_grace_seconds: int,
     force_full_rebuild: bool,
@@ -1755,6 +2096,7 @@ def _update_scope(
                     code=code,
                     expected_dates=expected,
                     loader=loader,
+                    front_ratio_loader=front_ratio_loader,
                     reason="forced_full_rebuild",
                 )
             else:
@@ -1763,10 +2105,12 @@ def _update_scope(
                     code=code,
                     expected_dates=expected,
                     loader=loader,
+                    front_ratio_loader=front_ratio_loader,
                     tail_days=tail_days,
                 )
             stats[str(result["mode"])] += 1
             stats["rows_written"] += int(result["rows_written"])
+            _record_source_gap_summary(coverage_summary, code=code, stats=result)
             included.append(code)
         stale_codes = _distinct_codes(collection) - set(included)
         if stale_codes and force_full_rebuild:
@@ -1833,6 +2177,7 @@ def sync_qfq_factors(
     db=DBQuantAxis,
     codes: Iterable[str] | None = None,
     bars_loader: Callable[..., Any] | None = None,
+    front_ratio_loader: Callable[..., Any] | None = None,
     xtdata_client: XtDataQfqClient | None = None,
     tail_days: int = DEFAULT_TAIL_AUDIT_DAYS,
     min_grace_seconds: int = DEFAULT_READER_GRACE_SECONDS,
@@ -1853,6 +2198,9 @@ def sync_qfq_factors(
         )
     client = xtdata_client or XtDataQfqClient()
     loader = bars_loader or client.load_daily_bars
+    gap_proof_loader = front_ratio_loader
+    if gap_proof_loader is None and bars_loader is None:
+        gap_proof_loader = client.load_front_ratio_bars
     result: dict[str, Any] = {
         "source": QFQ_SOURCE,
         "writer": QFQ_WRITER,
@@ -1891,6 +2239,7 @@ def sync_qfq_factors(
                     db=db,
                     codes=codes,
                     loader=loader,
+                    front_ratio_loader=gap_proof_loader,
                     now_provider=now_provider,
                     progress_callback=lease_heartbeat.pulse,
                     publish_callback=lease_heartbeat.run_fenced_publish,
@@ -1902,6 +2251,7 @@ def sync_qfq_factors(
                     db=db,
                     codes=codes,
                     loader=loader,
+                    front_ratio_loader=gap_proof_loader,
                     tail_days=tail_days,
                     min_grace_seconds=min_grace_seconds,
                     force_full_rebuild=force_full_rebuild,

@@ -336,7 +336,14 @@ def test_status_strict_returns_nonzero_when_shadow_is_not_ready(monkeypatch, cap
 
 def test_audit_full_passes_source_loader_and_single_code(monkeypatch, capsys):
     calls = []
-    client = type("Client", (), {"load_daily_bars": lambda *args, **kwargs: None})()
+    client = type(
+        "Client",
+        (),
+        {
+            "load_daily_bars": lambda *args, **kwargs: None,
+            "load_front_ratio_bars": lambda *args, **kwargs: None,
+        },
+    )()
     monkeypatch.setattr(qfq_worker, "XtDataQfqClient", lambda: client)
     monkeypatch.setattr(
         qfq_worker,
@@ -365,5 +372,6 @@ def test_audit_full_passes_source_loader_and_single_code(monkeypatch, capsys):
     )
     assert calls[0]["codes"] == ["000001"]
     assert calls[0]["bars_loader"] is not None
+    assert calls[0]["front_ratio_loader"] is not None
     assert calls[0]["source_tail_days"] is None
     assert '"ok": true' in capsys.readouterr().out
