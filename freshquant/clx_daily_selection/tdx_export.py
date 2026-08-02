@@ -43,8 +43,10 @@ def encode_tdx_blk_code(value: object) -> str:
             pass
         elif code.startswith(("4", "8", "92")):
             market = "bj"
-        elif code.startswith(("5", "6")):
+        elif code.startswith(("5", "6", "9")):
             market = "sh"
+        elif code.startswith("2"):
+            market = "sz"
         elif asset_type == "etf" and code.startswith("1"):
             market = "sz"
         elif code.startswith(("000", "001", "002", "003", "159", "300", "301", "302")):
