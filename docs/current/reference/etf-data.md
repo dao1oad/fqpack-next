@@ -11,20 +11,20 @@ ETF 在 FreshQuant 中与 A 股共用大部分接口，但有几处语义不同�
 ## 当前入口
 
 - CLI
-  - `python -m freshquant.cli etf ...`
-  - `python -m freshquant.cli etf.xdxr save`
-  - `python -m freshquant.cli etf.adj save`
+  - `python -m freshquant.cli etf.day save`
+  - `python -m freshquant.cli etf.min save`
+  - `python -m freshquant.cli etf.xdxr save` / `etf.adj save` 仅保留为 legacy 人工诊断入口
 - HTTP
   - 与 A 股共用 `/api/stock_data` 等行情接口
 - 监控池
   - `must_pool` 中 `instrument_type=etf_cn` 的记录可进入监控范围
 
-当前标准 ETF 同步口径：
+当前标准 ETF 同步口径由工作日 Dagster `etf_data_job` 执行：
 
-- `python -m freshquant.cli etf save`
-  - 同步 `etf_list`
-  - 同步 `index_day/index_min` 口径的 ETF 历史数据
-  - 过渡期仍同步 `quantaxis.etf_xdxr` 并重算 `quantaxis.etf_adj`，但两者已不是在线 reader 真值
+- 同步 `etf_list`
+- 同步 `index_day/index_min` 口径的 ETF BFQ 历史数据并通过完整性门禁
+- 发布 `etf_postclose_ready` marker
+- Windows QFQ worker 读取 marker，以 XTData `preClose` 在 inactive slot 增量构建，full audit 通过后 CAS 切换 `quantaxis.qfq_ready`
 
 ## 与普通 A 股的差异
 
@@ -37,7 +37,7 @@ ETF 当前前复权链路：
 - `ETF BFQ ready -> XTData preClose -> etf_adj_qfq_a/b inactive slot -> full audit -> qfq_ready active_slot -> freshquant.data.qfq_reader`
 - 页面、策略与共享 QuantAxis 适配层每次读取 active marker，严格校验 snapshot、coverage、正因子、重复键、source exclusion 与 snapshot-bound intraday override
 - 合同不满足时返回 `QFQ_DATA_NOT_READY`；Stock/ETF Kline HTTP 路由映射为 503，不回退 `adj=1.0` 或 legacy 集合
-- `quantaxis.etf_xdxr` / `quantaxis.etf_adj` 在 PR2a 过渡期仍可能由现有 schedule 更新，但不再是在线 reader 真值
+- `quantaxis.etf_xdxr` / `quantaxis.etf_adj` 不在正常 schedule，也不是在线 reader 真值；相关 CLI/asset 仅用于 legacy 人工诊断
 
 ## 当前排查
 

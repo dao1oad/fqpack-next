@@ -504,7 +504,7 @@ def stock_min(context: AssetExecutionContext, stock_list: str) -> str:
 
 @asset(deps=[stock_day], group_name="stock_data")
 def stock_xdxr(context: AssetExecutionContext, stock_day: str) -> str:
-    """Download and save stock dividend/adjustment data. Depends on stock_day."""
+    """Manual legacy operation; not selected by the normal Stock schedule."""
     context.log.info(
         f"Saving stock dividend data, triggered after stock_day at {stock_day}"
     )
@@ -525,7 +525,6 @@ def stock_postclose_ready_asset(
     refresh_quality_stock_universe_snapshot: dict,
     stock_day: str,
     stock_min: str,
-    stock_xdxr: str,
 ) -> dict:
     trade_date = (
         str(refresh_quality_stock_universe_snapshot.get("trade_date") or "")
@@ -539,7 +538,8 @@ def stock_postclose_ready_asset(
             refresh_quality_stock_universe_snapshot.get("source_version") or ""
         ).strip(),
         "integrity_audited_dates": list(integrity.get("audited_dates") or []),
-        "stock_xdxr_completed_at": stock_xdxr,
+        "stock_day_completed_at": stock_day,
+        "stock_min_completed_at": stock_min,
     }
     upsert_postclose_marker(
         "stock_postclose_ready",
@@ -656,7 +656,7 @@ def etf_min(context: AssetExecutionContext, etf_day: str) -> str:
 
 @asset(deps=[etf_list], group_name="etf_data")
 def etf_xdxr(context: AssetExecutionContext, etf_list: str) -> str:
-    """Download and save ETF xdxr(adjustment events) data. Depends on etf_list."""
+    """Manual legacy operation; not selected by the normal ETF schedule."""
     context.log.info(f"Saving ETF xdxr data, triggered after etf_list at {etf_list}")
     stats = sync_etf_xdxr_all()
     context.log.info(f"ETF xdxr sync stats: {stats}")
@@ -694,7 +694,7 @@ def etf_xdxr(context: AssetExecutionContext, etf_list: str) -> str:
 
 @asset(deps=[etf_day, etf_xdxr], group_name="etf_data")
 def etf_adj(context: AssetExecutionContext, etf_day: str, etf_xdxr: str) -> str:
-    """Compute and save ETF qfq adjustment factors. Depends on etf_day + etf_xdxr."""
+    """Manual legacy operation; not selected by the normal ETF schedule."""
     context.log.info(
         f"Saving ETF adj(qfq) data, triggered after etf_day at {etf_day} and etf_xdxr at {etf_xdxr}"
     )
@@ -712,10 +712,13 @@ def etf_adj(context: AssetExecutionContext, etf_day: str, etf_xdxr: str) -> str:
 
 @asset(group_name="etf_data")
 def etf_postclose_ready_asset(
-    context: AssetExecutionContext, etf_adj: str, etf_min: str
+    context: AssetExecutionContext, etf_day: str, etf_min: str
 ) -> dict:
     trade_date = resolve_latest_completed_trade_date()
-    payload = {"etf_adj_completed_at": etf_adj, "etf_min_completed_at": etf_min}
+    payload = {
+        "etf_day_completed_at": etf_day,
+        "etf_min_completed_at": etf_min,
+    }
     upsert_postclose_marker(
         "etf_postclose_ready",
         trade_date,

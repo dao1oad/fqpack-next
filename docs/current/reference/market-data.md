@@ -49,7 +49,7 @@ FreshQuant 当前同时使用三类行情来源：
 - CLX 日线选股按 Stock / ETF 各自 active marker 冻结 QFQ snapshot pair，并通过共享 strict reader 构造 effective universe；marker `source_exclusions` 与逐标的 `QFQ_DATA_NOT_READY` 会在 attempt 前通用隔离并记录，其他异常直接阻断规划，不回退为 `adj=1` 或 BFQ
 - Stock / ETF 在线读取统一使用 `freshquant.data.qfq_reader`，按 `quantaxis.qfq_ready` 指向的 active slot 读取 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`
 - XTData `preClose` QFQ writer 只在 inactive slot 构建并审计，审计成功且 writer lease owner 仍匹配后原子切换 marker；reader 每次请求重新解析 marker，并对 snapshot、coverage、source exclusion 与 override fail closed
-- Redis Kline 与 StrategyConsumer 常驻窗口绑定 effective adjustment version；旧 `stock_adj` / `etf_adj` 不再是 reader 真值，PR2a 过渡期旧 writer 仍可能运行且旧集合继续保留
+- Redis Kline 与 StrategyConsumer 常驻窗口绑定 effective adjustment version；旧 `stock_adj` / `etf_adj` 不再是 reader 真值，旧 writer 在切换健康检查后停止，旧集合保留至少 7 个交易日
 - 完整历史请求后仍无 source bars、有界内部 source gap 两端 adjustment proof 不一致，或 primary source 前缀分页稳定报告 `history_prefix_no_progress` 的 code，不写推断因子或 `1.0`，从当前 snapshot 隔离，并在对应 slot `source_exclusions[]` 分别记录 `source_empty_bars`、`source_adjustment_gap_unproven` 或 `source_prefix_unavailable`；A/B 与 rollback 各自保留该审计边界
 - `audit --mode structure` 检查 Mongo 结构合同，并读取 XTData instrument `OpenDate` / `IsTrading` 元数据以区分上市前 BFQ 覆盖与 `nontrading_terminal_history`，但不加载 source bars；`tail/full` 另会加载 XTData source bars 并验证 `preClose` 递推，正式发布门禁使用 `full`
 - 真实 Index 日线、分钟线与 realtime merge 固定为 BFQ，实时表使用 `freshquant.index_realtime`，不读取 ETF 或 Stock 复权因子
@@ -57,10 +57,10 @@ FreshQuant 当前同时使用三类行情来源：
 Dagster 盘后桥接口径当前新增两条 ready asset：
 
 - `stock_postclose_ready_asset`
-  - 依赖股票日线、分钟线、`quality_stock_universe` 快照刷新与过渡期旧 `stock_xdxr` writer
+  - 依赖股票日线、分钟线与 `quality_stock_universe` 快照刷新
   - 成功后写入 `freshquant.dagster_pipeline_markers` 中 `pipeline_key=stock_postclose_ready` 的文档
 - `etf_postclose_ready_asset`
-  - 依赖过渡期旧 `etf_xdxr -> etf_adj` writer 和通过日线/五周期完整性门禁的 `etf_min`
+  - 依赖 ETF 日线和通过五周期完整性门禁的 `etf_min`
   - 成功后写入 `freshquant.dagster_pipeline_markers` 中 `pipeline_key=etf_postclose_ready` 的文档
 
 其中：

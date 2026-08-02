@@ -15,12 +15,10 @@ from dagster import (
 )
 from fqdagster.defs.assets.market_data import (
     bond_list,
-    etf_adj,
     etf_day,
     etf_list,
     etf_min,
     etf_postclose_ready_asset,
-    etf_xdxr,
     future_list,
     index_day,
     index_list,
@@ -30,7 +28,6 @@ from fqdagster.defs.assets.market_data import (
     stock_list,
     stock_min,
     stock_postclose_ready_asset,
-    stock_xdxr,
 )
 from fqdagster.defs.assets.postclose_ready import (
     refresh_quality_stock_universe_snapshot,
@@ -56,7 +53,6 @@ stock_data_job = define_asset_job(
         stock_block,
         stock_day,
         stock_min,
-        stock_xdxr,
         refresh_quality_stock_universe_snapshot,
         stock_postclose_ready_asset,
     ),
@@ -77,8 +73,6 @@ etf_data_job = define_asset_job(
         etf_list,
         etf_day,
         etf_min,
-        etf_xdxr,
-        etf_adj,
         etf_postclose_ready_asset,
     ),
     tags=BOUNDED_MARKET_JOB_TAGS,

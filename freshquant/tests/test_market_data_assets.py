@@ -484,7 +484,6 @@ def test_stock_postclose_ready_asset_depends_on_quality_snapshot(monkeypatch):
         "refresh_quality_stock_universe_snapshot",
         "stock_day",
         "stock_min",
-        "stock_xdxr",
     ]
 
 
@@ -660,14 +659,12 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
         },
         "2026-03-19 16:00:00",
         "2026-03-19 16:05:00",
-        "2026-03-19 16:10:00",
     )
 
     assert module.stock_postclose_ready_asset.dependency_names == [
         "refresh_quality_stock_universe_snapshot",
         "stock_day",
         "stock_min",
-        "stock_xdxr",
     ]
     assert calls == [
         {
@@ -678,7 +675,8 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
                 "count": 18,
                 "source_version": "xgt_hot_blocks_v1",
                 "integrity_audited_dates": ["2026-03-19"],
-                "stock_xdxr_completed_at": "2026-03-19 16:10:00",
+                "stock_day_completed_at": "2026-03-19 16:00:00",
+                "stock_min_completed_at": "2026-03-19 16:05:00",
             },
         }
     ]
@@ -719,14 +717,14 @@ def test_etf_postclose_ready_asset_writes_marker(monkeypatch):
         "2026-03-19 16:10:00",
     )
 
-    assert module.etf_postclose_ready_asset.dependency_names == ["etf_adj", "etf_min"]
+    assert module.etf_postclose_ready_asset.dependency_names == ["etf_day", "etf_min"]
     assert calls == [
         {
             "pipeline_key": "etf_postclose_ready",
             "trade_date": "2026-03-19",
             "run_id": "run-etf-1",
             "payload": {
-                "etf_adj_completed_at": "2026-03-19 16:05:00",
+                "etf_day_completed_at": "2026-03-19 16:05:00",
                 "etf_min_completed_at": "2026-03-19 16:10:00",
             },
         }
