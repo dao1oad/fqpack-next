@@ -905,6 +905,39 @@ def test_missing_etf_open_date_keeps_prefix_bfq_rows_fail_closed():
     assert not db["qfq_ready"].rows
 
 
+def test_audit_rejects_factor_rows_for_prelisting_only_bfq_history():
+    db = _DB(
+        etf_list=[
+            {"code": "161022", "name": "Converted ETF"},
+            {"code": "510050", "name": "Tradable ETF"},
+        ],
+        index_day=[
+            {"code": "161022", "date": "2020-01-02"},
+            {"code": "510050", "date": "2026-07-31"},
+        ],
+        etf_adj_qfq_a=[
+            {"code": "161022", "date": "2020-01-02", "adj": 1.0},
+            {"code": "510050", "date": "2026-07-31", "adj": 1.0},
+        ],
+    )
+
+    audit = qfq.audit_qfq_slot(
+        scope="etf",
+        slot="a",
+        db=db,
+        factor_asof="2026-07-31",
+        listing_date_loader=lambda code: (
+            "2024-01-31" if code == "161022" else "2005-02-23"
+        ),
+    )
+
+    assert audit["ok"] is False
+    assert audit["failures"][0]["code"] == "161022"
+    assert audit["failures"][0]["audit"]["extra_dates"] == [
+        ("161022", "2020-01-02")
+    ]
+
+
 def test_bootstrap_failure_never_creates_ready_marker():
     db = _stock_db(["2026-01-02"])
 

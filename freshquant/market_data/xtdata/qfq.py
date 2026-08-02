@@ -1889,11 +1889,20 @@ def audit_qfq_slot(
             target_date=factor_asof,
             summary=coverage_summary,
         )
-        if not expected:
-            continue
         code_rows = _load_existing_factor_rows(
             db=db, collection_name=collection.name, code=code
         )
+        if not expected:
+            if code_rows:
+                audit = _audit_code_rows(
+                    code=code,
+                    rows=code_rows,
+                    expected_dates=(),
+                )
+                rows += len(code_rows)
+                checked_codes += 1
+                failures.append({"code": code, "audit": audit})
+            continue
         audit_dates = expected
         source_rows = None
         audit_rows = code_rows

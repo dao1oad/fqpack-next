@@ -230,7 +230,7 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 
 `--full` 会在 inactive slot 对整个 scope 做全历史确定性重算，删除已退出当前 BFQ universe 的残留 code，允许在 active `factor_asof` 不变时修复 60 个交易日窗口之前的 XTData 历史修订，但拒绝更早的目标日期。该操作进入自动周期前必须先通过 PR1 全市场容量与耗时 gate。
 
-`audit --mode structure` 只检查日期覆盖、唯一键、正因子和末日因子，适合快速检查；正式发布 gate 使用 `--mode full` 从 XTData 重新加载 source bars 并验证完整递推恒等式。`--mode tail` 可配合 `--code` 做低成本定位。
+`audit --mode structure` 检查日期覆盖、唯一键、正因子和末日因子，并读取 XTData instrument `OpenDate` 元数据审计上市前 BFQ 行，但不加载 source bars；正式发布 gate 使用 `--mode full` 从 XTData 重新加载 source bars 并验证完整递推恒等式。`--mode tail` 可配合 `--code` 做低成本定位。
 
 只有目标 inactive slot 的状态为 `ready` 时才执行 marker 回切：
 

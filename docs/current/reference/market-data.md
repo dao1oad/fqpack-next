@@ -49,7 +49,7 @@ FreshQuant 当前同时使用三类行情来源：
 - Stock / ETF 在线读取仍使用 `quantaxis.stock_adj` / `quantaxis.etf_adj`，现有 `stock_xdxr`、`etf_xdxr -> etf_adj` writer 继续运行
 - XTData `preClose` QFQ writer 维护独立 shadow 集合：`stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`；`quantaxis.qfq_ready` 保存每个 scope 的 active slot 与双槽快照元数据
 - shadow writer 只在 inactive slot 构建并审计，审计成功且 writer lease owner 仍匹配后原子切换 marker；当前 Stock / ETF reader 尚未读取这些 A/B 集合
-- `audit --mode structure` 只检查 Mongo 结构合同；`tail/full` 会加载 XTData source bars 并验证 `preClose` 递推，正式发布门禁使用 `full`
+- `audit --mode structure` 检查 Mongo 结构合同，并读取 XTData instrument `OpenDate` 元数据以审计上市前 BFQ 覆盖，但不加载 source bars；`tail/full` 另会加载 XTData source bars 并验证 `preClose` 递推，正式发布门禁使用 `full`
 - 真实 Index 日线、分钟线与 realtime merge 固定为 BFQ，实时表使用 `freshquant.index_realtime`，不读取 ETF 或 Stock 复权因子
 
 Dagster 盘后桥接口径当前新增两条 ready asset：
