@@ -426,8 +426,10 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "api",
         "--format",
         "summary",
+        "--timeout",
+        "2",
         "--retries",
-        "30",
+        "20",
         "--retry-delay",
         "1",
     ]
@@ -501,8 +503,10 @@ def test_health_checks_use_current_python_executable(
         "api",
         "--format",
         "summary",
+        "--timeout",
+        "2",
         "--retries",
-        "30",
+        "20",
         "--retry-delay",
         "1",
     ]
