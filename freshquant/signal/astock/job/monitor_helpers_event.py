@@ -105,9 +105,7 @@ def _ensure_bi_list(
     try:
         return [
             int(x)
-            for x in fq_recognise_bi(
-                len(high_list), high_list, low_list, close_list
-            )
+            for x in fq_recognise_bi(len(high_list), high_list, low_list, close_list)
         ]
     except Exception:
         return [0] * len(high_list)

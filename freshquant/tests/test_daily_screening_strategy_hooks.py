@@ -132,6 +132,7 @@ def test_clxs_strategy_emits_hooks_for_universe_progress_and_results(monkeypatch
             {"code": "000002", "name": "ST beta", "sse": "sz"},
         ],
     )
+
     def fake_recognise_bi(length, highs, lows, closes):
         bi_close_inputs.append(closes)
         return [-1] * length

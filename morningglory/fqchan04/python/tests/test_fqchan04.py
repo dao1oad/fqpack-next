@@ -1,9 +1,7 @@
 import inspect
 
-import pytest
-
 import fqchan04
-
+import pytest
 
 DEFAULT_OPTIONS = {
     "bi_mode": 6,
@@ -21,9 +19,7 @@ def test_fq_recognise_bi_supports_close_and_legacy_options_position():
     low = [100.0, 101.0, 97.0, 95.0]
 
     legacy = fqchan04.fq_recognise_bi(4, high, low, DEFAULT_OPTIONS)
-    keyword = fqchan04.fq_recognise_bi(
-        4, high, low, chan_options=DEFAULT_OPTIONS
-    )
+    keyword = fqchan04.fq_recognise_bi(4, high, low, chan_options=DEFAULT_OPTIONS)
     assert legacy == keyword
 
     with pytest.raises(TypeError, match="provided twice"):

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from copy import deepcopy
+from datetime import date
 from typing import Any
 
-SCHEMA_VERSION = "clx-daily-selection.v1"
+SCHEMA_VERSION = "clx-daily-selection.v2"
 ASSET_TYPES = ("stock", "etf")
 MODEL_KEYS = tuple(f"S{model_id:04d}" for model_id in range(18))
 
@@ -168,9 +170,100 @@ def marker_snapshot_hash(snapshot: dict[str, Any]) -> str:
     return canonical_hash(snapshot)
 
 
+def normalize_qfq_snapshot_pair(
+    pair: Mapping[str, Any], *, trade_date: str
+) -> dict[str, dict[str, Any]]:
+    trade_date = str(trade_date or "").strip()
+    try:
+        target_date = date.fromisoformat(trade_date)
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid QFQ target trade_date: {trade_date or '<empty>'}"
+        ) from exc
+    if not isinstance(pair, Mapping) or set(pair) != set(ASSET_TYPES):
+        raise ValueError("QFQ snapshot pair must contain exactly stock and etf")
+    normalized: dict[str, dict[str, Any]] = {}
+    for asset_type in ASSET_TYPES:
+        raw = pair.get(asset_type)
+        if not isinstance(raw, Mapping):
+            raise TypeError(f"QFQ {asset_type} snapshot metadata is required")
+        scope = str(raw.get("scope") or asset_type).strip().lower()
+        if scope != asset_type:
+            raise ValueError(f"QFQ {asset_type} snapshot scope mismatch: {scope}")
+        active_slot = str(raw.get("active_slot") or raw.get("slot") or "").strip()
+        if active_slot not in {"a", "b"}:
+            raise ValueError(f"QFQ {asset_type} active_slot must be a or b")
+        expected_collection = f"{asset_type}_adj_qfq_{active_slot}"
+        collection = str(raw.get("collection") or "").strip()
+        if collection != expected_collection:
+            raise ValueError(
+                f"QFQ {asset_type} collection must be {expected_collection}"
+            )
+        snapshot_id = str(raw.get("snapshot_id") or "").strip()
+        factor_asof = str(raw.get("factor_asof") or "").strip()
+        published_at = str(raw.get("published_at") or "").strip()
+        effective_version = str(raw.get("effective_version") or "").strip()
+        if not all((snapshot_id, factor_asof, published_at, effective_version)):
+            raise ValueError(f"QFQ {asset_type} snapshot metadata is incomplete")
+        try:
+            factor_date = date.fromisoformat(factor_asof)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid QFQ {asset_type} factor_asof: {factor_asof}"
+            ) from exc
+        if factor_date < target_date:
+            raise ValueError(
+                f"QFQ {asset_type} factor_asof {factor_asof} is before {trade_date}"
+            )
+        if effective_version != snapshot_id:
+            raise ValueError(
+                f"QFQ {asset_type} effective_version must equal snapshot_id"
+            )
+        raw_exclusions = raw.get("source_exclusions") or ()
+        if not isinstance(raw_exclusions, (list, tuple)):
+            raise TypeError(f"QFQ {asset_type} source_exclusions must be a sequence")
+        source_exclusions = []
+        for exclusion in raw_exclusions:
+            if not isinstance(exclusion, Mapping):
+                raise TypeError(
+                    f"QFQ {asset_type} source_exclusions entries must be mappings"
+                )
+            code = str(exclusion.get("code") or exclusion.get("symbol") or "").strip()
+            reason = str(exclusion.get("reason") or "").strip()
+            if not code or not reason:
+                raise ValueError(
+                    f"QFQ {asset_type} source_exclusions entry requires code and reason"
+                )
+            source_exclusions.append({"code": code, "reason": reason})
+        source_exclusions.sort(key=lambda item: (item["code"], item["reason"]))
+        normalized[asset_type] = {
+            "scope": scope,
+            "active_slot": active_slot,
+            "collection": collection,
+            "snapshot_id": snapshot_id,
+            "factor_asof": factor_asof,
+            "published_at": published_at,
+            "effective_version": effective_version,
+            "source_exclusions": source_exclusions,
+        }
+    return normalized
+
+
+def qfq_snapshot_pair_hash(pair: Mapping[str, Any]) -> str:
+    return canonical_hash(pair)
+
+
 def build_selection_key(
-    *, asset_type: str, marker_snapshot: dict[str, Any], profile: dict[str, Any]
+    *,
+    asset_type: str,
+    marker_snapshot: dict[str, Any],
+    qfq_snapshot_pair: Mapping[str, Any],
+    effective_universe_hash: str,
+    profile: dict[str, Any],
 ) -> str:
+    effective_universe_hash = str(effective_universe_hash or "").strip()
+    if not effective_universe_hash:
+        raise ValueError("CLX selection key requires effective_universe_hash")
     universe_version = (
         f"{profile['universe_version']}:{marker_snapshot['source_version']}"
     )
@@ -179,6 +272,8 @@ def build_selection_key(
             marker_snapshot["trade_date"],
             asset_type,
             marker_snapshot_hash(marker_snapshot),
+            qfq_snapshot_pair_hash(qfq_snapshot_pair),
+            effective_universe_hash,
             universe_version,
             profile["id"],
             profile["algorithm_version"],

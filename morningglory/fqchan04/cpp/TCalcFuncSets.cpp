@@ -379,7 +379,7 @@ void Func13(int count, float *out_values, float *p_param_keys, float *p_param_va
     ChanProxy &chan = ChanProxy::get_instance();
     ChanParamType paramType = static_cast<ChanParamType>(static_cast<int>(p_param_keys[0]));
     int option = int(p_param_values[0]);
-    
+
     switch (paramType) {
         case ChanParamType::WAVE_OPT:
             // 4K笔还是5K笔还是大笔

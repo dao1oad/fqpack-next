@@ -1,13 +1,43 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import ModuleType
 
 from flask import Flask
 
 from freshquant.clx_daily_selection.service import ClxDailySelectionService
 
 
+class FakeQFQDataNotReadyError(RuntimeError):
+    error_code = "QFQ_DATA_NOT_READY"
+
+    def __init__(self, message, *, scope=None, code=None, missing_dates=None):
+        self.scope = str(scope or "")
+        self.code = str(code or "")
+        self.missing_dates = list(missing_dates or [])
+        super().__init__(f"QFQ_DATA_NOT_READY: {message}")
+
+    def as_dict(self):
+        return {
+            "ok": False,
+            "error_code": self.error_code,
+            "message": str(self),
+            "scope": self.scope,
+            "code": self.code,
+            "missing_dates": self.missing_dates,
+        }
+
+
+def install_qfq_reader(monkeypatch):
+    module = ModuleType("freshquant.data.qfq_reader")
+    module.QFQDataNotReadyError = FakeQFQDataNotReadyError
+    module.QFQ_DATA_NOT_READY_HTTP_STATUS = 503
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+
 def make_client(monkeypatch, service):
+    install_qfq_reader(monkeypatch)
     from freshquant.rear.clx_daily_selection.routes import clx_daily_selection_bp
 
     monkeypatch.setattr(
@@ -31,7 +61,7 @@ def test_model_catalog_route_exposes_real_filter_contract(monkeypatch):
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert payload["schema_version"] == "clx-daily-selection.v1"
+    assert payload["schema_version"] == "clx-daily-selection.v2"
     assert payload["condition_catalog_version"] == "clx18-condition-v1"
     assert payload["evaluation_profile"]["id"] == "production_v1"
     assert payload["evaluation_profile"]["switch_opt"] == 1
@@ -196,6 +226,7 @@ def test_history_signals_route_normalizes_query_and_exposes_etag(monkeypatch):
                 "signals_by_model": {"S0001": [1101]},
                 "markers_by_model": {"S0001": [{"bar_index": 0}]},
                 "query_hash": "abc123",
+                "qfq_effective_version": "stock-snapshot-20260319",
                 "future_function_guard": {"passed": True},
             }
 
@@ -209,7 +240,9 @@ def test_history_signals_route_normalizes_query_and_exposes_etag(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.headers["ETag"] == '"abc123"'
+    assert response.headers["ETag"] == '"abc123:stock-snapshot-20260319"'
+    assert response.headers["X-QFQ-Effective-Version"] == "stock-snapshot-20260319"
+    assert response.get_json()["qfq_effective_version"] == ("stock-snapshot-20260319")
     assert response.get_json()["future_function_guard"]["passed"] is True
     assert captured == {
         "symbol": "000001",
@@ -234,3 +267,29 @@ def test_history_signals_route_rejects_non_daily_period(monkeypatch):
 
     assert response.status_code == 400
     assert response.get_json()["code"] == "invalid_request"
+
+
+def test_history_signals_route_maps_qfq_not_ready_to_http_503(monkeypatch):
+    class Service:
+        def get_history_signals(self, **_kwargs):
+            raise FakeQFQDataNotReadyError(
+                "active snapshot is not ready",
+                scope="stock",
+                code="000001",
+                missing_dates=["2026-03-19"],
+            )
+
+    response = make_client(monkeypatch, Service()).get(
+        "/api/clx-daily-selection/history/signals"
+        "?symbol=000001&assetType=stock&period=1d&endDate=2026-03-19"
+    )
+
+    assert response.status_code == 503
+    assert response.get_json() == {
+        "ok": False,
+        "error_code": "QFQ_DATA_NOT_READY",
+        "message": "QFQ_DATA_NOT_READY: active snapshot is not ready",
+        "scope": "stock",
+        "code": "000001",
+        "missing_dates": ["2026-03-19"],
+    }

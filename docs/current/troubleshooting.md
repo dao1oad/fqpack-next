@@ -944,11 +944,13 @@ db.partition_attempts.find({
 
 不要把“其余 symbol 已完成诊断计算”解释为 partition completed，也不要手工提交缺少错误 symbol 的不完整输出。
 
-### 错误类型为 `AdjustmentCoverageError`
+### 错误码为 `QFQ_DATA_NOT_READY`
 
-- `qfq-daily-v1` 要求查询窗口内每个 bar 日期都有有限且大于 0 的 `stock_adj/etf_adj` 因子。
-- `missing_dates` 或 `invalid_dates` 非空时本侧 fail-closed；服务不会以 `adj=1`、bfq 或部分覆盖继续计算。
-- 修复/补齐复权集合后只重试失败侧，并确认新 attempt 的 `data_version` 仍为 `qfq-daily-v1`。
+- shared QFQ reader 要求查询窗口内每个 bar 日期都有 active snapshot 覆盖，并以 `QFQDataNotReadyError` 返回 `scope/code/missing_dates`。
+- 规划 attempt 时先从 raw candidate universe 通用剔除 QFQ marker 的 `source_exclusions`，再用 shared strict reader 只校验其余标的的目标日 BFQ 行。该阶段逐标的 `QFQ_DATA_NOT_READY` 会进入 `universe_evidence.reader_isolations[]`，记录 `code / classification / error_code / reason / source` 与 count/hash；不会伪造回 QFQ marker，也不会阻塞另一资产侧。
+- 查 `candidate_universe_count = effective_universe_count + source_excluded_count + reader_isolation_count`，并核对 `effective_universe_hash / universe_isolation_hash` 与 partition run tags。残余 exclusion 交集、证据 hash/count 不一致、effective universe 为空或其他异常都会在创建 attempt 前结束规划。
+- attempt 创建后只计算冻结的 `effective_instruments`。完整历史读取中再次出现 `QFQ_DATA_NOT_READY` 时，本侧仍按逐标的错误零容忍失败；服务不会以 `adj=1`、BFQ 或部分覆盖继续计算。
+- 修复或补齐复权集合后，让 QFQ marker/pair 与上游 marker 形成新 generation，再只重试受影响侧；确认新 attempt 的 `data_version=qfq-daily-v1`，并保留旧隔离/失败事实用于审计。
 
 ## CLX 两侧都 completed 但没有 final 内容
 
@@ -964,7 +966,7 @@ db.finalization_attempts.find({
 - 没有 finalization attempt 且某一侧 `upstream_status=marker_missing`：finalizer 正常返回 waiting；补齐当前 marker，不要发布旧 generation。
 - `scheduled` 超过 9 分钟或 `running` 超过 10 分钟：原 attempt 应 CAS 为 `claim_expired`，下一次 sensor 生成递增 attempt_no 和新 dispatch run key。
 - `failed`：查看 `error`。前置异常或 publication 失败后，下一次 dispatch 必须使用新 `finalization_attempt_id/run_key`，不能复用已失败的 Dagster run key。
-- job 启动即 tag 校验失败：核对 `fq_trade_date / fq_clx_batch_id / fq_clx_partition_ids / fq_clx_finalization_attempt_id` 与该持久化 attempt；job 不接受 tag 临时改写 batch generation。
+- job 启动即 tag 校验失败：核对 `fq_trade_date / fq_clx_batch_id / fq_clx_partition_ids / fq_clx_finalization_attempt_id / fq_clx_finalization_attempt_no / fq_clx_qfq_snapshot_pair_hash / fq_clx_qfq_{stock,etf}_snapshot_id / fq_clx_generation_order` 与该持久化 attempt；job 不接受 tag 临时改写 batch generation。
 - `generation_drift`：sensor 规划后 marker、batch id 或 partition ids 已改变。旧 attempt 保留 failed 审计，等待当前 generation 两侧 completed 后再规划。
 
 若 dispatch 已领取，再看 partial batch 是否为 `contract_mismatch`，并比较两个 partition：

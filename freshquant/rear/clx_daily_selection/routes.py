@@ -154,6 +154,11 @@ def get_statistics(batch_id: str):
 
 @clx_daily_selection_bp.get("/history/signals")
 def get_history_signals():
+    from freshquant.data.qfq_reader import (
+        QFQ_DATA_NOT_READY_HTTP_STATUS,
+        QFQDataNotReadyError,
+    )
+
     try:
         payload = _get_service().get_history_signals(
             symbol=str(request.args.get("symbol") or "").strip(),
@@ -182,12 +187,19 @@ def get_history_signals():
                 request.args.get("includeRaw") or request.args.get("include_raw")
             ),
         )
+    except QFQDataNotReadyError as exc:
+        return jsonify(exc.as_dict()), QFQ_DATA_NOT_READY_HTTP_STATUS
     except ValueError as exc:
         return _invalid_request(exc)
     response = jsonify(payload)
     query_hash = str(payload.get("query_hash") or "").strip()
+    effective_version = str(payload.get("qfq_effective_version") or "").strip()
     if query_hash:
-        response.set_etag(query_hash)
+        response.set_etag(
+            f"{query_hash}:{effective_version}" if effective_version else query_hash
+        )
+    if effective_version:
+        response.headers["X-QFQ-Effective-Version"] = effective_version
     return response
 
 

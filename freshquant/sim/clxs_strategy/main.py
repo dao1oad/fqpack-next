@@ -84,9 +84,7 @@ class ClxsStrategy(BaseStrategy):
         model_opt = input_param_model.get_param('var_model_opt', 10001)
         return f"CLX{str(model_opt).zfill(5)}"
 
-    def _calculate_clxs_signals(
-        self, hist_data: pd.DataFrame
-    ) -> list:
+    def _calculate_clxs_signals(self, hist_data: pd.DataFrame) -> list:
         """
         计算CLXS信号
 
@@ -109,7 +107,16 @@ class ClxsStrategy(BaseStrategy):
         model_opt = self.input_param_model.get_param('var_model_opt', 10001)
 
         return fq_clxs(
-            length, highs, lows, opens, closes, volumes, wave_opt, stretch_opt, trend_opt, model_opt
+            length,
+            highs,
+            lows,
+            opens,
+            closes,
+            volumes,
+            wave_opt,
+            stretch_opt,
+            trend_opt,
+            model_opt,
         )
 
     def should_buy(self, pos, market_data: Dict[str, pd.DataFrame]):
@@ -163,7 +170,9 @@ class ClxsStrategy(BaseStrategy):
 
         atr_period = self.input_param_model.get_param('var_atr_period', 20)
         atr_multiplier = self.input_param_model.get_param('var_atr_multiplier', 2.0)
-        profit_loss_ratio = self.input_param_model.get_param('var_profit_loss_ratio', 1.0)
+        profit_loss_ratio = self.input_param_model.get_param(
+            'var_profit_loss_ratio', 1.0
+        )
 
         stop_loss_price = self.get_volume_long_stop_loss_price(pos.code)
         if not stop_loss_price:

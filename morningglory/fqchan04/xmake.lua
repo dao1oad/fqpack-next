@@ -64,7 +64,7 @@ target("mt5")
     add_files_recursive("cpp")
     add_defines("_X64")
     add_cxflags("/EHsc")
-    
+
 -- 编译KT交易师
 target("kt")
     add_global_defines()

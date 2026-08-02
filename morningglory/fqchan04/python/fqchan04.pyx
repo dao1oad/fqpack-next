@@ -3,6 +3,7 @@
 
 from libcpp.vector cimport vector
 
+
 def fq_recognise_bars(int length, vector[float] h, vector[float] l):
     return recognise_bars(length, h, l)
 

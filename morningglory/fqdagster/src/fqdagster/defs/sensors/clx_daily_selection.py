@@ -18,6 +18,38 @@ def _make_service() -> ClxDailySelectionService:
     return ClxDailySelectionService()
 
 
+def _qfq_snapshot_tags(plan: dict) -> dict[str, str]:
+    pair = plan.get("qfq_snapshot_pair")
+    pair_hash = str(plan.get("qfq_snapshot_pair_hash") or "").strip()
+    if not isinstance(pair, dict) or not pair_hash:
+        raise ValueError("CLX plan is missing the frozen QFQ snapshot pair")
+    tags = {"fq_clx_qfq_snapshot_pair_hash": pair_hash}
+    for asset_type in ("stock", "etf"):
+        snapshot = pair.get(asset_type)
+        snapshot_id = (
+            str(snapshot.get("snapshot_id") or "").strip()
+            if isinstance(snapshot, dict)
+            else ""
+        )
+        if not snapshot_id:
+            raise ValueError(f"CLX plan is missing {asset_type} QFQ snapshot identity")
+        tags[f"fq_clx_qfq_{asset_type}_snapshot_id"] = snapshot_id
+    return tags
+
+
+def _partition_universe_tags(plan: dict) -> dict[str, str]:
+    tags = {}
+    for field, tag in (
+        ("effective_universe_hash", "fq_clx_effective_universe_hash"),
+        ("universe_isolation_hash", "fq_clx_universe_isolation_hash"),
+    ):
+        value = str(plan.get(field) or "").strip()
+        if not value:
+            raise ValueError(f"CLX partition plan is missing {field}")
+        tags[tag] = value
+    return tags
+
+
 def _partition_sensor_result(asset_type: str):
     pipeline_key = f"{asset_type}_postclose_ready"
     service = _make_service()
@@ -46,6 +78,8 @@ def _partition_sensor_result(asset_type: str):
                 "fq_clx_attempt_no": str(plan["attempt_no"]),
                 "fq_clx_selection_key": plan["selection_key"],
                 "fq_clx_marker_snapshot_hash": plan["marker_snapshot_hash"],
+                **_qfq_snapshot_tags(plan),
+                **_partition_universe_tags(plan),
             },
         )
     return SkipReason(
@@ -101,6 +135,8 @@ def clx_daily_selection_finalizer_sensor(_context):
                 "fq_clx_partition_ids": ",".join(plan["partition_ids"]),
                 "fq_clx_finalization_attempt_id": plan["finalization_attempt_id"],
                 "fq_clx_finalization_attempt_no": str(plan["finalization_attempt_no"]),
+                "fq_clx_generation_order": str(plan["generation_order"]),
+                **_qfq_snapshot_tags(plan),
             },
         )
     return SkipReason(

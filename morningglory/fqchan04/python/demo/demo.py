@@ -1,7 +1,6 @@
 from typing import Any, Dict, List
 
 import akshare as ak
-
 from fqchan04 import (
     fq_recognise_bars,
     fq_recognise_bi,

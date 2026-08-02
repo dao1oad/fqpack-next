@@ -6,9 +6,27 @@ from threading import Event, Thread
 
 import pytest
 
-from freshquant.clx_daily_selection.contracts import PRODUCTION_PROFILE, decode_signal
-from freshquant.clx_daily_selection.market_data import AdjustmentCoverageError
+from freshquant.clx_daily_selection.contracts import (
+    PRODUCTION_PROFILE,
+    canonical_hash,
+    decode_signal,
+    normalize_qfq_snapshot_pair,
+    qfq_snapshot_pair_hash,
+)
 from freshquant.clx_daily_selection.service import ClxDailySelectionService
+
+
+class QFQDataNotReadyError(RuntimeError):
+    error_code = "QFQ_DATA_NOT_READY"
+
+    def __init__(self, message, *, scope, code, missing_dates):
+        self.scope = scope
+        self.code = code
+        self.missing_dates = tuple(missing_dates)
+        super().__init__(
+            f"QFQ_DATA_NOT_READY: {message} scope={scope} code={code} "
+            f"missing_dates={list(missing_dates)}"
+        )
 
 
 class FakeRepository:
@@ -342,8 +360,28 @@ class FakeMarketDataProvider:
         code = "000001" if asset_type == "stock" else "510300"
         return [{"symbol": code, "name": code}]
 
-    def get_daily_bars(self, asset_type, symbol, trade_date, bar_count):
+    def probe_qfq_instrument(
+        self,
+        asset_type,
+        symbol,
+        trade_date,
+        *,
+        expected_snapshot_metadata=None,
+    ):
+        self.calls.append(("probe", asset_type, symbol, trade_date))
+        return deepcopy(expected_snapshot_metadata or qfq_snapshot_pair()[asset_type])
+
+    def get_daily_bars(
+        self,
+        asset_type,
+        symbol,
+        trade_date,
+        bar_count,
+        *,
+        expected_snapshot_metadata=None,
+    ):
         self.calls.append(("bars", asset_type, symbol, trade_date, bar_count))
+        metadata = expected_snapshot_metadata or qfq_snapshot_pair()[asset_type]
         return [
             {
                 "date": "2026-03-18",
@@ -352,6 +390,10 @@ class FakeMarketDataProvider:
                 "low": 9.0,
                 "close": 10.5,
                 "volume": 1000.0,
+                "qfq_snapshot_id": metadata["snapshot_id"],
+                "qfq_factor_asof": metadata["factor_asof"],
+                "qfq_effective_version": metadata["effective_version"],
+                "qfq_collection": metadata["collection"],
             },
             {
                 "date": trade_date,
@@ -360,6 +402,10 @@ class FakeMarketDataProvider:
                 "low": 10.0,
                 "close": 11.5,
                 "volume": 1200.0,
+                "qfq_snapshot_id": metadata["snapshot_id"],
+                "qfq_factor_asof": metadata["factor_asof"],
+                "qfq_effective_version": metadata["effective_version"],
+                "qfq_collection": metadata["collection"],
             },
         ]
 
@@ -389,14 +435,57 @@ def marker(asset_type, *, run_id="run-1", updated_at="2026-03-19T08:00:00Z"):
     }
 
 
+def qfq_snapshot_pair(
+    *,
+    stock_snapshot_id="stock-snapshot-1",
+    etf_snapshot_id="etf-snapshot-1",
+    stock_published_at="2026-03-19T07:50:00Z",
+    etf_published_at="2026-03-19T07:51:00Z",
+    stock_exclusions=(),
+    etf_exclusions=(),
+):
+    return {
+        "stock": {
+            "scope": "stock",
+            "active_slot": "a",
+            "collection": "stock_adj_qfq_a",
+            "snapshot_id": stock_snapshot_id,
+            "factor_asof": "2026-03-19",
+            "published_at": stock_published_at,
+            "effective_version": stock_snapshot_id,
+            "source_exclusions": list(stock_exclusions),
+        },
+        "etf": {
+            "scope": "etf",
+            "active_slot": "b",
+            "collection": "etf_adj_qfq_b",
+            "snapshot_id": etf_snapshot_id,
+            "factor_asof": "2026-03-19",
+            "published_at": etf_published_at,
+            "effective_version": etf_snapshot_id,
+            "source_exclusions": list(etf_exclusions),
+        },
+    }
+
+
 def make_service(
-    repository=None, provider=None, engine=None, publisher=None, now_provider=None
+    repository=None,
+    provider=None,
+    engine=None,
+    publisher=None,
+    now_provider=None,
+    qfq_pair_provider=None,
+    qfq_universe_validator=None,
 ):
     return ClxDailySelectionService(
         repository=repository or FakeRepository(),
         market_data_provider=provider or FakeMarketDataProvider(),
         engine=engine or FakeEngine(),
         ready_marker_publisher=publisher,
+        qfq_snapshot_pair_provider=qfq_pair_provider
+        or (lambda _trade_date: qfq_snapshot_pair()),
+        qfq_universe_validator=qfq_universe_validator
+        or (lambda _asset_type, _trade_date, _pair: None),
         now_provider=now_provider or (lambda: "2026-03-19T08:30:00+00:00"),
     )
 
@@ -411,6 +500,349 @@ def test_stock_marker_plans_without_waiting_for_etf_marker():
     assert plan["run_key"].startswith("clx-daily-selection:stock:")
     assert ":attempt:1" in plan["run_key"]
     assert plan["selection_key"].startswith("2026-03-19|stock|")
+    assert plan["qfq_snapshot_pair_hash"] in plan["selection_key"]
+    assert plan["qfq_snapshot_ids"] == {
+        "stock": "stock-snapshot-1",
+        "etf": "etf-snapshot-1",
+    }
+
+
+def test_partition_rejects_attempt_number_tag_mismatch_before_claim():
+    repository = FakeRepository()
+    service = make_service(repository=repository)
+    plan = service.plan_partition("stock", marker("stock"))
+
+    with pytest.raises(ValueError, match="attempt_no tag"):
+        service.execute_partition(
+            plan["attempt_id"],
+            lambda asset_type: marker(asset_type),
+            expected_attempt_no=plan["attempt_no"] + 1,
+        )
+
+    assert repository.attempts[plan["attempt_id"]]["status"] == "scheduled"
+
+
+def test_qfq_pair_contract_normalizes_slot_and_rejects_stale_factor():
+    pair = qfq_snapshot_pair()
+    pair["stock"]["slot"] = pair["stock"].pop("active_slot")
+    pair["stock"]["source_exclusions"] = [
+        {"code": "000002", "reason": "empty_bars"},
+        {"code": "000001", "reason": "source_gap"},
+    ]
+
+    normalized = normalize_qfq_snapshot_pair(pair, trade_date="2026-03-19")
+
+    assert normalized["stock"]["active_slot"] == "a"
+    assert normalized["stock"]["source_exclusions"] == [
+        {"code": "000001", "reason": "source_gap"},
+        {"code": "000002", "reason": "empty_bars"},
+    ]
+    assert qfq_snapshot_pair_hash(normalized)
+    pair["stock"]["factor_asof"] = "2026-03-18"
+    with pytest.raises(ValueError, match="factor_asof .* is before"):
+        normalize_qfq_snapshot_pair(pair, trade_date="2026-03-19")
+
+
+def test_runtime_marker_exclusions_freeze_a_disjoint_effective_universe():
+    excluded_codes = [f"6001{index:02d}" for index in range(5)]
+    allowed_codes = ["000001", "000002"]
+    exclusions = [
+        {
+            "code": f"SH{code}" if index == 0 else code,
+            "reason": f"fixture-{index}",
+        }
+        for index, code in enumerate(excluded_codes)
+    ]
+
+    class ExclusionProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            codes = (
+                [*excluded_codes, *allowed_codes]
+                if asset_type == "stock"
+                else ["510300"]
+            )
+            return [{"symbol": code, "name": code} for code in codes]
+
+    pair = qfq_snapshot_pair(stock_exclusions=exclusions)
+    repository = FakeRepository()
+    provider = ExclusionProvider()
+    service = ClxDailySelectionService(
+        repository=repository,
+        market_data_provider=provider,
+        engine=FakeEngine(),
+        qfq_snapshot_pair_provider=lambda _trade_date: pair,
+        now_provider=lambda: "2026-03-19T08:30:00+00:00",
+    )
+
+    plan = service.plan_partition("stock", marker("stock"))
+    attempt = repository.attempts[plan["attempt_id"]]
+
+    assert plan["action"] == "run"
+    assert plan["effective_universe_hash"] in plan["selection_key"]
+    assert [row["symbol"] for row in attempt["effective_instruments"]] == allowed_codes
+    assert plan["universe_evidence"] == attempt["universe_evidence"]
+    assert plan["universe_evidence"]["candidate_universe_count"] == 7
+    assert plan["universe_evidence"]["effective_universe_count"] == 2
+    assert plan["universe_evidence"]["source_excluded_count"] == 5
+    assert plan["universe_evidence"]["reader_isolation_count"] == 0
+    assert [
+        row["code"] for row in plan["universe_evidence"]["source_excluded_symbols"]
+    ] == excluded_codes
+
+    service.execute_partition(plan["attempt_id"], lambda _asset: marker("stock"))
+
+    assert sum(1 for call in provider.calls if call[0] == "list") == 1
+    assert not any(
+        call[0] == "bars" and call[2] in excluded_codes for call in provider.calls
+    )
+
+
+def test_strict_reader_isolates_stock_and_etf_target_day_gaps_before_attempt():
+    gaps = {"stock": "301717", "etf": "158000"}
+    valid = {"stock": "000001", "etf": "510300"}
+
+    class AvailabilityProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [
+                {"symbol": gaps[asset_type], "name": "gap"},
+                {"symbol": valid[asset_type], "name": "valid"},
+            ]
+
+        def probe_qfq_instrument(
+            self,
+            asset_type,
+            symbol,
+            trade_date,
+            *,
+            expected_snapshot_metadata=None,
+        ):
+            if symbol == gaps[asset_type]:
+                raise QFQDataNotReadyError(
+                    "active QFQ snapshot does not cover requested bars",
+                    scope=asset_type,
+                    code=symbol,
+                    missing_dates=[trade_date],
+                )
+            return super().probe_qfq_instrument(
+                asset_type,
+                symbol,
+                trade_date,
+                expected_snapshot_metadata=expected_snapshot_metadata,
+            )
+
+    repository = FakeRepository()
+    service = make_service(
+        repository=repository,
+        provider=AvailabilityProvider(),
+    )
+
+    plans = {
+        asset_type: service.plan_partition(asset_type, marker(asset_type))
+        for asset_type in ("stock", "etf")
+    }
+
+    assert len(repository.attempts) == 2
+    for asset_type, plan in plans.items():
+        attempt = repository.attempts[plan["attempt_id"]]
+        assert [row["symbol"] for row in attempt["effective_instruments"]] == [
+            valid[asset_type]
+        ]
+        assert plan["universe_evidence"]["reader_isolation_count"] == 1
+        assert (
+            plan["universe_evidence"]["reader_isolations"][0]["code"]
+            == gaps[asset_type]
+        )
+        assert (
+            plan["universe_evidence"]["reader_isolations"][0]["error_code"]
+            == "QFQ_DATA_NOT_READY"
+        )
+        assert (
+            plan["universe_evidence"]["reader_isolations"][0]["classification"]
+            == "target_date_not_covered_by_active_qfq_snapshot"
+        )
+
+
+def test_non_qfq_probe_failure_propagates_before_attempt_creation():
+    class BrokenProbeProvider(FakeMarketDataProvider):
+        def probe_qfq_instrument(self, *_args, **_kwargs):
+            raise ValueError("unexpected reader bug")
+
+    repository = FakeRepository()
+    service = make_service(
+        repository=repository,
+        provider=BrokenProbeProvider(),
+    )
+
+    with pytest.raises(ValueError, match="unexpected reader bug"):
+        service.plan_partition("stock", marker("stock"))
+
+    assert repository.attempts == {}
+    assert repository.commits == []
+
+
+def test_residual_source_exclusion_overlap_fails_before_attempt_creation():
+    exclusion = {"code": "SH600100", "reason": "fixture-source-gap"}
+
+    class LeakyService(ClxDailySelectionService):
+        def _freeze_effective_universe(self, asset_type, trade_date, qfq_pair):
+            plan = super()._freeze_effective_universe(asset_type, trade_date, qfq_pair)
+            plan["effective_instruments"].append({"symbol": "600100", "name": "leaked"})
+            plan["effective_universe_hash"] = canonical_hash(
+                plan["effective_instruments"]
+            )
+            plan["universe_evidence"]["effective_universe_hash"] = plan[
+                "effective_universe_hash"
+            ]
+            return plan
+
+    class LeakyProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            return [
+                {"symbol": "600100", "name": "excluded"},
+                {"symbol": "000001", "name": "valid"},
+            ]
+
+    repository = FakeRepository()
+    service = LeakyService(
+        repository=repository,
+        market_data_provider=LeakyProvider(),
+        engine=FakeEngine(),
+        qfq_snapshot_pair_provider=lambda _trade_date: qfq_snapshot_pair(
+            stock_exclusions=[exclusion]
+        ),
+        now_provider=lambda: "2026-03-19T08:30:00+00:00",
+    )
+
+    with pytest.raises(RuntimeError, match="QFQ_DATA_NOT_READY.*600100"):
+        service.plan_partition("stock", marker("stock"))
+
+    assert repository.attempts == {}
+    assert repository.commits == []
+
+
+def test_full_qfq_pair_change_invalidates_both_partition_selection_keys():
+    pair = [qfq_snapshot_pair()]
+    repository = FakeRepository()
+    service = make_service(
+        repository=repository,
+        qfq_pair_provider=lambda _trade_date: pair[0],
+    )
+    first = {
+        asset_type: service.plan_partition(asset_type, marker(asset_type))
+        for asset_type in ("stock", "etf")
+    }
+    for asset_type in ("stock", "etf"):
+        service.execute_partition(
+            first[asset_type]["attempt_id"],
+            lambda _asset, value=asset_type: marker(value),
+        )
+
+    pair[0] = qfq_snapshot_pair(
+        stock_snapshot_id="stock-snapshot-2",
+        stock_published_at="2026-03-19T09:00:00Z",
+    )
+    revised = {
+        asset_type: service.plan_partition(asset_type, marker(asset_type))
+        for asset_type in ("stock", "etf")
+    }
+
+    assert revised["stock"]["action"] == "run"
+    assert revised["etf"]["action"] == "run"
+    assert revised["stock"]["selection_key"] != first["stock"]["selection_key"]
+    assert revised["etf"]["selection_key"] != first["etf"]["selection_key"]
+    assert (
+        revised["stock"]["qfq_snapshot_pair_hash"]
+        == revised["etf"]["qfq_snapshot_pair_hash"]
+    )
+
+
+def test_legacy_partition_without_qfq_pair_is_stale_against_current_key():
+    repository = FakeRepository()
+    service = make_service(repository=repository)
+    plan = service.plan_partition("stock", marker("stock"))
+    service.execute_partition(plan["attempt_id"], lambda _asset: marker("stock"))
+    legacy = next(iter(repository.partitions.values()))
+    legacy.pop("qfq_snapshot_pair")
+    legacy.pop("qfq_snapshot_pair_hash")
+    legacy["selection_key"] = "legacy-selection-key"
+    repository.partitions = {"legacy-selection-key": legacy}
+    repository.attempts = {}
+
+    states = service._partition_states(
+        "2026-03-19", lambda asset_type: marker(asset_type)
+    )
+
+    assert states["stock"]["status"] == "stale"
+    assert states["stock"]["previous_status"] == "completed"
+    assert states["stock"]["previous_selection_key"] == "legacy-selection-key"
+    assert states["stock"]["selection_key"] != "legacy-selection-key"
+
+
+def test_partition_without_effective_universe_hash_requires_replanning():
+    repository = FakeRepository()
+    service = make_service(repository=repository)
+    plan = service.plan_partition("stock", marker("stock"))
+    service.execute_partition(plan["attempt_id"], lambda _asset: marker("stock"))
+    previous = next(iter(repository.partitions.values()))
+    previous.pop("effective_universe_hash")
+    previous.pop("universe_evidence")
+    previous.pop("universe_isolation_hash")
+    repository.attempts = {}
+
+    states = service._partition_states(
+        "2026-03-19", lambda asset_type: marker(asset_type)
+    )
+
+    assert states["stock"]["status"] == "stale"
+    assert states["stock"]["previous_status"] == "completed"
+    assert states["stock"]["upstream_status"] == "effective_universe_plan_required"
+    assert states["stock"]["selection_key"] == ""
+
+
+def test_finalizer_prefers_current_qfq_pair_when_old_pair_completes_late():
+    repository = FakeRepository()
+    current_pair = qfq_snapshot_pair(
+        stock_snapshot_id="stock-snapshot-2",
+        etf_snapshot_id="etf-snapshot-2",
+        stock_published_at="2026-03-19T09:00:00Z",
+        etf_published_at="2026-03-19T09:01:00Z",
+    )
+    active_pair = [current_pair]
+    service = make_service(
+        repository=repository,
+        qfq_pair_provider=lambda _trade_date: active_pair[0],
+    )
+    current_partition_ids = {}
+    for asset_type in ("stock", "etf"):
+        plan = service.plan_partition(asset_type, marker(asset_type))
+        result = service.execute_partition(
+            plan["attempt_id"],
+            lambda _asset, value=asset_type: marker(value),
+        )
+        current_partition_ids[asset_type] = result["partition"]["partition_id"]
+
+    active_pair[0] = qfq_snapshot_pair()
+    for asset_type in ("stock", "etf"):
+        plan = service.plan_partition(asset_type, marker(asset_type))
+        service.execute_partition(
+            plan["attempt_id"],
+            lambda _asset, value=asset_type: marker(value),
+        )
+
+    active_pair[0] = current_pair
+    finalization = service.plan_finalization(
+        "2026-03-19", lambda asset_type: marker(asset_type)
+    )
+
+    assert finalization["action"] == "run"
+    assert finalization["partition_ids"] == [
+        current_partition_ids[asset_type] for asset_type in ("stock", "etf")
+    ]
+    assert finalization["qfq_snapshot_pair_hash"] == qfq_snapshot_pair_hash(
+        normalize_qfq_snapshot_pair(current_pair, trade_date="2026-03-19")
+    )
 
 
 def test_scheduled_attempt_lease_recovers_when_dispatch_never_starts():
@@ -633,6 +1065,46 @@ def test_marker_drift_discards_calculated_output():
     assert repository.attempts[plan["attempt_id"]]["status"] == "upstream_drift"
 
 
+def test_qfq_pair_drift_is_fenced_before_and_after_partition_compute():
+    pair = [qfq_snapshot_pair()]
+    repository = FakeRepository()
+
+    class DriftingEngine(FakeEngine):
+        def calculate(self, bars, profile):
+            output = super().calculate(bars, profile)
+            pair[0] = qfq_snapshot_pair(
+                stock_snapshot_id="stock-snapshot-2",
+                stock_published_at="2026-03-19T09:00:00Z",
+            )
+            return output
+
+    service = make_service(
+        repository=repository,
+        engine=DriftingEngine(),
+        qfq_pair_provider=lambda _trade_date: pair[0],
+    )
+    after_compute = service.plan_partition("stock", marker("stock"))
+
+    result = service.execute_partition(
+        after_compute["attempt_id"], lambda _asset: marker("stock")
+    )
+
+    assert result["status"] == "upstream_drift"
+    assert result["attempt"]["error"]["phase"] == "after_compute"
+    assert repository.commits == []
+
+    before_compute = service.plan_partition("etf", marker("etf"))
+    pair[0] = qfq_snapshot_pair(
+        stock_snapshot_id="stock-snapshot-3",
+        stock_published_at="2026-03-19T09:10:00Z",
+    )
+    result = service.execute_partition(
+        before_compute["attempt_id"], lambda _asset: marker("etf")
+    )
+    assert result["status"] == "upstream_drift"
+    assert result["attempt"]["error"]["phase"] == "before_compute"
+
+
 def test_completed_partition_is_reused_without_recalculation():
     repository = FakeRepository()
     engine = FakeEngine()
@@ -651,6 +1123,16 @@ def test_completed_partition_is_reused_without_recalculation():
     assert reuse["action"] == "reuse"
     assert engine.calls == 1
     assert len(repository.commits) == 1
+    assert completed["partition"]["qfq_input_provenance"] == {
+        "scope": "stock",
+        "active_slot": "a",
+        "collection": "stock_adj_qfq_a",
+        "snapshot_id": "stock-snapshot-1",
+        "factor_asof": "2026-03-19",
+        "published_at": "2026-03-19T07:50:00Z",
+        "effective_version": "stock-snapshot-1",
+        "source_exclusions": [],
+    }
 
 
 def test_queued_attempt_reuses_partition_committed_after_sensor_planning():
@@ -729,11 +1211,22 @@ def test_detail_membership_entrypoint_label_preserves_sell_direction():
 
 
 def test_finalizer_exposes_partial_then_publishes_matching_partitions():
+    class PublishingProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            codes = ["600100", "000001"] if asset_type == "stock" else ["510300"]
+            return [{"symbol": code, "name": code} for code in codes]
+
     repository = FakeRepository()
     published = []
+    pair = qfq_snapshot_pair(
+        stock_exclusions=[{"code": "SH600100", "reason": "fixture-source-gap"}]
+    )
     service = make_service(
         repository=repository,
+        provider=PublishingProvider(),
         publisher=lambda trade_date, payload: published.append((trade_date, payload)),
+        qfq_pair_provider=lambda _trade_date: pair,
     )
     stock = service.plan_partition("stock", marker("stock"))
     service.execute_partition(stock["attempt_id"], lambda _asset: marker("stock"))
@@ -763,6 +1256,32 @@ def test_finalizer_exposes_partial_then_publishes_matching_partitions():
     assert final["publication"]["status"] == "published"
     assert final["publication"]["attempt_count"] == 1
     assert published[0][0] == "2026-03-19"
+    assert final["qfq_snapshot_pair_hash"] == qfq_snapshot_pair_hash(
+        final["qfq_snapshot_pair"]
+    )
+    assert published[0][1]["qfq_snapshot_pair"] == final["qfq_snapshot_pair"]
+    assert published[0][1]["qfq_snapshot_pair_hash"] == final["qfq_snapshot_pair_hash"]
+    assert published[0][1]["effective_universe_hashes"] == {
+        asset_type: final["partitions"][asset_type]["effective_universe_hash"]
+        for asset_type in ("stock", "etf")
+    }
+    assert published[0][1]["universe_isolation_hashes"] == {
+        asset_type: final["partitions"][asset_type]["universe_isolation_hash"]
+        for asset_type in ("stock", "etf")
+    }
+    assert published[0][1]["universe_evidence"] == {
+        asset_type: final["partitions"][asset_type]["universe_evidence"]
+        for asset_type in ("stock", "etf")
+    }
+    assert published[0][1]["universe_evidence"]["stock"]["source_excluded_symbols"] == [
+        {
+            "code": "600100",
+            "classification": "qfq_marker_source_exclusion",
+            "error_code": "QFQ_DATA_NOT_READY",
+            "reason": "fixture-source-gap",
+            "source": "qfq_marker_source_exclusion",
+        }
+    ]
 
 
 def test_finalizer_treats_a_missing_marker_as_waiting_partial():
@@ -862,8 +1381,7 @@ def test_late_old_publisher_stays_failed_after_new_generation_published():
     repository = FakeRepository()
     published_marker = {
         "publication_id": "publication-new",
-        "generation_order": "2026-03-19T08:20:00.000000Z|"
-        "2026-03-19T08:20:00.000000Z|batch-new",
+        "generation_order": "v2|2026-03-19T09:20:00.000000Z|batch-new",
     }
 
     def resumed_old_publisher(_trade_date, payload):
@@ -904,16 +1422,69 @@ def test_publication_generation_order_is_canonical_utc_sort_key():
     service = make_service()
     completed = {
         "stock": {
-            "marker_snapshot": {"document_updated_at": "2026-03-19T16:20:00+08:00"}
+            "completed_at": "2026-03-19T16:30:00+08:00",
+            "marker_snapshot": {"document_updated_at": "2026-03-19T16:20:00+08:00"},
+            "qfq_snapshot_pair": qfq_snapshot_pair(),
         },
-        "etf": {"marker_snapshot": {"document_updated_at": "2026-03-19T08:15:00Z"}},
+        "etf": {
+            "completed_at": "2026-03-19T08:31:00Z",
+            "marker_snapshot": {"document_updated_at": "2026-03-19T08:15:00Z"},
+            "qfq_snapshot_pair": qfq_snapshot_pair(),
+        },
     }
 
     generation_order = service._publication_generation_order("batch-1", completed)
 
-    assert generation_order == (
-        "2026-03-19T08:20:00.000000Z|" "2026-03-19T08:15:00.000000Z|batch-1"
+    assert generation_order == "|".join(
+        [
+            "v2",
+            "2026-03-19T08:20:00.000000Z",
+            "2026-03-19T08:15:00.000000Z",
+            "2026-03-19T07:50:00.000000Z",
+            "2026-03-19T07:51:00.000000Z",
+            "2026-03-19",
+            "2026-03-19",
+            qfq_snapshot_pair_hash(
+                normalize_qfq_snapshot_pair(
+                    qfq_snapshot_pair(), trade_date="2026-03-19"
+                )
+            ),
+            "2026-03-19T08:30:00.000000Z",
+            "2026-03-19T08:31:00.000000Z",
+            "batch-1",
+        ]
     )
+
+
+def test_v2_generation_order_sorts_after_legacy_and_new_qfq_generation_is_newer():
+    service = make_service()
+
+    def completed(pair, completed_at):
+        return {
+            asset_type: {
+                "completed_at": completed_at,
+                "marker_snapshot": {"document_updated_at": "2026-03-19T08:00:00Z"},
+                "qfq_snapshot_pair": pair,
+            }
+            for asset_type in ("stock", "etf")
+        }
+
+    first = service._publication_generation_order(
+        "batch-1", completed(qfq_snapshot_pair(), "2026-03-19T10:30:00Z")
+    )
+    second = service._publication_generation_order(
+        "batch-2",
+        completed(
+            qfq_snapshot_pair(
+                stock_snapshot_id="stock-snapshot-2",
+                stock_published_at="2026-03-19T09:00:00Z",
+            ),
+            "2026-03-19T08:10:00Z",
+        ),
+    )
+
+    assert first > "2026-03-19T23:59:59.999999Z|legacy-batch"
+    assert second > first
 
 
 def test_failed_publication_is_not_retried_after_marker_generation_drift():
@@ -1139,6 +1710,14 @@ def test_execute_finalization_validates_persisted_batch_and_partition_tags():
             lambda asset_type: marker(asset_type),
             expected_batch_id=plan["batch_id"],
             expected_partition_ids=["wrong-stock", "wrong-etf"],
+        )
+    with pytest.raises(ValueError, match="attempt-no tag"):
+        service.execute_finalization(
+            plan["finalization_attempt_id"],
+            lambda asset_type: marker(asset_type),
+            expected_batch_id=plan["batch_id"],
+            expected_attempt_no=plan["finalization_attempt_no"] + 1,
+            expected_partition_ids=plan["partition_ids"],
         )
     assert (
         repository.finalization_attempts[plan["finalization_attempt_id"]]["status"]
@@ -1568,6 +2147,35 @@ def test_finalizer_rejects_cross_partition_version_mismatch():
     assert "algorithm_version" in result["error"]["fields"]
 
 
+def test_finalizer_never_joins_partitions_from_different_qfq_pairs():
+    repository = FakeRepository()
+    service = make_service(repository=repository)
+    stock = service.plan_partition("stock", marker("stock"))
+    etf = service.plan_partition("etf", marker("etf"))
+    service.execute_partition(stock["attempt_id"], lambda _asset: marker("stock"))
+    service.execute_partition(etf["attempt_id"], lambda _asset: marker("etf"))
+    etf_key = repository.attempts[etf["attempt_id"]]["selection_key"]
+    other_pair = normalize_qfq_snapshot_pair(
+        qfq_snapshot_pair(
+            stock_snapshot_id="stock-snapshot-2",
+            stock_published_at="2026-03-19T09:00:00Z",
+        ),
+        trade_date="2026-03-19",
+    )
+    repository.partitions[etf_key]["qfq_snapshot_pair"] = other_pair
+    repository.partitions[etf_key]["qfq_snapshot_pair_hash"] = qfq_snapshot_pair_hash(
+        other_pair
+    )
+
+    plan = service.plan_finalization("2026-03-19")
+    result = service.finalize_trade_date("2026-03-19")
+
+    assert plan["action"] == "wait"
+    assert "qfq_snapshot_pair_hash" in plan["error"]["fields"]
+    assert result["status"] == "contract_mismatch"
+    assert result["is_final"] is False
+
+
 def test_finalizer_checks_explicit_schema_catalog_and_line_versions():
     repository = FakeRepository()
     service = make_service(repository=repository)
@@ -1702,11 +2310,25 @@ def test_symbol_error_fails_partition_and_retry_reuses_other_side():
                 {"symbol": "000002", "name": "异常标的"},
             ]
 
-        def get_daily_bars(self, asset_type, symbol, trade_date, bar_count):
+        def get_daily_bars(
+            self,
+            asset_type,
+            symbol,
+            trade_date,
+            bar_count,
+            *,
+            expected_snapshot_metadata=None,
+        ):
             if asset_type == "stock" and symbol == "000002" and self.fail_stock:
                 self.calls.append(("bars", asset_type, symbol, trade_date, bar_count))
                 raise ValueError("fixture daily bars invalid")
-            return super().get_daily_bars(asset_type, symbol, trade_date, bar_count)
+            return super().get_daily_bars(
+                asset_type,
+                symbol,
+                trade_date,
+                bar_count,
+                expected_snapshot_metadata=expected_snapshot_metadata,
+            )
 
     repository = FakeRepository()
     provider = MixedProvider()
@@ -1759,7 +2381,7 @@ def test_symbol_error_fails_partition_and_retry_reuses_other_side():
     assert engine.calls == 4
 
 
-def test_universe_row_without_symbol_or_code_fails_zero_tolerance_partition():
+def test_universe_row_without_symbol_or_code_fails_before_attempt_creation():
     class MissingSymbolProvider(FakeMarketDataProvider):
         def list_instruments(self, asset_type, trade_date):
             self.calls.append(("list", asset_type, trade_date))
@@ -1770,32 +2392,29 @@ def test_universe_row_without_symbol_or_code_fails_zero_tolerance_partition():
         repository=repository,
         provider=MissingSymbolProvider(),
     )
-    plan = service.plan_partition("stock", marker("stock"))
+    with pytest.raises(ValueError, match="invalid symbol/code"):
+        service.plan_partition("stock", marker("stock"))
 
-    with pytest.raises(RuntimeError, match="1 instrument calculation error"):
-        service.execute_partition(plan["attempt_id"], lambda _asset: marker("stock"))
-
-    failed = repository.attempts[plan["attempt_id"]]
-    assert failed["status"] == "failed"
-    assert failed["error"]["errors"] == [
-        {
-            "symbol": "<missing>",
-            "row_index": 0,
-            "type": "ValueError",
-            "message": "universe instrument missing symbol/code",
-        }
-    ]
+    assert repository.attempts == {}
     assert repository.commits == []
 
 
 def test_qfq_coverage_failure_keeps_data_version_in_attempt_audit():
     class GapProvider(FakeMarketDataProvider):
-        def get_daily_bars(self, asset_type, symbol, trade_date, bar_count):
-            raise AdjustmentCoverageError(
-                asset_type=asset_type,
-                symbol=symbol,
+        def get_daily_bars(
+            self,
+            asset_type,
+            symbol,
+            trade_date,
+            bar_count,
+            *,
+            expected_snapshot_metadata=None,
+        ):
+            raise QFQDataNotReadyError(
+                "active QFQ snapshot does not cover requested bars",
+                scope=asset_type,
+                code=symbol,
                 missing_dates=["2026-03-18"],
-                invalid_dates=[],
             )
 
     repository = FakeRepository()
@@ -1810,10 +2429,11 @@ def test_qfq_coverage_failure_keeps_data_version_in_attempt_audit():
     assert attempt["error"]["errors"] == [
         {
             "symbol": "000001",
-            "type": "AdjustmentCoverageError",
+            "type": "QFQDataNotReadyError",
             "message": (
-                "qfq-daily-v1 adjustment coverage invalid for stock/000001: "
-                "missing_dates=2026-03-18"
+                "QFQ_DATA_NOT_READY: active QFQ snapshot does not cover "
+                "requested bars scope=stock code=000001 "
+                "missing_dates=['2026-03-18']"
             ),
         }
     ]
@@ -1854,12 +2474,24 @@ def test_history_signals_is_bar_aligned_and_merges_s0002_evidence():
     assert payload["future_function_guard"]["passed"] is True
     assert payload["calculation_profile"]["switch_opt"] == 1
     assert payload["calculation"]["mode"] == "batch_production_v1"
+    assert payload["qfq_snapshot_id"] == "stock-snapshot-1"
+    assert payload["qfq_factor_asof"] == "2026-03-19"
+    assert payload["qfq_effective_version"] == "stock-snapshot-1"
 
 
 def test_history_signals_exposes_aligned_line_series_and_marker_evidence():
     class HistoryProvider(FakeMarketDataProvider):
-        def get_daily_bars(self, asset_type, symbol, trade_date, bar_count):
+        def get_daily_bars(
+            self,
+            asset_type,
+            symbol,
+            trade_date,
+            bar_count,
+            *,
+            expected_snapshot_metadata=None,
+        ):
             first = date(2025, 7, 12)
+            metadata = expected_snapshot_metadata or qfq_snapshot_pair()[asset_type]
             return [
                 {
                     "date": (first + timedelta(days=index)).isoformat(),
@@ -1868,6 +2500,10 @@ def test_history_signals_exposes_aligned_line_series_and_marker_evidence():
                     "low": close,
                     "close": close,
                     "volume": 1000.0,
+                    "qfq_snapshot_id": metadata["snapshot_id"],
+                    "qfq_factor_asof": metadata["factor_asof"],
+                    "qfq_effective_version": metadata["effective_version"],
+                    "qfq_collection": metadata["collection"],
                 }
                 for index, close in enumerate(([10.0] * 250) + [20.0])
             ]

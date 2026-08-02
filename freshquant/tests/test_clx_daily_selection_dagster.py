@@ -7,6 +7,53 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+QFQ_SNAPSHOT_PAIR = {
+    "stock": {
+        "active_slot": "a",
+        "snapshot_id": "stock-qfq-snapshot-1",
+        "factor_asof": "2026-03-19",
+    },
+    "etf": {
+        "active_slot": "b",
+        "snapshot_id": "etf-qfq-snapshot-1",
+        "factor_asof": "2026-03-19",
+    },
+}
+QFQ_SNAPSHOT_PAIR_HASH = "qfq-pair-hash-1"
+EFFECTIVE_UNIVERSE_HASH = "effective-universe-hash-1"
+UNIVERSE_ISOLATION_HASH = "universe-isolation-hash-1"
+
+
+def qfq_plan_fields():
+    return {
+        "qfq_snapshot_pair": QFQ_SNAPSHOT_PAIR,
+        "qfq_snapshot_pair_hash": QFQ_SNAPSHOT_PAIR_HASH,
+    }
+
+
+def partition_plan_fields():
+    return {
+        **qfq_plan_fields(),
+        "effective_universe_hash": EFFECTIVE_UNIVERSE_HASH,
+        "universe_isolation_hash": UNIVERSE_ISOLATION_HASH,
+    }
+
+
+def qfq_run_tags():
+    return {
+        "fq_clx_qfq_snapshot_pair_hash": QFQ_SNAPSHOT_PAIR_HASH,
+        "fq_clx_qfq_stock_snapshot_id": "stock-qfq-snapshot-1",
+        "fq_clx_qfq_etf_snapshot_id": "etf-qfq-snapshot-1",
+    }
+
+
+def partition_run_tags():
+    return {
+        **qfq_run_tags(),
+        "fq_clx_effective_universe_hash": EFFECTIVE_UNIVERSE_HASH,
+        "fq_clx_universe_isolation_hash": UNIVERSE_ISOLATION_HASH,
+    }
+
 
 def dagster_sensor_stub():
     module = ModuleType("dagster")
@@ -99,6 +146,7 @@ def test_stock_sensor_starts_from_stock_marker_without_reading_etf(monkeypatch):
             "attempt_no": 1,
             "selection_key": "selection-stock",
             "marker_snapshot_hash": "hash-stock",
+            **partition_plan_fields(),
         }
     )
     monkeypatch.setattr(module, "_make_service", lambda: service)
@@ -107,7 +155,51 @@ def test_stock_sensor_starts_from_stock_marker_without_reading_etf(monkeypatch):
 
     assert result.run_key == "stock-attempt-1"
     assert result.tags["fq_clx_asset_type"] == "stock"
+    assert result.tags["fq_clx_qfq_stock_snapshot_id"] == "stock-qfq-snapshot-1"
+    assert result.tags["fq_clx_qfq_etf_snapshot_id"] == "etf-qfq-snapshot-1"
+    assert result.tags["fq_clx_qfq_snapshot_pair_hash"] == QFQ_SNAPSHOT_PAIR_HASH
+    assert result.tags["fq_clx_effective_universe_hash"] == EFFECTIVE_UNIVERSE_HASH
+    assert result.tags["fq_clx_universe_isolation_hash"] == UNIVERSE_ISOLATION_HASH
     assert marker_calls == [("stock_postclose_ready", "2026-03-19")]
+
+
+@pytest.mark.parametrize(
+    "missing_field", ["effective_universe_hash", "universe_isolation_hash"]
+)
+def test_partition_sensor_requires_universe_hashes(monkeypatch, missing_field):
+    module = import_sensor_module(monkeypatch)
+    plan = {
+        "action": "run",
+        "run_key": "stock-attempt-1",
+        "attempt_id": "attempt-stock-1",
+        "attempt_no": 1,
+        "selection_key": "selection-stock",
+        "marker_snapshot_hash": "hash-stock",
+        **partition_plan_fields(),
+    }
+    plan.pop(missing_field)
+    monkeypatch.setattr(
+        module,
+        "resolve_recent_completed_trade_dates",
+        lambda limit=5: ["2026-03-19"],
+    )
+    monkeypatch.setattr(
+        module,
+        "get_postclose_marker",
+        lambda pipeline_key, trade_date: {
+            "pipeline_key": pipeline_key,
+            "trade_date": trade_date,
+            "status": "success",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_make_service",
+        lambda: SimpleNamespace(plan_partition=lambda *_args: plan),
+    )
+
+    with pytest.raises(ValueError, match=missing_field):
+        module.clx_daily_selection_stock_sensor(SimpleNamespace())
 
 
 def test_etf_sensor_uses_independent_retry_attempt(monkeypatch):
@@ -137,6 +229,7 @@ def test_etf_sensor_uses_independent_retry_attempt(monkeypatch):
                 "attempt_no": 2,
                 "selection_key": "selection-etf",
                 "marker_snapshot_hash": "hash-etf",
+                **partition_plan_fields(),
             }
         ),
     )
@@ -255,6 +348,8 @@ def test_finalizer_sensor_dispatches_once_both_partitions_are_immutable(monkeypa
                 "partition_ids": ["stock-p", "etf-p"],
                 "finalization_attempt_id": "finalize-attempt-1",
                 "finalization_attempt_no": 1,
+                "generation_order": "v2|20260319|qfq-pair-hash-1|batch-1",
+                **qfq_plan_fields(),
             }
         ),
     )
@@ -264,6 +359,8 @@ def test_finalizer_sensor_dispatches_once_both_partitions_are_immutable(monkeypa
     assert result.run_key == "finalize-hash"
     assert result.tags["fq_clx_partition_ids"] == "stock-p,etf-p"
     assert result.tags["fq_clx_finalization_attempt_id"] == "finalize-attempt-1"
+    assert result.tags["fq_clx_generation_order"].startswith("v2|")
+    assert result.tags["fq_clx_qfq_etf_snapshot_id"] == "etf-qfq-snapshot-1"
 
 
 def test_partition_sensor_catches_up_delayed_old_marker_with_attempt_two(monkeypatch):
@@ -295,6 +392,7 @@ def test_partition_sensor_catches_up_delayed_old_marker_with_attempt_two(monkeyp
             "attempt_no": 2,
             "selection_key": "selection-stock-old",
             "marker_snapshot_hash": "hash-stock-old",
+            **partition_plan_fields(),
         }
 
     monkeypatch.setattr(module, "get_postclose_marker", get_marker)
@@ -378,6 +476,8 @@ def test_finalizer_sensor_catches_up_old_publication_retry_newest_first(monkeypa
             "finalization_attempt_id": "finalize-old-attempt-2",
             "finalization_attempt_no": 2,
             "publication_status": "failed",
+            "generation_order": "v2|20260318|qfq-pair-hash-1|batch-old",
+            **qfq_plan_fields(),
         }
 
     monkeypatch.setattr(
@@ -425,6 +525,76 @@ def import_job_module(monkeypatch):
     return importlib.import_module("fqdagster.defs.jobs.clx_daily_selection")
 
 
+@pytest.mark.parametrize("value", [None, "", "0", "-1", "1.5"])
+def test_attempt_number_tags_require_positive_integers(monkeypatch, value):
+    module = import_job_module(monkeypatch)
+
+    with pytest.raises(module.Failure, match="positive integer|requires"):
+        module._required_positive_int_tag({"attempt_no": value}, "attempt_no")
+
+
+def test_partition_job_rejects_invalid_attempt_number_before_service_creation(
+    monkeypatch,
+):
+    module = import_job_module(monkeypatch)
+    service_calls = []
+    monkeypatch.setattr(
+        module,
+        "_make_service",
+        lambda **_kwargs: service_calls.append(True),
+    )
+    context = SimpleNamespace(
+        run=SimpleNamespace(
+            tags={
+                "fq_clx_asset_type": "stock",
+                "fq_clx_attempt_id": "attempt-1",
+                "fq_clx_attempt_no": "0",
+                "fq_trade_date": "2026-03-19",
+                "fq_clx_selection_key": "selection-stock",
+                "fq_clx_marker_snapshot_hash": "hash-stock",
+                **partition_run_tags(),
+            }
+        )
+    )
+
+    with pytest.raises(module.Failure, match="positive integer"):
+        module.clx_daily_selection_partition_op(context)
+
+    assert service_calls == []
+
+
+@pytest.mark.parametrize(
+    "missing_tag",
+    ["fq_clx_effective_universe_hash", "fq_clx_universe_isolation_hash"],
+)
+def test_partition_job_requires_universe_hash_tags_before_service_creation(
+    monkeypatch, missing_tag
+):
+    module = import_job_module(monkeypatch)
+    service_calls = []
+    monkeypatch.setattr(
+        module,
+        "_make_service",
+        lambda **_kwargs: service_calls.append(True),
+    )
+    tags = {
+        "fq_clx_asset_type": "stock",
+        "fq_clx_attempt_id": "attempt-1",
+        "fq_clx_attempt_no": "1",
+        "fq_trade_date": "2026-03-19",
+        "fq_clx_selection_key": "selection-stock",
+        "fq_clx_marker_snapshot_hash": "hash-stock",
+        **partition_run_tags(),
+    }
+    tags.pop(missing_tag)
+    context = SimpleNamespace(run=SimpleNamespace(tags=tags))
+
+    with pytest.raises(module.Failure, match=missing_tag):
+        module.clx_daily_selection_partition_op(context)
+
+    assert service_calls == []
+
+
 def test_partition_job_turns_upstream_drift_into_failed_dagster_run(monkeypatch):
     module = import_job_module(monkeypatch)
     monkeypatch.setattr(
@@ -441,12 +611,122 @@ def test_partition_job_turns_upstream_drift_into_failed_dagster_run(monkeypatch)
             tags={
                 "fq_clx_asset_type": "stock",
                 "fq_clx_attempt_id": "attempt-1",
+                "fq_clx_attempt_no": "1",
                 "fq_trade_date": "2026-03-19",
+                "fq_clx_selection_key": "selection-stock",
+                "fq_clx_marker_snapshot_hash": "hash-stock",
+                **partition_run_tags(),
             }
         )
     )
 
     with pytest.raises(module.Failure, match="upstream_drift"):
+        module.clx_daily_selection_partition_op(context)
+
+
+def test_partition_job_uses_frozen_snapshot_pair_as_expected_fence(monkeypatch):
+    module = import_job_module(monkeypatch)
+    calls = {}
+
+    class Service:
+        def execute_partition(
+            self,
+            attempt_id,
+            marker_provider,
+            **expected,
+        ):
+            calls.update(
+                {
+                    "attempt_id": attempt_id,
+                    "stock_marker": marker_provider("stock"),
+                    **expected,
+                }
+            )
+            return {"status": "completed", "partition": {"partition_id": "p1"}}
+
+    monkeypatch.setattr(module, "_make_service", lambda **_kwargs: Service())
+    monkeypatch.setattr(
+        module,
+        "get_postclose_marker",
+        lambda pipeline_key, trade_date: (pipeline_key, trade_date),
+    )
+    context = SimpleNamespace(
+        run_id="dagster-partition-run-1",
+        run=SimpleNamespace(
+            tags={
+                "fq_trade_date": "2026-03-19",
+                "fq_clx_asset_type": "stock",
+                "fq_clx_attempt_id": "attempt-1",
+                "fq_clx_attempt_no": "1",
+                "fq_clx_selection_key": "selection-stock",
+                "fq_clx_marker_snapshot_hash": "postclose-hash-stock",
+                **partition_run_tags(),
+            }
+        ),
+    )
+
+    result = module.clx_daily_selection_partition_op(context)
+
+    assert result["partition"]["partition_id"] == "p1"
+    assert calls == {
+        "attempt_id": "attempt-1",
+        "stock_marker": ("stock_postclose_ready", "2026-03-19"),
+        "claim_owner": "dagster-partition-run-1",
+        "expected_asset_type": "stock",
+        "expected_trade_date": "2026-03-19",
+        "expected_attempt_no": 1,
+        "expected_selection_key": "selection-stock",
+        "expected_marker_snapshot_hash": "postclose-hash-stock",
+        "expected_qfq_snapshot_pair_hash": QFQ_SNAPSHOT_PAIR_HASH,
+        "expected_qfq_snapshot_ids": {
+            "stock": "stock-qfq-snapshot-1",
+            "etf": "etf-qfq-snapshot-1",
+        },
+        "expected_effective_universe_hash": EFFECTIVE_UNIVERSE_HASH,
+        "expected_universe_isolation_hash": UNIVERSE_ISOLATION_HASH,
+    }
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected_key", "persisted_value"),
+    [
+        (
+            "fq_clx_effective_universe_hash",
+            "expected_effective_universe_hash",
+            EFFECTIVE_UNIVERSE_HASH,
+        ),
+        (
+            "fq_clx_universe_isolation_hash",
+            "expected_universe_isolation_hash",
+            UNIVERSE_ISOLATION_HASH,
+        ),
+    ],
+)
+def test_partition_job_propagates_universe_hash_mismatch_from_service(
+    monkeypatch, tag, expected_key, persisted_value
+):
+    module = import_job_module(monkeypatch)
+
+    class Service:
+        def execute_partition(self, _attempt_id, _marker_provider, **expected):
+            if expected[expected_key] != persisted_value:
+                raise ValueError(f"{expected_key} mismatch")
+            return {"status": "completed"}
+
+    monkeypatch.setattr(module, "_make_service", lambda **_kwargs: Service())
+    tags = {
+        "fq_trade_date": "2026-03-19",
+        "fq_clx_asset_type": "stock",
+        "fq_clx_attempt_id": "attempt-1",
+        "fq_clx_attempt_no": "1",
+        "fq_clx_selection_key": "selection-stock",
+        "fq_clx_marker_snapshot_hash": "postclose-hash-stock",
+        **partition_run_tags(),
+    }
+    tags[tag] = "wrong-hash"
+    context = SimpleNamespace(run=SimpleNamespace(tags=tags))
+
+    with pytest.raises(ValueError, match=f"{expected_key} mismatch"):
         module.clx_daily_selection_partition_op(context)
 
 
@@ -463,7 +743,11 @@ def test_finalizer_job_uses_persisted_attempt_and_exact_planned_tags(monkeypatch
             claim_owner,
             expected_trade_date,
             expected_batch_id,
+            expected_attempt_no,
             expected_partition_ids,
+            expected_qfq_snapshot_pair_hash,
+            expected_qfq_snapshot_ids,
+            expected_generation_order,
         ):
             calls.update(
                 {
@@ -471,7 +755,13 @@ def test_finalizer_job_uses_persisted_attempt_and_exact_planned_tags(monkeypatch
                     "claim_owner": claim_owner,
                     "expected_trade_date": expected_trade_date,
                     "expected_batch_id": expected_batch_id,
+                    "expected_attempt_no": expected_attempt_no,
                     "expected_partition_ids": expected_partition_ids,
+                    "expected_qfq_snapshot_pair_hash": (
+                        expected_qfq_snapshot_pair_hash
+                    ),
+                    "expected_qfq_snapshot_ids": expected_qfq_snapshot_ids,
+                    "expected_generation_order": expected_generation_order,
                     "stock_marker": marker_provider("stock"),
                 }
             )
@@ -495,6 +785,9 @@ def test_finalizer_job_uses_persisted_attempt_and_exact_planned_tags(monkeypatch
                 "fq_clx_batch_id": "batch-1",
                 "fq_clx_partition_ids": "stock-p,etf-p",
                 "fq_clx_finalization_attempt_id": "finalize-attempt-1",
+                "fq_clx_finalization_attempt_no": "1",
+                "fq_clx_generation_order": ("v2|20260319|qfq-pair-hash-1|batch-1"),
+                **qfq_run_tags(),
             }
         ),
     )
@@ -507,6 +800,13 @@ def test_finalizer_job_uses_persisted_attempt_and_exact_planned_tags(monkeypatch
         "claim_owner": "dagster-finalizer-run-1",
         "expected_trade_date": "2026-03-19",
         "expected_batch_id": "batch-1",
+        "expected_attempt_no": 1,
         "expected_partition_ids": ["stock-p", "etf-p"],
+        "expected_qfq_snapshot_pair_hash": QFQ_SNAPSHOT_PAIR_HASH,
+        "expected_qfq_snapshot_ids": {
+            "stock": "stock-qfq-snapshot-1",
+            "etf": "etf-qfq-snapshot-1",
+        },
+        "expected_generation_order": "v2|20260319|qfq-pair-hash-1|batch-1",
         "stock_marker": ("stock_postclose_ready", "2026-03-19"),
     }

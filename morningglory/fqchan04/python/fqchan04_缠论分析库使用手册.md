@@ -170,9 +170,9 @@ fq_recognise_duan(length: int, bi: List[float], high: List[float], low: List[flo
 - `List[Pivot]` - 中枢对象列表
 
 ```python
-fq_recognise_pivots(length: int, higher_level_sigs: List[float], sigs: List[float], 
+fq_recognise_pivots(length: int, higher_level_sigs: List[float], sigs: List[float],
                    high: List[float], low: List[float],
-                   chan_options: ChanOptions = ChanOptions(bi_mode=6, force_wave_stick_count=15, 
+                   chan_options: ChanOptions = ChanOptions(bi_mode=6, force_wave_stick_count=15,
                                                           allow_pivot_across=0, merge_non_complehensive_wave=0)) -> List[Pivot]
 ```
 
@@ -212,7 +212,7 @@ fq_count_vertexes(vertexes: List[float], i: int, j: int) -> int
 - `List[Pivot]` - 中枢对象列表
 
 ```python
-fq_locate_pivots(vertexes: List[float], high: List[float], low: List[float], 
+fq_locate_pivots(vertexes: List[float], high: List[float], low: List[float],
                 direction: int, i: int, j: int) -> List[Pivot]
 ```
 

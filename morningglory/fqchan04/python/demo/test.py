@@ -1,9 +1,12 @@
 from datetime import datetime
+
+from fqchan04 import fq_recognise_bi
 from rich.progress import Progress
+
+from freshquant.data.stock import fq_data_stock_fetch_day
 from freshquant.instrument.stock import fq_inst_fetch_stock_list
 from freshquant.trading.dt import fq_trading_fetch_trade_dates
-from freshquant.data.stock import fq_data_stock_fetch_day
-from fqchan04 import fq_recognise_bi
+
 
 def main():
     trade_dates = fq_trading_fetch_trade_dates()
@@ -23,6 +26,7 @@ def main():
         low_price_list = data["low"].tolist()
         close_price_list = data["close"].tolist()
         fq_recognise_bi(length, high_price_list, low_price_list, close_price_list)
+
 
 if __name__ == "__main__":
     main()

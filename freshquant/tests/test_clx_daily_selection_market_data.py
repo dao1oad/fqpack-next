@@ -1,11 +1,44 @@
 from __future__ import annotations
 
+import sys
+from types import ModuleType, SimpleNamespace
+
+import pandas as pd
 import pytest
 
-from freshquant.clx_daily_selection.market_data import (
-    AdjustmentCoverageError,
-    MongoDailyMarketDataProvider,
-)
+from freshquant.clx_daily_selection.market_data import MongoDailyMarketDataProvider
+
+
+class FakeQFQDataNotReadyError(RuntimeError):
+    error_code = "QFQ_DATA_NOT_READY"
+
+    def __init__(self, message, *, scope=None, code=None, missing_dates=None):
+        self.scope = str(scope or "")
+        self.code = str(code or "")
+        self.missing_dates = tuple(missing_dates or ())
+        super().__init__(f"QFQ_DATA_NOT_READY: {message}")
+
+
+def install_qfq_reader(monkeypatch, apply_qfq_to_bars):
+    module = ModuleType("freshquant.data.qfq_reader")
+    module.QFQDataNotReadyError = FakeQFQDataNotReadyError
+    module.apply_qfq_to_bars = apply_qfq_to_bars
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+
+def qfq_metadata(**overrides):
+    values = {
+        "scope": "stock",
+        "active_slot": "a",
+        "collection": "stock_adj_qfq_a",
+        "snapshot_id": "stock-snapshot-20260731",
+        "factor_asof": "2026-07-31",
+        "published_at": "2026-08-02T12:00:00Z",
+        "effective_version": "stock-snapshot-20260731",
+        "override_version": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
 
 class ListCollection:
@@ -56,6 +89,16 @@ class DailyBarsCollection:
             for row in self.rows
             if row["code"] == query["code"] and row["date"] <= query["date"]["$lte"]
         )
+
+
+class TrackingDatabase(dict):
+    def __init__(self, values):
+        super().__init__(values)
+        self.requested_collections = []
+
+    def __getitem__(self, key):
+        self.requested_collections.append(key)
+        return super().__getitem__(key)
 
 
 def test_stock_universe_only_contains_current_trade_date_non_st_symbols():
@@ -117,8 +160,21 @@ def test_latest_trade_date_uses_asset_daily_collection():
     assert index_day.query[0] == {"code": "510300"}
 
 
-def test_daily_bars_require_complete_qfq_factor_coverage_and_keep_version_facts():
-    provider = MongoDailyMarketDataProvider(
+def test_daily_bars_use_strict_reader_on_bfq_and_keep_snapshot_facts(monkeypatch):
+    captured = {}
+
+    def apply_qfq_to_bars(bars, **kwargs):
+        captured["bars"] = bars.copy()
+        captured["kwargs"] = kwargs
+        adjusted = bars.copy()
+        adjusted[["open", "high", "low", "close"]] = adjusted[
+            ["open", "high", "low", "close"]
+        ].astype(float)
+        adjusted.loc[0, ["open", "high", "low", "close"]] *= 0.5
+        return adjusted, qfq_metadata()
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
+    database = TrackingDatabase(
         {
             "stock_day": DailyBarsCollection(
                 [
@@ -142,24 +198,72 @@ def test_daily_bars_require_complete_qfq_factor_coverage_and_keep_version_facts(
                     },
                 ]
             ),
-            "stock_adj": ListCollection(
-                [
-                    {"date": "2026-03-18", "adj": 0.5},
-                    {"date": "2026-03-19", "adj": 1.0},
-                ]
-            ),
         }
     )
+    expected_pair = {
+        "stock": {
+            "snapshot_id": "stock-snapshot-20260731",
+            "factor_asof": "2026-07-31",
+            "active_slot": "a",
+            "collection": "stock_adj_qfq_a",
+            "published_at": "2026-08-02T12:00:00Z",
+            "effective_version": "stock-snapshot-20260731",
+            "override_version": None,
+        },
+        "etf": {
+            "snapshot_id": "etf-snapshot-20260731",
+            "factor_asof": "2026-07-31",
+            "active_slot": "b",
+            "published_at": "2026-08-02T12:00:00Z",
+        },
+    }
+    provider = MongoDailyMarketDataProvider(
+        database, expected_snapshot_metadata=expected_pair
+    )
 
-    bars = provider.get_daily_bars("stock", "000001", "2026-03-19", 1200)
+    bars = provider.get_daily_bars("stock", "000001", "2026-07-31", 1200)
 
     assert [bar["close"] for bar in bars] == [5.5, 21.0]
     assert [bar["adjustment_factor"] for bar in bars] == [0.5, 1.0]
     assert {bar["data_version"] for bar in bars} == {"qfq-daily-v1"}
+    assert {bar["qfq_active_slot"] for bar in bars} == {"a"}
+    assert {bar["qfq_snapshot_id"] for bar in bars} == {"stock-snapshot-20260731"}
+    assert {bar["qfq_factor_asof"] for bar in bars} == {"2026-07-31"}
+    assert {bar["qfq_published_at"] for bar in bars} == {"2026-08-02T12:00:00Z"}
+    assert {bar["qfq_effective_version"] for bar in bars} == {"stock-snapshot-20260731"}
+    assert {bar["qfq_collection"] for bar in bars} == {"stock_adj_qfq_a"}
     assert provider.data_version == "qfq-daily-v1"
+    assert provider.last_read_metadata("stock") == {
+        "scope": "stock",
+        "active_slot": "a",
+        "collection": "stock_adj_qfq_a",
+        "snapshot_id": "stock-snapshot-20260731",
+        "factor_asof": "2026-07-31",
+        "published_at": "2026-08-02T12:00:00Z",
+        "effective_version": "stock-snapshot-20260731",
+        "override_version": None,
+    }
+    assert database.requested_collections == ["stock_day"]
+    assert captured["bars"]["close"].tolist() == [11, 21]
+    assert captured["kwargs"] == {
+        "scope": "stock",
+        "code": "000001",
+        "db": database,
+        "date_col": "date",
+        "ohlc_cols": ("open", "high", "low", "close"),
+    }
 
 
-def test_daily_bars_fail_closed_on_qfq_factor_gap():
+def test_daily_bars_propagate_strict_reader_not_ready(monkeypatch):
+    def apply_qfq_to_bars(_bars, **_kwargs):
+        raise FakeQFQDataNotReadyError(
+            "active snapshot does not cover requested bars",
+            scope="stock",
+            code="000001",
+            missing_dates=["2026-03-18"],
+        )
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
     provider = MongoDailyMarketDataProvider(
         {
             "stock_day": DailyBarsCollection(
@@ -182,15 +286,247 @@ def test_daily_bars_fail_closed_on_qfq_factor_gap():
                     },
                 ]
             ),
-            "stock_adj": ListCollection([{"date": "2026-03-19", "adj": 1.0}]),
+        }
+    )
+
+    with pytest.raises(FakeQFQDataNotReadyError, match="QFQ_DATA_NOT_READY"):
+        provider.get_daily_bars("stock", "000001", "2026-03-19", 1200)
+
+
+def test_etf_daily_bars_accept_per_call_frozen_metadata(monkeypatch):
+    captured = {}
+
+    def apply_qfq_to_bars(bars, **kwargs):
+        captured.update(kwargs)
+        return bars.copy(), qfq_metadata(
+            scope="etf",
+            active_slot="b",
+            collection="etf_adj_qfq_b",
+            snapshot_id="etf-snapshot-20260731",
+            published_at="2026-08-02T12:01:00Z",
+            effective_version="etf-snapshot-20260731",
+        )
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
+    database = TrackingDatabase(
+        {
+            "index_day": DailyBarsCollection(
+                [
+                    {
+                        "code": "510300",
+                        "date": "2026-07-31",
+                        "open": 4.0,
+                        "high": 4.1,
+                        "low": 3.9,
+                        "close": 4.05,
+                    }
+                ]
+            )
+        }
+    )
+    provider = MongoDailyMarketDataProvider(database)
+
+    bars = provider.get_daily_bars(
+        "etf",
+        "510300",
+        "2026-07-31",
+        1200,
+        expected_snapshot_metadata={
+            "snapshot_id": "etf-snapshot-20260731",
+            "factor_asof": "2026-07-31",
+            "active_slot": "b",
+            "collection": "etf_adj_qfq_b",
+            "published_at": "2026-08-02T12:01:00Z",
+        },
+    )
+
+    assert bars[0]["qfq_snapshot_id"] == "etf-snapshot-20260731"
+    assert captured["scope"] == "etf"
+    assert captured["code"] == "510300"
+    assert database.requested_collections == ["index_day"]
+
+
+def test_daily_bars_fail_closed_when_frozen_snapshot_drifts(monkeypatch):
+    def apply_qfq_to_bars(bars, **_kwargs):
+        return pd.DataFrame(bars), qfq_metadata(snapshot_id="new-snapshot")
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
+    provider = MongoDailyMarketDataProvider(
+        {
+            "stock_day": DailyBarsCollection(
+                [
+                    {
+                        "code": "000001",
+                        "date": "2026-07-31",
+                        "open": 20,
+                        "high": 22,
+                        "low": 19,
+                        "close": 21,
+                    }
+                ]
+            )
+        },
+        expected_snapshot_metadata={
+            "stock": {
+                "snapshot_id": "frozen-snapshot",
+                "factor_asof": "2026-07-31",
+            }
+        },
+    )
+
+    with pytest.raises(
+        FakeQFQDataNotReadyError, match="frozen QFQ snapshot metadata mismatch"
+    ):
+        provider.get_daily_bars("stock", "000001", "2026-07-31", 1200)
+    assert provider.last_read_metadata("stock") is None
+
+
+def test_daily_bars_reject_override_for_snapshot_covered_target(monkeypatch):
+    def apply_qfq_to_bars(bars, **_kwargs):
+        return pd.DataFrame(bars), qfq_metadata(
+            effective_version="stock-snapshot-20260731:override-v1",
+            override_version="override-v1",
+        )
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
+    provider = MongoDailyMarketDataProvider(
+        {
+            "stock_day": DailyBarsCollection(
+                [
+                    {
+                        "code": "000001",
+                        "date": "2026-07-31",
+                        "open": 20,
+                        "high": 22,
+                        "low": 19,
+                        "close": 21,
+                    }
+                ]
+            )
         }
     )
 
     with pytest.raises(
-        AdjustmentCoverageError,
-        match=(
-            "qfq-daily-v1 adjustment coverage invalid for stock/000001: "
-            "missing_dates=2026-03-18"
-        ),
+        FakeQFQDataNotReadyError,
+        match="override for a snapshot-covered date",
     ):
-        provider.get_daily_bars("stock", "000001", "2026-03-19", 1200)
+        provider.get_daily_bars("stock", "000001", "2026-07-31", 1200)
+
+
+@pytest.mark.parametrize(
+    ("asset_type", "symbol", "collection_name"),
+    [("stock", "301717", "stock_day"), ("etf", "158000", "index_day")],
+)
+def test_target_day_qfq_probe_propagates_missing_factor_as_not_ready(
+    monkeypatch, asset_type, symbol, collection_name
+):
+    def apply_qfq_to_bars(_bars, **_kwargs):
+        raise FakeQFQDataNotReadyError(
+            "active QFQ snapshot does not cover requested bars",
+            scope=asset_type,
+            code=symbol,
+            missing_dates=["2026-07-31"],
+        )
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
+    provider = MongoDailyMarketDataProvider(
+        {
+            collection_name: DailyBarsCollection(
+                [
+                    {
+                        "code": symbol,
+                        "date": "2026-07-31",
+                        "open": 10,
+                        "high": 11,
+                        "low": 9,
+                        "close": 10.5,
+                    }
+                ]
+            )
+        }
+    )
+
+    with pytest.raises(FakeQFQDataNotReadyError, match="QFQ_DATA_NOT_READY"):
+        provider.probe_qfq_instrument(
+            asset_type,
+            symbol,
+            "2026-07-31",
+            expected_snapshot_metadata={
+                "scope": asset_type,
+                "active_slot": "a" if asset_type == "stock" else "b",
+                "collection": f"{asset_type}_adj_qfq_{'a' if asset_type == 'stock' else 'b'}",
+                "snapshot_id": f"{asset_type}-snapshot-20260731",
+                "factor_asof": "2026-07-31",
+                "published_at": "2026-08-02T12:00:00Z",
+                "effective_version": f"{asset_type}-snapshot-20260731",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("asset_type", "symbol", "collection_name", "slot"),
+    [
+        ("stock", "000001", "stock_day", "a"),
+        ("etf", "510300", "index_day", "b"),
+    ],
+)
+def test_target_day_qfq_probe_accepts_valid_stock_and_etf_codes(
+    monkeypatch, asset_type, symbol, collection_name, slot
+):
+    captured = {}
+
+    def apply_qfq_to_bars(bars, **_kwargs):
+        captured["dates"] = bars["date"].tolist()
+        return bars.copy(), qfq_metadata(
+            scope=asset_type,
+            active_slot=slot,
+            collection=f"{asset_type}_adj_qfq_{slot}",
+            snapshot_id=f"{asset_type}-snapshot-20260731",
+            effective_version=f"{asset_type}-snapshot-20260731",
+        )
+
+    install_qfq_reader(monkeypatch, apply_qfq_to_bars)
+    expected = {
+        "scope": asset_type,
+        "active_slot": slot,
+        "collection": f"{asset_type}_adj_qfq_{slot}",
+        "snapshot_id": f"{asset_type}-snapshot-20260731",
+        "factor_asof": "2026-07-31",
+        "published_at": "2026-08-02T12:00:00Z",
+        "effective_version": f"{asset_type}-snapshot-20260731",
+    }
+    provider = MongoDailyMarketDataProvider(
+        {
+            collection_name: DailyBarsCollection(
+                [
+                    {
+                        "code": symbol,
+                        "date": "2026-07-30",
+                        "open": 9,
+                        "high": 10,
+                        "low": 8,
+                        "close": 9.5,
+                    },
+                    {
+                        "code": symbol,
+                        "date": "2026-07-31",
+                        "open": 10,
+                        "high": 11,
+                        "low": 9,
+                        "close": 10.5,
+                    },
+                ]
+            )
+        }
+    )
+
+    metadata = provider.probe_qfq_instrument(
+        asset_type,
+        symbol,
+        "2026-07-31",
+        expected_snapshot_metadata=expected,
+    )
+
+    assert captured["dates"] == ["2026-07-31"]
+    assert metadata["snapshot_id"] == expected["snapshot_id"]
+    assert metadata["active_slot"] == slot
