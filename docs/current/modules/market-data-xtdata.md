@@ -69,7 +69,10 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - `quantaxis.qfq_ready` 对每个 scope 使用一个原子双槽 marker；构建 inactive slot 期间 active slot 保持只读，inactive slot 审计成功后才切换。
 - `quantaxis.qfq_writer_locks` 对每个 scope 只允许一个带过期时间并由后台线程持续续期的 writer lease；单次 XTData 请求或 Mongo `$out` 阻塞时仍续租，发布前重新核对 owner。中断的 `building` 仅由下一位 lease owner 恢复，人工 build / rollback 不与 Supervisor worker 并发写。
 - 首次 bootstrap 先构建并审计 A，再复制和审计 B，之后发布双槽 marker；日更只对 inactive slot 写入。
-- XTData field-table 以日期列为交易日，epoch 回退按 Asia/Shanghai 还原；因子先在完整 XTData 实际日期轴递推，再投影到有效 BFQ coverage。BFQ 中 `vol` 与 `amount` 同时等于 QASU 浮点哨兵的占位行不进入 coverage，运行结果和 audit 会记录排除计数与原因；任何其余有效 BFQ 日期缺少 XTData source 时仍 fail closed。
+- XTData field-table 以日期列为交易日，epoch 回退按 Asia/Shanghai 还原；`dividend_type=none` 日线的 `preClose` 仍是 canonical 因子来源，常规边先在真实 XTData 日期轴递推，再投影到有效 BFQ coverage。
+- BFQ 中 `vol` 与 `amount` 同时等于 QASU 浮点哨兵的占位行不进入 coverage。Stock 另以 `stock_xdxr` 中最早满足 `category=5`、`shares_before=0`、`shares_after>0` 的初始股本记录作为上市边界，排除更早 BFQ 行；运行结果和 audit 分别记录 sentinel 与 `prelisting_rows_excluded`、`codes_with_prelisting_rows`、`prelisting[]`。
+- BFQ-only 日期仅在两个真实 XTData bar 之间，且同日期轴的 `front_ratio.close / none.close` 在缺口两端容差内相等时桥接；该稀疏边按无调整处理，缺失日期写入相同因子，并记录 `source_gap_rows_bridged`、`codes_with_source_gaps`、`source_gaps[]`。
+- `front_ratio` 只证明缺口未跨公司行为，不参与 canonical 因子计算；前后缀缺口、proof 缺失、none/front_ratio 日期轴不一致或两端比率变化均 fail closed，不发布 marker。
 - XTData 长区间下载只返回近期后缀时，QFQ client 会以当前最早缓存日的前一日为边界继续向前分页，直至覆盖请求起点；任一页未把最早日期向前推进时立即报错，不发布不完整快照。
 - 当前 Stock / ETF 在线 reader 和旧 `stock_xdxr`、`etf_xdxr -> etf_adj` writer 均未切换；A/B 发布不会改变现有 Kline 或策略读取结果。
 - 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ shadow scope。

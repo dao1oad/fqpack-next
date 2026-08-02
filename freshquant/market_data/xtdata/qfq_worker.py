@@ -216,6 +216,9 @@ def main(argv: list[str] | None = None) -> int:
             slot=slot,
             codes=[args.code] if args.code else None,
             bars_loader=(source_client.load_daily_bars if source_client else None),
+            front_ratio_loader=(
+                source_client.load_front_ratio_bars if source_client else None
+            ),
             source_tail_days=args.tail_days if args.mode == "tail" else None,
         )
         if not payload["ok"]:
