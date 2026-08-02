@@ -112,7 +112,9 @@ def test_index_minute_fetch_does_not_call_to_qfq(monkeypatch, index_modules):
         "QA_fetch_index_min_adv",
         lambda *_args, **_kwargs: _IndexData(),
     )
-    monkeypatch.setattr(index_data.redis_cache, "storage", _NoopCacheStorage())
+    monkeypatch.setattr(
+        index_data.redis_cache, "storage", _NoopCacheStorage(), raising=False
+    )
 
     result = index_data.fq_data_QA_fetch_index_min_adv(
         "000300", "2026-01-01", "2026-01-02", "5min"
