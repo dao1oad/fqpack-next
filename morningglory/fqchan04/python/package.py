@@ -5,7 +5,7 @@ from pathlib import Path
 
 # 直接定义需要打包的文件列表
 TO_ZIP_FILES = [
-    "dist/*.whl",
+    "../wheelhouse/*.whl",
 ]
 
 def main():

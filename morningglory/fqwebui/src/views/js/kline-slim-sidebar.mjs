@@ -1,4 +1,10 @@
+import {
+  normalizeClxSidebarItem,
+  sortClxSidebarItems,
+} from './kline-slim-clx.mjs'
+
 const SECTION_DEFS = Object.freeze([
+  { key: 'clx_daily_selection', label: 'CLX日线选股', source: 'clxSelectionItems', deletable: false },
   { key: 'holding', label: '持仓股', source: 'holdings', deletable: false },
   { key: 'must_pool', label: 'must_pool', source: 'mustPools', deletable: true },
   { key: 'stock_pools', label: 'stock_pools', source: 'stockPools', deletable: true },
@@ -32,6 +38,21 @@ const toNullableNumber = (value) => {
   if (value === null || value === undefined || value === '') return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+export const buildClxSidebarQueryKey = ({
+  scopeId = '',
+  onlyCurrentFilters = false,
+  modelKeys = [],
+  conditionKeys = [],
+} = {}) => {
+  const filterKey = onlyCurrentFilters
+    ? [
+        [...new Set((Array.isArray(modelKeys) ? modelKeys : []).map(toText).filter(Boolean))].sort().join(','),
+        [...new Set((Array.isArray(conditionKeys) ? conditionKeys : []).map(toText).filter(Boolean))].sort().join(','),
+      ].join('|')
+    : 'all'
+  return [toText(scopeId) || 'latest-final', filterKey].join('__')
 }
 
 const formatWanAmount = (value) => {
@@ -112,6 +133,9 @@ export const sortHoldingItemsByAmountDesc = (items = []) => {
 }
 
 export const normalizeSidebarItem = (item = {}, { sectionKey = '' } = {}) => {
+  if (sectionKey === 'clx_daily_selection') {
+    return normalizeClxSidebarItem(item)
+  }
   const code6 = getSidebarCode6(item)
   const amount = item?.position_amount ?? item?.market_value ?? item?.amount
   const name = toText(item.name || item.stock_name || code6)
@@ -131,20 +155,25 @@ export const normalizeSidebarItem = (item = {}, { sectionKey = '' } = {}) => {
 }
 
 export const buildSidebarSections = ({
+  clxSelectionItems = [],
   holdings = [],
   mustPools = [],
   stockPools = [],
   prePools = [],
   expandedKey = 'holding'
 } = {}) => {
-  const sourceMap = { holdings, mustPools, stockPools, prePools }
+  const sourceMap = { clxSelectionItems, holdings, mustPools, stockPools, prePools }
   return SECTION_DEFS.map((section) => ({
     key: section.key,
     label: section.label,
     items: (section.key === 'holding'
       ? sortHoldingItemsByAmountDesc(sourceMap[section.source] || [])
-      : (sourceMap[section.source] || [])
-    ).map((item) => normalizeSidebarItem(item, { sectionKey: section.key })),
+      : section.key === 'clx_daily_selection'
+        ? sortClxSidebarItems(sourceMap[section.source] || [])
+        : (sourceMap[section.source] || [])
+    ).map((item) => item?.raw && section.key === 'clx_daily_selection'
+      ? item
+      : normalizeSidebarItem(item, { sectionKey: section.key })),
     deletable: !!section.deletable,
     expanded: section.key === expandedKey,
     deleteConfirmText: DELETE_BEHAVIOR_MAP[section.key]?.confirmText || ''

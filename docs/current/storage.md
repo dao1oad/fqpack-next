@@ -19,6 +19,9 @@
   - raw legacy fill 集合
 - `stock_fills_compat`
   - legacy mirror，当前由 open entry 视图投影生成
+- `dagster_pipeline_markers`
+  - 盘后链 ready marker；CLX 输入为 `stock_postclose_ready / etf_postclose_ready`，finalizer 成功后写 `clx_daily_selection_ready`
+  - CLX ready marker 额外保存 `generation_id / generation_order / publication_id`；generation order 是规范 UTC 可排序键，同 publication id 重试幂等，较旧 generation 不能覆盖较新 marker
 
 ### `freshquant_order_management`
 
@@ -88,6 +91,27 @@
 - `daily_screening_memberships`
 - `daily_screening_stock_snapshots`
 
+### `freshquant_clx_daily_selection`
+
+- `partition_attempts`
+  - stock/ETF 各自保存 `selection_key / attempt_no / marker_snapshot_hash / status / claim_owner / claim_token / lease_expires_at / error`
+  - 状态为 `scheduled / running / committing / completed / failed / claim_expired / upstream_drift`；running 与 committing 的提交权由 owner/token fencing，lease 到期保留审计并创建新 attempt
+- `partitions`
+  - completed partition 的不可变头；`selection_key` 唯一，相同 key 只接受相同 `content_hash`
+- `memberships`
+  - `partition_id + asset_type + symbol + model_key + trigger_date` 的模型触发事实
+- `snapshots`
+  - partition 内标的级模型/条件摘要；`partition_id + asset_type + symbol` 唯一
+- `model_stats`
+  - partition 内按模型聚合的本资产统计
+- `finalization_attempts`
+  - `(batch_id, attempt_no)` 唯一；保存 `finalization_attempt_id / trade_date / partition_ids / material_hash / claim_owner / claim_token / lease_expires_at`
+  - 状态为 `scheduled / running / failed / completed / claim_expired`；每次 dispatch/retry 对应独立 attempt 与 Dagster run key
+- `batch_statuses`
+  - 同交易日 stock/ETF join 状态；保存 partial，final 内容按 `content_hash` 保持不可变
+  - publication 独立保存 `status / attempt_count / claim_owner / claim_token / last_claim_owner / last_attempt_at / lease_expires_at / published_at / last_error`
+  - publication 身份保存 `generation_id / generation_order / publication_id`；迟到旧 generation 的 CAS 拒绝以 `last_error.code=stale_publication` 留痕，batch 保持 failed
+
 ### `fq_memory`
 
 - `task_state`
@@ -119,6 +143,14 @@
     提供不随 positions-only initialize 或 destructive rebuild 消失的历史只读证据
   - 历史档案不参与当前仓位重建，也不反向改写 `xt_positions`
   - `account_partition` 是账户号的不可逆摘要；API 不返回原始账户号
+- CLX partition 计算真值
+  - `freshquant_clx_daily_selection.partitions`
+  - `memberships / snapshots / model_stats` 只通过 `partition_id` 归属不可变输出
+- CLX finalizer dispatch 真值
+  - `freshquant_clx_daily_selection.finalization_attempts` 固定一次 dispatch 的 trade date、batch id 和两个不可变 partition id
+- CLX 默认完整批次真值
+  - `batch_statuses.is_final=true` 且 `publication.status in [published, not_required]`
+  - partial 与 publication `pending/publishing/failed` 只表达中间态，不替代正式发布或默认完整结果
 
 ## 当前兼容边界
 
@@ -167,6 +199,20 @@
   - 同一账户内按成交六元身份去重，不同已知账户分区保留为不同成交
   - 无账户 OM 证据只在唯一账户匹配时归并；多账户候选保持歧义证据，
     不额外制造第三笔 canonical execution
+- `ClxDailySelectionService.plan_partition / execute_partition`
+  - 只读本资产 ready marker，写本侧 `partition_attempts`
+  - 使用 scheduled/running/committing owner-token claim lease 和 compare-and-set；过期 attempt 标为 `claim_expired` 后只重派本侧
+  - 计算前后发现 marker hash 漂移时只更新本侧 attempt，不写 partition 输出
+  - 成功提交由同一 owner/token fencing，幂等写 `memberships / snapshots / model_stats / partitions`
+- 三个 CLX Dagster sensor
+  - newest-first 扫描最近 5 个已完成交易日；项目时区当天只在 `15:05` 后纳入，交易日来自交易日历
+  - 每 tick 最多返回一个 RunRequest；marker 缺失或 `reuse/wait` 继续旧日，`active` 停止，`run` 返回
+- `ClxDailySelectionService.plan_finalization / execute_finalization`
+  - 当前 marker 缺失时返回 waiting，不复用旧 generation；双侧未齐时只更新 partial `batch_statuses`
+  - 双侧完成后写 `finalization_attempts`，job 按 attempt id 读取并严格校验持久化 trade date、batch id、partition ids 与 Dagster tags
+  - marker/partition generation 漂移时 attempt 失败，不发布旧 failed/pending final
+  - 双侧合同一致时写不可变 final 内容，并由 owner-token publication claim 独立发布 `clx_daily_selection_ready`
+  - ready marker 写入再按规范 UTC `generation_order` 与不可变 `publication_id` 做 CAS；同 id 重试幂等，迟到旧 generation 显式失败且不能把旧 batch 标为 published
 
 ## 当前排障原则
 
@@ -177,6 +223,10 @@
 - 查 legacy 镜像问题最后再看 `stock_fills_compat / om_buy_lots`
 - 查全历史持仓复盘缺失先看
   `om_execution_history_archive / position_review_evidence_archive`
+- 查 CLX 单侧重试先看 `partition_attempts`，不要删除或重算另一侧 completed partition
+- 查 CLX finalizer 重试先看 `finalization_attempts` 的 attempt/status/lease 与 Dagster tags，不复用失败 dispatch 的 run key
+- 查 CLX 页面默认批次同时看 `batch_statuses.is_final` 与 `publication.status`；只有 `published/not_required` 是默认完整结果
+- 查 CLX 输入漂移同时比对 `dagster_pipeline_markers` 与 attempt 中冻结的 `marker_snapshot_hash`
 
 ## Trade Calendar Cache
 

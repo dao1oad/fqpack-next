@@ -95,6 +95,19 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/daily-screening/pre-pools/stock-pools`
 - `/api/daily-screening/pre-pools/delete`
 
+### `clx-daily-selection`
+
+- `GET /api/clx-daily-selection/health`
+- `GET /api/clx-daily-selection/model-catalog`
+- `GET /api/clx-daily-selection/batches`
+- `GET /api/clx-daily-selection/batches/latest`
+- `GET /api/clx-daily-selection/batches/<batch_id>/summary`
+- `GET|POST /api/clx-daily-selection/batches/<batch_id>/results`
+- `POST /api/clx-daily-selection/batches/<batch_id>/results/query`
+- `GET /api/clx-daily-selection/batches/<batch_id>/results/<asset_type>/<symbol>`
+- `GET /api/clx-daily-selection/batches/<batch_id>/statistics`
+- `GET /api/clx-daily-selection/history/signals`
+
 ### `runtime`
 
 - `/api/runtime/components`
@@ -158,6 +171,35 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`
+- `/api/clx-daily-selection/batches` 与 `/api/clx-daily-selection/batches/latest`
+  - 默认只读取 `is_final=true` 且 `publication.status in [published, not_required]` 的完整 batch
+  - 只有显式传 `include_partial=1` 时才把单侧完成、运行中、失败、drift 或 publication `pending/publishing/failed` 纳入返回
+  - publication 未完成的内部 final 内容在公共响应中降级为 `release_status=partial / is_final=false`
+  - batch 固定返回 `status / release_status / is_final / trade_date / evaluation_profile_id / switch_opt / partitions`；final 内容存在时额外返回 `publication`
+  - `partitions.stock` 与 `partitions.etf` 分别暴露本侧 `status / attempt_status / selection_key / attempt_no / partition_id / marker_snapshot_hash / content_hash / upstream_status / error`；当前 marker 缺失时该侧为 `waiting / marker_missing`
+  - marker 或 partition generation 漂移产生的新 batch id 与旧 generation 分离；旧 failed/pending final 不会被公共接口提升为当前完整结果
+  - `publication` 暴露 `generation_id / generation_order / publication_id / status / attempt_count / last_error`；迟到旧 generation 返回的 `last_error.code=stale_publication` 保持 failed/partial，相同 publication id 的重试保持幂等
+- `/api/clx-daily-selection/batches/<batch_id>/results`
+  - GET/POST 都查询服务端已计算事实；`/results/query` 是同一查询合同的显式 POST 别名
+  - 支持 `asset_types / model_keys / condition_keys / directions / min_model_count / q / cursor / limit`
+  - partial batch 只查询已完成 partition，不补造未完成侧结果
+  - 默认排序为 `distinct_model_count DESC / distinct_condition_count DESC / symbol ASC`
+- `/api/clx-daily-selection/batches/<batch_id>/statistics`
+  - final batch 返回股票、ETF 与完整 batch 统计
+  - partial 不作为跨资产统计真值；页面只显示已完成侧的分区事实与 partial 状态
+- `/api/clx-daily-selection/batches/<batch_id>/results/<asset_type>/<symbol>`
+  - 返回标的 snapshot 与 memberships
+  - membership 分开返回 `model_key / signal_value_raw / primary_entrypoint / model_condition / condition_evidence`
+  - unknown 与 S0002 entrypoint 3 缺证据保持显式 unknown，不折叠为 false
+- `/api/clx-daily-selection/history/signals`
+  - 当前只接受 `period=1d`，`barCount` 范围 `1..2000`
+  - 支持 `symbol / assetType / endDate / modelKeys / conditionKeys / includeRaw`；省略 `endDate` 时由 provider 解析标的最新交易日
+  - 返回 `end_date / bars / signals_by_model / markers_by_model / line_series / calculation_profile / input_bar_asof / future_function_guard / query_hash`
+  - `line_series` 与 bars 等长；当前 `ma250` 使用 `ma250-v1`，`chanlun_line` 与 `reference_line` 没有正式来源时保持 unknown
+  - HTTP `ETag` 使用 `query_hash`
+- `/api/clx-daily-selection/health`
+  - 返回 `fqcopilot` batch、single 和 S0002 evidence 能力状态
+  - 正式值应为 `evaluation_profile_id=production_v1`、`switch_opt=1`、`model_count=18`
 
 ## CLI
 
@@ -222,3 +264,4 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/gantt`
 - `/gantt/shouban30`
 - `/daily-screening`
+- `/clx-daily-screening`

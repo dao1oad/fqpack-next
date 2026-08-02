@@ -111,6 +111,29 @@
 - Gantt/Shouban30 对应读模型数据
 - Runtime Observability 原始日志目录
 
+当目标是调试 CLX 日线选股与 Kline marker 时，至少还需要：
+
+- MongoDB 与 `freshquant_clx_daily_selection`
+- 已安装且可导入的 `fqcopilot` 原生扩展
+- API Server
+- Dagster Webserver 与 Daemon
+- 股票侧 `stock_postclose_ready` 或 ETF 侧 `etf_postclose_ready`；调试本侧 partition 时不要求另一侧 marker 已成功
+- Web UI；Kline marker 还需要目标标的日线历史数据
+
+## CLX 日线选股运行口径
+
+- `clx_daily_selection_stock_sensor` 与 `clx_daily_selection_etf_sensor` 分别以 30 秒最小间隔观察本侧 marker；任一侧 success 即可派发对应 partition job。
+- stock、ETF 与 finalizer 三个 sensor 都调用 `resolve_recent_completed_trade_dates(limit=5)`，按 newest-first 追赶最近 5 个已完成交易日。项目时区当天到 `15:05` 后才算完成，周末、节假日或未收盘当天不进入候选。每个 sensor 每 tick 最多派发一个 `RunRequest`：marker 缺失或 `reuse/wait` 继续旧日，`active` 停止本轮，`run` 立即返回；因此 D+1 延迟 marker、失败侧 attempt 2 和旧日 publication retry 可被自动找回。
+- stock/ETF partition 拥有独立 `selection_key / attempt / marker_snapshot_hash / drift`。规划先写 9 分钟 lease 的 `scheduled` attempt，执行时以 `claim_owner + claim_token` CAS 切为 `running` 并延长为 6 小时；提交前由同一 owner/token 且未过期的 claim 切为带 1 小时 lease 的 `committing`。active 或 completed 选择会跳过重复派发；第二 executor 不重复计算，过期旧 worker 不能提交；任一阶段 lease 到期标为 `claim_expired` 并只重派本侧。
+- partition 计算前后都核对本侧 marker snapshot。hash 变化时该 run 以 `upstream_drift` 失败，不提交输出，也不影响另一侧 completed partition。
+- 单个 symbol 异常会写入 `errors[]` 并继续扫描同侧其余 symbol 以收集诊断；当前门禁为零容忍，`error_count > 0` 时本侧 attempt 失败且不提交 completed partition，只独立重试本侧。
+- `clx_daily_selection_finalizer_sensor` 只在两侧不可变 partition 都 completed 后派发 finalizer；双侧 success 不作为任一侧开始计算的门禁。任一当前 marker 缺失时计划返回 waiting，并把该侧标为 `upstream_status=marker_missing`。
+- sensor 在 `finalization_attempts` 持久化 `trade_date / batch_id / partition_ids / finalization_attempt_id`：scheduled dispatch lease 为 9 分钟，job owner/token running lease 为 10 分钟，终态为 `failed / completed / claim_expired`。每次 dispatch/retry 使用新的 attempt_no 和 run key，避免失败 run key 被 Dagster 永久去重；job 必须把四项 tags 与持久化计划精确对齐。
+- finalizer 通过同交易日、`production_v1 / switch_opt=1` 与版本合同检查后，先写不可变 final 内容，再以 2 分钟 publication claim 发布 `clx_daily_selection_ready`。publication 按 `claim_owner / claim_token / attempt_count / lease_expires_at` CAS，状态由 `pending -> publishing -> published` 推进；`failed` 或过期 publishing 独立重试，不重算 partition；无 publisher 的受控运行面记为 `not_required`。marker/partition generation 在规划后漂移时，本 attempt 失败为 `generation_drift`，旧 generation 的 pending/failed final 不继续发布。ready marker 另以规范 UTC `generation_order` 和 `publication_id` CAS：相同 publication id 重试幂等；更新 generation 已存在时，迟到旧 publication 显式失败为 `stale_publication`，旧 batch 不进入 published。
+- API 默认 latest/batch 列表只读 `publication.status in [published, not_required]` 的 final；`pending/publishing/failed` 与普通 partial 只有 `include_partial=1` 才可见，并统一按部分结果展示，不能显示为“完整结果”。
+- `qfq-daily-v1` 对每根纳入计算的 bar 要求有效复权因子；覆盖缺失或因子非法时本侧 fail-closed，不以未复权价格继续计算。
+- `/api/clx-daily-selection/history/signals` 只用闭合日线输入，返回 `future_function_guard`；Kline 只有在 profile 与 guard 通过时才显示 CLX marker series。
+
 ## Runtime Observability 页面口径
 
 - `/runtime-observability` 主视图固定拆成 `全局 Trace` 与 `组件 Event` 两个视角。
@@ -216,4 +239,7 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - When a live refresh fails, FreshQuant falls back to Mongo last-known-good first, then the disk snapshot; the Dagster asset reports `refresh_status` and `degraded` so a cache-served refresh is visible without failing the run.
 - Dagster run monitoring marks a run failed when its worker crashes because the current default run launcher does not support resume. `stock_data_job` and `etf_data_job` carry an eight-hour per-run limit because full daily/minute/xdxr recovery can exceed the global five-hour default, and each job limits automatic failed-run retries to two so a persistent upstream failure cannot create a long retry chain.
 - `stock_postclose_ready` is emitted only after the latest 15 trade dates pass a cross-collection audit between `stock_day` and all five `stock_min` frequencies for the current stock universe.
+- `stock_postclose_ready` success immediately releases only the stock CLX partition; it does not wait for `etf_postclose_ready`.
+- `etf_postclose_ready` success immediately releases only the ETF CLX partition; it does not wait for `stock_postclose_ready`.
+- Both partition outputs are required only for the CLX finalizer, final publication, and cross-asset statistics.
 - Stock, ETF, Gantt, and daily-screening date resolution read the shared FreshQuant trade calendar entry, which falls back to Mongo last-known-good data and then the disk snapshot when the live Sina/AkShare request fails.

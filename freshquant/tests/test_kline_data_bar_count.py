@@ -35,7 +35,9 @@ def _install_kline_data_tool_stubs(monkeypatch):
     qa_data_package.data_resample = data_resample_module
 
     config_module = types.ModuleType("freshquant.config")
-    config_module.cfg = types.SimpleNamespace(TZ=None, TIME_DELTA={"5m": -63})
+    config_module.cfg = types.SimpleNamespace(
+        TZ=None, TIME_DELTA={"5m": -63, "1d": -1000}
+    )
 
     future_db_module = types.ModuleType("freshquant.data.future.db")
     future_db_module.fq_data_future_fetch_day = _unused_fetcher
@@ -123,3 +125,26 @@ def test_get_stock_data_uses_bar_count_to_extend_window_and_tail_result(
     assert len(result) == 20000
     assert result["open"].iloc[0] == 5000
     assert result["open"].iloc[-1] == 24999
+
+
+def test_get_stock_data_clamps_large_daily_window_to_windows_epoch(
+    monkeypatch, kline_data_tool
+):
+    seen = {}
+
+    def fake_fetch(code, start, end):
+        seen["code"] = code
+        seen["start"] = start
+        seen["end"] = end
+        return _build_stock_df(4)
+
+    monkeypatch.setattr(kline_data_tool, "fq_data_stock_fetch_day", fake_fetch)
+
+    result = kline_data_tool.get_stock_data(
+        "sz000001", "1d", "2026-07-31", bar_count=20000
+    )
+
+    assert seen["code"] == "000001"
+    assert seen["start"] == datetime(1970, 1, 2)
+    assert seen["end"].date().isoformat() == "2026-07-31"
+    assert len(result) == 4

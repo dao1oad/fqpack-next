@@ -24,6 +24,8 @@ from freshquant.data.stock import (
 from freshquant.database.cache import in_memory_cache
 from freshquant.db import DBfreshquant
 
+MIN_STOCK_HISTORY_START = datetime(1970, 1, 2)
+
 time_delta_maps = [
     {
         '1m': -25,
@@ -140,6 +142,7 @@ def get_stock_data(
         end = datetime.strptime(endDate, "%Y-%m-%d")
     end = end.replace(hour=23, minute=59, second=59, microsecond=999, tzinfo=cfg.TZ)
     start = end + timedelta(days=_resolve_stock_history_days(period, bar_count))
+    start = max(start, MIN_STOCK_HISTORY_START.replace(tzinfo=end.tzinfo))
     code = symbol[2:]
 
     kline_data = None

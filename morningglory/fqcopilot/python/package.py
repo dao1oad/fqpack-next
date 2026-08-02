@@ -5,7 +5,7 @@ from pathlib import Path
 
 # 直接定义需要打包的文件列表
 TO_ZIP_FILES = [
-    "dist/*.whl",
+    "../wheelhouse/*.whl",
 ]
 
 def main():
@@ -24,7 +24,7 @@ def main():
         f.unlink()
     
     # Build 7z command
-    cmd = ['C:/Program Files/7-Zip/7z', 'a', filename] + TO_ZIP_FILES
+    cmd = ['7z', 'a', filename] + TO_ZIP_FILES
     print(cmd)
     
     # Run 7z command

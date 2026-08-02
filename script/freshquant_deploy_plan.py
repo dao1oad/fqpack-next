@@ -81,12 +81,19 @@ HEALTH_CHECK_MAP = {
         "http://127.0.0.1:15000/api/runtime/components",
         "http://127.0.0.1:15000/api/runtime/health/summary",
         "http://127.0.0.1:15000/api/gantt/plates?provider=xgb",
+        "http://127.0.0.1:15000/api/clx-daily-selection/health",
+        "http://127.0.0.1:15000/api/clx-daily-selection/model-catalog",
     ],
     "web": [
         "http://127.0.0.1:18080/",
         "http://127.0.0.1:18080/gantt/shouban30",
         "http://127.0.0.1:18080/runtime-observability",
+        "http://127.0.0.1:18080/clx-daily-screening",
+        "http://127.0.0.1:18080/kline-slim",
         "http://127.0.0.1:18080/api/stock_data?period=1d&symbol=sh512800&endDate=2025-07-10&barCount=2",
+    ],
+    "dagster": [
+        "http://127.0.0.1:11003/server_info",
     ],
     "tradingagents": [
         "http://127.0.0.1:13000/api/health",
@@ -155,6 +162,14 @@ class ExactRule(PathRule):
 
 
 PATH_RULES: tuple[PathRule, ...] = (
+    PrefixRule(
+        label="clx-daily-selection-core",
+        prefix="freshquant/clx_daily_selection/",
+        surfaces=("api", "dagster"),
+        notes=(
+            "CLX 日线计算服务由 API 与 Dagster partition/finalizer 共同加载，必须同时重建并重启。",
+        ),
+    ),
     PrefixRule(
         label="freshquant-rear",
         prefix="freshquant/rear/",
@@ -306,6 +321,14 @@ PATH_RULES: tuple[PathRule, ...] = (
         label="webui",
         prefix="morningglory/fqwebui/",
         surfaces=("web",),
+    ),
+    PrefixRule(
+        label="fqcopilot-native",
+        prefix="morningglory/fqcopilot/",
+        surfaces=("api", "dagster"),
+        notes=(
+            "fqcopilot 原生扩展变更后必须重新构建扩展，并重启消费该扩展的 API 与 Dagster 运行面。",
+        ),
     ),
     PrefixRule(
         label="dagster",

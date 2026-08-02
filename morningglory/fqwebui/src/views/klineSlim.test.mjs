@@ -1,6 +1,42 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { buildClxHistoryRequestKey } from './klineSlimPageState.mjs'
+
+test('CLX history desired key changes with asset type and query inputs', () => {
+  const stockKey = buildClxHistoryRequestKey({
+    symbol: 'sh520001',
+    assetType: 'stock',
+    endDate: '2026-07-31',
+    barCount: 250,
+  })
+  const etfKey = buildClxHistoryRequestKey({
+    symbol: 'sh520001',
+    assetType: 'etf',
+    endDate: '2026-07-31',
+    barCount: 250,
+  })
+
+  assert.equal(stockKey, 'sh520001__stock__2026-07-31__250')
+  assert.equal(etfKey, 'sh520001__etf__2026-07-31__250')
+  assert.notEqual(stockKey, etfKey)
+  assert.equal(buildClxHistoryRequestKey({ symbol: '' }), '')
+})
+
+test('KlineSlim aborts and fences CLX history and sidebar requests across route changes and teardown', () => {
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+  const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
+
+  assert.match(scriptSource, /clxHistoryDesiredKey/)
+  assert.match(scriptSource, /requestKey !== this\.clxHistoryDesiredKey/)
+  assert.match(scriptSource, /abortClxHistoryRequest\(\)/)
+  assert.match(scriptSource, /clxSidebarBatchesAbortController/)
+  assert.match(scriptSource, /clxSidebarResultsAbortController/)
+  assert.match(scriptSource, /requestKey !== this\.clxSidebarRequestKey/)
+  assert.match(controllerSource, /this\.clxSidebarBatchesAbortController\?\.abort\?\.\(\)/)
+  assert.match(controllerSource, /this\.clxSidebarResultsAbortController\?\.abort\?\.\(\)/)
+  assert.match(controllerSource, /else \{\s*this\.abortClxHistoryRequest\(\)/)
+})
 
 test('KlineSlim page script delegates lifecycle hooks and orchestration to a dedicated controller module', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
@@ -28,6 +64,9 @@ test('KlineSlim controller owns route, polling, sidebar and panel orchestration 
   assert.match(controllerSource, /created\(\)/)
   assert.match(controllerSource, /mounted\(\)/)
   assert.match(controllerSource, /beforeUnmount\(\)/)
+  assert.match(controllerSource, /new ResizeObserver\(this\.handleResize\)/)
+  assert.match(controllerSource, /this\.chartResizeObserver\.observe\(this\.\$refs\.chartHost\)/)
+  assert.match(controllerSource, /this\.chartResizeObserver\?\.disconnect\(\)/)
   assert.match(controllerSource, /async loadSidebarData\(/)
   assert.match(controllerSource, /handleRouteChange\(/)
   assert.match(controllerSource, /async resolveDefaultSymbol\(/)
@@ -41,9 +80,36 @@ test('KlineSlim controller owns route, polling, sidebar and panel orchestration 
   assert.match(controllerSource, /async togglePriceGuideEditMode\(/)
   assert.match(controllerSource, /async toggleChanlunStructurePanel\(/)
   assert.match(controllerSource, /stopPolling\(/)
+  assert.match(controllerSource, /ensureRealtimePolling\(/)
   assert.match(controllerSource, /async handleReasonPopoverShow\(/)
   assert.match(controllerSource, /async deleteSidebarItem\(/)
   assert.doesNotMatch(controllerSource, /async toggleSubjectPanel\(/)
+})
+
+test('KlineSlim restores realtime polling on same-route visibility changes', () => {
+  const controllerSource = fs.readFileSync(new URL('./klineSlimController.mjs', import.meta.url), 'utf8')
+
+  assert.match(
+    controllerSource,
+    /handleVisibilityChange\(\)[\s\S]*document\.visibilityState === 'visible'[\s\S]*handleRouteChange\(\)/
+  )
+  assert.match(
+    controllerSource,
+    /lastHandledChartRouteKey === chartRouteKey[\s\S]*ensureRealtimePolling\(\)[\s\S]*return/
+  )
+  assert.match(
+    controllerSource,
+    /ensureRealtimePolling\(\)[\s\S]*this\.chanlunRefreshTimer[\s\S]*return[\s\S]*window\.setInterval/
+  )
+})
+
+test('KlineSlim route state keeps URL-selected CLX scope and asset type as truth', () => {
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(scriptSource, /scopeId:\s*routeState\.scopeId/)
+  assert.doesNotMatch(scriptSource, /scopeId:\s*this\.clxSidebarScope\?\.scopeId/)
+  assert.match(scriptSource, /this\.clxAssetType = resolveClxAssetType/)
+  assert.match(scriptSource, /assetType:\s*this\.clxAssetType/)
 })
 
 test('KlineSlim merges price guides and entry stoploss into a single 标的设置 overlay', () => {
@@ -250,7 +316,7 @@ test('KlineSlim lets the body flow below a wrapping toolbar instead of relying o
     true
   )
   assert.equal(
-    viewSource.includes('.kline-slim-body\n  position relative\n  display flex\n  flex 1'),
+    viewSource.includes('.kline-slim-body\n  position relative\n  display grid\n  grid-template-columns 280px minmax(0, 1fr)\n  flex 1'),
     true
   )
   assert.equal(viewSource.includes('.kline-slim-body\n  top 60px'), false)

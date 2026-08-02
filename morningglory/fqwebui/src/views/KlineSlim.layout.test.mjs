@@ -7,15 +7,25 @@ const mediumLayoutStart = source.indexOf('@media (max-width: 1200px)')
 const mediumLayoutEnd = source.indexOf('@media (max-width: 900px)')
 const mediumLayoutBlock = source.slice(mediumLayoutStart, mediumLayoutEnd)
 
-test('KlineSlim keeps overlay panels anchored to the chart content without side-panel offsets', () => {
+test('KlineSlim gives CLX a dedicated third column while keeping chart tools as overlays', () => {
   assert.equal(
-    source.includes('.kline-slim-content\n  position relative\n  flex 1'),
+    source.includes('.kline-slim-body\n  position relative\n  display grid\n  grid-template-columns 280px minmax(0, 1fr)'),
     true
   )
   assert.equal(
-    source.includes('.kline-slim-overlay-panel\n  position absolute\n  top 12px\n  left 12px'),
+    source.includes('.kline-slim-body.has-clx-workbench\n  grid-template-columns 304px minmax(720px, 1fr) clamp(340px, 24vw, 380px)'),
     true
   )
+  assert.match(source, /class="kline-slim-body"\s+:class="\{ 'has-clx-workbench': showClxWorkbench \}"/)
+  assert.match(source, /<aside v-if="showClxWorkbench" class="kline-slim-clx-workbench">/)
+  assert.doesNotMatch(source, /kline-slim-clx-workbench kline-slim-overlay-panel/)
+  assert.match(source, /\.kline-slim-clx-workbench\n  position sticky\n  top 0\n  align-self stretch/)
+  assert.match(source, /\.kline-slim-clx-workbench[\s\S]*height 100%[\s\S]*overflow hidden/)
+  assert.doesNotMatch(source, /\.kline-slim-clx-workbench\n  right 12px/)
+  assert.doesNotMatch(source, /\.kline-slim-clx-workbench[\s\S]*resize horizontal/)
+  assert.match(source, /class="kline-slim-price-panel kline-slim-overlay-panel"/)
+  assert.match(source, /class="kline-slim-chanlun-panel kline-slim-overlay-panel"/)
+  assert.match(source, /\.kline-slim-overlay-panel\n  position absolute\n  top 12px\n  left 12px/)
   assert.equal(
     source.includes('.kline-slim-chanlun-panel\n  right 12px'),
     true

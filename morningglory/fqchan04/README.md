@@ -6,7 +6,7 @@ Dear friend,
 二、纷传订阅获得1年内无限次更新，定价400/年（续费5折）。
 
 个人联系方式：
-公众号: mywildquant
+公众号: kldctymp
 微信: kldcty
 QQ: 1106628276
 邮箱: 1106628276@qq.com

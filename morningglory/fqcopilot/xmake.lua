@@ -135,6 +135,16 @@ target("dzh")
     add_defines("MAKE_X64", "MAKE_DZH")
     add_cxflags("/EHsc")
 
+-- 编译 MT4 版本
+target("mt4")
+    add_global_defines()
+    set_kind("shared")
+    set_arch("x86")
+    set_targetdir("mt4/dlls")
+    set_basename("fqcopilot")
+    add_files_recursive("cpp")
+    add_cxflags("/EHsc")
+
 -- 编译MT5版本
 target("mt5")
     add_global_defines()

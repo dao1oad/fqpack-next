@@ -24,15 +24,16 @@ void Func1(int count, float *out, float *high, float *low, float *ignore)
 //=============================================================================
 // 输出函数2号：输出笔顶底端点
 //=============================================================================
-void Func2(int count, float *out, float *high, float *low, float *ignore)
+void Func2(int count, float *out, float *high, float *low, float *close)
 {
     if (count == 0)
         return;
     memset(out, 0, count * sizeof(float));
     std::vector<float> h(high, high + count);
     std::vector<float> l(low, low + count);
+    std::vector<float> c(close, close + count);
     ChanProxy &chan = ChanProxy::get_instance();
-    std::vector<float> bi = recognise_bi(count, h, l, chan.get_options());
+    std::vector<float> bi = recognise_bi(count, h, l, c, chan.get_options());
     for (size_t i = 0; i < bi.size(); i++)
     {
         out[i] = bi[i];
@@ -92,7 +93,7 @@ void Func5(int count, float *out, float *sig_list, float *high, float *low)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(count, h, l, chan.get_options());
+            trend = recognise_bi(count, h, l, std::vector<float>(), chan.get_options());
         }
         else if (sig_vector[i] == -3)
         {
@@ -131,7 +132,7 @@ void Func6(int count, float *out, float *sig_list, float *high, float *low)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(count, h, l, chan.get_options());
+            trend = recognise_bi(count, h, l, std::vector<float>(), chan.get_options());
         }
         else if (sig_vector[i] == -3)
         {
@@ -170,7 +171,7 @@ void Func7(int count, float *out, float *sig_list, float *high, float *low)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(count, h, l, chan.get_options());
+            trend = recognise_bi(count, h, l, std::vector<float>(), chan.get_options());
         }
         else if (sig_vector[i] == -3)
         {
@@ -209,7 +210,7 @@ void Func8(int count, float *out, float *sig_list, float *high, float *low)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(count, h, l, chan.get_options());
+            trend = recognise_bi(count, h, l, std::vector<float>(), chan.get_options());
         }
         else if (sig_vector[i] == -3)
         {
@@ -249,7 +250,7 @@ void Func9(int count, float *p_out_values, float *p_sigs, float *p_highs, float 
         if (sigs[i] == -2)
         {
             ChanProxy &chan = ChanProxy::get_instance();
-            high_level_sigs = recognise_bi(count, highs, lows, chan.get_options());
+            high_level_sigs = recognise_bi(count, highs, lows, std::vector<float>(), chan.get_options());
         }
         else if (sigs[i] == -3)
         {
@@ -290,7 +291,7 @@ void Func10(int count, float *out, float *sig_list, float *high, float *low)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(count, h, l, chan.get_options());
+            trend = recognise_bi(count, h, l, std::vector<float>(), chan.get_options());
         }
         else if (sig_vector[i] == -3)
         {
@@ -329,7 +330,7 @@ void Func11(int count, float *out, float *sig_list, float *high, float *low)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(count, h, l, chan.get_options());
+            trend = recognise_bi(count, h, l, std::vector<float>(), chan.get_options());
         }
         else if (sig_vector[i] == -3)
         {
@@ -615,10 +616,12 @@ int WINAPI BI(CALCINFO *pData)
         return 0;
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -633,7 +636,7 @@ int WINAPI BI(CALCINFO *pData)
         // 是否合并未完备的笔
         options.merge_non_complehensive_wave = option / 10000 % 10;
     }
-    std::vector<float> out = recognise_bi(nDataLen, high, low, options);
+    std::vector<float> out = recognise_bi(nDataLen, high, low, close, options);
     for (int i = 0; i < nDataLen; i++)
     {
         pData->m_pResultBuf[i] = out[i];
@@ -705,11 +708,13 @@ int WINAPI ZSZGVAR(CALCINFO *pData)
     std::vector<float> sig_vector(nDataLen);
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         sig_vector[i] = pData->m_pfParam1[i];
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -734,7 +739,7 @@ int WINAPI ZSZGVAR(CALCINFO *pData)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(nDataLen, high, low, options);
+            trend = recognise_bi(nDataLen, high, low, close, options);
         }
         else if (sig_vector[i] == -3)
         {
@@ -765,11 +770,13 @@ int WINAPI ZSZDVAR(CALCINFO *pData)
     std::vector<float> sig_vector(nDataLen);
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         sig_vector[i] = pData->m_pfParam1[i];
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -794,7 +801,7 @@ int WINAPI ZSZDVAR(CALCINFO *pData)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(nDataLen, high, low, options);
+            trend = recognise_bi(nDataLen, high, low, close, options);
         }
         else if (sig_vector[i] == -3)
         {
@@ -825,11 +832,13 @@ int WINAPI ZSGGVAR(CALCINFO *pData)
     std::vector<float> sig_vector(nDataLen);
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         sig_vector[i] = pData->m_pfParam1[i];
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -854,7 +863,7 @@ int WINAPI ZSGGVAR(CALCINFO *pData)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(nDataLen, high, low, options);
+            trend = recognise_bi(nDataLen, high, low, close, options);
         }
         else if (sig_vector[i] == -3)
         {
@@ -885,11 +894,13 @@ int WINAPI ZSDDVAR(CALCINFO *pData)
     std::vector<float> sig_vector(nDataLen);
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         sig_vector[i] = pData->m_pfParam1[i];
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -914,7 +925,7 @@ int WINAPI ZSDDVAR(CALCINFO *pData)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(nDataLen, high, low, options);
+            trend = recognise_bi(nDataLen, high, low, close, options);
         }
         else if (sig_vector[i] == -3)
         {
@@ -945,11 +956,13 @@ int WINAPI ZSSEVAR(CALCINFO *pData)
     std::vector<float> sig_vector(nDataLen);
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         sig_vector[i] = pData->m_pfParam1[i];
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -974,7 +987,7 @@ int WINAPI ZSSEVAR(CALCINFO *pData)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(nDataLen, high, low, options);
+            trend = recognise_bi(nDataLen, high, low, close, options);
         }
         else if (sig_vector[i] == -3)
         {
@@ -1004,11 +1017,13 @@ int WINAPI ZSFXVAR(CALCINFO *pData)
     std::vector<float> sig_vector(nDataLen);
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         sig_vector[i] = pData->m_pfParam1[i];
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -1033,7 +1048,7 @@ int WINAPI ZSFXVAR(CALCINFO *pData)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(nDataLen, high, low, options);
+            trend = recognise_bi(nDataLen, high, low, close, options);
         }
         else if (sig_vector[i] == -3)
         {
@@ -1065,11 +1080,13 @@ int WINAPI ZSGSVAR(CALCINFO *pData)
     std::vector<float> sig_vector(nDataLen);
     std::vector<float> high(nDataLen);
     std::vector<float> low(nDataLen);
+    std::vector<float> close(nDataLen);
     for (int i = 0; i < nDataLen; i++)
     {
         sig_vector[i] = pData->m_pfParam1[i];
         high[i] = pData->m_pData[i].m_fHigh;
         low[i] = pData->m_pData[i].m_fLow;
+        close[i] = pData->m_pData[i].m_fClose;
         pData->m_pResultBuf[i] = 0;
     }
     ChanOptions options;
@@ -1094,7 +1111,7 @@ int WINAPI ZSGSVAR(CALCINFO *pData)
     {
         if (sig_vector[i] == -2)
         {
-            trend = recognise_bi(nDataLen, high, low, options);
+            trend = recognise_bi(nDataLen, high, low, close, options);
         }
         else if (sig_vector[i] == -3)
         {
@@ -1132,7 +1149,7 @@ int WINAPI ZSGSVAR(CALCINFO *pData)
 //=============================================================================
 // FQCHAN 通用：缠论笔输出（MT5/Python 等可直接调）
 //=============================================================================
-void WINAPI FQ_BI(int count, double *out, const double *high, const double *low, int bi_mode)
+void WINAPI FQ_BI(int count, double *out, const double *high, const double *low, const double *close, int bi_mode)
 {
     if (count == 0)
         return;
@@ -1141,14 +1158,16 @@ void WINAPI FQ_BI(int count, double *out, const double *high, const double *low,
     // 显式转换 double* → float* vector
     std::vector<float> h(count);
     std::vector<float> l(count);
+    std::vector<float> c(count);
     for(int i = 0; i < count; i++) {
         h[i] = static_cast<float>(high[i]);
         l[i] = static_cast<float>(low[i]);
+        c[i] = static_cast<float>(close[i]);
     }
 
     ChanOptions options;
     options.bi_mode = bi_mode;
-    std::vector<float> bi = recognise_bi(count, h, l, options);
+    std::vector<float> bi = recognise_bi(count, h, l, c, options);
     for (size_t i = 0; i < bi.size(); i++)
     {
         out[i] = static_cast<double>(bi[i]);

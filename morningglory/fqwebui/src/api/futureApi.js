@@ -15,7 +15,7 @@ export const futureApi = {
   /**
    * 获取K线数据
    */
-  stockData (data) {
+  stockData (data, config = {}) {
     let url
     if (!data.endDate) {
       url = `/api/stock_data?period=${data.period}&symbol=${data.symbol}`
@@ -29,6 +29,7 @@ export const futureApi = {
       url += `&barCount=${data.barCount}`
     }
     return http({
+      ...config,
       url,
       method: 'get'
     })

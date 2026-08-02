@@ -215,7 +215,7 @@ class ClxsStrategy(ScreenStrategy):
             length = len(highs)
 
             # 识别笔
-            bi = fq_recognise_bi(length, highs, lows)
+            bi = fq_recognise_bi(length, highs, lows, closes)
 
             # 计算信号
             sigs = fq_clxs(

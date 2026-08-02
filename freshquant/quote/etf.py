@@ -16,6 +16,8 @@ from freshquant.quote.general import resample3min, resampleStockOrIndex120min
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
+MIN_ETF_HISTORY_START = datetime(1970, 1, 2)
+
 
 def _resolve_etf_history_days(period: str, bar_count=0):
     default_days = int(TIME_DELTA[period])
@@ -69,6 +71,8 @@ def queryEtfCandleSticks(code: str, period: str, endDate=None, bar_count=0):
     end = end.replace(hour=23, minute=59, second=59, microsecond=999, tzinfo=TZ)
     shortCode = code[2:]
     start = end + timedelta(days=_resolve_etf_history_days(period, bar_count))
+    min_start = MIN_ETF_HISTORY_START.replace(tzinfo=end.tzinfo)
+    start = max(start, min_start)
     candleSticks = None
     if period == "1m":
         candleSticks = queryEtfCandleSticksMin(shortCode, "1min", start, end)

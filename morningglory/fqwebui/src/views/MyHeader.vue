@@ -53,12 +53,10 @@ export default {
       const target = getHeaderNavTarget(type)
       if (!target) return
 
-      const routeUrl = this.$router.resolve({
+      this.$router.push({
         path: target.path,
         query: target.query,
       })
-
-      window.open(routeUrl.href, '_blank', 'noopener')
     },
   },
 }

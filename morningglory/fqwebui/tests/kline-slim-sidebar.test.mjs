@@ -22,16 +22,17 @@ test('buildSidebarSections keeps fixed order and sidebar metadata', () => {
 
   assert.deepEqual(
     sections.map(section => section.key),
-    ['holding', 'must_pool', 'stock_pools', 'stock_pre_pools']
+    ['clx_daily_selection', 'holding', 'must_pool', 'stock_pools', 'stock_pre_pools']
   )
   assert.deepEqual(
     sections.map(section => section.label),
-    ['持仓股', 'must_pool', 'stock_pools', 'stock_pre_pools']
+    ['CLX日线选股', '持仓股', 'must_pool', 'stock_pools', 'stock_pre_pools']
   )
-  assert.equal(sections[0].expanded, true)
-  assert.equal(sections[1].expanded, false)
-  assert.equal(sections[0].deletable, false)
-  assert.equal(sections[1].deletable, true)
+  assert.equal(sections.find(section => section.key === 'clx_daily_selection').expanded, false)
+  assert.equal(sections.find(section => section.key === 'holding').expanded, true)
+  assert.equal(sections.find(section => section.key === 'clx_daily_selection').deletable, false)
+  assert.equal(sections.find(section => section.key === 'holding').deletable, false)
+  assert.equal(sections.find(section => section.key === 'must_pool').deletable, true)
 })
 
 test('toggleSidebarExpandedKey keeps at most one section expanded', () => {
@@ -77,12 +78,12 @@ test('normalizeSidebarItem fills symbol and code6 from code', () => {
 })
 
 test('buildSidebarSections keeps holding names from API payload and only falls back to code6 when missing', () => {
-  const [holdingSection] = buildSidebarSections({
+  const holdingSection = buildSidebarSections({
     holdings: [
       { symbol: 'sz002594', code: '002594', name: '比亚迪' },
       { symbol: 'sh600000', code: '600000', name: '' }
     ]
-  })
+  }).find(section => section.key === 'holding')
 
   assert.deepEqual(
     holdingSection.items.map((item) => ({
@@ -136,10 +137,10 @@ test('getReasonPanelMessage returns loading error and empty states', () => {
   assert.equal(getReasonPanelMessage({ loading: false, error: '', items: [{ date: '2026-03-05' }] }), '')
 })
 
-test('KlineSlim uses a wider popover and stock reason column', async () => {
+test('KlineSlim keeps the wide reason popover and a compact CLX popover', async () => {
   const content = await readFile(new URL('../src/views/KlineSlim.vue', import.meta.url), 'utf8')
 
-  assert.match(content, /:width="860"/)
+  assert.match(content, /:width="section\.key === 'clx_daily_selection' \? 420 : 860"/)
   assert.match(
     content,
     /grid-template-columns 110px 72px 120px minmax\(140px, 1fr\) minmax\(0, 2fr\)/

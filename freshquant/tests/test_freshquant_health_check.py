@@ -36,11 +36,23 @@ def test_resolve_check_urls_uses_surface_targets_and_deduplicates() -> None:
         "http://127.0.0.1:15000/api/runtime/components",
         "http://127.0.0.1:15000/api/runtime/health/summary",
         "http://127.0.0.1:15000/api/gantt/plates?provider=xgb",
+        "http://127.0.0.1:15000/api/clx-daily-selection/health",
+        "http://127.0.0.1:15000/api/clx-daily-selection/model-catalog",
         "http://127.0.0.1:18080/",
         "http://127.0.0.1:18080/gantt/shouban30",
         "http://127.0.0.1:18080/runtime-observability",
+        "http://127.0.0.1:18080/clx-daily-screening",
+        "http://127.0.0.1:18080/kline-slim",
         "http://127.0.0.1:18080/api/stock_data?period=1d&symbol=sh512800&endDate=2025-07-10&barCount=2",
         "http://127.0.0.1:9999/custom",
+    ]
+
+
+def test_resolve_check_urls_uses_dagster_server_info() -> None:
+    module = load_module()
+
+    assert module.resolve_check_urls(surfaces=["dagster"]) == [
+        "http://127.0.0.1:11003/server_info",
     ]
 
 
@@ -138,16 +150,16 @@ def test_main_outputs_json_and_returns_nonzero_for_failure(monkeypatch, capsys) 
     assert payload["failures"] == ["http://127.0.0.1:18080/"]
 
 
-def test_main_allows_surface_without_http_checks(monkeypatch, capsys) -> None:
+def test_main_allows_host_surface_without_http_checks(monkeypatch, capsys) -> None:
     module = load_module()
 
     monkeypatch.setattr(module, "resolve_check_urls", lambda surfaces, extra_urls: [])
 
-    exit_code = module.main(["--surface", "dagster", "--format", "json"])
+    exit_code = module.main(["--surface", "market_data", "--format", "json"])
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
     assert payload["passed"] is True
     assert payload["checks"] == []
     assert payload["failures"] == []
-    assert "dagster" in payload["warnings"][0]
+    assert "market_data" in payload["warnings"][0]

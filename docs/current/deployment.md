@@ -204,9 +204,31 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
 | `freshquant/data/etf_adj_sync.py` | ETF legacy xdxr/adj 过渡写入链（已非在线 reader 真值） | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
 | `freshquant/daily_screening/**` | 每日选股 API 与 `fqscreening` 读模型 | 重建 API；如改动影响自动任务语义，补跑 Dagster 每日筛选任务 |
+| `freshquant/clx_daily_selection/**` | CLX 日线计算服务、API 读链与 Dagster partition/finalizer 共用逻辑 | 重建 API；重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
+| `freshquant/rear/clx_daily_selection/**` | CLX 日线 HTTP API | 重建 API |
+| `morningglory/fqcopilot/**` | CLX 原生扩展 | 用当前远程 main 重新同步 Python 依赖并构建扩展；重建/重启消费扩展的 API 与 Dagster 运行面 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |
 | `morningglory/fqdagster/**` / `morningglory/fqdagsterconfig/**` | Dagster | 重启 `fq_dagster_webserver` 与 `fq_dagster_daemon` |
 | `third_party/tradingagents-cn/**` | TradingAgents-CN | 重建 `ta_backend` 与 `ta_frontend` |
+
+CLX 日线选股变更的部署计划先用共享解析器确认：
+
+```powershell
+py -3.12 script/freshquant_deploy_plan.py `
+  --changed-path freshquant/clx_daily_selection/service.py `
+  --changed-path freshquant/rear/clx_daily_selection/routes.py `
+  --changed-path morningglory/fqdagster/src/fqdagster/defs/sensors/clx_daily_selection.py `
+  --changed-path morningglory/fqwebui/src/views/ClxDailyScreening.vue `
+  --format summary
+```
+
+计划确认 API、Dagster、Web UI 或原生扩展命中后，按统一入口执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD
+```
+
+正式生产 deploy 仍只能从最新远程 `main` 的已合并 SHA 运行，不能直接把当前 feature worktree 当作正式来源。
 
 ### XTData QFQ A/B worker 与 reader 激活
 
@@ -279,12 +301,17 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/components
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/runtime/health/summary
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18123/ping
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/gantt/plates?provider=xgb
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/clx-daily-selection/health
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/clx-daily-selection/model-catalog
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:15000/api/clx-daily-selection/batches/latest
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:11003/server_info
 ```
 
 ### Web UI
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/clx-daily-screening
 ```
 
 ### TradingAgents
@@ -321,6 +348,14 @@ powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mod
 
 - API 蓝图能返回，不是只监听端口。
 - Web UI 页面不是空白页。
+- CLX health 的 engine 为 ready，模型目录为 18 个，正式 profile 为 `production_v1 / switch_opt=1`。
+- `/batches/latest` 未显式传 `include_partial=1` 时只允许返回 `is_final=true` 且 `publication.status` 为 `published/not_required` 的完整批次；普通 partial 以及 `pending/publishing/failed` publication 均不能进入默认结果，没有已发布 final 时允许返回较早 final 或 `no_ready_batch`。
+- 只有一侧 partition 完成时，页面要同时显示本侧 completed 和另一侧 waiting/running/failed，不出现“完整结果”或跨资产统计。
+- 部署后的 Mongo 索引必须包含 `finalization_attempts`；partition attempt 能按 owner/token 从 running 进入 committing，重复 executor 与过期旧 worker 都不能提交。
+- 两侧 completed 后，`clx_daily_selection_finalizer_sensor` 需要先创建持久化 finalization attempt，Dagster job tags 必须与其 trade date、batch id、partition ids 完全一致，再生成不可变 final 内容并完成 publication。若为 `contract_mismatch/generation_drift`，先排查两侧版本或 marker generation；若 publication 为 `failed` 或过期 `publishing`，只用新的 dispatch/publication attempt 重试，不手工覆盖状态或重算 partition。
+- 验证三个 CLX sensor 都按 newest-first 扫描最近 5 个已完成交易日：项目时区当日 `15:05` 前与周末不选未来日期，每个 sensor tick 最多一个 RunRequest；D+1 延迟 marker、失败 partition attempt 2 和旧日 publication retry 能进入派发候选。
+- 用 generation 乱序 smoke 确认相同 `publication_id` 重试幂等；新 generation 已发布后恢复的旧 publisher 必须留下 `last_error.code=stale_publication` 并保持旧 batch failed，`clx_daily_selection_ready` 不被回退。
+- Kline smoke 需要确认 `CLX信号` 开关后图上出现真实 `clx-signal-*` ECharts series，并能点击 marker 打开同一条证据详情。
 - XTData 相关修改后，producer/consumer 日志持续产出，Redis 队列不持续堆积；涉及 QFQ A/B writer/reader 时，`fqnext_xtdata_qfq_worker` 为 `RUNNING`，`status --strict` / active-slot `audit --mode full` 通过，Stock / ETF strict-reader health 与 versioned cache/window reload 通过。
 - 宿主机 deployment surface 修改后，`fqnext-supervisord` 保持 `Running`，且 `script/fqnext_host_runtime_ctl.ps1 -Mode Status` 能返回目标 program 为 `RUNNING`。
 - 如果本轮有实际 deploy，`check_freshquant_runtime_post_deploy.ps1` 的 verify 结果必须 `passed=true`，且 `failures` 为空。
