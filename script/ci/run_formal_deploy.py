@@ -233,6 +233,12 @@ def build_health_commands(
                 surface,
                 "--format",
                 "summary",
+                "--timeout",
+                "2",
+                "--retries",
+                "20",
+                "--retry-delay",
+                "1",
             ]
         )
     return commands

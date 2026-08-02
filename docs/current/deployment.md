@@ -147,6 +147,7 @@ $enhua.data_quality.account_partitions
 - 读取 `D:/fqpack/runtime/formal-deploy/runs/<timestamp>-<sha>/plan.json`、`result.json` 与 `D:/fqpack/runtime/formal-deploy/production-state.json` 作为正式 deploy 基础证据；不要只凭终端退出码判断成功。
 - 如果 `plan.json` / `result.json` 显示 `deployment_required=false`，把这轮判定为 `no-op deploy`：`runtime-verify.json 可以不存在`，但仍要确认 `result.json` 为 `ok=true`，并且 `production-state.json` 里的 `last_success_sha` 已更新到目标 SHA。
 - 如果 `plan.json` / `result.json` 显示 `deployment_required=true`，再额外读取 `runtime-baseline.json`、`runtime-verify.json`，并保留 `CaptureBaseline -> deploy -> health check -> Verify` 的完整顺序。
+- formal deploy 的接口健康检查固定使用单次 `2s` timeout、每个 URL 最多 `20` 次探测和 `1s` 间隔；容器一旦 ready 会立即继续，持续无响应时单 URL 最长约 `59s`，不沿用人工 health CLI 的默认重试预算。
 - Dagster 容器必须在容器内固定使用 `DAGSTER_HOME=/opt/dagster/home` 与 `FRESHQUANT_DAGSTER__HOME=/opt/dagster/home`；不要让主工作树 `.env` 里的 Windows 路径 `D:/fqpack/dagster` 直接透传进 Linux 容器。
 - 命中宿主机 deployment surface 时，把 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status` 与对应 stderr 日志一起当作正式证据；不要只看 `fqnext-supervisord` service 是否仍是 `Running`。
 - 如果宿主机 traceback 指向 vendored 包 API 不匹配，例如 `resolve_stock_account() got an unexpected keyword argument 'settings_provider'`，先确认实际 import 源文件是否落在 `.venv\\Lib\\site-packages\\fqxtrade\\xtquant\\account.py`，不要假设仓库里的 vendored 源码一定覆盖了宿主机 Python 环境。
