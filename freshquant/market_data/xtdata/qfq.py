@@ -54,6 +54,13 @@ ETF_OPEN_FUND_HINTS = (
     "联接",
     "场外",
 )
+SOURCE_EXCLUSION_REASONS = frozenset(
+    {
+        "source_empty_bars",
+        "source_adjustment_gap_unproven",
+        "source_prefix_unavailable",
+    }
+)
 
 
 class QFQSyncError(RuntimeError):
@@ -492,6 +499,8 @@ def _project_preclose_adj_to_bfq_dates(
             raise QFQSyncError(
                 f"XTData source gap crosses an adjustment for code={normalize_code(code)}",
                 stats={
+                    "failure": "source_adjustment_gap_unproven",
+                    "code": normalize_code(code),
                     "left_date": left_date,
                     "right_date": right_date,
                     "missing_dates": gap_dates[:20],
@@ -793,6 +802,10 @@ def _new_bfq_coverage_summary() -> dict[str, Any]:
         "source_gaps": [],
         "source_empty_bars_excluded": 0,
         "source_empty_bars": [],
+        "source_adjustment_gap_unproven_excluded": 0,
+        "source_adjustment_gap_unproven": [],
+        "source_prefix_unavailable_excluded": 0,
+        "source_prefix_unavailable": [],
         "skipped_codes": 0,
         "skipped": [],
     }
@@ -880,15 +893,17 @@ def _record_source_gap_summary(
         )
 
 
-def _record_source_empty_exclusion(summary: dict[str, Any], *, code: str) -> None:
+def _record_source_exclusion(
+    summary: dict[str, Any], *, code: str, reason: str
+) -> None:
+    if reason not in SOURCE_EXCLUSION_REASONS:
+        raise ValueError(f"unsupported QFQ source exclusion reason: {reason}")
     code6 = normalize_code(code)
-    if any(item.get("code") == code6 for item in summary["source_empty_bars"]):
+    if any(item.get("code") == code6 for item in summary[reason]):
         return
-    summary["source_empty_bars_excluded"] += 1
-    if len(summary["source_empty_bars"]) < 100:
-        summary["source_empty_bars"].append(
-            {"code": code6, "reason": "source_empty_bars"}
-        )
+    summary[f"{reason}_excluded"] += 1
+    if len(summary[reason]) < 100:
+        summary[reason].append({"code": code6, "reason": reason})
 
 
 def _bfq_download_bounds(
@@ -1257,7 +1272,7 @@ def _normalize_source_exclusions(
         reason = str(item.get("reason") or "").strip()
         if raw_code != code or len(code) != 6 or not code.isdigit():
             raise QFQSyncError("QFQ source exclusion code is invalid")
-        if reason != "source_empty_bars":
+        if reason not in SOURCE_EXCLUSION_REASONS:
             raise QFQSyncError("QFQ source exclusion reason is invalid")
         if code in seen:
             raise QFQSyncError("QFQ source exclusion code is duplicated")
@@ -1666,6 +1681,14 @@ def _call_loader(
             return loader(code)
 
 
+def _mark_source_role(error: QFQSyncError, *, role: str) -> None:
+    if error.stats.get("failure") in {
+        "source_empty_bars",
+        "history_prefix_no_progress",
+    }:
+        error.stats.setdefault("source_role", role)
+
+
 def _project_loaded_bars(
     bars: Any,
     *,
@@ -1678,8 +1701,7 @@ def _project_loaded_bars(
     try:
         normalized = normalize_xtdata_bars(bars, code=code)
     except QFQSyncError as error:
-        if error.stats.get("failure") == "source_empty_bars":
-            error.stats["source_role"] = "primary"
+        _mark_source_role(error, role="primary")
         raise
     source_dates = set(normalized["date"])
     needs_gap_proof = any(value not in source_dates for value in expected_dates)
@@ -1690,8 +1712,7 @@ def _project_loaded_bars(
                 front_ratio_loader, code, load_start, load_end
             )
         except QFQSyncError as error:
-            if error.stats.get("failure") == "source_empty_bars":
-                error.stats["source_role"] = "front_ratio_proof"
+            _mark_source_role(error, role="front_ratio_proof")
             raise
     return _project_preclose_adj_to_bfq_dates(
         normalized,
@@ -1706,6 +1727,19 @@ def _is_primary_source_empty(error: QFQSyncError) -> bool:
         error.stats.get("failure") == "source_empty_bars"
         and error.stats.get("source_role") == "primary"
     )
+
+
+def _source_exclusion_reason(error: QFQSyncError) -> str | None:
+    if _is_primary_source_empty(error):
+        return "source_empty_bars"
+    if (
+        error.stats.get("failure") == "history_prefix_no_progress"
+        and error.stats.get("source_role") == "primary"
+    ):
+        return "source_prefix_unavailable"
+    if error.stats.get("failure") == "source_adjustment_gap_unproven":
+        return "source_adjustment_gap_unproven"
+    return None
 
 
 def _load_projected_bars(
@@ -1729,10 +1763,7 @@ def _load_projected_bars(
             load_end=load_end,
         )
     except QFQSyncError as error:
-        if error.stats.get("failure") == "source_empty_bars" and not error.stats.get(
-            "source_role"
-        ):
-            error.stats["source_role"] = "primary"
+        _mark_source_role(error, role="primary")
         needs_context = error.stats.get("gap_position") == "prefix" or (
             error.stats.get("failure") == "history_prefix_no_progress"
         )
@@ -1741,8 +1772,7 @@ def _load_projected_bars(
     try:
         bars = _call_loader(loader, code, context_start, load_end)
     except QFQSyncError as error:
-        if error.stats.get("failure") == "source_empty_bars":
-            error.stats["source_role"] = "primary"
+        _mark_source_role(error, role="primary")
         raise
     return _project_loaded_bars(
         bars,
@@ -1823,8 +1853,7 @@ def _full_rebuild_code(
     try:
         bars = _call_loader(loader, code, load_start, load_end)
     except QFQSyncError as error:
-        if error.stats.get("failure") == "source_empty_bars":
-            error.stats["source_role"] = "primary"
+        _mark_source_role(error, role="primary")
         raise
     rows, source_stats = _project_loaded_bars(
         bars,
@@ -2043,13 +2072,23 @@ def audit_qfq_slot(
         )
     normalized_exclusions = _normalize_source_exclusions(source_exclusions)
     exclusions_by_code = {item["code"]: item for item in normalized_exclusions}
-    universe = load_factor_universe(kind=scope, db=db, codes=codes)
+    requested_codes = (
+        None
+        if codes is None
+        else {normalize_code(value) for value in codes if normalize_code(value)}
+    )
+    universe = load_factor_universe(kind=scope, db=db, codes=requested_codes)
+    audit_codes = set(universe["codes"])
+    if requested_codes is None:
+        audit_codes.update(exclusions_by_code)
+    else:
+        audit_codes.update(exclusions_by_code.keys() & requested_codes)
     collection = db[FACTOR_COLLECTIONS[scope][slot]]
     failures: list[dict[str, Any]] = []
     rows = 0
     checked_codes = 0
     coverage_summary = _new_bfq_coverage_summary()
-    for code in universe["codes"]:
+    for code in sorted(audit_codes):
         if progress_callback:
             progress_callback()
         coverage = _load_bfq_coverage(
@@ -2069,7 +2108,10 @@ def audit_qfq_slot(
         )
         exclusion = exclusions_by_code.get(normalize_code(code))
         if exclusion is not None:
-            _record_source_empty_exclusion(coverage_summary, code=code)
+            exclusion_reason = exclusion["reason"]
+            _record_source_exclusion(
+                coverage_summary, code=code, reason=exclusion_reason
+            )
             rows += len(code_rows)
             checked_codes += 1
             if code_rows:
@@ -2083,7 +2125,21 @@ def audit_qfq_slot(
                     }
                 )
                 continue
-            if bars_loader is not None and expected:
+            if bars_loader is not None and not expected:
+                failures.append(
+                    {
+                        "code": code,
+                        "audit": {
+                            "ok": False,
+                            "stale_source_exclusion": True,
+                            "rebuild_required": True,
+                            "expected_reason": exclusion_reason,
+                            "observed_reason": None,
+                        },
+                    }
+                )
+                continue
+            if bars_loader is not None:
                 load_start, load_end, audit_dates = _bfq_download_bounds(expected)
                 try:
                     _load_projected_bars(
@@ -2095,9 +2151,22 @@ def audit_qfq_slot(
                         load_end=load_end,
                     )
                 except QFQSyncError as error:
-                    if _is_primary_source_empty(error):
+                    observed_reason = _source_exclusion_reason(error)
+                    if observed_reason == exclusion_reason:
                         continue
-                    raise
+                    failures.append(
+                        {
+                            "code": code,
+                            "audit": {
+                                "ok": False,
+                                "stale_source_exclusion": True,
+                                "rebuild_required": True,
+                                "expected_reason": exclusion_reason,
+                                "observed_reason": observed_reason,
+                            },
+                        }
+                    )
+                    continue
                 failures.append(
                     {
                         "code": code,
@@ -2105,6 +2174,8 @@ def audit_qfq_slot(
                             "ok": False,
                             "stale_source_exclusion": True,
                             "rebuild_required": True,
+                            "expected_reason": exclusion_reason,
+                            "observed_reason": None,
                         },
                     }
                 )
@@ -2225,13 +2296,16 @@ def _bootstrap_scope(
                 reason="bootstrap",
             )
         except QFQSyncError as error:
-            if not _is_primary_source_empty(error):
+            exclusion_reason = _source_exclusion_reason(error)
+            if exclusion_reason is None:
                 raise
             collection_a.delete_many({"code": normalize_code(code)})
             source_exclusions.append(
-                {"code": normalize_code(code), "reason": "source_empty_bars"}
+                {"code": normalize_code(code), "reason": exclusion_reason}
             )
-            _record_source_empty_exclusion(coverage_summary, code=code)
+            _record_source_exclusion(
+                coverage_summary, code=code, reason=exclusion_reason
+            )
             continue
         _record_source_gap_summary(coverage_summary, code=code, stats=result)
         rows_written += int(result["rows_written"])
@@ -2366,6 +2440,8 @@ def _update_scope(
         "rows_written": 0,
         "stale_codes_removed": 0,
         "source_empty_bars_excluded": 0,
+        "source_adjustment_gap_unproven_excluded": 0,
+        "source_prefix_unavailable_excluded": 0,
     }
     coverage_summary = _new_bfq_coverage_summary()
     source_exclusions: list[dict[str, str]] = []
@@ -2410,19 +2486,27 @@ def _update_scope(
                         tail_days=tail_days,
                     )
             except QFQSyncError as error:
-                if not _is_primary_source_empty(error):
+                exclusion_reason = _source_exclusion_reason(error)
+                if exclusion_reason is None:
                     raise
                 collection.delete_many({"code": normalize_code(code)})
                 source_exclusions.append(
-                    {"code": normalize_code(code), "reason": "source_empty_bars"}
+                    {"code": normalize_code(code), "reason": exclusion_reason}
                 )
-                stats["source_empty_bars_excluded"] += 1
-                _record_source_empty_exclusion(coverage_summary, code=code)
+                stats[f"{exclusion_reason}_excluded"] += 1
+                _record_source_exclusion(
+                    coverage_summary, code=code, reason=exclusion_reason
+                )
                 continue
             stats[str(result["mode"])] += 1
             stats["rows_written"] += int(result["rows_written"])
             _record_source_gap_summary(coverage_summary, code=code, stats=result)
             included.append(code)
+        if not included:
+            raise QFQSyncError(
+                f"{scope} update has no included QFQ codes",
+                stats={"source_exclusions": source_exclusions[:100]},
+            )
         stale_codes = _distinct_codes(collection) - set(included)
         if stale_codes and force_full_rebuild:
             collection.delete_many({"code": {"$in": sorted(stale_codes)}})
