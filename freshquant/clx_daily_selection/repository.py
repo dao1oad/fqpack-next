@@ -548,6 +548,9 @@ class ClxDailySelectionRepository:
     def query_snapshots(
         self, partition_ids: list[str], payload: dict[str, Any]
     ) -> dict[str, Any]:
+        for field in ("min_model_count", "cursor", "limit"):
+            if isinstance(payload.get(field), (dict, list)):
+                raise ValueError(f"{field} must be an integer")
         query: dict[str, Any] = {
             "partition_id": {"$in": partition_ids},
             "distinct_model_count": {

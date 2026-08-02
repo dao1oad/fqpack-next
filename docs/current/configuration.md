@@ -87,7 +87,7 @@ CLX 日线选股的 evaluation profile 是版本化算法合同，不是 `/syste
 
 旧 `fq_clxs_all` 默认 `switch_opt=0` 只属于 `legacy_sall_v0` 兼容口径，不可通过环境变量或页面把新日选切回 switch0。算法参数、数据版本或解释合同发生变化时，应新建版本并让 finalizer 阻断跨版本 join，而不是原地覆盖既有 partition。
 
-CLX 不新增独立 Mongo/Redis 连接配置；API 与 Dagster 继续读取 FreshQuant 现有基础设施配置。运行前需要确保当前环境安装的 `fqcopilot` 暴露 production batch、单模型入口和 S0002 evidence helper；具体状态由 `/api/clx-daily-selection/health` 返回。行情 provider 对 `qfq-daily-v1` 采用 fail-closed：每个纳入 bar 日期都必须在 `stock_adj/etf_adj` 中存在有限且大于 0 的因子，缺失或非法覆盖不会通过配置回退为 `adj=1`。
+CLX 不新增独立 Mongo/Redis 连接配置；API 与 Dagster 继续读取 FreshQuant 现有基础设施配置。运行前需要确保当前环境安装的 `fqcopilot` 暴露 production batch、单模型入口和 S0002 evidence helper；具体状态由 `/api/clx-daily-selection/health` 返回。行情 provider 通过 shared strict `freshquant.data.qfq_reader` 读取 `qfq_ready` 冻结的 Stock + ETF active A/B snapshot pair，并对 `bar_count=1200` 的 full-profile window 采用 fail-closed：所有实际返回的 BFQ bar 日期必须有同一冻结 snapshot 的有限正 QFQ 因子，缺口报 `QFQ_DATA_NOT_READY`，不通过配置回退为 `adj=1`。
 
 ## Mongo 系统设置（params）
 

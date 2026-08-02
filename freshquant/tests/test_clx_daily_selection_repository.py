@@ -295,6 +295,30 @@ def test_snapshot_query_rejects_invalid_line_flag_contract(line_flags, message):
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("min_model_count", {}),
+        ("min_model_count", []),
+        ("cursor", {}),
+        ("cursor", []),
+        ("limit", {}),
+        ("limit", []),
+    ],
+)
+def test_snapshot_query_rejects_structured_numeric_parameters(field, value):
+    repository = ClxDailySelectionRepository.__new__(ClxDailySelectionRepository)
+    repository.snapshots = CapturingCollection()
+
+    with pytest.raises(ValueError, match=rf"^{field} must be an integer$"):
+        repository.query_snapshots(
+            ["partition-stock"],
+            {field: value},
+        )
+
+    assert repository.snapshots.last_query is None
+
+
 def test_statistics_fact_reads_are_scoped_and_deterministically_sorted():
     repository = ClxDailySelectionRepository.__new__(ClxDailySelectionRepository)
     repository.snapshots = CapturingCollection(

@@ -29,6 +29,11 @@ class FakeQFQDataNotReadyError(RuntimeError):
         }
 
 
+class _EmptySnapshotCollection:
+    def find(self, _query):
+        return []
+
+
 def install_qfq_reader(monkeypatch):
     module = ModuleType("freshquant.data.qfq_reader")
     module.QFQDataNotReadyError = FakeQFQDataNotReadyError
@@ -207,6 +212,62 @@ def test_results_route_maps_invalid_line_flags_to_http_400(monkeypatch):
     assert response.get_json() == {
         "code": "invalid_request",
         "message": "unsupported line_flags value: above_ma250=false",
+        "retryable": False,
+    }
+
+
+def test_results_query_post_rejects_object_min_model_count(monkeypatch):
+    batch_id = "clx-2026-03-19-production_v1"
+
+    class Service:
+        def query_results(self, _batch_id, payload):
+            from freshquant.clx_daily_selection.repository import (
+                ClxDailySelectionRepository,
+            )
+
+            repository = ClxDailySelectionRepository.__new__(
+                ClxDailySelectionRepository
+            )
+            repository.snapshots = _EmptySnapshotCollection()
+            return repository.query_snapshots([], payload)
+
+    response = make_client(monkeypatch, Service()).post(
+        f"/api/clx-daily-selection/batches/{batch_id}/results/query",
+        json={"min_model_count": {"value": 2}},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "code": "invalid_request",
+        "message": "min_model_count must be an integer",
+        "retryable": False,
+    }
+
+
+def test_results_post_rejects_list_limit(monkeypatch):
+    batch_id = "clx-2026-03-19-production_v1"
+
+    class Service:
+        def query_results(self, _batch_id, payload):
+            from freshquant.clx_daily_selection.repository import (
+                ClxDailySelectionRepository,
+            )
+
+            repository = ClxDailySelectionRepository.__new__(
+                ClxDailySelectionRepository
+            )
+            repository.snapshots = _EmptySnapshotCollection()
+            return repository.query_snapshots([], payload)
+
+    response = make_client(monkeypatch, Service()).post(
+        f"/api/clx-daily-selection/batches/{batch_id}/results",
+        json={"limit": [50]},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "code": "invalid_request",
+        "message": "limit must be an integer",
         "retryable": False,
     }
 
