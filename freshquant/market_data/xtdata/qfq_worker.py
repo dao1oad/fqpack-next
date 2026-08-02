@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.mode in {"tail", "full"}
                 else None
             ),
-            listing_date_loader=source_client.load_open_date,
+            listing_date_loader=source_client.load_listing_metadata,
             source_tail_days=args.tail_days if args.mode == "tail" else None,
         )
         if not payload["ok"]:

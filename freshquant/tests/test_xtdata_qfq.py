@@ -287,11 +287,16 @@ def test_normalize_xtdata_field_table_uses_trading_date_columns():
 def test_normalize_xtdata_empty_field_table_reports_no_daily_bars():
     empty = pd.DataFrame(index=["158000.SZ"])
 
-    with pytest.raises(qfq.QFQSyncError, match="returned no daily bars"):
+    with pytest.raises(qfq.QFQSyncError, match="returned no daily bars") as caught:
         qfq.normalize_xtdata_bars(
             {"time": empty, "close": empty, "preClose": empty},
             code="158000.SZ",
         )
+
+    assert caught.value.stats == {
+        "failure": "source_empty_bars",
+        "code": "158000",
+    }
 
 
 @pytest.mark.parametrize(
@@ -610,6 +615,137 @@ def test_bootstrap_builds_both_slots_before_atomic_marker_insert():
     assert marker["slots"]["b"]["collection"] == "stock_adj_qfq_b"
 
 
+def test_bootstrap_publishes_audited_source_empty_exclusions():
+    target = "2026-01-02"
+    db = _DB(
+        stock_list=[
+            {"code": code, "name": "Stock"} for code in ("000001", "000002", "000003")
+        ],
+        stock_day=[
+            {"code": code, "date": target} for code in ("000001", "000002", "000003")
+        ],
+    )
+
+    def loader(code, **_kwargs):
+        if code in {"000002", "000003"}:
+            return pd.DataFrame()
+        return _bars([(target, 10.0, 0.0)])
+
+    result = qfq.sync_stock_adj_all(target_date=target, db=db, bars_loader=loader)
+
+    scope = result["by_scope"]["stock"]
+    exclusions = [
+        {"code": "000002", "reason": "source_empty_bars"},
+        {"code": "000003", "reason": "source_empty_bars"},
+    ]
+    assert scope["codes"] == 1
+    assert scope["coverage"]["source_empty_bars_excluded"] == 2
+    assert scope["coverage"]["source_empty_bars"] == exclusions
+    assert {row["code"] for row in db["stock_adj_qfq_a"].rows} == {"000001"}
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
+    marker = db["qfq_ready"].rows[0]
+    assert marker["slots"]["a"]["source_exclusions"] == exclusions
+    assert marker["slots"]["b"]["source_exclusions"] == exclusions
+    assert (
+        marker["slots"]["a"]["source_exclusions"]
+        is not marker["slots"]["b"]["source_exclusions"]
+    )
+
+
+def test_marker_source_exclusions_are_validated_and_backward_compatible():
+    db = _stock_db(["2026-01-02"])
+    qfq.sync_stock_adj_all(
+        target_date="2026-01-02",
+        db=db,
+        bars_loader=_loader_for({"000001": [("2026-01-02", 10.0, 0.0)]}),
+    )
+    marker = db["qfq_ready"].rows[0]
+    for slot in ("a", "b"):
+        marker["slots"][slot].pop("source_exclusions")
+    assert qfq.validate_qfq_marker(marker, scope="stock")["active_slot"] == "a"
+
+    marker["slots"]["a"]["source_exclusions"] = [
+        {"code": "000001", "reason": "source_empty_bars"},
+        {"code": "000001", "reason": "source_empty_bars"},
+    ]
+    with pytest.raises(qfq.QFQSyncError, match="duplicated"):
+        qfq.validate_qfq_marker(marker, scope="stock")
+
+    marker["slots"]["a"]["source_exclusions"] = [
+        {"code": "000001", "reason": "prefix_gap"}
+    ]
+    with pytest.raises(qfq.QFQSyncError, match="reason is invalid"):
+        qfq.validate_qfq_marker(marker, scope="stock")
+
+
+def test_source_empty_exclusion_structure_and_full_audits_are_strict():
+    target = "2026-01-02"
+    db = _DB(
+        stock_list=[{"code": "000001"}, {"code": "000002"}],
+        stock_day=[
+            {"code": "000001", "date": target},
+            {"code": "000002", "date": target},
+        ],
+    )
+
+    def bootstrap_loader(code, **_kwargs):
+        return _bars([(target, 10.0, 0.0)]) if code == "000001" else pd.DataFrame()
+
+    qfq.sync_stock_adj_all(target_date=target, db=db, bars_loader=bootstrap_loader)
+
+    structure = qfq.audit_qfq_slot(scope="stock", slot="a", db=db, codes=["000002"])
+    assert structure["ok"] is True
+    assert structure["codes"] == 1
+    assert structure["source_exclusions"] == [
+        {"code": "000002", "reason": "source_empty_bars"}
+    ]
+
+    full = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        codes=["000002"],
+        bars_loader=lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    assert full["ok"] is True
+
+    recovered = qfq.audit_qfq_slot(
+        scope="stock",
+        slot="a",
+        db=db,
+        codes=["000002"],
+        bars_loader=lambda *_args, **_kwargs: _bars([(target, 10.0, 0.0)]),
+    )
+    assert recovered["ok"] is False
+    assert recovered["failures"][0]["audit"] == {
+        "ok": False,
+        "stale_source_exclusion": True,
+        "rebuild_required": True,
+    }
+
+    db["stock_adj_qfq_a"].rows.append({"code": "000002", "date": target, "adj": 1.0})
+    residue = qfq.audit_qfq_slot(scope="stock", slot="a", db=db, codes=["000002"])
+    assert residue["ok"] is False
+    assert residue["failures"][0]["audit"]["source_exclusion_residue"] == 1
+
+
+def test_empty_front_ratio_proof_remains_fail_closed():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+    db = _stock_db(dates)
+    none_loader = _loader_for({"000001": [(dates[0], 10.0, 0.0), (dates[2], 8.0, 9.0)]})
+
+    with pytest.raises(qfq.QFQSyncError, match="returned no daily bars") as caught:
+        qfq.sync_stock_adj_all(
+            target_date=dates[-1],
+            db=db,
+            bars_loader=none_loader,
+            front_ratio_loader=lambda *_args, **_kwargs: pd.DataFrame(),
+        )
+
+    assert caught.value.stats["source_role"] == "front_ratio_proof"
+    assert not db["qfq_ready"].rows
+
+
 def test_bootstrap_computes_on_xtdata_superset_then_projects_to_bfq_axis():
     expected_dates = ["2026-01-02", "2026-01-06"]
     db = _stock_db(expected_dates)
@@ -803,36 +939,49 @@ def test_bootstrap_skips_sentinel_only_etf_with_audited_reason():
     }
 
 
-def test_bootstrap_does_not_exclude_near_miss_sentinel_bfq_row():
+def test_bootstrap_does_not_classify_near_miss_sentinel_as_lifecycle_skip():
     sentinel = 5.877471754e-39
     db = _DB(
-        etf_list=[{"code": "510050", "name": "Tradable ETF"}],
+        etf_list=[
+            {"code": "159001", "name": "Control ETF"},
+            {"code": "510050", "name": "Tradable ETF"},
+        ],
         index_day=[
+            {"code": "159001", "date": "2026-07-31"},
             {
                 "code": "510050",
                 "date": "2026-07-31",
                 "vol": sentinel,
                 "amount": 1.0,
-            }
+            },
         ],
     )
     empty = pd.DataFrame(index=["510050.SH"])
 
-    with pytest.raises(qfq.QFQSyncError, match="returned no daily bars"):
-        qfq.sync_etf_adj_all(
-            target_date="2026-07-31",
-            db=db,
-            bars_loader=lambda *_args, **_kwargs: {
+    result = qfq.sync_etf_adj_all(
+        target_date="2026-07-31",
+        db=db,
+        bars_loader=lambda code, **_kwargs: (
+            _bars([("2026-07-31", 1.0, 0.0)])
+            if code == "159001"
+            else {
                 "time": empty,
                 "close": empty,
                 "preClose": empty,
-            },
-        )
+            }
+        ),
+    )
 
-    assert not db["qfq_ready"].rows
+    coverage = result["by_scope"]["etf"]["coverage"]
+    assert coverage["sentinel_rows_excluded"] == 0
+    assert coverage["source_empty_bars"] == [
+        {"code": "510050", "reason": "source_empty_bars"}
+    ]
+
+    assert db["qfq_ready"].rows[0]["active_slot"] == "a"
 
 
-def test_bootstrap_skips_etf_history_entirely_before_xtdata_open_date():
+def test_bootstrap_classifies_nontrading_history_before_open_date_as_terminal():
     loaded_codes = []
     sentinel = 5.877471754e-39
     db = _DB(
@@ -843,13 +992,13 @@ def test_bootstrap_skips_etf_history_entirely_before_xtdata_open_date():
         index_day=[
             {
                 "code": "161022",
-                "date": "2019-12-30",
+                "date": "2026-07-30",
                 "vol": sentinel,
                 "amount": sentinel,
             },
             {
                 "code": "161022",
-                "date": "2019-12-31",
+                "date": "2026-07-31",
                 "vol": sentinel,
                 "amount": sentinel,
             },
@@ -867,21 +1016,58 @@ def test_bootstrap_skips_etf_history_entirely_before_xtdata_open_date():
         target_date="2026-07-31",
         db=db,
         bars_loader=load_bars,
-        listing_date_loader=lambda code: (
-            "2024-01-31" if code == "161022" else "2005-02-23"
-        ),
+        listing_date_loader=lambda code: {
+            "open_date": "2024-01-31" if code == "161022" else "2005-02-23",
+            "is_trading": False,
+        },
     )
 
     coverage = result["by_scope"]["etf"]["coverage"]
     assert loaded_codes == ["510050"]
     assert coverage["sentinel_rows_excluded"] == 2
-    assert coverage["prelisting_rows_excluded"] == 2
+    assert coverage["prelisting_rows_excluded"] == 0
+    assert coverage["terminal_history_rows_excluded"] == 2
+    assert coverage["terminal_history"][0]["reason"] == "nontrading_terminal_history"
     assert coverage["skipped"] == [
         {
             "code": "161022",
-            "reason": "prelisting_only_bfq_history",
+            "reason": "nontrading_terminal_history",
             "sentinel_rows": 2,
+            "terminal_history_rows": 2,
+            "open_date": "2024-01-31",
         }
+    ]
+
+
+def test_open_date_after_bfq_without_terminal_proof_uses_source_empty_exclusion():
+    db = _DB(
+        etf_list=[
+            {"code": "159001", "name": "Control ETF"},
+            {"code": "161022", "name": "ETF"},
+        ],
+        index_day=[
+            {"code": "159001", "date": "2026-07-31"},
+            {"code": "161022", "date": "2024-01-30"},
+        ],
+    )
+
+    result = qfq.sync_etf_adj_all(
+        target_date="2026-07-31",
+        db=db,
+        bars_loader=lambda code, **_kwargs: (
+            _bars([("2026-07-31", 1.0, 0.0)]) if code == "159001" else pd.DataFrame()
+        ),
+        listing_date_loader=lambda code: {
+            "open_date": "2024-01-31" if code == "161022" else "2005-02-23",
+            "is_trading": True,
+        },
+    )
+
+    coverage = result["by_scope"]["etf"]["coverage"]
+    assert coverage["terminal_history_rows_excluded"] == 0
+    assert coverage["prelisting_rows_excluded"] == 0
+    assert coverage["source_empty_bars"] == [
+        {"code": "161022", "reason": "source_empty_bars"}
     ]
 
 
@@ -905,7 +1091,7 @@ def test_missing_etf_open_date_keeps_prefix_bfq_rows_fail_closed():
     assert not db["qfq_ready"].rows
 
 
-def test_audit_rejects_factor_rows_for_prelisting_only_bfq_history():
+def test_audit_rejects_factor_rows_for_terminal_history():
     db = _DB(
         etf_list=[
             {"code": "161022", "name": "Converted ETF"},
@@ -913,6 +1099,12 @@ def test_audit_rejects_factor_rows_for_prelisting_only_bfq_history():
         ],
         index_day=[
             {"code": "161022", "date": "2020-01-02"},
+            {
+                "code": "161022",
+                "date": "2026-07-31",
+                "vol": 5.877471754e-39,
+                "amount": 5.877471754e-39,
+            },
             {"code": "510050", "date": "2026-07-31"},
         ],
         etf_adj_qfq_a=[
@@ -926,9 +1118,10 @@ def test_audit_rejects_factor_rows_for_prelisting_only_bfq_history():
         slot="a",
         db=db,
         factor_asof="2026-07-31",
-        listing_date_loader=lambda code: (
-            "2024-01-31" if code == "161022" else "2005-02-23"
-        ),
+        listing_date_loader=lambda code: {
+            "open_date": "2024-01-31" if code == "161022" else "2005-02-23",
+            "is_trading": code != "161022",
+        },
     )
 
     assert audit["ok"] is False
@@ -1252,6 +1445,95 @@ def test_incremental_update_reloads_context_when_tail_starts_on_source_gap():
 
     assert result["by_scope"]["stock"]["stats"]["incremental"] == 1
     assert result["by_scope"]["stock"]["coverage"]["source_gap_rows_bridged"] == 1
+    assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == dates
+
+
+def test_update_excludes_full_range_empty_source_and_recovery_clears_it():
+    dates = ["2026-01-02", "2026-01-05"]
+    codes = ("000001", "000002")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": dates[0]} for code in codes],
+    )
+    source_empty = False
+
+    def loader(code, *, start_time, end_time):
+        if source_empty and code == "000002":
+            return pd.DataFrame()
+        start = pd.Timestamp(start_time).strftime("%Y-%m-%d")
+        end = pd.Timestamp(end_time).strftime("%Y-%m-%d")
+        return _bars(
+            [
+                (value, 10.0, 0.0 if value == dates[0] else 10.0)
+                for value in dates
+                if start <= value <= end
+            ]
+        )
+
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=loader)
+    source_empty = True
+    db["stock_day"].rows.extend({"code": code, "date": dates[1]} for code in codes)
+
+    excluded = qfq.sync_stock_adj_all(
+        target_date=dates[1], db=db, bars_loader=loader, min_grace_seconds=0
+    )
+
+    marker = excluded["by_scope"]["stock"]["marker"]
+    assert marker["active_slot"] == "b"
+    assert marker["slots"]["a"]["source_exclusions"] == []
+    assert marker["slots"]["b"]["source_exclusions"] == [
+        {"code": "000002", "reason": "source_empty_bars"}
+    ]
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
+
+    rolled_back = qfq.rollback_active_slot(scope="stock", db=db)
+    assert rolled_back["active_slot"] == "a"
+    assert rolled_back["slots"]["a"]["source_exclusions"] == []
+    assert {row["code"] for row in db["stock_adj_qfq_a"].rows} == set(codes)
+
+    source_empty = False
+    recovered = qfq.sync_stock_adj_all(
+        target_date=dates[1], db=db, bars_loader=loader, min_grace_seconds=0
+    )
+    active = recovered["by_scope"]["stock"]["marker"]
+    assert active["active_slot"] == "b"
+    assert active["slots"]["b"]["source_exclusions"] == []
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == set(codes)
+
+
+def test_tail_empty_is_rechecked_over_full_history_before_exclusion():
+    dates = ["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07"]
+    db = _stock_db(dates[:-1])
+
+    def loader(code, *, start_time, end_time):
+        del code
+        start = pd.Timestamp(start_time).strftime("%Y-%m-%d")
+        end = pd.Timestamp(end_time).strftime("%Y-%m-%d")
+        if start != dates[0]:
+            return pd.DataFrame()
+        return _bars(
+            [
+                (value, 10.0, 0.0 if value == dates[0] else 10.0)
+                for value in dates
+                if start <= value <= end
+            ]
+        )
+
+    qfq.sync_stock_adj_all(target_date=dates[-2], db=db, bars_loader=loader)
+    db["stock_day"].rows.append({"code": "000001", "date": dates[-1]})
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=loader,
+        tail_days=2,
+        min_grace_seconds=0,
+    )
+
+    scope = result["by_scope"]["stock"]
+    assert scope["stats"]["full"] == 1
+    assert scope["stats"]["source_empty_bars_excluded"] == 0
+    assert scope["marker"]["slots"]["b"]["source_exclusions"] == []
     assert [row["date"] for row in db["stock_adj_qfq_b"].rows] == dates
 
 
@@ -1760,15 +2042,18 @@ def test_xtdata_client_loads_and_validates_instrument_open_date():
         def get_instrument_detail(self, code):
             calls.append(("detail", code))
             return {
-                "000028.SZ": {"OpenDate": "19930809"},
-                "161022.SZ": {"OpenDate": 20240131},
-                "510050.SH": {"OpenDate": "20241340"},
+                "000028.SZ": {"OpenDate": "19930809", "IsTrading": True},
+                "161022.SZ": {"OpenDate": 20240131, "IsTrading": False},
+                "510050.SH": {"OpenDate": "20241340", "IsTrading": False},
             }[code]
 
     client = qfq.XtDataQfqClient(_XtData(), port=58612)
 
     assert client.load_open_date("000028") == "1993-08-09"
-    assert client.load_open_date("161022") == "2024-01-31"
+    assert client.load_listing_metadata("161022") == {
+        "open_date": "2024-01-31",
+        "is_trading": False,
+    }
     assert client.load_open_date("510050") is None
     assert calls == [
         ("connect", 58612),
@@ -1789,9 +2074,9 @@ def test_sync_uses_same_default_client_for_bars_and_listing_date():
         def load_front_ratio_bars(self, code, *, start_time, end_time):
             raise AssertionError("no source gap")
 
-        def load_open_date(self, code):
-            calls.append(("open_date", code))
-            return "1993-08-09"
+        def load_listing_metadata(self, code):
+            calls.append(("listing_metadata", code))
+            return {"open_date": "1993-08-09", "is_trading": True}
 
     db = _DB(
         stock_list=[{"code": "000028", "name": "Stock"}],
@@ -1804,12 +2089,12 @@ def test_sync_uses_same_default_client_for_bars_and_listing_date():
     qfq.sync_stock_adj_all(target_date="1993-08-09", db=db, xtdata_client=_Client())
 
     assert ("bars", "000028") in calls
-    assert calls.count(("open_date", "000028")) == 3
+    assert calls.count(("listing_metadata", "000028")) == 3
 
 
 def test_custom_bars_loader_does_not_implicitly_connect_for_open_date():
     class _Client:
-        def load_open_date(self, _code):
+        def load_listing_metadata(self, _code):
             raise AssertionError("custom source must stay isolated")
 
     db = _stock_db(["2026-01-02"])

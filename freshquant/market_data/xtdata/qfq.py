@@ -323,7 +323,13 @@ def normalize_xtdata_bars(payload: Any, *, code: str | None = None) -> pd.DataFr
     if frame is None:
         raise QFQSyncError(f"unsupported XTData payload for code={code}")
     if frame.empty:
-        raise QFQSyncError(f"XTData returned no daily bars for code={code}")
+        raise QFQSyncError(
+            f"XTData returned no daily bars for code={code}",
+            stats={
+                "failure": "source_empty_bars",
+                "code": normalize_code(code),
+            },
+        )
 
     aliases = {
         "pre_close": "preClose",
@@ -445,7 +451,12 @@ def _project_preclose_adj_to_bfq_dates(
             f"XTData source gap requires front_ratio proof for code={normalize_code(code)}",
             stats={"missing_dates": missing[:20]},
         )
-    front = normalize_xtdata_bars(front_ratio_bars, code=code)
+    try:
+        front = normalize_xtdata_bars(front_ratio_bars, code=code)
+    except QFQSyncError as error:
+        if error.stats.get("failure") == "source_empty_bars":
+            error.stats["source_role"] = "front_ratio_proof"
+        raise
     if front["date"].tolist() != source_dates:
         raise QFQSyncError(
             f"XTData front_ratio date axis mismatch for code={normalize_code(code)}",
@@ -698,15 +709,27 @@ def _load_bfq_coverage(
         cursor = collection.find(query, projection)
     except TypeError:
         cursor = collection.find(query)
-    dates: list[str] = []
+    valid_dates: list[str] = []
     sentinel_dates: list[str] = []
     prelisting_dates: list[str] = []
+    terminal_history_dates: list[str] = []
     invalid: list[Any] = []
     listing_date = (
         _initial_stock_capital_date(code=code6, db=db) if kind == "stock" else None
     )
+    instrument_open_date = None
+    instrument_is_trading = None
     if listing_date is None and listing_date_loader is not None:
-        listing_date = _date_key(listing_date_loader(code6))
+        listing_metadata = listing_date_loader(code6)
+        if isinstance(listing_metadata, Mapping):
+            instrument_open_date = _date_key(
+                listing_metadata.get("open_date") or listing_metadata.get("OpenDate")
+            )
+            instrument_is_trading = listing_metadata.get(
+                "is_trading", listing_metadata.get("IsTrading")
+            )
+        else:
+            instrument_open_date = _date_key(listing_metadata)
     for row in cursor:
         value = row.get("date") if isinstance(row, Mapping) else None
         if isinstance(row, Mapping) and _is_bfq_sentinel_row(row):
@@ -715,22 +738,37 @@ def _load_bfq_coverage(
         key = _date_key(value)
         if key is None:
             invalid.append(value)
-        elif listing_date and key < listing_date:
-            prelisting_dates.append(key)
         else:
-            dates.append(key)
+            valid_dates.append(key)
     if invalid:
         raise QFQSyncError(
             f"{kind} BFQ history contains invalid dates for code={code6}",
             stats={"kind": kind, "code": code6, "invalid_dates": invalid[:20]},
         )
+    valid_dates = sorted(set(valid_dates))
+    if listing_date is None and instrument_open_date and valid_dates:
+        if instrument_open_date <= valid_dates[-1]:
+            listing_date = instrument_open_date
+        elif instrument_is_trading is False and any(
+            (key := _date_key(value)) is not None and key >= instrument_open_date
+            for value in sentinel_dates
+        ):
+            terminal_history_dates = valid_dates
+            valid_dates = []
+    if listing_date:
+        prelisting_dates = [value for value in valid_dates if value < listing_date]
+        valid_dates = [value for value in valid_dates if value >= listing_date]
     return {
-        "dates": sorted(set(dates)),
+        "dates": valid_dates,
         "sentinel_rows": len(sentinel_dates),
         "sentinel_dates": sorted(set(sentinel_dates))[:20],
         "listing_date": listing_date,
         "prelisting_rows": len(prelisting_dates),
         "prelisting_dates": sorted(set(prelisting_dates))[:20],
+        "terminal_history_rows": len(terminal_history_dates),
+        "terminal_history_dates": terminal_history_dates[:20],
+        "instrument_open_date": instrument_open_date,
+        "instrument_is_trading": instrument_is_trading,
     }
 
 
@@ -747,9 +785,14 @@ def _new_bfq_coverage_summary() -> dict[str, Any]:
         "prelisting_rows_excluded": 0,
         "codes_with_prelisting_rows": 0,
         "prelisting": [],
+        "terminal_history_rows_excluded": 0,
+        "codes_with_terminal_history": 0,
+        "terminal_history": [],
         "source_gap_rows_bridged": 0,
         "codes_with_source_gaps": 0,
         "source_gaps": [],
+        "source_empty_bars_excluded": 0,
+        "source_empty_bars": [],
         "skipped_codes": 0,
         "skipped": [],
     }
@@ -779,11 +822,27 @@ def _select_bfq_dates(
                     "dates": list(coverage.get("prelisting_dates") or ()),
                 }
             )
+    terminal_history_rows = int(coverage.get("terminal_history_rows") or 0)
+    if terminal_history_rows:
+        summary["terminal_history_rows_excluded"] += terminal_history_rows
+        summary["codes_with_terminal_history"] += 1
+        if len(summary["terminal_history"]) < 100:
+            summary["terminal_history"].append(
+                {
+                    "code": normalize_code(code),
+                    "open_date": coverage.get("instrument_open_date"),
+                    "rows": terminal_history_rows,
+                    "dates": list(coverage.get("terminal_history_dates") or ()),
+                    "reason": "nontrading_terminal_history",
+                }
+            )
     dates = list(coverage.get("dates") or ())
     selected = [date for date in dates if not target_date or date <= target_date]
     if selected:
         return selected
-    if sentinel_rows and not dates and not prelisting_rows:
+    if terminal_history_rows and not dates:
+        reason = "nontrading_terminal_history"
+    elif sentinel_rows and not dates and not prelisting_rows:
         reason = "sentinel_only_bfq_history"
     elif prelisting_rows and not dates:
         reason = "prelisting_only_bfq_history"
@@ -796,6 +855,9 @@ def _select_bfq_dates(
         item: dict[str, Any] = {"code": normalize_code(code), "reason": reason}
         if sentinel_rows:
             item["sentinel_rows"] = sentinel_rows
+        if terminal_history_rows:
+            item["terminal_history_rows"] = terminal_history_rows
+            item["open_date"] = coverage.get("instrument_open_date")
         summary["skipped"].append(item)
     return []
 
@@ -815,6 +877,17 @@ def _record_source_gap_summary(
                 "rows": rows,
                 "windows": list(stats.get("source_gap_windows") or ()),
             }
+        )
+
+
+def _record_source_empty_exclusion(summary: dict[str, Any], *, code: str) -> None:
+    code6 = normalize_code(code)
+    if any(item.get("code") == code6 for item in summary["source_empty_bars"]):
+        return
+    summary["source_empty_bars_excluded"] += 1
+    if len(summary["source_empty_bars"]) < 100:
+        summary["source_empty_bars"].append(
+            {"code": code6, "reason": "source_empty_bars"}
         )
 
 
@@ -1167,6 +1240,32 @@ def get_qfq_marker(*, scope: str, db=DBQuantAxis) -> dict[str, Any] | None:
     return dict(marker) if marker else None
 
 
+def _normalize_source_exclusions(
+    exclusions: Iterable[Mapping[str, Any]] | None,
+) -> list[dict[str, str]]:
+    if exclusions is None:
+        return []
+    if not isinstance(exclusions, Sequence) or isinstance(exclusions, (str, bytes)):
+        raise QFQSyncError("QFQ source exclusion metadata is invalid")
+    normalized: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in exclusions:
+        if not isinstance(item, Mapping):
+            raise QFQSyncError("QFQ source exclusion metadata is invalid")
+        raw_code = str(item.get("code") or "").strip()
+        code = normalize_code(raw_code)
+        reason = str(item.get("reason") or "").strip()
+        if raw_code != code or len(code) != 6 or not code.isdigit():
+            raise QFQSyncError("QFQ source exclusion code is invalid")
+        if reason != "source_empty_bars":
+            raise QFQSyncError("QFQ source exclusion reason is invalid")
+        if code in seen:
+            raise QFQSyncError("QFQ source exclusion code is duplicated")
+        seen.add(code)
+        normalized.append({"code": code, "reason": reason})
+    return sorted(normalized, key=lambda item: item["code"])
+
+
 def validate_qfq_marker(
     marker: Mapping[str, Any] | None, *, scope: str
 ) -> dict[str, Any]:
@@ -1193,6 +1292,7 @@ def validate_qfq_marker(
             raise QFQSyncError(f"{scope} QFQ slot {slot} metadata is incomplete")
         if document.get("status") not in {"ready", "building", "failed"}:
             raise QFQSyncError(f"{scope} QFQ slot {slot} status is invalid")
+        _normalize_source_exclusions(document.get("source_exclusions"))
     if slots[active_slot].get("status") != "ready":
         raise QFQSyncError(f"{scope} active QFQ slot is not ready")
     return dict(marker)
@@ -1209,7 +1309,13 @@ def resolve_active_slot(*, scope: str, db=DBQuantAxis) -> dict[str, Any]:
 
 
 def _new_slot_document(
-    *, scope: str, slot: str, snapshot_id: str, factor_asof: str, published_at: str
+    *,
+    scope: str,
+    slot: str,
+    snapshot_id: str,
+    factor_asof: str,
+    published_at: str,
+    source_exclusions: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "collection": FACTOR_COLLECTIONS[scope][slot],
@@ -1217,11 +1323,17 @@ def _new_slot_document(
         "factor_asof": factor_asof,
         "status": "ready",
         "published_at": published_at,
+        "source_exclusions": _normalize_source_exclusions(source_exclusions),
     }
 
 
 def _insert_bootstrap_marker(
-    *, db, scope: str, factor_asof: str, now_provider=None
+    *,
+    db,
+    scope: str,
+    factor_asof: str,
+    source_exclusions: Iterable[Mapping[str, Any]] | None = None,
+    now_provider=None,
 ) -> dict[str, Any]:
     published_at = _utc_iso(now_provider)
     marker = {
@@ -1234,6 +1346,7 @@ def _insert_bootstrap_marker(
                 snapshot_id=uuid.uuid4().hex,
                 factor_asof=factor_asof,
                 published_at=published_at,
+                source_exclusions=source_exclusions,
             )
             for slot in ("a", "b")
         },
@@ -1294,6 +1407,7 @@ def _publish_inactive_slot(
     marker: Mapping[str, Any],
     inactive_slot: str,
     factor_asof: str,
+    source_exclusions: Iterable[Mapping[str, Any]] | None = None,
     now_provider=None,
 ) -> dict[str, Any]:
     active_slot = str(marker["active_slot"])
@@ -1304,6 +1418,7 @@ def _publish_inactive_slot(
         snapshot_id=uuid.uuid4().hex,
         factor_asof=factor_asof,
         published_at=_utc_iso(now_provider),
+        source_exclusions=source_exclusions,
     )
     result = db[READY_COLLECTION].update_one(
         {
@@ -1490,16 +1605,18 @@ class XtDataQfqClient:
             earliest = next_earliest
         return bars
 
-    def load_open_date(self, code: str, *, market: str | None = None) -> str | None:
+    def load_listing_metadata(
+        self, code: str, *, market: str | None = None
+    ) -> dict[str, Any]:
         xtdata = self._get_xtdata()
         if not self.connected and hasattr(xtdata, "connect"):
             xtdata.connect(port=self.port)
             self.connected = True
         if not hasattr(xtdata, "get_instrument_detail"):
-            return None
+            return {"open_date": None, "is_trading": None}
         detail = xtdata.get_instrument_detail(to_xt_code(code, market=market))
         if not isinstance(detail, Mapping):
-            return None
+            return {"open_date": None, "is_trading": None}
         value = detail.get("OpenDate")
         text = str(value or "").strip()
         if not (
@@ -1511,8 +1628,14 @@ class XtDataQfqClient:
                 and text.replace("-", "").isdigit()
             )
         ):
-            return None
-        return _date_key(text)
+            text = ""
+        return {
+            "open_date": _date_key(text),
+            "is_trading": detail.get("IsTrading"),
+        }
+
+    def load_open_date(self, code: str, *, market: str | None = None) -> str | None:
+        return self.load_listing_metadata(code, market=market)["open_date"]
 
     def load_front_ratio_bars(
         self,
@@ -1552,17 +1675,36 @@ def _project_loaded_bars(
     load_start: str,
     load_end: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    normalized = normalize_xtdata_bars(bars, code=code)
+    try:
+        normalized = normalize_xtdata_bars(bars, code=code)
+    except QFQSyncError as error:
+        if error.stats.get("failure") == "source_empty_bars":
+            error.stats["source_role"] = "primary"
+        raise
     source_dates = set(normalized["date"])
     needs_gap_proof = any(value not in source_dates for value in expected_dates)
     front_ratio_bars = None
     if needs_gap_proof and front_ratio_loader is not None:
-        front_ratio_bars = _call_loader(front_ratio_loader, code, load_start, load_end)
+        try:
+            front_ratio_bars = _call_loader(
+                front_ratio_loader, code, load_start, load_end
+            )
+        except QFQSyncError as error:
+            if error.stats.get("failure") == "source_empty_bars":
+                error.stats["source_role"] = "front_ratio_proof"
+            raise
     return _project_preclose_adj_to_bfq_dates(
         normalized,
         code=code,
         expected_dates=expected_dates,
         front_ratio_bars=front_ratio_bars,
+    )
+
+
+def _is_primary_source_empty(error: QFQSyncError) -> bool:
+    return (
+        error.stats.get("failure") == "source_empty_bars"
+        and error.stats.get("source_role") == "primary"
     )
 
 
@@ -1587,12 +1729,21 @@ def _load_projected_bars(
             load_end=load_end,
         )
     except QFQSyncError as error:
+        if error.stats.get("failure") == "source_empty_bars" and not error.stats.get(
+            "source_role"
+        ):
+            error.stats["source_role"] = "primary"
         needs_context = error.stats.get("gap_position") == "prefix" or (
             error.stats.get("failure") == "history_prefix_no_progress"
         )
         if not context_start or context_start == load_start or not needs_context:
             raise
-    bars = _call_loader(loader, code, context_start, load_end)
+    try:
+        bars = _call_loader(loader, code, context_start, load_end)
+    except QFQSyncError as error:
+        if error.stats.get("failure") == "source_empty_bars":
+            error.stats["source_role"] = "primary"
+        raise
     return _project_loaded_bars(
         bars,
         code=code,
@@ -1669,7 +1820,12 @@ def _full_rebuild_code(
     reason: str,
 ) -> dict[str, Any]:
     load_start, load_end, expected = _bfq_download_bounds(expected_dates)
-    bars = _call_loader(loader, code, load_start, load_end)
+    try:
+        bars = _call_loader(loader, code, load_start, load_end)
+    except QFQSyncError as error:
+        if error.stats.get("failure") == "source_empty_bars":
+            error.stats["source_role"] = "primary"
+        raise
     rows, source_stats = _project_loaded_bars(
         bars,
         code=code,
@@ -1737,15 +1893,27 @@ def _reconcile_code(
     last_index = expected_dates.index(last_existing)
     tail_start_index = max(0, last_index - max(2, int(tail_days)) + 1)
     tail_dates = expected_dates[tail_start_index:]
-    tail_rows, source_stats = _load_projected_bars(
-        loader,
-        code=code,
-        expected_dates=tail_dates,
-        front_ratio_loader=front_ratio_loader,
-        load_start=_xt_date_arg(tail_dates[0]),
-        load_end=_xt_date_arg(tail_dates[-1]),
-        context_start=_xt_date_arg(expected_dates[0]),
-    )
+    try:
+        tail_rows, source_stats = _load_projected_bars(
+            loader,
+            code=code,
+            expected_dates=tail_dates,
+            front_ratio_loader=front_ratio_loader,
+            load_start=_xt_date_arg(tail_dates[0]),
+            load_end=_xt_date_arg(tail_dates[-1]),
+            context_start=_xt_date_arg(expected_dates[0]),
+        )
+    except QFQSyncError as error:
+        if not _is_primary_source_empty(error):
+            raise
+        return _full_rebuild_code(
+            collection=collection,
+            code=code,
+            expected_dates=expected_dates,
+            loader=loader,
+            front_ratio_loader=front_ratio_loader,
+            reason="tail_source_empty_recheck",
+        )
     tail_audit = _audit_code_rows(
         code=code,
         rows=tail_rows,
@@ -1858,6 +2026,7 @@ def audit_qfq_slot(
     bars_loader: Callable[..., Any] | None = None,
     front_ratio_loader: Callable[..., Any] | None = None,
     listing_date_loader: Callable[[str], Any] | None = None,
+    source_exclusions: Iterable[Mapping[str, Any]] | None = None,
     source_tail_days: int | None = None,
     progress_callback: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
@@ -1868,6 +2037,12 @@ def audit_qfq_slot(
         factor_asof = str(
             marker.get("slots", {}).get(slot, {}).get("factor_asof") or ""
         )
+    if source_exclusions is None and marker:
+        source_exclusions = (
+            marker.get("slots", {}).get(slot, {}).get("source_exclusions")
+        )
+    normalized_exclusions = _normalize_source_exclusions(source_exclusions)
+    exclusions_by_code = {item["code"]: item for item in normalized_exclusions}
     universe = load_factor_universe(kind=scope, db=db, codes=codes)
     collection = db[FACTOR_COLLECTIONS[scope][slot]]
     failures: list[dict[str, Any]] = []
@@ -1892,6 +2067,48 @@ def audit_qfq_slot(
         code_rows = _load_existing_factor_rows(
             db=db, collection_name=collection.name, code=code
         )
+        exclusion = exclusions_by_code.get(normalize_code(code))
+        if exclusion is not None:
+            _record_source_empty_exclusion(coverage_summary, code=code)
+            rows += len(code_rows)
+            checked_codes += 1
+            if code_rows:
+                failures.append(
+                    {
+                        "code": code,
+                        "audit": {
+                            "ok": False,
+                            "source_exclusion_residue": len(code_rows),
+                        },
+                    }
+                )
+                continue
+            if bars_loader is not None and expected:
+                load_start, load_end, audit_dates = _bfq_download_bounds(expected)
+                try:
+                    _load_projected_bars(
+                        bars_loader,
+                        code=code,
+                        expected_dates=audit_dates,
+                        front_ratio_loader=front_ratio_loader,
+                        load_start=load_start,
+                        load_end=load_end,
+                    )
+                except QFQSyncError as error:
+                    if _is_primary_source_empty(error):
+                        continue
+                    raise
+                failures.append(
+                    {
+                        "code": code,
+                        "audit": {
+                            "ok": False,
+                            "stale_source_exclusion": True,
+                            "rebuild_required": True,
+                        },
+                    }
+                )
+            continue
         if not expected:
             if code_rows:
                 audit = _audit_code_rows(
@@ -1951,6 +2168,7 @@ def audit_qfq_slot(
         "codes": checked_codes,
         "rows": rows,
         "coverage": coverage_summary,
+        "source_exclusions": normalized_exclusions,
         "failed": len(failures),
         "failures": failures[:100],
         "ok": not failures and checked_codes > 0,
@@ -1977,6 +2195,7 @@ def _bootstrap_scope(
     collection_a.delete_many({})
     _ensure_factor_indexes(collection_a)
     included: list[str] = []
+    source_exclusions: list[dict[str, str]] = []
     rows_written = 0
     coverage_summary = _new_bfq_coverage_summary()
     for code in universe["codes"]:
@@ -1996,14 +2215,24 @@ def _bootstrap_scope(
         )
         if not expected:
             continue
-        result = _full_rebuild_code(
-            collection=collection_a,
-            code=code,
-            expected_dates=expected,
-            loader=loader,
-            front_ratio_loader=front_ratio_loader,
-            reason="bootstrap",
-        )
+        try:
+            result = _full_rebuild_code(
+                collection=collection_a,
+                code=code,
+                expected_dates=expected,
+                loader=loader,
+                front_ratio_loader=front_ratio_loader,
+                reason="bootstrap",
+            )
+        except QFQSyncError as error:
+            if not _is_primary_source_empty(error):
+                raise
+            collection_a.delete_many({"code": normalize_code(code)})
+            source_exclusions.append(
+                {"code": normalize_code(code), "reason": "source_empty_bars"}
+            )
+            _record_source_empty_exclusion(coverage_summary, code=code)
+            continue
         _record_source_gap_summary(coverage_summary, code=code, stats=result)
         rows_written += int(result["rows_written"])
         included.append(code)
@@ -2013,9 +2242,10 @@ def _bootstrap_scope(
         scope=scope,
         slot="a",
         db=db,
-        codes=included,
+        codes=[*included, *(item["code"] for item in source_exclusions)],
         factor_asof=target_date,
         listing_date_loader=listing_date_loader,
+        source_exclusions=source_exclusions,
         progress_callback=progress_callback,
     )
     if not audit_a["ok"]:
@@ -2031,9 +2261,10 @@ def _bootstrap_scope(
         scope=scope,
         slot="b",
         db=db,
-        codes=included,
+        codes=[*included, *(item["code"] for item in source_exclusions)],
         factor_asof=target_date,
         listing_date_loader=listing_date_loader,
+        source_exclusions=source_exclusions,
         progress_callback=progress_callback,
     )
     if not audit_b["ok"] or audit_a["rows"] != audit_b["rows"]:
@@ -2041,7 +2272,11 @@ def _bootstrap_scope(
 
     def publish_marker() -> dict[str, Any]:
         return _insert_bootstrap_marker(
-            db=db, scope=scope, factor_asof=target_date, now_provider=now_provider
+            db=db,
+            scope=scope,
+            factor_asof=target_date,
+            source_exclusions=source_exclusions,
+            now_provider=now_provider,
         )
 
     if publish_callback:
@@ -2130,8 +2365,10 @@ def _update_scope(
         "unchanged": 0,
         "rows_written": 0,
         "stale_codes_removed": 0,
+        "source_empty_bars_excluded": 0,
     }
     coverage_summary = _new_bfq_coverage_summary()
+    source_exclusions: list[dict[str, str]] = []
     try:
         _ensure_factor_indexes(collection)
         universe = load_factor_universe(kind=scope, db=db, codes=codes)
@@ -2153,24 +2390,35 @@ def _update_scope(
             )
             if not expected:
                 continue
-            if force_full_rebuild:
-                result = _full_rebuild_code(
-                    collection=collection,
-                    code=code,
-                    expected_dates=expected,
-                    loader=loader,
-                    front_ratio_loader=front_ratio_loader,
-                    reason="forced_full_rebuild",
+            try:
+                if force_full_rebuild:
+                    result = _full_rebuild_code(
+                        collection=collection,
+                        code=code,
+                        expected_dates=expected,
+                        loader=loader,
+                        front_ratio_loader=front_ratio_loader,
+                        reason="forced_full_rebuild",
+                    )
+                else:
+                    result = _reconcile_code(
+                        collection=collection,
+                        code=code,
+                        expected_dates=expected,
+                        loader=loader,
+                        front_ratio_loader=front_ratio_loader,
+                        tail_days=tail_days,
+                    )
+            except QFQSyncError as error:
+                if not _is_primary_source_empty(error):
+                    raise
+                collection.delete_many({"code": normalize_code(code)})
+                source_exclusions.append(
+                    {"code": normalize_code(code), "reason": "source_empty_bars"}
                 )
-            else:
-                result = _reconcile_code(
-                    collection=collection,
-                    code=code,
-                    expected_dates=expected,
-                    loader=loader,
-                    front_ratio_loader=front_ratio_loader,
-                    tail_days=tail_days,
-                )
+                stats["source_empty_bars_excluded"] += 1
+                _record_source_empty_exclusion(coverage_summary, code=code)
+                continue
             stats[str(result["mode"])] += 1
             stats["rows_written"] += int(result["rows_written"])
             _record_source_gap_summary(coverage_summary, code=code, stats=result)
@@ -2189,9 +2437,10 @@ def _update_scope(
             scope=scope,
             slot=inactive_slot,
             db=db,
-            codes=included,
+            codes=[*included, *(item["code"] for item in source_exclusions)],
             factor_asof=target_date,
             listing_date_loader=listing_date_loader,
+            source_exclusions=source_exclusions,
             progress_callback=progress_callback,
         )
         if not audit["ok"]:
@@ -2204,6 +2453,7 @@ def _update_scope(
                 marker=marker,
                 inactive_slot=inactive_slot,
                 factor_asof=target_date,
+                source_exclusions=source_exclusions,
                 now_provider=now_provider,
             )
 
@@ -2268,7 +2518,7 @@ def sync_qfq_factors(
         gap_proof_loader = client.load_front_ratio_bars
     resolved_listing_date_loader = listing_date_loader
     if resolved_listing_date_loader is None and bars_loader is None:
-        resolved_listing_date_loader = client.load_open_date
+        resolved_listing_date_loader = client.load_listing_metadata
     result: dict[str, Any] = {
         "source": QFQ_SOURCE,
         "writer": QFQ_WRITER,

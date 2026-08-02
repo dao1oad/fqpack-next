@@ -342,7 +342,7 @@ def test_audit_full_passes_source_loader_and_single_code(monkeypatch, capsys):
         {
             "load_daily_bars": lambda *args, **kwargs: None,
             "load_front_ratio_bars": lambda *args, **kwargs: None,
-            "load_open_date": lambda *args, **kwargs: None,
+            "load_listing_metadata": lambda *args, **kwargs: None,
         },
     )()
     monkeypatch.setattr(qfq_worker, "XtDataQfqClient", lambda: client)
@@ -387,7 +387,10 @@ def test_audit_structure_passes_only_shared_client_listing_loader(monkeypatch, c
         {
             "load_daily_bars": lambda *args, **kwargs: None,
             "load_front_ratio_bars": lambda *args, **kwargs: None,
-            "load_open_date": lambda *args, **kwargs: "1993-08-09",
+            "load_listing_metadata": lambda *args, **kwargs: {
+                "open_date": "1993-08-09",
+                "is_trading": True,
+            },
         },
     )()
     monkeypatch.setattr(qfq_worker, "XtDataQfqClient", lambda: client)
