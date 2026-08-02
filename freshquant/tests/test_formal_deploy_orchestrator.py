@@ -426,6 +426,10 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "api",
         "--format",
         "summary",
+        "--retries",
+        "30",
+        "--retry-delay",
+        "1",
     ]
     assert verify_command[:5] == [
         "powershell",
@@ -497,6 +501,10 @@ def test_health_checks_use_current_python_executable(
         "api",
         "--format",
         "summary",
+        "--retries",
+        "30",
+        "--retry-delay",
+        "1",
     ]
 
 
