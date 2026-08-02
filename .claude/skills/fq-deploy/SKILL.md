@@ -78,7 +78,6 @@ python -m uv venv .venv --python <runner-python> --clear
 
 - API：`py -3.12 script/freshquant_health_check.py --surface api --format summary`
 - Web：`py -3.12 script/freshquant_health_check.py --surface web --format summary`
-- TradingAgents：`py -3.12 script/freshquant_health_check.py --surface tradingagents --format summary`
 - 宿主机状态：`powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode Status`
 - Supervisor 配置真值：`py -3.12 script/fqnext_supervisor_config.py inspect --config-path D:\fqpack\config\supervisord.fqnext.conf --expected-repo-root D:\fqpack\freshquant-2026.2.23`
 - Runtime verify：`powershell -ExecutionPolicy Bypass -File script/check_freshquant_runtime_post_deploy.ps1 -Mode Verify -BaselinePath <baseline.json> -OutputPath <verify.json> -DeploymentSurface <surfaces>`

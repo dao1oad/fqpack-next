@@ -265,13 +265,10 @@ def test_compose_parallel_changes_require_full_docker_runtime_redeploy() -> None
         "web",
         "dagster",
         "qa",
-        "tradingagents",
     ]
     assert plan["docker_build_targets"] == [
         "fq_apiserver",
         "fq_webui",
-        "ta_backend",
-        "ta_frontend",
     ]
     assert plan["docker_services"] == [
         "fq_mongodb",
@@ -284,11 +281,20 @@ def test_compose_parallel_changes_require_full_docker_runtime_redeploy() -> None
         "fq_dagster_daemon",
         "fq_qawebserver",
         "fq_webui",
-        "ta_backend",
-        "ta_frontend",
     ]
     assert "--no-deps" not in plan["docker_command"]
     assert any("compose.parallel.yaml" in note for note in plan["notes"])
+
+
+def test_retired_tradingagents_paths_no_longer_map_to_a_surface() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["third_party/tradingagents-cn/app/main.py"]
+    )
+
+    assert plan["deployment_required"] is False
+    assert plan["deployment_surfaces"] == []
 
 
 def test_qa_surface_requires_shared_rear_build_target() -> None:

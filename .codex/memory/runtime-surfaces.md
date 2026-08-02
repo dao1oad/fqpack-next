@@ -14,7 +14,6 @@
   - Dagster：`11003 -> 10003`
   - QAWebServer：`18010 -> 8010`
   - Web UI：`18080 -> 80`
-  - TradingAgents backend/frontend：`13000 / 13080`
 - 正式宿主机服务名固定为：
   - `fqnext-supervisord`
 - 运行面常用正式入口固定为：

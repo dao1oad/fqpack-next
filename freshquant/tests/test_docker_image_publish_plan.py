@@ -26,8 +26,7 @@ def test_rear_publish_plan_builds_when_shared_rear_inputs_change() -> None:
 
     assert plan["rear"]["action"] == "build"
     assert plan["webui"]["action"] == "retag"
-    assert plan["ta-backend"]["action"] == "retag"
-    assert plan["ta-frontend"]["action"] == "retag"
+    assert set(plan) == {"rear", "webui"}
 
 
 def test_web_publish_plan_retags_when_only_docs_change() -> None:

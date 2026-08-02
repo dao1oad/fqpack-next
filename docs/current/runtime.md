@@ -32,9 +32,6 @@
 - QAWebServer：`18010 -> 8010`
 - Web UI：`18080 -> 80`
 - Runtime indexer：`fq_runtime_indexer`
-- TradingAgents backend：`13000 -> 8000`
-- TradingAgents frontend：`13080 -> 80`
-
 对应编排文件是 `docker/compose.parallel.yaml`。
 
 ## 当前正式入口

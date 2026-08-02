@@ -31,7 +31,6 @@ morningglory/fqcopilot/jzt32/dlls/*.dll
 freshquant.txt
 .aider*
 .env
-docker/tradingagents/.env
 .xmake/
 /report/
 /output/
@@ -41,8 +40,6 @@ docker/tradingagents/.env
 /.claude/ralph-loop.local.md
 /.claude/settings.local.json
 /temp/
-runtime/tradingagents-cn/*
-!runtime/tradingagents-cn/.gitkeep
 
 # Local build artifacts (fullcalc)
 morningglory/fqcopilot/python/fullcalc.pyd

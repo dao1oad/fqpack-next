@@ -40,8 +40,8 @@
 当前正式运行面默认无代理：
 
 - 宿主机 supervisor `envs.conf` 会显式清空 `ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY` 及其小写变量
-- `freshquant` / vendored `fqxtrade` / `TradingAgents-CN` 后端进程启动时会再次清理这些代理环境变量
-- `deployment/examples/envs.fqnext.example` 与 `third_party/tradingagents-cn/.env.example` 不再保留任何 `*_PROXY` / `*_proxy` 示例键，避免把运行环境误配成代理环境
+- `freshquant` / vendored `fqxtrade` 后端进程启动时会再次清理这些代理环境变量
+- `deployment/examples/envs.fqnext.example` 不再保留任何 `*_PROXY` / `*_proxy` 示例键，避免把运行环境误配成代理环境
 - 旧 `freshquant.yaml` 的 `proxy` 段与旧 `freshquant.config.Config.PROXIES` 不再保留，也不再属于任何正式真值
 
 内存层运行真值仍要求保留：

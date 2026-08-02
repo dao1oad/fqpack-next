@@ -276,8 +276,8 @@ def test_capture_baseline_treats_absent_live_container_as_missing_without_error(
     docker_entries = {entry["name"]: entry for entry in payload["baseline"]["docker"]}
 
     assert docker_entries["fq_mongodb"]["exists"] is True
-    assert docker_entries["ta_backend"]["exists"] is False
-    assert docker_entries["ta_backend"]["state_status"] == "missing"
+    assert docker_entries["fq_webui"]["exists"] is False
+    assert docker_entries["fq_webui"]["state_status"] == "missing"
 
 
 def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(

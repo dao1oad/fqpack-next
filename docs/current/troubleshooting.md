@@ -385,7 +385,7 @@ pprint(svc.load_latest_snapshot())
 
 现象：
 
-- Web / TradingAgents 相关镜像构建在 `FROM node:22-alpine` 前后卡住
+- Web 镜像构建在 `FROM node:22-alpine` 前后卡住
 - `docker compose build` 或 formal deploy 在基础镜像拉取阶段超时
 
 先检查：

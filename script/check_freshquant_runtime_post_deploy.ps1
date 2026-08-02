@@ -188,8 +188,6 @@ $surfaceAliasMap = @{
     dagster = 'dagster'
     qa = 'qa'
     qawebserver = 'qa'
-    tradingagents = 'tradingagents'
-    'tradingagents-cn' = 'tradingagents'
     'market_data' = 'market_data'
     'market-data' = 'market_data'
     guardian = 'guardian'
@@ -205,7 +203,6 @@ $knownDeploymentSurfaces = @(
     'web',
     'dagster',
     'qa',
-    'tradingagents',
     'market_data',
     'guardian',
     'position_management',
@@ -218,7 +215,6 @@ $dockerSurfaceMap = @{
     web = @('fq_webui')
     dagster = @('fq_dagster_webserver', 'fq_dagster_daemon')
     qa = @('fq_qawebserver')
-    tradingagents = @('ta_backend', 'ta_frontend')
 }
 
 $baseContainerNames = @('fq_mongodb', 'fq_redis')
