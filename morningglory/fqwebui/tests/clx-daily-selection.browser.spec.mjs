@@ -770,8 +770,9 @@ test('select-all freezes the current filter and unions every result beyond the f
   const selectAll = page.getByRole('button', { name: '全选当前筛选结果' })
   await selectAll.click()
   await expect(selectAll).toBeDisabled()
-  await selectAll.click({ force: true })
+  await selectAll.dispatchEvent('click')
   await expect(page.getByText('待导入 205 只')).toBeVisible()
+  await expect(selectAll).toBeEnabled()
 
   const fullQueries = requestLog.resultQueries
     .slice(selectAllQueryStart)
