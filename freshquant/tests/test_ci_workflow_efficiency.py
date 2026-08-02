@@ -25,3 +25,15 @@ def test_ci_workflow_shards_pytest_with_matrix() -> None:
     assert "strategy:" in text
     assert "name: pytest-shard (${{ matrix.shard }})" in text
     assert "\n  pytest:\n" in text
+
+
+def test_ci_workflow_does_not_expand_large_changed_file_lists_into_processes() -> None:
+    text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert "--base-ref origin/${{ github.base_ref || 'main' }} --head-ref HEAD" in text
+    assert "--from-ref origin/${{ github.base_ref || 'main' }} --to-ref HEAD" in text
+    assert "CHANGED_FILES_JSON:" not in text
+    assert (
+        "--changed-files-json '${{ needs.changes.outputs.changed_files_json }}'"
+        not in text
+    )
