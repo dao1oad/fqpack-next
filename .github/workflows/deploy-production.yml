@@ -17,6 +17,7 @@ jobs:
     env:
       FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23
       FQ_DOCKER_FORCE_LOCAL_BUILD: "1"
+      FQPACK_TDX_SYNC_DIR: D:/new_tdx
     steps:
       - name: Run production deploy entrypoint
         working-directory: ${{ env.FQ_DEPLOY_CANONICAL_REPO_ROOT }}

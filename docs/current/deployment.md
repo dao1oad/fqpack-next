@@ -36,6 +36,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 canonical main sync、`uv sync` 和 `run_formal_deploy.py`。
+- `deploy-production.yml` 的 job env 显式设置 `FQPACK_TDX_SYNC_DIR=D:/new_tdx`，保证后续 Compose 插值把正式通达信目录挂载到 API 容器；仓库 Compose 内的 `D:/tdx_biduan` 兼容回退不作为 production 真值。
 - `deploy-production.yml` 当前只要求 canonical repo root 能 fetch 到最新 `origin/main`；它不再要求 canonical repo root 本身先 `pull --ff-only` 到远程 main。
 - `deploy-production.yml` 会先创建或 reset `D:\fqpack\freshquant-2026.2.23` 这个 local main sync root 到目标 SHA，再直接执行那里的最新 `script/ci/run_production_deploy.ps1`。
 - `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 local main sync root 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
@@ -84,6 +85,7 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 ### 正式 deploy
 
 ```powershell
+$env:FQPACK_TDX_SYNC_DIR = 'D:/new_tdx'
 powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -CanonicalRoot D:\fqpack\freshquant-2026.2.23 -MirrorRoot D:\fqpack\freshquant-2026.2.23 -MirrorBranch deploy-production-main
 ```
 
@@ -156,9 +158,9 @@ $enhua.data_quality.account_partitions
 
 正式 deploy 当前除了仓库代码，还依赖以下宿主机外部文件作为运行真值：
 
-- `D:/fqpack/config/fqnext.compose.env`：Docker 并行环境的正式 `env_file`。不要再依赖仓库根 `.env` 作为 production compose 真值；`git clean -ffdx` 会清理 ignored `.env`。
+- `D:/fqpack/config/fqnext.compose.env`：Docker 并行环境的正式 `env_file`，其中 `FRESHQUANT_TDX__HOME=/opt/tdx` 是 `fq_apiserver` 解析容器内通达信目录的 bootstrap 真值。不要再依赖仓库根 `.env` 作为 production compose 真值；`git clean -ffdx` 会清理 ignored `.env`。
 - `D:/fqpack/config/envs.conf`：宿主机 Supervisor 运行环境真值。至少要显式提供 Mongo、Redis、TDX 地址，并把代理变量保持为空；当前 Redis 正式端口是 `127.0.0.1:6380`。
-- `D:/new_tdx`：Shouban30 与 CLX 固定分组的宿主机通达信目录；Compose 把它挂载为 `fq_apiserver` 内的 `/opt/tdx`。
+- `D:/new_tdx`：Shouban30 与 CLX 固定分组的宿主机通达信目录；正式 workflow job env 或人工部署进程通过 `FQPACK_TDX_SYNC_DIR=D:/new_tdx` 把它挂载为 `fq_apiserver` 内的 `/opt/tdx`。
 - `D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`：管理员桥接任务 `fqnext-supervisord-restart` 的外部脚本。仓库内 `script/run_fqnext_supervisord_restart_task.ps1` 变更后，要同步到这里。
 - `D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg`：live canonical repo root virtualenv metadata。正式入口允许自愈，但它缺失时不能把 `.venv\Scripts\python.exe` 当成可信解释器真值。
 

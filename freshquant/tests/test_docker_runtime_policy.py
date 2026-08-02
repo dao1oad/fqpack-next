@@ -64,10 +64,13 @@ def test_compose_builds_rear_image_once() -> None:
 
 def test_compose_apiserver_mounts_tdx_sync_dir() -> None:
     text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
-    assert "${FQPACK_TDX_SYNC_DIR:-D:/new_tdx}" in text
+    assert "${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}" in text
     assert "target: /opt/tdx" in text
-    assert "FRESHQUANT_TDX__HOME: /opt/tdx" in text
-    assert "TDX_HOME: /opt/tdx" in text
+
+
+def test_production_deploy_sets_tdx_sync_dir() -> None:
+    text = Path(".github/workflows/deploy-production.yml").read_text(encoding="utf-8")
+    assert "FQPACK_TDX_SYNC_DIR: D:/new_tdx" in text
 
 
 def test_ci_uses_uv_sync() -> None:
