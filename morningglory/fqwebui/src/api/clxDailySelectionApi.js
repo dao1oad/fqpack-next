@@ -44,6 +44,14 @@ export const clxDailySelectionApi = {
       ...config,
     })
   },
+  syncSelectedBatchResultsToTdx (batchId, data, config = {}) {
+    return http({
+      url: `/api/clx-daily-selection/batches/${encodePath(batchId)}/results/sync-selected-to-tdx`,
+      method: 'post',
+      data,
+      ...config,
+    })
+  },
   getBatchResultDetail (batchId, assetType, symbol, config = {}) {
     return http({
       url: `/api/clx-daily-selection/batches/${encodePath(batchId)}/results/${encodePath(assetType)}/${encodePath(symbol)}`,

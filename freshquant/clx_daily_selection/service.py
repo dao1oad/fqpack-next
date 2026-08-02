@@ -28,6 +28,7 @@ from .contracts import (
     normalize_qfq_snapshot_pair,
     qfq_snapshot_pair_hash,
 )
+from .tdx_export import write_clx_tdx_group
 
 PARTITION_INSTRUMENT_ERROR_TOLERANCE = 0
 SCHEDULED_ATTEMPT_CLAIM_TTL_SECONDS = 9 * 60
@@ -120,6 +121,63 @@ class ClxDailySelectionService:
             "is_final": batch["is_final"],
             "partitions": deepcopy(batch["partitions"]),
             **page,
+        }
+
+    def sync_selected_results_to_tdx(
+        self, batch_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        batch = self._require_batch(batch_id)
+        self._validate_tdx_export_batch(batch)
+        requested_items = self._normalize_tdx_selected_items(payload)
+        partition_ids = [
+            str(batch["partitions"][asset_type]["partition_id"])
+            for asset_type in ASSET_TYPES
+        ]
+        snapshots = self.repository.get_snapshots(partition_ids)
+        requested_keys = {
+            (item["asset_type"], item["symbol"]) for item in requested_items
+        }
+        available_keys: set[tuple[str, str]] = set()
+        evaluated_keys: set[tuple[str, str]] = set()
+        asset_types_by_symbol: dict[str, set[str]] = defaultdict(set)
+        export_rows = []
+        for row in snapshots:
+            symbol = str(row.get("symbol") or row.get("code") or "").strip()
+            if not symbol:
+                continue
+            asset_type = str(row.get("asset_type") or "").strip()
+            key = (asset_type, symbol)
+            evaluated_keys.add(key)
+            asset_types_by_symbol[symbol].add(asset_type)
+            if int(row.get("distinct_model_count") or 0) < 1:
+                continue
+            available_keys.add(key)
+            if key in requested_keys:
+                export_rows.append(row)
+
+        missing_keys = requested_keys - available_keys
+        if missing_keys:
+            asset_type, symbol = min(missing_keys)
+            if (asset_type, symbol) in evaluated_keys:
+                raise ValueError(
+                    f"标的 {asset_type}/{symbol} 不是该正式批次的每日选股命中结果，"
+                    "通达信旧分组已保留"
+                )
+            if asset_types_by_symbol.get(symbol):
+                raise ValueError(
+                    f"标的 {symbol} 的 asset_type 与正式批次不一致，通达信旧分组已保留"
+                )
+            raise ValueError(
+                f"标的 {asset_type}/{symbol} 不属于该正式批次，通达信旧分组已保留"
+            )
+        result = write_clx_tdx_group(export_rows)
+        return {
+            "group_name": result["group_name"],
+            "file_name": result["file_name"],
+            "requested_count": len(requested_items),
+            "written_count": result["written_count"],
+            "scope_id": batch_id,
+            "trade_date": batch["trade_date"],
         }
 
     def get_result_detail(self, batch_id: str, asset_type: str, symbol: str):
@@ -2034,6 +2092,60 @@ class ClxDailySelectionService:
         if not batch:
             raise ValueError(f"unknown CLX batch: {batch_id}")
         return self._public_batch(batch)
+
+    def _validate_tdx_export_batch(self, batch: dict[str, Any]) -> None:
+        publication = batch.get("publication")
+        partitions = batch.get("partitions") or {}
+        is_complete = all(
+            isinstance(partitions.get(asset_type), dict)
+            and partitions[asset_type].get("status") == "completed"
+            and partitions[asset_type].get("partition_id")
+            for asset_type in ASSET_TYPES
+        )
+        if not (
+            batch.get("status") == "completed"
+            and batch.get("is_final") is True
+            and batch.get("release_status") == "final"
+            and isinstance(publication, dict)
+            and publication.get("status") == "published"
+            and is_complete
+        ):
+            raise ValueError(
+                "仅完整且已发布的 CLX Stock+ETF 批次可导入通达信，旧分组已保留"
+            )
+
+    def _normalize_tdx_selected_items(
+        self, payload: dict[str, Any]
+    ) -> list[dict[str, str]]:
+        if not isinstance(payload, Mapping) or set(payload) != {"items"}:
+            raise ValueError("payload 仅允许 items，通达信旧分组已保留")
+        items = payload.get("items")
+        if not isinstance(items, list) or not items:
+            raise ValueError("items 必须是非空列表，通达信旧分组已保留")
+        normalized = []
+        seen = set()
+        for item in items:
+            if not isinstance(item, Mapping) or set(item) != {
+                "asset_type",
+                "symbol",
+            }:
+                raise ValueError(
+                    "每个 item 仅允许 asset_type 和 symbol，通达信旧分组已保留"
+                )
+            asset_type = str(item.get("asset_type") or "").strip().lower()
+            symbol = str(item.get("symbol") or "").strip()
+            if asset_type not in ASSET_TYPES:
+                raise ValueError(
+                    f"unsupported asset_type: {asset_type}，通达信旧分组已保留"
+                )
+            if not symbol or len(symbol) > 32:
+                raise ValueError("item symbol 无效，通达信旧分组已保留")
+            key = (asset_type, symbol)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append({"asset_type": asset_type, "symbol": symbol})
+        return normalized
 
     def _public_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
         payload = deepcopy(batch)

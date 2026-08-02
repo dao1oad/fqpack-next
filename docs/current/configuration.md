@@ -164,7 +164,8 @@ CLX 不新增独立 Mongo/Redis 连接配置；API 与 Dagster 继续读取 Fres
 
 当前口径：
 
-- `freshquant.shouban30_pool_service` 写 `.blk` 时先读 `bootstrap_config.tdx.home`，未配置时回退 `TDX_HOME`
+- Shouban30 与 CLX 写 `.blk` 时先读 `bootstrap_config.tdx.home`，未配置时回退 `TDX_HOME`；当前宿主机正式目录为 `D:/new_tdx`，对应文件分别是 `T0002/blocknew/30RYZT.blk` 与 `T0002/blocknew/CLX_18.blk`
+- Docker `fq_apiserver` 固定以 `FRESHQUANT_TDX__HOME=/opt/tdx` 解析容器路径，并把 `${FQPACK_TDX_SYNC_DIR:-D:/new_tdx}` 挂载到 `/opt/tdx`；因此容器内的 `CLX_18.blk` 路径是 `/opt/tdx/T0002/blocknew/CLX_18.blk`。`FQPACK_TDX_SYNC_DIR` 属于 Compose 插值变量，正式部署时必须在调用 `docker compose` 的同一进程显式设置；service `env_file` 不参与该插值
 - `FQ_RUNTIME_LOG_DIR` 可以覆盖 `runtime.log_dir`
 - `XTQUANT_PORT` 可以覆盖 `xtdata.port`
 
