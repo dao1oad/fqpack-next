@@ -1,0 +1,15 @@
+{
+  "schema_version": "market-state-lock.v1",
+  "run_id": "2026-08-03-market-cleanroom-gap-complete-v2",
+  "market_date": "2026-08-03",
+  "market_state_schema_version": "market-state.v1",
+  "market_state_path": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\market-state.v1.json",
+  "market_state_sha256": "74540478816df99990f194284a03f5f1e8dc6319f705616e85fc6c7a089a5c9c",
+  "schema_path": "C:\\Users\\Administrator\\.codex\\skills\\clx-market-context-evaluator\\references\\market-state.schema.json",
+  "schema_sha256": "9a67ae77ecc29a33d9c6712051c553e8957dd33ee06803a133d22eeda1ac813b",
+  "evidence_manifest_hash": "9e21589573d14c1ab88c2b6c33869b70d712da2c90dbc9805693cd0a90c500a9",
+  "phase_input_manifest_sha256": "d23f3e2f4cc3d2f5513e616e12b0c60e9bf144a5975d37d3cca83a85e512a3e3",
+  "input_manifest_hash": "af6f150586afdad400a488937df56791adadf10aa5e9a6ee7851c84d96358b6c",
+  "frozen_at": "2026-08-03T17:43:04Z",
+  "first_clx_semantic_access_at": null
+}

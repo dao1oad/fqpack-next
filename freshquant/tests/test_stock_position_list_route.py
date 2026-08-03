@@ -67,6 +67,15 @@ def _install_route_stubs(monkeypatch):
     holding.get_stock_hold_position = lambda *args, **kwargs: None
     holding.get_stock_positions = lambda *args, **kwargs: []
 
+    qfq_reader = types.ModuleType("freshquant.data.qfq_reader")
+
+    class _QFQDataNotReadyError(RuntimeError):
+        pass
+
+    qfq_reader.QFQ_DATA_NOT_READY_HTTP_STATUS = 503
+    qfq_reader.QFQDataNotReadyError = _QFQDataNotReadyError
+    qfq_reader.resolve_qfq_read_metadata = lambda *args, **kwargs: {}
+
     db = types.ModuleType("freshquant.db")
     db.DBfreshquant = {}
 
@@ -88,6 +97,8 @@ def _install_route_stubs(monkeypatch):
 
     util_code = types.ModuleType("freshquant.util.code")
     util_code.fq_util_code_append_market_code_suffix = lambda code: code
+    util_code.fq_util_code_append_market_code = lambda code: code
+    util_code.normalize_to_base_code = lambda code: str(code or "").replace(".SH", "").replace(".SZ", "").replace("sh", "").replace("sz", "")[-6:].zfill(6)
 
     util_encoder = types.ModuleType("freshquant.util.encoder")
 
@@ -100,6 +111,7 @@ def _install_route_stubs(monkeypatch):
     util_period.get_redis_cache_key = lambda symbol, period: f"{symbol}:{period}"
     util_period.is_supported_realtime_period = lambda period: True
     util_period.to_backend_period = lambda period: period
+    util_period.to_frontend_period = lambda period: period
 
     monkeypatch.setitem(sys.modules, "flask", flask_module)
     monkeypatch.setitem(sys.modules, "func_timeout", func_timeout_module)
@@ -111,6 +123,7 @@ def _install_route_stubs(monkeypatch):
         chanlun_structure_service,
     )
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.holding", holding)
+    monkeypatch.setitem(sys.modules, "freshquant.data.qfq_reader", qfq_reader)
     monkeypatch.setitem(sys.modules, "freshquant.db", db)
     monkeypatch.setitem(
         sys.modules, "freshquant.instrument.general", instrument_general

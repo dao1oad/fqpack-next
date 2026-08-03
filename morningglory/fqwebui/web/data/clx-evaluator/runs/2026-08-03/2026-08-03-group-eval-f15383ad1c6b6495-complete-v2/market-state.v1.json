@@ -1,0 +1,1468 @@
+{
+  "schema_version": "market-state.v1",
+  "run_id": "2026-08-03-market-cleanroom-gap-complete-v2",
+  "market_date": "2026-08-03",
+  "as_of": "2026-08-03T15:00:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "replay_mode": "historical_as_of",
+  "universe": {
+    "scope": "A股全市场（沪深北 Stock + ETF）",
+    "markets": [
+      "SSE",
+      "SZSE",
+      "BSE"
+    ],
+    "security_types": [
+      "Stock",
+      "ETF"
+    ],
+    "inclusion_rules": [
+      "Supplier-returned SSE/SZSE/BSE Stock and exchange ETF symbols for target-date close",
+      "volume > 0 defines traded samples",
+      "Breadth requires positive prior close"
+    ],
+    "exclusion_rules": [
+      "Zero-volume records excluded from breadth and turnover",
+      "No exclusion solely for ST status",
+      "No post-as-of observation used"
+    ],
+    "supplier_record_count": 7151,
+    "in_scope_count": 7151,
+    "traded_count": 7142
+  },
+  "benchmark": {
+    "method": "Compare cap-weighted indices with equal-weight breadth and float-cap quartiles; evaluate themes by return, breadth, turnover and limit density.",
+    "symbols": [
+      "CSI 300",
+      "中证全指"
+    ],
+    "notes": "CSI 300 captures large-cap beta; 中证全指 is broad cap-weighted beta."
+  },
+  "source_coverage": [
+    {
+      "domain": "full_market_stock_etf_quotes",
+      "status": "complete",
+      "evidence_refs": [
+        "EV_UNIVERSE",
+        "EV_ETF_UNIVERSE",
+        "EV_CROSSCHECK"
+      ],
+      "impact": "All supplier symbols captured; traded observations dual-source matched."
+    },
+    {
+      "domain": "broad_indices",
+      "status": "complete",
+      "evidence_refs": [
+        "EV_CSI300",
+        "EV_ALLSHARE"
+      ],
+      "impact": "Both requested benchmarks available."
+    },
+    {
+      "domain": "industry_concept_ranking_and_breadth",
+      "status": "partial",
+      "evidence_refs": [
+        "EV_GEN_EQUIP",
+        "EV_NUCLEAR",
+        "EV_WIND",
+        "EV_AIRCRAFT",
+        "EV_BIG_AIRCRAFT"
+      ],
+      "impact": "Complete supplier ranks; constituent breadth expanded for top candidates; taxonomies overlap."
+    },
+    {
+      "domain": "limit_structure",
+      "status": "partial",
+      "evidence_refs": [
+        "EV_LIMIT",
+        "EV_HEIGHT",
+        "EV_LIMIT_TIMELINE"
+      ],
+      "impact": "Limit-up/broken details available; limit-down count lacks rows."
+    },
+    {
+      "domain": "core_announcements",
+      "status": "partial",
+      "evidence_refs": [
+        "EV_ANN_WL",
+        "EV_ANN_YF",
+        "EV_ANN_XD",
+        "EV_ANN_HF",
+        "EV_ANN_JUREN"
+      ],
+      "impact": "Official SSE for SSE cores; structured index for SZ/BJ."
+    },
+    {
+      "domain": "full_market_intraday_minutes",
+      "status": "missing",
+      "evidence_refs": [
+        "EV_LIMIT_TIMELINE"
+      ],
+      "impact": "Only seal timestamps support intraday ordering."
+    },
+    {
+      "domain": "market_wide_news_policy_catalyst",
+      "status": "missing",
+      "evidence_refs": [],
+      "impact": "No causal catalyst asserted."
+    }
+  ],
+  "environment": {
+    "market_regime": "broad_beta",
+    "index_performance": [
+      {
+        "metric": "CSI 300 return",
+        "value": -0.9812126759949358,
+        "unit": "percent",
+        "definition": "Close-to-previous-close return.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_CSI300"
+        ]
+      },
+      {
+        "metric": "CSI All Share return",
+        "value": -0.50464335250755,
+        "unit": "percent",
+        "definition": "Close-to-previous-close return.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_ALLSHARE"
+        ]
+      }
+    ],
+    "turnover": [
+      {
+        "metric": "Stock turnover",
+        "value": 2010600590025.0,
+        "unit": "CNY",
+        "definition": "Sum for traded Stock records.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_TURNOVER"
+        ]
+      },
+      {
+        "metric": "ETF turnover",
+        "value": 464148836172.0,
+        "unit": "CNY",
+        "definition": "Sum for traded ETF records.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_TURNOVER"
+        ]
+      },
+      {
+        "metric": "Combined turnover",
+        "value": 2474749426197.0,
+        "unit": "CNY",
+        "definition": "Stock plus ETF turnover.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_TURNOVER"
+        ]
+      }
+    ],
+    "breadth": [
+      {
+        "metric": "Stock advancers",
+        "value": 4005,
+        "unit": "securities",
+        "definition": "Positive-return traded Stock.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_BREADTH"
+        ]
+      },
+      {
+        "metric": "Stock decliners",
+        "value": 1465,
+        "unit": "securities",
+        "definition": "Negative-return traded Stock.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_BREADTH"
+        ]
+      },
+      {
+        "metric": "Stock up ratio",
+        "value": 72.4493487698987,
+        "unit": "percent",
+        "definition": "Advancers / breadth-eligible traded Stock.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_BREADTH"
+        ]
+      },
+      {
+        "metric": "Stock equal-weight return",
+        "value": 1.2303641461649784,
+        "unit": "percent",
+        "definition": "Mean target-date Stock return.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_BREADTH"
+        ]
+      }
+    ],
+    "limit_structure": [
+      {
+        "metric": "Limit-up count",
+        "value": 75,
+        "unit": "securities",
+        "definition": "Provider target-date total.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_LIMIT"
+        ]
+      },
+      {
+        "metric": "Broken-board count",
+        "value": 16,
+        "unit": "securities",
+        "definition": "Provider target-date total.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_LIMIT"
+        ]
+      },
+      {
+        "metric": "Limit-down count",
+        "value": 8,
+        "unit": "securities",
+        "definition": "Total available; details missing.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_LIMIT"
+        ]
+      },
+      {
+        "metric": "Seal success ratio",
+        "value": 82.41758241758241,
+        "unit": "percent",
+        "definition": "Limit-up / (limit-up + broken).",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_LIMIT"
+        ]
+      },
+      {
+        "metric": "Maximum board height",
+        "value": 6,
+        "unit": "boards",
+        "definition": "Maximum lbc in final pool.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_HEIGHT"
+        ]
+      }
+    ],
+    "style": [
+      {
+        "metric": "Smallest float-cap quartile return",
+        "value": 2.278191027496382,
+        "unit": "percent",
+        "definition": "Q1 equal-weight return.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_STYLE"
+        ]
+      },
+      {
+        "metric": "Largest float-cap quartile return",
+        "value": -0.07918958031837917,
+        "unit": "percent",
+        "definition": "Q4 equal-weight return.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_STYLE"
+        ]
+      },
+      {
+        "metric": "STAR equal-weight return",
+        "value": -0.200050736497545,
+        "unit": "percent",
+        "definition": "Traded STAR equal-weight return.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_BREADTH"
+        ]
+      },
+      {
+        "metric": "SZSE-main up ratio",
+        "value": 81.44675150703281,
+        "unit": "percent",
+        "definition": "SZSE-main breadth.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_BREADTH"
+        ]
+      }
+    ],
+    "intraday_close": [
+      {
+        "metric": "Focused power-chain seal span",
+        "value": "09:35-14:06",
+        "unit": null,
+        "definition": "Grid/nuclear/power/solar first-seal span; no full-market minutes.",
+        "status": "observed",
+        "as_of": "2026-08-03T15:00:00+08:00",
+        "evidence_refs": [
+          "EV_LIMIT_TIMELINE"
+        ]
+      }
+    ],
+    "evidence_refs": [
+      "EV_CSI300",
+      "EV_ALLSHARE",
+      "EV_BREADTH",
+      "EV_TURNOVER",
+      "EV_STYLE",
+      "EV_LIMIT",
+      "EV_LIMIT_TIMELINE"
+    ]
+  },
+  "hypotheses": [
+    {
+      "hypothesis_id": "H1",
+      "statement": "当日首要环境是中小盘广泛修复与大盘权重承压，而非单一题材独占。",
+      "status": "primary",
+      "confidence": 0.92,
+      "supporting_evidence_refs": [
+        "EV_BREADTH",
+        "EV_STYLE",
+        "EV_CSI300",
+        "EV_ALLSHARE"
+      ],
+      "counterevidence_refs": [
+        "EV_LIMIT",
+        "EV_GEN_EQUIP",
+        "EV_WIND"
+      ],
+      "open_questions": [
+        "下一交易日中小盘宽度能否继续显著跑赢 CSI 300。"
+      ]
+    },
+    {
+      "hypothesis_id": "H2",
+      "statement": "电力、核电、风电及其设备链是广谱修复中的最强可核验主题。",
+      "status": "supported",
+      "confidence": 0.86,
+      "supporting_evidence_refs": [
+        "EV_GEN_EQUIP",
+        "EV_NUCLEAR",
+        "EV_WIND",
+        "EV_POWER_UTIL",
+        "EV_LIMIT_TIMELINE",
+        "EV_EVENT_REMOVAL"
+      ],
+      "counterevidence_refs": [
+        "EV_BREADTH",
+        "EV_ANN_WL",
+        "EV_ANN_YF",
+        "EV_ANN_XD"
+      ],
+      "open_questions": [
+        "后续能否由容量核心继续承接，而非退化为普涨映射。"
+      ]
+    },
+    {
+      "hypothesis_id": "H3",
+      "statement": "航空航天是与能源设备竞争的次级主线。",
+      "status": "competing",
+      "confidence": 0.73,
+      "supporting_evidence_refs": [
+        "EV_AIRCRAFT",
+        "EV_BIG_AIRCRAFT",
+        "EV_CORE_ZGWX",
+        "EV_CORE_HFDL"
+      ],
+      "counterevidence_refs": [
+        "EV_LIMIT",
+        "EV_ANN_HF"
+      ],
+      "open_questions": [
+        "航空航天能否补出涨停密度与更高成交承载。"
+      ]
+    },
+    {
+      "hypothesis_id": "H4",
+      "statement": "半导体与高端电子仍是当日主线。",
+      "status": "rejected",
+      "confidence": 0.91,
+      "supporting_evidence_refs": [],
+      "counterevidence_refs": [
+        "EV_ELECTRONICS",
+        "EV_STYLE"
+      ],
+      "open_questions": []
+    }
+  ],
+  "themes": [
+    {
+      "theme_id": "T_STYLE_SMALL_MID",
+      "name": "中小盘广泛修复",
+      "aliases": [
+        "小市值占优",
+        "等权强于权重"
+      ],
+      "classification": "primary",
+      "lifecycle_candidate": "not_located",
+      "confidence": 0.92,
+      "metrics": [
+        {
+          "metric": "Stock up ratio",
+          "value": 72.4493487698987,
+          "unit": "percent",
+          "definition": "Full traded Stock breadth.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_BREADTH"
+          ]
+        },
+        {
+          "metric": "Q1 minus Q4 spread",
+          "value": 2.357380607814761,
+          "unit": "percentage points",
+          "definition": "Smallest minus largest float-cap quartile.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_STYLE"
+          ]
+        }
+      ],
+      "evidence_refs": [
+        "EV_BREADTH",
+        "EV_STYLE",
+        "EV_CSI300",
+        "EV_ALLSHARE"
+      ],
+      "counterevidence_refs": [
+        "EV_LIMIT",
+        "EV_GEN_EQUIP"
+      ],
+      "confirm_conditions": [
+        "后续全市场上涨率继续高于60%，且小市值四分位继续跑赢最大市值四分位。"
+      ],
+      "weaken_conditions": [
+        "上涨家数回落至接近涨跌平衡，且大小市值收益差明显收敛。"
+      ],
+      "falsify_conditions": [
+        "CSI 300 明显转强而小市值四分位转为显著负收益。"
+      ]
+    },
+    {
+      "theme_id": "T_POWER_EQUIPMENT",
+      "name": "电力—核电—风电及设备链",
+      "aliases": [
+        "发电设备",
+        "电网设备",
+        "核电核能",
+        "风电"
+      ],
+      "classification": "primary",
+      "lifecycle_candidate": "not_located",
+      "confidence": 0.86,
+      "metrics": [
+        {
+          "metric": "Generation-equipment return",
+          "value": 2.8384024649285,
+          "unit": "percent",
+          "definition": "Supplier industry return.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_GEN_EQUIP"
+          ]
+        },
+        {
+          "metric": "Generation-equipment up ratio",
+          "value": 98.30508474576271,
+          "unit": "percent",
+          "definition": "Advancers / traded constituents.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_GEN_EQUIP"
+          ]
+        },
+        {
+          "metric": "Nuclear up ratio",
+          "value": 90.625,
+          "unit": "percent",
+          "definition": "Advancers / traded constituents.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_NUCLEAR"
+          ]
+        },
+        {
+          "metric": "Wind turnover",
+          "value": 95085902617.0,
+          "unit": "CNY",
+          "definition": "Traded constituent turnover.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_WIND"
+          ]
+        },
+        {
+          "metric": "Post-event-removal generation up ratio",
+          "value": 98.21428571428571,
+          "unit": "percent",
+          "definition": "After removing event names.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_EVENT_REMOVAL"
+          ]
+        }
+      ],
+      "evidence_refs": [
+        "EV_GEN_EQUIP",
+        "EV_NUCLEAR",
+        "EV_WIND",
+        "EV_POWER_UTIL",
+        "EV_LIMIT_TIMELINE",
+        "EV_EVENT_REMOVAL"
+      ],
+      "counterevidence_refs": [
+        "EV_BREADTH",
+        "EV_ANN_WL",
+        "EV_ANN_YF",
+        "EV_ANN_XD"
+      ],
+      "confirm_conditions": [
+        "后续发电设备、核电和风电至少两个分支保持多数上涨，容量核心维持正超额。"
+      ],
+      "weaken_conditions": [
+        "主题宽度降至接近50%，仅少数一字板维持高度。"
+      ],
+      "falsify_conditions": [
+        "剔除事件股后主题多数下跌，容量核心同步跑输全市场等权。"
+      ]
+    },
+    {
+      "theme_id": "T_AEROSPACE",
+      "name": "航空航天",
+      "aliases": [
+        "飞机制造",
+        "大飞机",
+        "卫星导航"
+      ],
+      "classification": "secondary",
+      "lifecycle_candidate": "not_located",
+      "confidence": 0.73,
+      "metrics": [
+        {
+          "metric": "Aircraft return",
+          "value": 3.0780980209855,
+          "unit": "percent",
+          "definition": "Supplier industry return.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_AIRCRAFT"
+          ]
+        },
+        {
+          "metric": "Aircraft up ratio",
+          "value": 100.0,
+          "unit": "percent",
+          "definition": "Advancers / traded constituents.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_AIRCRAFT"
+          ]
+        },
+        {
+          "metric": "Large-aircraft turnover",
+          "value": 24124801369.0,
+          "unit": "CNY",
+          "definition": "Traded constituent turnover.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_BIG_AIRCRAFT"
+          ]
+        }
+      ],
+      "evidence_refs": [
+        "EV_AIRCRAFT",
+        "EV_BIG_AIRCRAFT",
+        "EV_CORE_ZGWX",
+        "EV_CORE_HFDL"
+      ],
+      "counterevidence_refs": [
+        "EV_LIMIT",
+        "EV_ANN_HF"
+      ],
+      "confirm_conditions": [
+        "后续继续保持高宽度，并出现容量股与涨停梯队共同确认。"
+      ],
+      "weaken_conditions": [
+        "仅小市值航空标的上涨，容量股与ETF失去相对强度。"
+      ],
+      "falsify_conditions": [
+        "飞机制造和大飞机多数转跌，且相对中证全指无正超额。"
+      ]
+    },
+    {
+      "theme_id": "T_ELECTRONICS_REJECTED",
+      "name": "半导体与高端电子延续",
+      "aliases": [
+        "芯片",
+        "高端电子"
+      ],
+      "classification": "rejected",
+      "lifecycle_candidate": "not_located",
+      "confidence": 0.91,
+      "metrics": [
+        {
+          "metric": "Electronic-components return",
+          "value": -2.2984186453464,
+          "unit": "percent",
+          "definition": "Supplier industry return.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_ELECTRONICS"
+          ]
+        },
+        {
+          "metric": "Electronic-components turnover",
+          "value": 156254510868.0,
+          "unit": "CNY",
+          "definition": "Supplier industry turnover.",
+          "status": "observed",
+          "as_of": "2026-08-03T15:00:00+08:00",
+          "evidence_refs": [
+            "EV_ELECTRONICS"
+          ]
+        }
+      ],
+      "evidence_refs": [
+        "EV_ELECTRONICS"
+      ],
+      "counterevidence_refs": [
+        "EV_LIMIT"
+      ],
+      "confirm_conditions": [
+        "若大成交核心普遍修复并重新形成行业多数上涨，再重新评估。"
+      ],
+      "weaken_conditions": [
+        "高成交核心继续分化但跌幅收敛。"
+      ],
+      "falsify_conditions": [
+        "高成交半导体核心继续领跌且行业宽度保持负向。"
+      ]
+    }
+  ],
+  "cores": [
+    {
+      "symbol": "sh600396",
+      "name": "华电辽能",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_POWER_EQUIPMENT"
+      ],
+      "roles": [
+        "capacity_anchor",
+        "branch_leader"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_HDLN",
+        "EV_LIMIT_TIMELINE",
+        "EV_POWER_UTIL"
+      ],
+      "independent_event": false,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_HDLN",
+        "EV_LIMIT_TIMELINE",
+        "EV_POWER_UTIL"
+      ]
+    },
+    {
+      "symbol": "sh600875",
+      "name": "东方电气",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_POWER_EQUIPMENT"
+      ],
+      "roles": [
+        "capacity_anchor",
+        "institutional_anchor"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_DFQ",
+        "EV_GEN_EQUIP",
+        "EV_NUCLEAR"
+      ],
+      "independent_event": false,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_DFQ",
+        "EV_GEN_EQUIP",
+        "EV_NUCLEAR"
+      ]
+    },
+    {
+      "symbol": "sz002366",
+      "name": "融发核电",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_POWER_EQUIPMENT"
+      ],
+      "roles": [
+        "ignition",
+        "branch_leader"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_RFHD",
+        "EV_LIMIT_TIMELINE",
+        "EV_NUCLEAR"
+      ],
+      "independent_event": false,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_RFHD",
+        "EV_LIMIT_TIMELINE",
+        "EV_NUCLEAR"
+      ]
+    },
+    {
+      "symbol": "sz002202",
+      "name": "金风科技",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_POWER_EQUIPMENT"
+      ],
+      "roles": [
+        "capacity_anchor"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_JF",
+        "EV_WIND"
+      ],
+      "independent_event": false,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_JF",
+        "EV_WIND"
+      ]
+    },
+    {
+      "symbol": "sh600580",
+      "name": "卧龙电驱",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_POWER_EQUIPMENT"
+      ],
+      "roles": [
+        "capacity_anchor",
+        "event_mapping"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_WL",
+        "EV_GEN_EQUIP",
+        "EV_ANN_WL"
+      ],
+      "independent_event": true,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_WL",
+        "EV_GEN_EQUIP",
+        "EV_ANN_WL"
+      ]
+    },
+    {
+      "symbol": "sh601179",
+      "name": "中国西电",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_POWER_EQUIPMENT"
+      ],
+      "roles": [
+        "capacity_anchor",
+        "event_mapping"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_XD",
+        "EV_GEN_EQUIP",
+        "EV_ANN_XD"
+      ],
+      "independent_event": true,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_XD",
+        "EV_GEN_EQUIP",
+        "EV_ANN_XD"
+      ]
+    },
+    {
+      "symbol": "sh600118",
+      "name": "中国卫星",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_AEROSPACE"
+      ],
+      "roles": [
+        "capacity_anchor",
+        "bellwether"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_ZGWX",
+        "EV_AIRCRAFT",
+        "EV_BIG_AIRCRAFT"
+      ],
+      "independent_event": false,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_ZGWX",
+        "EV_AIRCRAFT",
+        "EV_BIG_AIRCRAFT"
+      ]
+    },
+    {
+      "symbol": "sh600893",
+      "name": "航发动力",
+      "security_type": "Stock",
+      "theme_ids": [
+        "T_AEROSPACE"
+      ],
+      "roles": [
+        "institutional_anchor",
+        "event_mapping"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_HFDL",
+        "EV_AIRCRAFT",
+        "EV_ANN_HF"
+      ],
+      "independent_event": true,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_HFDL",
+        "EV_AIRCRAFT",
+        "EV_ANN_HF"
+      ]
+    },
+    {
+      "symbol": "sz003032",
+      "name": "传智教育",
+      "security_type": "Stock",
+      "theme_ids": [],
+      "roles": [
+        "height_leader"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_CZJY",
+        "EV_HEIGHT"
+      ],
+      "independent_event": false,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_CZJY",
+        "EV_HEIGHT"
+      ]
+    },
+    {
+      "symbol": "bj920258",
+      "name": "N聚仁",
+      "security_type": "Stock",
+      "theme_ids": [],
+      "roles": [
+        "event_mapping"
+      ],
+      "role_evidence_refs": [
+        "EV_CORE_JUREN",
+        "EV_ANN_JUREN"
+      ],
+      "independent_event": true,
+      "tradability": "tradable",
+      "evidence_refs": [
+        "EV_CORE_JUREN",
+        "EV_ANN_JUREN"
+      ]
+    }
+  ],
+  "independent_events": [
+    {
+      "event_id": "IE_WOLONG_REPURCHASE",
+      "symbols": [
+        "sh600580"
+      ],
+      "summary": "卧龙电驱在目标日前披露股份回购相关公告；主题剔除测试将其移除。",
+      "published_at": "2026-07-30T17:54:29+08:00",
+      "evidence_refs": [
+        "EV_ANN_WL"
+      ]
+    },
+    {
+      "event_id": "IE_YINGFENG_REPURCHASE",
+      "symbols": [
+        "sz000967"
+      ],
+      "summary": "盈峰环境披露股份回购报告及回购专项贷款承诺；主题剔除测试将其移除。",
+      "published_at": "2026-07-31T19:07:11+08:00",
+      "evidence_refs": [
+        "EV_ANN_YF"
+      ]
+    },
+    {
+      "event_id": "IE_XIDIAN_AWARD",
+      "symbols": [
+        "sh601179"
+      ],
+      "summary": "中国西电发布产品中标公告；主题剔除测试将其移除。",
+      "published_at": "2026-07-22T16:21:04+08:00",
+      "evidence_refs": [
+        "EV_ANN_XD"
+      ]
+    },
+    {
+      "event_id": "IE_HANGFA_MANAGEMENT",
+      "symbols": [
+        "sh600893"
+      ],
+      "summary": "航发动力披露总经理辞职及副董事长选举；航空主题剔除测试将其移除。",
+      "published_at": "2026-07-30T15:32:33+08:00",
+      "evidence_refs": [
+        "EV_ANN_HF"
+      ]
+    },
+    {
+      "event_id": "IE_JUREN_LISTING",
+      "symbols": [
+        "bj920258"
+      ],
+      "summary": "聚仁新材发布北交所上市公告，目标日行情名称为N聚仁。",
+      "published_at": "2026-07-30T16:58:35+08:00",
+      "evidence_refs": [
+        "EV_ANN_JUREN",
+        "EV_CORE_JUREN"
+      ]
+    }
+  ],
+  "rejected_hypotheses": [
+    "半导体与高端电子仍是2026-08-03首要主线。",
+    "单一纸业行业涨幅第一即可代表全市场主线。"
+  ],
+  "data_gaps": [
+    {
+      "gap_id": "G_INTRADAY",
+      "description": "未取得全市场分钟行情，仅有涨停池首次/末次封板时刻。",
+      "impact": "可确认部分分支封板先后，不确认全市场点火、接管和尾盘迁移。"
+    },
+    {
+      "gap_id": "G_LIMIT_DOWN_DETAIL",
+      "description": "跌停池端点返回总数8但明细数组为空。",
+      "impact": "跌停数量可用，行业与个股结构留空。"
+    },
+    {
+      "gap_id": "G_TAXONOMY",
+      "description": "行业与概念采用供应商分类，存在重叠与非互斥成分。",
+      "impact": "主题边界用多个相邻分类交叉验证。"
+    },
+    {
+      "gap_id": "G_NEWS_CATALYST",
+      "description": "未取得可在as-of前核验的统一市场级政策或新闻催化。",
+      "impact": "结论限于价格、宽度、成交和公告结构。"
+    },
+    {
+      "gap_id": "G_LIFECYCLE",
+      "description": "仅执行单日横截面，未建立跨日可比主题窗口。",
+      "impact": "所有主题生命周期标记为not_located。"
+    },
+    {
+      "gap_id": "G_ANNOUNCEMENT_COVERAGE",
+      "description": "非SSE核心使用结构化公告索引而非直接交易所公告API。",
+      "impact": "标题与时间可追溯，SZ/BJ内容未做第二官方端点复核。"
+    },
+    {
+      "gap_id": "G_SKILL_CHILD_REFERENCES",
+      "description": "skill引用的子文档不在显式输入白名单内，未单独读取。",
+      "impact": "涨跌停采用供应商历史池，未手工重建不同板块阈值。"
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "EV_UNIVERSE",
+      "kind": "market_data",
+      "source_name": "Sina Finance structured market center",
+      "source_locator": "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?node=hs_a (56 complete page locators in access-log.json)",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Complete Stock cross-section",
+      "value": "5534 Stock records",
+      "unit": null,
+      "definition": "Unique provider symbols; all pages captured.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_ETF_UNIVERSE",
+      "kind": "market_data",
+      "source_name": "Sina Finance structured market center",
+      "source_locator": "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?node=etf_hq_fund (17 complete page locators in access-log.json)",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Complete ETF cross-section",
+      "value": "1617 ETF records",
+      "unit": null,
+      "definition": "Unique provider symbols; all pages captured.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CROSSCHECK",
+      "kind": "market_data",
+      "source_name": "Tencent batch quote service",
+      "source_locator": "https://qt.gtimg.cn/q=SYMBOL_LIST (48 complete batch locators in access-log.json)",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "All supplier symbols independently returned with target-date prefix",
+      "value": "7151/7151 prefixes 20260803",
+      "unit": null,
+      "definition": "All 7,142 traded closes matched exactly; percentage differed at most 0.005 percentage point.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CSI300",
+      "kind": "market_data",
+      "source_name": "Tencent historical K-line",
+      "source_locator": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000300,day,2026-08-03,2026-08-03,1,qfq",
+      "captured_at": "2026-08-04T01:20:14+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "CSI 300 target-date return",
+      "value": -0.9812126759949358,
+      "unit": "percent",
+      "definition": "Close 4543.18 versus previous close 4588.20.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_ALLSHARE",
+      "kind": "market_data",
+      "source_name": "Tencent historical K-line",
+      "source_locator": "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000985,day,2026-08-03,2026-08-03,1,qfq",
+      "captured_at": "2026-08-04T01:20:14+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "CSI All Share target-date return",
+      "value": -0.50464335250755,
+      "unit": "percent",
+      "definition": "Close 5652.57 versus previous close 5681.24.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_BREADTH",
+      "kind": "calculation",
+      "source_name": "Phase A full-market calculation",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\market_scan.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Stock breadth strongly positive",
+      "value": "4005 up / 1465 down / 58 flat",
+      "unit": null,
+      "definition": "5,528 traded Stock; up ratio 72.4493%, equal-weight 1.2304%, median 1.346%.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_TURNOVER",
+      "kind": "calculation",
+      "source_name": "Phase A full-market calculation",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\market_scan.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Combined Stock+ETF turnover",
+      "value": 2474749426197.0,
+      "unit": "CNY",
+      "definition": "Sum over 5,528 traded Stock and 1,614 traded ETF records.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_STYLE",
+      "kind": "calculation",
+      "source_name": "Phase A float-cap quartiles",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\market_scan.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Smallest quartile outperformed largest",
+      "value": "Q1 +2.2782% vs Q4 -0.0792%",
+      "unit": null,
+      "definition": "Equal-count quartiles sorted by supplier float market capitalization.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_LIMIT",
+      "kind": "market_data",
+      "source_name": "Eastmoney target-date limit pools",
+      "source_locator": "https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=1000&sort=fbt:asc&date=20260803",
+      "captured_at": "2026-08-04T01:19:11+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date limit structure",
+      "value": "75 up / 16 broken / 8 down",
+      "unit": null,
+      "definition": "Seal success 82.4176%; down endpoint supplied count without detail.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_HEIGHT",
+      "kind": "market_data",
+      "source_name": "Eastmoney target-date limit-up pool",
+      "source_locator": "https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=1000&sort=fbt:asc&date=20260803",
+      "captured_at": "2026-08-04T01:19:11+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Maximum board height",
+      "value": "传智教育 6 boards",
+      "unit": null,
+      "definition": "Distribution 58/13/1/1/1/1 for heights 1-6.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_GEN_EQUIP",
+      "kind": "calculation",
+      "source_name": "Sina sector constituents + Phase A",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\selected_sector_breadth.json",
+      "captured_at": "2026-08-04T01:23:30+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Generation equipment had near-universal positive breadth",
+      "value": "2.8384% | 58/59 up | 372.80 亿元",
+      "unit": null,
+      "definition": "Supplier sector return plus constituent traded breadth and turnover.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_NUCLEAR",
+      "kind": "calculation",
+      "source_name": "Sina sector constituents + Phase A",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\selected_sector_breadth.json",
+      "captured_at": "2026-08-04T01:23:30+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Nuclear-power concept had broad positive breadth",
+      "value": "2.7915% | 58/64 up | 350.68 亿元",
+      "unit": null,
+      "definition": "Supplier sector return plus constituent traded breadth and turnover.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_WIND",
+      "kind": "calculation",
+      "source_name": "Sina sector constituents + Phase A",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\selected_sector_breadth.json",
+      "captured_at": "2026-08-04T01:23:30+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Wind-power concept had broad positive breadth and large turnover",
+      "value": "2.1191% | 154/174 up | 950.86 亿元",
+      "unit": null,
+      "definition": "Supplier sector return plus constituent traded breadth and turnover.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_POWER_UTIL",
+      "kind": "calculation",
+      "source_name": "Sina sector constituents + Phase A",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\selected_sector_breadth.json",
+      "captured_at": "2026-08-04T01:23:30+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Power industry had broad positive breadth",
+      "value": "2.2311% | 52/60 up | 292.86 亿元",
+      "unit": null,
+      "definition": "Supplier sector return plus constituent traded breadth and turnover.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_AIRCRAFT",
+      "kind": "calculation",
+      "source_name": "Sina sector constituents + Phase A",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\selected_sector_breadth.json",
+      "captured_at": "2026-08-04T01:23:30+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Aircraft manufacturing was entirely positive",
+      "value": "3.0781% | 14/14 up | 77.00 亿元",
+      "unit": null,
+      "definition": "Supplier sector return plus constituent traded breadth and turnover.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_BIG_AIRCRAFT",
+      "kind": "calculation",
+      "source_name": "Sina sector constituents + Phase A",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\selected_sector_breadth.json",
+      "captured_at": "2026-08-04T01:23:30+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Large-aircraft concept was broadly positive",
+      "value": "2.3119% | 74/80 up | 241.25 亿元",
+      "unit": null,
+      "definition": "Supplier sector return plus constituent traded breadth and turnover.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_ELECTRONICS",
+      "kind": "calculation",
+      "source_name": "Sina industry snapshot + Phase A",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\industry_rank_all.json",
+      "captured_at": "2026-08-04T01:21:21+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Electronic components was weakest despite high turnover",
+      "value": "-2.2984% | 1562.55 亿元",
+      "unit": null,
+      "definition": "Supplier industry return and turnover.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_EVENT_REMOVAL",
+      "kind": "calculation",
+      "source_name": "Phase A event-removal test",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\independent_event_removal_test.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Theme breadth persisted after event-name removal",
+      "value": "generation 55/56; nuclear 56/62; wind 152/172 up",
+      "unit": null,
+      "definition": "Removed sh600580, sh601179 and sz000967 where present.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_LIMIT_TIMELINE",
+      "kind": "market_data",
+      "source_name": "Eastmoney first/last seal timestamps",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\focused_limit_timeline.json",
+      "captured_at": "2026-08-04T01:19:11+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Power branches broadened through the session",
+      "value": "09:35-14:06",
+      "unit": null,
+      "definition": "Observed seal span; not full-market minute reconstruction.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_CORE_HDLN",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 华电辽能",
+      "value": "10.000% / 34.10 亿元",
+      "unit": null,
+      "definition": "Return and turnover; first seal 102023, height 1.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_DFQ",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 东方电气",
+      "value": "6.693% / 25.48 亿元",
+      "unit": null,
+      "definition": "Return and turnover.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_RFHD",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 融发核电",
+      "value": "9.930% / 6.81 亿元",
+      "unit": null,
+      "definition": "Return and turnover; first seal 93930, height 1.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_JF",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 金风科技",
+      "value": "4.622% / 27.60 亿元",
+      "unit": null,
+      "definition": "Return and turnover.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_WL",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 卧龙电驱",
+      "value": "8.899% / 35.89 亿元",
+      "unit": null,
+      "definition": "Return and turnover.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_XD",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 中国西电",
+      "value": "4.273% / 31.66 亿元",
+      "unit": null,
+      "definition": "Return and turnover.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_ZGWX",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 中国卫星",
+      "value": "4.056% / 23.03 亿元",
+      "unit": null,
+      "definition": "Return and turnover.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_HFDL",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 航发动力",
+      "value": "3.629% / 12.92 亿元",
+      "unit": null,
+      "definition": "Return and turnover.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_CZJY",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for 传智教育",
+      "value": "9.989% / 0.79 亿元",
+      "unit": null,
+      "definition": "Return and turnover; first seal 92500, height 6.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_CORE_JUREN",
+      "kind": "market_data",
+      "source_name": "Sina full-market snapshot + Eastmoney limit pool",
+      "source_locator": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\derived\\sina_stocks_snapshot.json",
+      "captured_at": "2026-08-04T01:22:44+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "Target-date observation for N聚仁",
+      "value": "250.893% / 5.87 亿元",
+      "unit": null,
+      "definition": "Return and turnover.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_ANN_WL",
+      "kind": "announcement",
+      "source_name": "Shanghai Stock Exchange",
+      "source_locator": "https://www.sse.com.cn/disclosure/listedinfo/announcement/c/new/2026-07-31/600580_20260731_O2GI.pdf",
+      "captured_at": "2026-08-04T01:27:10+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "卧龙电驱 repurchase-related disclosure",
+      "value": "2026-07-30T17:54:29+08:00",
+      "unit": null,
+      "definition": "Publication timestamp/title before as-of.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_ANN_YF",
+      "kind": "announcement",
+      "source_name": "Eastmoney announcement index",
+      "source_locator": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=1&ann_type=A&client_source=web&stock_list=000967&f_node=0&s_node=0&begin_time=2026-07-20&end_time=2026-08-03",
+      "captured_at": "2026-08-04T01:27:10+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "盈峰环境 repurchase report and loan commitment",
+      "value": "2026-07-31T19:07:11+08:00",
+      "unit": null,
+      "definition": "Publication timestamp/title before as-of.",
+      "verification_status": "single_source"
+    },
+    {
+      "evidence_id": "EV_ANN_XD",
+      "kind": "announcement",
+      "source_name": "Shanghai Stock Exchange",
+      "source_locator": "https://www.sse.com.cn/disclosure/listedinfo/announcement/c/new/2026-07-23/601179_20260723_FB0Q.pdf",
+      "captured_at": "2026-08-04T01:27:10+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "中国西电 product award announcement",
+      "value": "2026-07-22T16:21:04+08:00",
+      "unit": null,
+      "definition": "Publication timestamp/title before as-of.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_ANN_HF",
+      "kind": "announcement",
+      "source_name": "Shanghai Stock Exchange",
+      "source_locator": "https://www.sse.com.cn/disclosure/listedinfo/announcement/c/new/2026-07-31/600893_20260731_WZE4.pdf",
+      "captured_at": "2026-08-04T01:27:10+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "航发动力 management-change announcement",
+      "value": "2026-07-30T15:32:33+08:00",
+      "unit": null,
+      "definition": "Publication timestamp/title before as-of.",
+      "verification_status": "verified"
+    },
+    {
+      "evidence_id": "EV_ANN_JUREN",
+      "kind": "announcement",
+      "source_name": "Eastmoney announcement index",
+      "source_locator": "https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=100&page_index=1&ann_type=A&client_source=web&stock_list=920258&f_node=0&s_node=0&begin_time=2026-07-20&end_time=2026-08-03",
+      "captured_at": "2026-08-04T01:27:10+08:00",
+      "as_of": "2026-08-03T15:00:00+08:00",
+      "claim": "聚仁新材 BSE listing announcement",
+      "value": "2026-07-30T16:58:35+08:00",
+      "unit": null,
+      "definition": "Publication timestamp/title before as-of.",
+      "verification_status": "single_source"
+    }
+  ],
+  "phase_attestation": {
+    "phase": "A",
+    "clean_room": true,
+    "context_mode": "none",
+    "restricted_inputs_accessed": false,
+    "allowed_input_manifest_sha256": "d23f3e2f4cc3d2f5513e616e12b0c60e9bf144a5975d37d3cca83a85e512a3e3",
+    "started_at": "2026-08-04T01:18:30+08:00",
+    "frozen_at": "2026-08-04T01:37:55+08:00",
+    "phase_b_first_read_at": null,
+    "access_log_path": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\access-log.json"
+  },
+  "evidence_manifest_hash": "9e21589573d14c1ab88c2b6c33869b70d712da2c90dbc9805693cd0a90c500a9"
+}

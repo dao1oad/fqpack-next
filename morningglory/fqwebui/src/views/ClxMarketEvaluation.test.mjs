@@ -35,6 +35,21 @@ test('CLX market evaluation keeps run, statistics and mapping audit in details',
   assert.match(source, /v-for="row in data\.mappingAudit"/)
 })
 
+test('CLX market evaluation exposes fundamental, ETF, sell and signal reconciliation evidence', async () => {
+  const source = await readFile(new URL('./ClxMarketEvaluation.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /member\.fundamentalQualityGrade/)
+  assert.match(source, /member\.growthGrade/)
+  assert.match(source, /member\.cashflowBalanceGrade/)
+  assert.match(source, /member\.financialReportDate/)
+  assert.match(source, /<summary>[\s\S]*ETF 暴露确认/)
+  assert.match(source, /data\.diagnostics\?\.etfConfirmations/)
+  assert.match(source, /sell \/ mixed 诊断/)
+  assert.match(source, /data\.diagnostics\?\.sellDiagnostics/)
+  assert.match(source, /official_unique_signal_event_count/)
+  assert.match(source, /direction_expanded_membership_count_previous/)
+})
+
 test('CLX market evaluation keeps static JSON and TDX import contracts', async () => {
   const source = await readFile(new URL('./ClxMarketEvaluation.vue', import.meta.url), 'utf8')
 

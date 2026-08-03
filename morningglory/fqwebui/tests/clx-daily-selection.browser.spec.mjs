@@ -11,7 +11,7 @@ import {
 } from './kline-slim-browser-helpers.mjs'
 
 const DEV_SERVER_PORT = 18096
-const DEV_SERVER_URL = `http://127.0.0.1:${DEV_SERVER_PORT}`
+const DEV_SERVER_URL = 'http://127.0.0.1:' + DEV_SERVER_PORT
 const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 const PARTIAL_BATCH_ID = 'clx-2026-03-10-production-v1-partial'
 const FINAL_BATCH_ID = 'clx-2026-02-28-production-v1-final'
@@ -98,6 +98,8 @@ const resultRow = {
   symbol: 'sz000001',
   code: '000001',
   name: '平安银行',
+  latest_price: 10.2,
+  change_pct: 1.23,
   distinct_model_count: 2,
   distinct_condition_count: 2,
   signal_event_count: 2,
@@ -105,11 +107,13 @@ const resultRow = {
   condition_keys: ['entrypoint_1', 'entrypoint_2'],
   latest_trigger: '2026-03-10',
   above_ma250: { state: 'yes', line_value: 10.08, source: 'daily_close_ma250' },
+  above_chanlun_line: { state: 'yes' },
+  above_reference_line: { state: 'unknown' },
 }
 
 function buildKlinePayload(period = '5m') {
   const suffix = period === '1d' ? '' : ' 15:00:00'
-  const dates = [`2026-03-09${suffix}`, `2026-03-10${suffix}`]
+  const dates = ['2026-03-09' + suffix, '2026-03-10' + suffix]
   return {
     symbol: 'sz000001',
     name: '平安银行',
@@ -127,15 +131,15 @@ function buildKlinePayload(period = '5m') {
     duan_zsflag: [],
     higher_duan_zsdata: [],
     higher_duan_zsflag: [],
-    updated_at: `2026-03-10:${period}`,
+    updated_at: '2026-03-10:' + period,
   }
 }
 
 const buildNewerPartialWindow = () => Array.from({ length: 30 }, (_, index) => ({
   ...partialBatch,
-  batch_id: `partial-window-${String(index + 1).padStart(2, '0')}`,
-  trade_date: `2026-03-${String(30 - index).padStart(2, '0')}`,
-  updated_at: `2026-03-${String(30 - index).padStart(2, '0')}T18:00:00+08:00`,
+  batch_id: 'partial-window-' + String(index + 1).padStart(2, '0'),
+  trade_date: '2026-03-' + String(30 - index).padStart(2, '0'),
+  updated_at: '2026-03-' + String(30 - index).padStart(2, '0') + 'T18:00:00+08:00',
 }))
 
 const finalStatisticsPayload = {
@@ -144,6 +148,18 @@ const finalStatisticsPayload = {
   by_condition: [{ condition_key: 'entrypoint_1', symbol_count: 1 }],
   resonance_distribution: [{ distinct_model_count: 2, symbol_count: 1 }],
 }
+
+const defaultRequestLog = () => ({
+  batchRequests: 0,
+  summaryRequests: [],
+  resultQueries: [],
+  statisticsRequests: 0,
+  statisticsScopeIds: [],
+  historyQueries: [],
+  detailRequests: [],
+  tdxImports: [],
+  stockPoolAppends: [],
+})
 
 async function mockApis(page, requestLog, {
   batchItems = [partialBatch],
@@ -249,7 +265,7 @@ async function mockApis(page, requestLog, {
         ? []
         : resultRowsByBatch[batchId] || [resultRow]
       const offset = Math.max(0, Number(query.cursor) || 0)
-      const limit = Math.max(1, Math.min(200, Number(query.limit) || 100))
+      const limit = Math.max(1, Math.min(200, Number(query.limit) || 50))
       const pageRows = allRows.slice(offset, offset + limit)
       const nextCursor = offset + limit < allRows.length ? String(offset + limit) : ''
       await route.fulfill({
@@ -268,10 +284,10 @@ async function mockApis(page, requestLog, {
     const tdxImportMatch = pathname.match(/^\/api\/clx-daily-selection\/batches\/([^/]+)\/results\/sync-selected-to-tdx$/)
     if (tdxImportMatch) {
       const batchId = decodeURIComponent(tdxImportMatch[1])
-      requestLog.tdxImports = [...(requestLog.tdxImports || []), {
+      requestLog.tdxImports.push({
         batchId,
         payload: request.postDataJSON?.() || {},
-      }]
+      })
       await waitForResponse('tdxImport', batchId)
       await route.fulfill({
         status: 200,
@@ -281,10 +297,38 @@ async function mockApis(page, requestLog, {
       return
     }
 
+    const detailMatch = pathname.match(/^\/api\/clx-daily-selection\/batches\/([^/]+)\/results\/([^/]+)\/([^/]+)$/)
+    if (detailMatch) {
+      const batchId = decodeURIComponent(detailMatch[1])
+      const assetType = decodeURIComponent(detailMatch[2])
+      const symbol = decodeURIComponent(detailMatch[3])
+      const row = (resultRowsByBatch[batchId] || [resultRow]).find((item) => (
+        item.symbol === symbol || item.code === symbol
+      )) || resultRow
+      requestLog.detailRequests.push({ batchId, assetType, symbol })
+      await waitForResponse('detail', batchId)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          snapshot: row,
+          memberships: [{
+            model_key: 'S0003',
+            condition_key: 'entrypoint_1',
+            direction: 'buy',
+            trigger_date: row.latest_trigger || '2026-03-10',
+            signal_value_raw: 301,
+            condition_evidence: [{ key: 'above_ma250', value: 'yes' }],
+          }],
+        }),
+      })
+      return
+    }
+
     if (pathname.endsWith('/statistics')) {
       const batchId = decodeURIComponent(pathname.split('/').at(-2) || '')
       requestLog.statisticsRequests += 1
-      requestLog.statisticsScopeIds = [...(requestLog.statisticsScopeIds || []), batchId]
+      requestLog.statisticsScopeIds.push(batchId)
       await waitForResponse('statistics', batchId)
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(statisticsPayload) })
       return
@@ -313,13 +357,6 @@ async function mockApis(page, requestLog, {
               line_value: 10.08,
               source: 'daily_close_ma250',
             }],
-            S0007: [{
-              marker_id: 'sell-marker',
-              date: '2026-03-10',
-              direction: 'sell',
-              condition_key: 'entrypoint_2',
-              signal_value_raw: -702,
-            }],
           },
         }),
       })
@@ -337,6 +374,16 @@ async function mockApis(page, requestLog, {
 
     if (pathname === '/api/get_stock_position_list') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([resultRow]) })
+      return
+    }
+
+    if (pathname === '/api/gantt/stocks') {
+      requestLog.stockPoolAppends.push(request.postDataJSON?.() || {})
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ appended_count: 1, skipped_count: 0 }),
+      })
       return
     }
 
@@ -358,7 +405,7 @@ async function pushClxScopeRoute(page, scopeId) {
   await page.evaluate(async (nextScopeId) => {
     const router = document.querySelector('#app')?.__vue_app__?.config?.globalProperties?.$router
     if (!router) throw new Error('Vue router is not available')
-    await router.push({ path: '/clx-daily-screening', query: { scope_id: nextScopeId } })
+    await router.push({ path: '/daily-screening', query: { tab: 'clx', scope_id: nextScopeId } })
   }, scopeId)
 }
 
@@ -366,11 +413,13 @@ async function pushDailySelectionNav(page) {
   await page.evaluate(async () => {
     const router = document.querySelector('#app')?.__vue_app__?.config?.globalProperties?.$router
     if (!router) throw new Error('Vue router is not available')
-    await router.push({
-      path: '/kline-slim',
-      query: { clxScreening: '1', clxWorkbench: '1', period: '1d' },
-    })
+    await router.push({ path: '/daily-screening', query: { tab: 'clx' } })
   })
+}
+
+async function waitForClxWorkbench(page) {
+  await expect(page.locator('.clx-screening-page')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'CLX 18 模型' })).toHaveAttribute('aria-selected', 'true')
 }
 
 test.beforeAll(async () => {
@@ -398,100 +447,38 @@ test.afterAll(async () => {
   await rm(PREVIEW_ARTIFACTS.outDir, { recursive: true, force: true })
 })
 
-test('legacy entry opens the unified workbench, keeps partial explicit and renders guarded CLX markers', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+test('legacy entry redirects to daily-screening CLX tab and explicit partial scope stays guarded', async ({ page }) => {
+  const requestLog = defaultRequestLog()
   await page.setViewportSize({ width: 1600, height: 900 })
   await mockApis(page, requestLog)
 
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
-  await expect(page).toHaveURL(/\/kline-slim\?.*clxScreening=1/)
-  await expect(page.getByRole('complementary', { name: 'CLX 筛选工作台' })).toBeVisible()
-  await expect(page.getByText('暂无正式完整结果；可在上方显式选择部分批次。')).toBeVisible()
+  await page.goto(DEV_SERVER_URL + '/clx-daily-screening', { waitUntil: 'domcontentloaded' })
+  await waitForClxWorkbench(page)
+  await expect(page).toHaveURL(/\/daily-screening\?.*tab=clx/)
+  await expect(page).not.toHaveURL(/\/kline-slim/)
+  await expect(page.getByText('最新运行 2026-03-10')).toBeVisible()
+  await expect(page.getByText('查看部分结果')).toBeVisible()
   expect(requestLog.resultQueries).toHaveLength(0)
 
   await page.goto(
-    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${PARTIAL_BATCH_ID}&period=5m`,
+    DEV_SERVER_URL + '/clx-daily-screening?scope_id=' + PARTIAL_BATCH_ID + '&period=5m&clxScreening=1',
     { waitUntil: 'domcontentloaded' },
   )
-  await expect(page).toHaveURL(new RegExp(`clxScope=${PARTIAL_BATCH_ID}`))
-  await expect(page.locator('.clx-selection-panel__status')).toContainText('部分结果')
-  await expect(page.locator('.clx-selection-panel__status')).toContainText('股票已完成')
-  await expect(page.locator('.clx-selection-panel__status')).toContainText('ETF运行中')
+  await waitForClxWorkbench(page)
+  await expect(page).toHaveURL(new RegExp('/daily-screening\\?.*scope_id=' + PARTIAL_BATCH_ID))
+  await expect(page).toHaveURL(/tab=clx/)
+  await expect(page).not.toHaveURL(/clxScreening|period=5m|clxScope=/)
+  await expect(page.locator('.clx-scope-state-row')).toContainText('部分结果')
+  await expect(page.locator('.clx-scope-state-row')).toContainText('股票已完成')
+  await expect(page.locator('.clx-scope-state-row')).toContainText('ETF运行中')
   await expect(page.getByText('平安银行')).toBeVisible()
   await expect.poll(() => requestLog.resultQueries.length).toBe(1)
+  expect(requestLog.resultQueries[0].scope_id).toBe(PARTIAL_BATCH_ID)
   expect(requestLog.statisticsRequests).toBe(0)
-
-  await expect(page.locator('.kline-slim-clx-workbench')).toBeVisible()
-  await expect(page.locator('.clx-workbench-meta')).toContainText('production_v1')
-  await expect.poll(() => requestLog.historyQueries.length).toBeGreaterThan(0)
-  expect(requestLog.historyQueries.at(-1).includeRaw).toBe('1')
-
-  const markerState = await expect.poll(async () => page.evaluate(() => {
-    const chart = window.__klineSlimChart
-    if (!chart) return null
-    const series = (chart.getOption()?.series || []).find((item) => String(item.id || '').startsWith('clx-signal-'))
-    const point = series?.data?.[0]
-    return series && point
-      ? {
-          type: series.type,
-          count: series.data.length,
-          direction: point.clxGroup?.direction,
-          symbol: point.symbol,
-        }
-      : null
-  })).not.toBeNull()
-  void markerState
-
-  const rendered = await page.evaluate(() => {
-    const chart = window.__klineSlimChart
-    const series = (chart.getOption()?.series || []).find((item) => String(item.id || '').startsWith('clx-signal-'))
-    const point = series.data[0]
-    const canvas = document.querySelector('.kline-slim-chart canvas')
-    const context = canvas?.getContext('2d')
-    const pixels = context?.getImageData(0, 0, Math.min(canvas.width, 320), Math.min(canvas.height, 180)).data || []
-    let nonTransparentPixels = 0
-    for (let index = 3; index < pixels.length; index += 4) {
-      if (pixels[index] > 0) nonTransparentPixels += 1
-    }
-    return {
-      type: series.type,
-      count: series.data.length,
-      direction: point.clxGroup.direction,
-      symbol: point.symbol,
-      y: Number(point.value?.[1]),
-      nonTransparentPixels,
-    }
-  })
-
-  expect(rendered).toMatchObject({ type: 'scatter', count: 1, direction: 'mixed', symbol: 'diamond' })
-  expect(Number.isFinite(rendered.y)).toBe(true)
-  expect(rendered.y).toBeGreaterThan(0)
-  expect(rendered.nonTransparentPixels).toBeGreaterThan(100)
-
-  for (const width of [1200, 1280, 1600]) {
-    await page.setViewportSize({ width, height: 900 })
-    const layout = await page.evaluate(() => {
-      const body = document.querySelector('.kline-slim-body')
-      const chart = document.querySelector('.kline-slim-content')
-      const workbench = document.querySelector('.kline-slim-clx-workbench')
-      const chartRect = chart?.getBoundingClientRect()
-      const workbenchRect = workbench?.getBoundingClientRect()
-      return {
-        chartRight: chartRect?.right,
-        workbenchLeft: workbenchRect?.left,
-        workbenchPosition: workbench ? window.getComputedStyle(workbench).position : '',
-        bodyClientWidth: body?.clientWidth,
-        bodyScrollWidth: body?.scrollWidth,
-      }
-    })
-    expect(layout.workbenchPosition).not.toMatch(/^(absolute|fixed)$/)
-    expect(layout.chartRight).toBeLessThanOrEqual(layout.workbenchLeft + 1)
-    expect(layout.bodyScrollWidth).toBeLessThanOrEqual(layout.bodyClientWidth + 1)
-  }
 })
 
 test('latest final outside the 30 mixed-scope window remains the complete default', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const requestLog = defaultRequestLog()
 
   await page.setViewportSize({ width: 1600, height: 900 })
   await mockApis(page, requestLog, {
@@ -501,58 +488,73 @@ test('latest final outside the 30 mixed-scope window remains the complete defaul
     statisticsPayload: finalStatisticsPayload,
   })
 
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await page.goto(DEV_SERVER_URL + '/clx-daily-screening', { waitUntil: 'domcontentloaded' })
+  await waitForClxWorkbench(page)
 
-  await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
-  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-02-28')
+  await expect(page).toHaveURL(new RegExp('/daily-screening\\?.*scope_id=' + FINAL_BATCH_ID))
+  await expect(page.locator('.clx-scope-state-row')).toContainText('完整结果')
+  await expect(page.locator('.clx-screening-header')).toContainText('2026-02-28')
+  await expect(page.locator('.clx-results-toolbar')).toContainText('1 条服务端结果')
   await expect(page.getByText('平安银行')).toBeVisible()
   await expect.poll(() => requestLog.resultQueries.length).toBe(1)
   expect(requestLog.resultQueries[0].scope_id).toBe(FINAL_BATCH_ID)
-  expect(requestLog.statisticsRequests).toBe(0)
-  await expect(page.locator('.kline-slim-clx-workbench')).toContainText('production_v1')
+  await expect.poll(() => requestLog.statisticsRequests).toBe(1)
+  expect(requestLog.statisticsScopeIds).toEqual([FINAL_BATCH_ID])
 })
 
-test('same-page 每日选股 re-entry restores the default final and first selected symbol', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+test('same-page 每日选股 re-entry restores the default final and syncs selected symbol only after row click', async ({ page }) => {
+  const requestLog = defaultRequestLog()
   await mockApis(page, requestLog, {
     batchItems: buildNewerPartialWindow(),
     latestPayload: { batch: finalBatch },
     activeBatch: finalBatch,
   })
 
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await page.goto(DEV_SERVER_URL + '/clx-daily-screening', { waitUntil: 'domcontentloaded' })
+  await waitForClxWorkbench(page)
   await expect(page.getByText('平安银行')).toBeVisible()
-  await expect(page).toHaveURL(/clxScope=.*symbol=sz000001/)
+  await expect(page).toHaveURL(new RegExp('scope_id=' + FINAL_BATCH_ID))
+  await expect(page).not.toHaveURL(/symbol=sz000001/)
   await expect.poll(() => requestLog.resultQueries.length).toBe(1)
 
+  await page.goto(DEV_SERVER_URL + '/daily-screening', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('tab', { name: '综合交集' })).toHaveAttribute('aria-selected', 'true')
   await pushDailySelectionNav(page)
 
-  await expect(page).toHaveURL(new RegExp(`clxScope=${FINAL_BATCH_ID}.*symbol=sz000001`))
-  await expect(page.getByRole('button', { name: /平安银行 sz000001/ })).toHaveAttribute('aria-current', 'true')
-  await expect.poll(() => requestLog.resultQueries.length).toBe(2)
+  await waitForClxWorkbench(page)
+  await expect(page).toHaveURL(new RegExp('scope_id=' + FINAL_BATCH_ID))
+  await expect(page).not.toHaveURL(/symbol=sz000001/)
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await page.locator('.clx-results-table-wrap .el-table__body-wrapper tbody tr.el-table__row').first().click({ position: { x: 180, y: 12 } })
+  await expect.poll(() => requestLog.detailRequests.length).toBe(1)
+  await expect(page).toHaveURL(new RegExp('scope_id=' + FINAL_BATCH_ID + '.*symbol=sz000001'))
+  await expect(page.locator('.clx-detail-panel')).toContainText('entrypoint_1')
+  expect(requestLog.resultQueries.map((item) => item.scope_id)).toEqual([FINAL_BATCH_ID, FINAL_BATCH_ID])
 })
 
-test('a filter changed during initial results loading schedules the current request and clears loading', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+test('filter changes use current scope_id query contract and clear the results loading mask', async ({ page }) => {
+  const requestLog = defaultRequestLog()
   await mockApis(page, requestLog, {
     batchItems: [finalBatch],
     latestPayload: { batch: finalBatch },
     activeBatch: finalBatch,
-    responseDelays: { results: 500 },
+    responseDelays: { results: 120 },
   })
 
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
-  await expect.poll(() => requestLog.resultQueries.length).toBe(1)
-  await page.getByRole('textbox', { name: '搜索代码或名称' }).fill('银行')
+  await page.goto(DEV_SERVER_URL + '/clx-daily-screening', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('平安银行')).toBeVisible()
+  await page.getByPlaceholder('代码或名称').fill('银行')
 
   await expect.poll(() => requestLog.resultQueries.length).toBe(2)
+  expect(requestLog.resultQueries[1].scope_id).toBe(FINAL_BATCH_ID)
   expect(requestLog.resultQueries[1].q).toBe('银行')
+  await expect(page).toHaveURL(new RegExp('scope_id=' + FINAL_BATCH_ID + '.*q='))
   await expect(page.getByText('平安银行')).toBeVisible()
-  await expect(page.locator('.clx-selection-panel')).toHaveAttribute('aria-busy', 'false')
+  await expect(page.locator('.clx-results-table-wrap .el-loading-mask')).toHaveCount(0)
 })
 
-test('an explicit final scope deep link outside the 30-item window loads all final views', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+test('an explicit final scope deep link outside the 30-item window loads summary, statistics and results', async ({ page }) => {
+  const requestLog = defaultRequestLog()
   await page.setViewportSize({ width: 1600, height: 900 })
   await mockApis(page, requestLog, {
     batchItems: buildNewerPartialWindow(),
@@ -562,22 +564,24 @@ test('an explicit final scope deep link outside the 30-item window loads all fin
   })
 
   await page.goto(
-    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${encodeURIComponent(DEEP_LINK_BATCH_ID)}`,
+    DEV_SERVER_URL + '/clx-daily-screening?scope_id=' + encodeURIComponent(DEEP_LINK_BATCH_ID),
     { waitUntil: 'domcontentloaded' },
   )
 
-  await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
-  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-01-30')
+  await waitForClxWorkbench(page)
+  await expect(page).toHaveURL(new RegExp('/daily-screening\\?.*scope_id=' + DEEP_LINK_BATCH_ID))
+  await expect(page.locator('.clx-scope-state-row')).toContainText('完整结果')
+  await expect(page.locator('.clx-screening-header')).toContainText('2026-01-30')
   await expect(page.getByText('平安银行')).toBeVisible()
   await expect.poll(() => requestLog.summaryRequests).toEqual([DEEP_LINK_BATCH_ID])
   await expect.poll(() => requestLog.resultQueries.length).toBe(1)
   expect(requestLog.resultQueries[0].scope_id).toBe(DEEP_LINK_BATCH_ID)
-  expect(requestLog.statisticsRequests).toBe(0)
-  await expect(page).toHaveURL(new RegExp(`clxScope=${DEEP_LINK_BATCH_ID}`))
+  await expect.poll(() => requestLog.statisticsRequests).toBe(1)
+  expect(requestLog.statisticsScopeIds).toEqual([DEEP_LINK_BATCH_ID])
 })
 
 test('a route change during bootstrap invalidates the captured initial scope', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const requestLog = defaultRequestLog()
   const scopeA = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
   const scopeB = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
   const rowA = { ...resultRow, symbol: 'sz000001', code: '000001', name: '旧导航结果' }
@@ -593,14 +597,14 @@ test('a route change during bootstrap invalidates the captured initial scope', a
   })
 
   await page.goto(
-    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`,
+    DEV_SERVER_URL + '/clx-daily-screening?scope_id=' + RACE_SCOPE_A,
     { waitUntil: 'domcontentloaded' },
   )
-  await expect.poll(() => requestLog.batchRequests || 0).toBeGreaterThan(0)
+  await expect.poll(() => requestLog.batchRequests).toBeGreaterThan(0)
   await pushClxScopeRoute(page, RACE_SCOPE_B)
 
-  await expect(page).toHaveURL(new RegExp(`clxScope=${RACE_SCOPE_B}`))
-  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-01-29')
+  await expect(page).toHaveURL(new RegExp('scope_id=' + RACE_SCOPE_B))
+  await expect(page.locator('.clx-screening-header')).toContainText('2026-01-29')
   await expect(page.getByText('新导航结果')).toBeVisible()
   await expect(page.getByText('旧导航结果')).toHaveCount(0)
   await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toContain(RACE_SCOPE_B)
@@ -609,7 +613,7 @@ test('a route change during bootstrap invalidates the captured initial scope', a
 })
 
 test('a delayed old result cannot overwrite a window-external deep link while its summary loads', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
+  const requestLog = defaultRequestLog()
   const scopeA = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
   const scopeB = { ...deepLinkedFinalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
   const rowA = { ...resultRow, symbol: 'sz000001', code: '000001', name: '迟到旧结果' }
@@ -629,34 +633,27 @@ test('a delayed old result cannot overwrite a window-external deep link while it
   })
 
   await page.goto(
-    `${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`,
+    DEV_SERVER_URL + '/clx-daily-screening?scope_id=' + RACE_SCOPE_A,
     { waitUntil: 'domcontentloaded' },
   )
   await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toContain(RACE_SCOPE_A)
   await pushClxScopeRoute(page, RACE_SCOPE_B)
 
   await page.waitForTimeout(220)
-  await expect(page).toHaveURL(new RegExp(`clxScope=${RACE_SCOPE_B}`))
+  await expect(page).toHaveURL(new RegExp('scope_id=' + RACE_SCOPE_B))
   await expect(page.getByText('迟到旧结果')).toHaveCount(0)
 
-  await expect(page.locator('.clx-selection-panel__controls')).toContainText('2026-01-29')
+  await expect(page.locator('.clx-screening-header')).toContainText('2026-01-29')
   await expect(page.getByText('权威深链结果')).toBeVisible()
-  await expect(page.getByText('完整结果', { exact: true })).toBeVisible()
+  await expect(page.locator('.clx-scope-state-row')).toContainText('完整结果')
   await expect.poll(() => requestLog.resultQueries.map((item) => item.scope_id)).toEqual([
     RACE_SCOPE_A,
     RACE_SCOPE_B,
   ])
-  expect(requestLog.statisticsRequests).toBe(0)
 })
 
-test('final published basket uses sibling row actions, dark surfaces and selected-only import once while loading', async ({ page }) => {
-  const requestLog = {
-    summaryRequests: [],
-    resultQueries: [],
-    statisticsRequests: 0,
-    historyQueries: [],
-    tdxImports: [],
-  }
+test('final published visible rows import once while loading and keeps the current URL unchanged', async ({ page }) => {
+  const requestLog = defaultRequestLog()
   await mockApis(page, requestLog, {
     batchItems: [finalBatch],
     latestPayload: { batch: finalBatch },
@@ -665,72 +662,18 @@ test('final published basket uses sibling row actions, dark surfaces and selecte
     tdxImportPayload: { success: true, group_name: 'clx_18', written_count: 1 },
   })
 
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
-  const rowItem = page.locator('.clx-selection-panel__row-item').first()
-  await expect(rowItem.getByRole('button')).toHaveCount(2)
-  const urlBeforeBasketToggle = page.url()
-  await rowItem.getByRole('button', { name: '加入通达信 平安银行' }).click()
-  await expect(rowItem).toContainText('已加入')
-  await expect(page).toHaveURL(urlBeforeBasketToggle)
+  await page.goto(DEV_SERVER_URL + '/clx-daily-screening', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('平安银行')).toBeVisible()
+  const button = page.getByRole('button', { name: '导入通达信', exact: true })
+  const urlBeforeImport = page.url()
 
-  const scopeSelect = page.getByRole('combobox', { name: '每日选股结果批次' })
-  await expect(scopeSelect).toBeVisible()
-  await page.locator('.clx-selection-panel .el-select__wrapper').first().click()
-  await expect(page.locator('.el-popper.clx-market-dark-popper[aria-hidden="false"]')).toBeVisible()
-  const colors = await page.evaluate(() => {
-    const style = (selector) => {
-      const element = document.querySelector(selector)
-      const computed = element ? window.getComputedStyle(element) : null
-      return {
-        background: computed?.backgroundColor || '',
-        color: computed?.color || '',
-      }
-    }
-    const parseRgb = (value) => (String(value).match(/[\d.]+/g) || []).slice(0, 3).map(Number)
-    const luminance = (value) => {
-      const channels = parseRgb(value).map((channel) => {
-        const normalized = channel / 255
-        return normalized <= 0.03928
-          ? normalized / 12.92
-          : ((normalized + 0.055) / 1.055) ** 2.4
-      })
-      return channels.length === 3
-        ? 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
-        : 0
-    }
-    const panel = style('.clx-selection-panel')
-    const foreground = luminance(panel.color)
-    const background = luminance(panel.background)
-    const basket = style('.clx-selection-panel__basket-toggle[aria-pressed="true"]')
-    const basketForeground = luminance(basket.color)
-    const basketBackground = luminance(basket.background)
-    return {
-      panel,
-      row: style('.clx-selection-panel__row-item'),
-      input: style('.clx-selection-panel .el-input__wrapper'),
-      popper: style('.el-popper.clx-market-dark-popper[aria-hidden="false"]'),
-      basket,
-      contrast: (Math.max(foreground, background) + 0.05) /
-        (Math.min(foreground, background) + 0.05),
-      basketContrast: (Math.max(basketForeground, basketBackground) + 0.05) /
-        (Math.min(basketForeground, basketBackground) + 0.05),
-    }
-  })
-  await page.keyboard.press('Escape')
-  for (const surface of [colors.panel, colors.row, colors.input, colors.popper, colors.basket]) {
-    expect(surface.background).not.toBe('rgb(255, 255, 255)')
-  }
-  expect(colors.contrast).toBeGreaterThan(4.5)
-  expect(colors.basketContrast).toBeGreaterThan(4.5)
-
-  const button = page.getByRole('button', { name: '导入通达信（1）', exact: true })
   await expect(button).toBeEnabled()
   await button.click()
   await expect(button).toBeDisabled()
   await button.click({ force: true })
-  await expect(page.getByText('已导入通达信分组 clx_18，共 1 只（已覆盖原分组）')).toBeVisible()
+  await expect(page.getByText('已导入通达信 clx_18：1 条')).toBeVisible()
   await expect(button).toBeEnabled()
-  await expect(rowItem).toContainText('已加入')
+  await expect(page).toHaveURL(urlBeforeImport)
 
   expect(requestLog.tdxImports).toEqual([{
     batchId: FINAL_BATCH_ID,
@@ -740,168 +683,63 @@ test('final published basket uses sibling row actions, dark surfaces and selecte
   }])
 })
 
-test('select-all freezes the current filter and unions every result beyond the first 100 rows', async ({ page }) => {
-  const requestLog = {
-    summaryRequests: [],
-    resultQueries: [],
-    statisticsRequests: 0,
-    historyQueries: [],
-    tdxImports: [],
-  }
-  const allRows = Array.from({ length: 205 }, (_, index) => ({
+test('pagination imports only the currently visible server page', async ({ page }) => {
+  const requestLog = defaultRequestLog()
+  const allRows = Array.from({ length: 105 }, (_, index) => ({
     ...resultRow,
     asset_type: index % 5 === 0 ? 'etf' : 'stock',
     symbol: String(index + 1).padStart(6, '0'),
     code: String(index + 1).padStart(6, '0'),
-    name: `筛选标的${index + 1}`,
+    name: '筛选标的' + (index + 1),
   }))
   await mockApis(page, requestLog, {
     batchItems: [finalBatch],
     latestPayload: { batch: finalBatch },
     activeBatch: finalBatch,
     resultRowsByBatch: { [FINAL_BATCH_ID]: allRows },
-    responseDelays: { results: 120 },
-    tdxImportPayload: { success: true, group_name: 'clx_18', written_count: 205 },
+    tdxImportPayload: { success: true, group_name: 'clx_18', written_count: 50 },
   })
 
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('已加载 100 / 205')).toBeVisible()
-  const selectAllQueryStart = requestLog.resultQueries.length
-  const selectAll = page.getByRole('button', { name: '全选当前筛选结果' })
-  await selectAll.click()
-  await expect(selectAll).toBeDisabled()
-  await selectAll.dispatchEvent('click')
-  await expect(page.getByText('待导入 205 只')).toBeVisible()
-  await expect(selectAll).toBeEnabled()
+  await page.goto(DEV_SERVER_URL + '/clx-daily-screening', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('.clx-results-toolbar')).toContainText('105 条服务端结果')
+  await expect(page.getByText('筛选标的1', { exact: true })).toBeVisible()
+  await expect(page.getByText('筛选标的51', { exact: true })).toHaveCount(0)
+  expect(requestLog.resultQueries[0]).toMatchObject({ scope_id: FINAL_BATCH_ID, cursor: '', limit: 50 })
 
-  const fullQueries = requestLog.resultQueries
-    .slice(selectAllQueryStart)
-    .filter((query) => query.limit === 200)
-  expect(fullQueries.map((query) => query.cursor)).toEqual(['', '200'])
-  expect(fullQueries.every((query) => query.scope_id === FINAL_BATCH_ID)).toBe(true)
+  await page.getByRole('button', { name: '下一页' }).click()
+  await expect(page.getByText('筛选标的51', { exact: true })).toBeVisible()
+  await expect(page.getByText('筛选标的1', { exact: true })).toHaveCount(0)
+  expect(requestLog.resultQueries.at(-1)).toMatchObject({ scope_id: FINAL_BATCH_ID, cursor: '50', limit: 50 })
 
-  await page.getByRole('button', { name: '导入通达信（205）', exact: true }).click()
-  await expect(page.getByText('已导入通达信分组 clx_18，共 205 只（已覆盖原分组）')).toBeVisible()
+  await page.getByRole('button', { name: '导入通达信', exact: true }).click()
+  await expect(page.getByText('已导入通达信 clx_18：50 条')).toBeVisible()
   expect(requestLog.tdxImports).toHaveLength(1)
-  expect(requestLog.tdxImports[0].payload.items).toHaveLength(205)
+  expect(requestLog.tdxImports[0].payload.items).toHaveLength(50)
+  expect(requestLog.tdxImports[0].payload.items[0]).toEqual({ asset_type: 'etf', symbol: '000051' })
 })
 
-test('basket remains isolated per batch and restores from session storage after route changes and reload', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
-  const scopeA = { ...finalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
-  const scopeB = { ...finalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
-  const rowA = { ...resultRow, symbol: '000001', code: '000001', name: '批次A标的' }
-  const rowB = { ...resultRow, symbol: '510050', code: '510050', asset_type: 'etf', name: '批次B标的' }
-  await mockApis(page, requestLog, {
-    batchItems: [scopeA, scopeB],
-    latestPayload: { batch: scopeA },
-    activeBatch: scopeA,
-    resultRowsByBatch: { [RACE_SCOPE_A]: [rowA], [RACE_SCOPE_B]: [rowB] },
-  })
-
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`, { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '加入通达信 批次A标的' }).click()
-  await expect(page.getByText('待导入 1 只')).toBeVisible()
-
-  await pushClxScopeRoute(page, RACE_SCOPE_B)
-  await expect(page.getByText('批次B标的')).toBeVisible()
-  await expect(page.getByText('待导入 0 只')).toBeVisible()
-  await page.getByRole('button', { name: '加入通达信 批次B标的' }).click()
-
-  await pushClxScopeRoute(page, RACE_SCOPE_A)
-  await expect(page.getByText('批次A标的')).toBeVisible()
-  await expect(page.getByRole('button', { name: '取消加入通达信 批次A标的' })).toBeVisible()
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('button', { name: '取消加入通达信 批次A标的' })).toBeVisible()
-  await expect(page.getByText('待导入 1 只')).toBeVisible()
-})
-
-test('scope navigation aborts select-all and releases its loading state for the new batch', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
-  const scopeA = { ...finalBatch, batch_id: RACE_SCOPE_A, trade_date: '2026-01-28' }
-  const scopeB = { ...finalBatch, batch_id: RACE_SCOPE_B, trade_date: '2026-01-29' }
-  const rowsA = Array.from({ length: 205 }, (_, index) => ({
-    ...resultRow,
-    symbol: String(index + 1).padStart(6, '0'),
-    code: String(index + 1).padStart(6, '0'),
-    name: `批次A标的${index + 1}`,
-  }))
-  const rowB = { ...resultRow, symbol: '510050', code: '510050', asset_type: 'etf', name: '批次B标的' }
-  await mockApis(page, requestLog, {
-    batchItems: [scopeA, scopeB],
-    latestPayload: { batch: scopeA },
-    activeBatch: scopeA,
-    resultRowsByBatch: { [RACE_SCOPE_A]: rowsA, [RACE_SCOPE_B]: [rowB] },
-    responseDelays: { results: { [RACE_SCOPE_A]: 350 } },
-  })
-
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening?scope_id=${RACE_SCOPE_A}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('已加载 100 / 205')).toBeVisible()
-  const selectAll = page.getByRole('button', { name: '全选当前筛选结果' })
-  await selectAll.click()
-  await expect(selectAll).toBeDisabled()
-
-  await pushClxScopeRoute(page, RACE_SCOPE_B)
-  await expect(page.getByText('批次B标的')).toBeVisible()
-  await expect(page.getByRole('button', { name: '全选当前筛选结果' })).toBeEnabled()
-  await expect(page.locator('.clx-selection-panel')).toHaveAttribute('aria-busy', 'false')
-  await expect(page.getByText('待导入 0 只')).toBeVisible()
-})
-
-test('empty filters disable select-all but keep a non-empty basket importable, and partial batches stay ineligible', async ({ page }) => {
-  const requestLog = { summaryRequests: [], resultQueries: [], statisticsRequests: 0, historyQueries: [] }
-  await mockApis(page, requestLog, {
-    batchItems: [finalBatch, partialBatch],
-    latestPayload: { batch: finalBatch },
-    activeBatch: finalBatch,
-    emptyResultQueries: ['无结果'],
-  })
-
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '加入通达信 平安银行' }).click()
-  await page.getByRole('textbox', { name: '搜索代码或名称' }).fill('无结果')
-  await expect(page.getByText('当前筛选条件下没有标的。')).toBeVisible()
-  await expect(page.getByRole('button', { name: '全选当前筛选结果' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: '导入通达信（1）', exact: true })).toBeEnabled()
-
-  await pushClxScopeRoute(page, PARTIAL_BATCH_ID)
-  await expect(page.getByText('平安银行')).toBeVisible()
-  await expect(page.getByRole('button', { name: '加入通达信 平安银行' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: '全选当前筛选结果' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: '导入通达信（0）', exact: true })).toBeDisabled()
-})
-
-test('filter refresh keeps the last stable list visible and retry replaces it after an error', async ({ page }) => {
-  const requestLog = {
-    summaryRequests: [],
-    resultQueries: [],
-    statisticsRequests: 0,
-    historyQueries: [],
-  }
+test('explicit row chart action keeps Kline legacy query compatibility', async ({ page }) => {
+  const requestLog = defaultRequestLog()
   await mockApis(page, requestLog, {
     batchItems: [finalBatch],
     latestPayload: { batch: finalBatch },
     activeBatch: finalBatch,
-    resultFailureCounts: { '银行': 1 },
-    responseDelays: { results: 250 },
   })
 
-  await page.goto(`${DEV_SERVER_URL}/clx-daily-screening`, { waitUntil: 'domcontentloaded' })
+  await page.goto(
+    DEV_SERVER_URL + '/clx-daily-screening?scope_id=' + FINAL_BATCH_ID + '&model_keys=S0003&condition_keys=entrypoint_1',
+    { waitUntil: 'domcontentloaded' },
+  )
   await expect(page.getByText('平安银行')).toBeVisible()
 
-  await page.getByRole('textbox', { name: '搜索代码或名称' }).fill('银行')
-  await expect(page.getByText('更新中 · 旧结果保留')).toBeVisible()
-  await expect(page.getByText('平安银行')).toBeVisible()
-  await expect(page.getByText('筛选结果更新失败')).toBeVisible()
-  await expect(page.getByText('平安银行')).toBeVisible()
-
-  await page.getByRole('button', { name: '重试' }).click()
-  await expect(page.getByText('筛选结果更新失败')).toBeHidden()
-  await expect(page.getByText('平安银行')).toBeVisible()
-  await expect.poll(() => requestLog.resultQueries.filter((query) => query.q === '银行').length).toBe(2)
-
-  await page.getByRole('button', { name: '刷新 CLX 筛选批次和结果' }).click()
-  await expect(page.getByText('更新中 · 旧结果保留')).toBeVisible()
-  await expect(page.getByText('平安银行')).toBeVisible()
-  await expect(page.getByText('已加载 1 / 1')).toBeVisible()
+  await page.getByRole('button', { name: '看图' }).first().click()
+  await expect(page).toHaveURL(/\/kline-slim\?/)
+  await expect(page).toHaveURL(/symbol=sz000001/)
+  await expect(page).toHaveURL(/period=1d/)
+  await expect(page).toHaveURL(new RegExp('clxScope=' + FINAL_BATCH_ID))
+  await expect(page).toHaveURL(/clxWorkbench=1/)
+  await expect(page).toHaveURL(/clxModels=S0003/)
+  await expect(page).toHaveURL(/clxConditions=entrypoint_1/)
+  await expect.poll(() => requestLog.historyQueries.length).toBeGreaterThan(0)
+  expect(requestLog.historyQueries.at(-1).includeRaw).toBe('1')
 })

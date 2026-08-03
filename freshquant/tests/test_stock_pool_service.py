@@ -99,6 +99,7 @@ def _import_stock_service_with_stubs(monkeypatch):
 
     code_module = types.ModuleType("freshquant.util.code")
     code_module.fq_util_code_append_market_code = lambda code: code
+    code_module.normalize_to_base_code = lambda code: str(code or "").replace(".SH", "").replace(".SZ", "").replace("sh", "").replace("sz", "")[-6:].zfill(6)
 
     must_pool_module = types.ModuleType("freshquant.data.astock.must_pool")
     must_pool_module.import_pool = lambda *args, **kwargs: None

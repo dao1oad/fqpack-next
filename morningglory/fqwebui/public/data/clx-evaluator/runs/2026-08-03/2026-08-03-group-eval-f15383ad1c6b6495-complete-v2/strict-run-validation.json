@@ -1,0 +1,20 @@
+{
+  "schema_version": "clx-run-validation.v1",
+  "run_id": "2026-08-03-market-cleanroom-gap-complete-v2",
+  "checked_at": "2026-08-03T18:05:07Z",
+  "valid": true,
+  "artifacts": {
+    "manifest": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\input-manifest.json",
+    "market_state": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\phase-a\\market-state.v1.json",
+    "market_state_lock": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\market-state.lock.json",
+    "clx_input": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\clx-normalized.json",
+    "evaluation": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\clx-evaluation.v1.json",
+    "isolation_audit": "D:\\fqpack\\freshquant-2026.2.23\\work\\clx-market-context-evaluator\\2026-08-03-market-cleanroom-gap-complete-v2\\isolation-audit.json"
+  },
+  "schema_error_counts": {
+    "market_state": 0,
+    "clx_input": 0,
+    "evaluation": 0
+  },
+  "errors": []
+}

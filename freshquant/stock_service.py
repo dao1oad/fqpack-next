@@ -36,8 +36,14 @@ TDX_SELF_SELECT_SOURCE = "tdx_self_select"
 
 
 def _normalize_stock_code6(value):
-    code = normalize_to_base_code(value or "")
-    return code if re.fullmatch(r"\d{6}", str(code or "")) else None
+    raw = str(value or "").strip()
+    code = normalize_to_base_code(raw)
+    if re.fullmatch(r"\d{6}", str(code or "")):
+        return str(code)
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) >= 6:
+        return digits[-6:]
+    return None
 
 
 def get_current_stock_holding_codes():
