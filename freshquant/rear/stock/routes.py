@@ -52,6 +52,7 @@ except Exception:  # pragma: no cover
 stock_bp = Blueprint("stock", __name__, url_prefix="/api")
 
 MAX_STOCK_DATA_BAR_COUNT = 20000
+REALTIME_QFQ_HISTORY_FALLBACK_LIMIT = 5
 SERIES_TAIL_FIELDS = (
     "date",
     "open",
@@ -177,6 +178,89 @@ def _parse_bar_count(raw):
     return min(max(value, 0), MAX_STOCK_DATA_BAR_COUNT)
 
 
+def _normalize_trade_date_key(value):
+    if value is None:
+        return None
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    text = str(value).strip()
+    if len(text) >= 10:
+        return text[:10]
+    return None
+
+
+def _recent_previous_trade_dates(
+    before_key=None, limit=REALTIME_QFQ_HISTORY_FALLBACK_LIMIT
+):
+    before_key = before_key or datetime.now().strftime("%Y-%m-%d")
+    try:
+        frame = fq_trading_fetch_trade_dates()
+    except Exception as exc:  # pragma: no cover
+        logging.warning("stock_data trade calendar read failed: %s", exc)
+        return []
+
+    if frame is None:
+        return []
+    if hasattr(frame, "columns"):
+        if "trade_date" not in frame.columns:
+            return []
+        values = frame["trade_date"]
+    elif isinstance(frame, dict):
+        values = frame.get("trade_date") or []
+    else:
+        values = frame
+
+    keys = []
+    for value in values:
+        key = _normalize_trade_date_key(value)
+        if key and key < before_key:
+            keys.append(key)
+    return sorted(set(keys), reverse=True)[:limit]
+
+
+def _is_current_date_qfq_gap(error):
+    missing_dates = [
+        value
+        for value in (
+            _normalize_trade_date_key(item)
+            for item in getattr(error, "missing_dates", ())
+        )
+        if value
+    ]
+    if not missing_dates:
+        return False
+    today = datetime.now().strftime("%Y-%m-%d")
+    return set(missing_dates) == {today}
+
+
+def _get_realtime_history_fallback(symbol, period, bar_count, error):
+    if not _is_current_date_qfq_gap(error):
+        raise error
+
+    for fallback_end_date in _recent_previous_trade_dates():
+        try:
+            logging.warning(
+                "stock_data realtime history fallback: symbol=%s period=%s "
+                "endDate=%s original_error=%s",
+                symbol,
+                period,
+                fallback_end_date,
+                error,
+            )
+            return get_data_v2(symbol, period, fallback_end_date, bar_count=bar_count)
+        except QFQDataNotReadyError as fallback_error:
+            logging.warning(
+                "stock_data realtime history fallback not ready: symbol=%s "
+                "period=%s endDate=%s error=%s",
+                symbol,
+                period,
+                fallback_end_date,
+                fallback_error,
+            )
+            continue
+    raise error
+
+
 def _tail_stock_data_payload(payload, bar_count):
     if not isinstance(payload, dict) or bar_count <= 0:
         return payload
@@ -269,7 +353,15 @@ def stock_data():
                 )
                 result = None
         if result is None:
-            result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
+            try:
+                result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
+            except QFQDataNotReadyError as error:
+                if use_realtime_cache and not end_date:
+                    result = _get_realtime_history_fallback(
+                        symbol, period, bar_count, error
+                    )
+                else:
+                    raise
     except QFQDataNotReadyError as error:
         return _qfq_data_not_ready_response(error)
     return Response(json.dumps(result, cls=FqJsonEncoder), mimetype="application/json")
@@ -331,9 +423,7 @@ def get_stock_pools_list():
 def sync_stock_pools_from_tdx_self_select():
     try:
         days = int(request.args.get("days", "30"))
-        result = _get_stock_service().sync_stock_pools_from_tdx_self_select(
-            days=days
-        )
+        result = _get_stock_service().sync_stock_pools_from_tdx_self_select(days=days)
     except Exception as exc:
         logging.error(
             "sync stock_pools from TDX self-select failed: %s\n%s",

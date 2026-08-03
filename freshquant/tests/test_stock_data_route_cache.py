@@ -2,6 +2,7 @@ import importlib
 import json
 import sys
 import types
+from datetime import datetime as real_datetime
 
 import pytest
 
@@ -216,7 +217,9 @@ def test_stock_data_realtime_qfq_not_ready_falls_back_to_history(
         fallback_calls.append((symbol, period, end_date, bar_count))
         return {"source": "history", "symbol": symbol, "period": period}
 
-    monkeypatch.setattr(stock_routes, "_get_realtime_stock_data_from_cache", fail_realtime)
+    monkeypatch.setattr(
+        stock_routes, "_get_realtime_stock_data_from_cache", fail_realtime
+    )
     monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
 
     response = call_stock_data(
@@ -230,6 +233,81 @@ def test_stock_data_realtime_qfq_not_ready_falls_back_to_history(
         "period": "30m",
     }
     assert fallback_calls == [("sz000001", "30m", None, 0)]
+
+
+def test_stock_data_realtime_today_qfq_gap_uses_previous_trade_date(
+    monkeypatch, stock_routes
+):
+    class FakeDatetime:
+        @staticmethod
+        def now():
+            return real_datetime(2026, 8, 3, 10, 30)
+
+    calls = []
+
+    def fake_get_data_v2(symbol, period, end_date, bar_count=0):
+        calls.append((symbol, period, end_date, bar_count))
+        if end_date is None:
+            raise stock_routes.QFQDataNotReadyError(
+                "snapshot-bound intraday override is missing",
+                scope="stock",
+                code="300127",
+                missing_dates=["2026-08-03"],
+            )
+        return {"source": "history", "endDate": end_date, "barCount": bar_count}
+
+    monkeypatch.setattr(stock_routes, "datetime", FakeDatetime)
+    monkeypatch.setattr(
+        stock_routes, "_get_realtime_stock_data_from_cache", lambda *args: None
+    )
+    monkeypatch.setattr(
+        stock_routes,
+        "fq_trading_fetch_trade_dates",
+        lambda *args, **kwargs: ["2026-07-30", "2026-07-31", "2026-08-03"],
+    )
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sz300127",
+        period="15min",
+        realtimeCache="1",
+        barCount="5",
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "source": "history",
+        "endDate": "2026-07-31",
+        "barCount": 5,
+    }
+    assert calls == [
+        ("sz300127", "15m", None, 5),
+        ("sz300127", "15m", "2026-07-31", 5),
+    ]
+
+
+def test_stock_data_explicit_end_date_qfq_gap_stays_503(monkeypatch, stock_routes):
+    def fail(*_args, **_kwargs):
+        raise stock_routes.QFQDataNotReadyError(
+            "snapshot-bound intraday override is missing",
+            scope="stock",
+            code="300127",
+            missing_dates=["2026-08-03"],
+        )
+
+    monkeypatch.setattr(stock_routes, "get_data_v2", fail)
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sz300127",
+        period="15min",
+        endDate="2026-08-03",
+        realtimeCache="1",
+    )
+
+    assert response.status_code == 503
+    assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
 
 
 def test_stock_data_v2_maps_qfq_not_ready_to_503(monkeypatch, stock_routes):
