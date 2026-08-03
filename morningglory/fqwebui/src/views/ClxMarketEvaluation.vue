@@ -292,19 +292,36 @@ const resolveSnapshotBatchId = () => {
     ''
 }
 
-const resolveTdxBatchId = async () => {
-  const snapshotBatchId = resolveSnapshotBatchId()
-  if (snapshotBatchId) return snapshotBatchId
+const buildTdxItems = (members) => members.map((member) => ({
+  asset_type: 'stock',
+  symbol: member.symbol,
+}))
 
-  const latest = await clxDailySelectionApi.getLatestBatch({ includePartial: false })
-  const batch = latest?.data || latest || {}
-  const batchId = batch.batchId || batch.batch_id || batch.scopeId || batch.scope_id || ''
-  const batchTradeDate = batch.tradeDate || batch.trade_date || ''
-  if (batchTradeDate && data.value?.tradeDate && batchTradeDate !== data.value.tradeDate) {
-    throw new Error(`最新 CLX 正式批次交易日为 ${batchTradeDate}，当前评价快照交易日为 ${data.value.tradeDate}，未执行导入。`)
+const shouldFallbackToLocalTdxAdapter = (err) => {
+  const status = Number(err?.response?.status || 0)
+  const message = String(err?.response?.data?.message || err?.message || '')
+  return status === 502 ||
+    status === 504 ||
+    !err?.response ||
+    /Bad Gateway|Network Error|timeout|ECONNREFUSED|api_proxy_failed/i.test(message)
+}
+
+const syncGroupToTdxViaLocalAdapter = async (groupName, members) => {
+  const response = await fetch('/api/clx-evaluator/tdx-sync-group', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      scope_id: resolveSnapshotBatchId() || data.value?.runId || '',
+      trade_date: data.value?.tradeDate || '',
+      group_name: groupName,
+      items: buildTdxItems(members),
+    }),
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload?.message || `${groupName} 本地通达信导入失败`)
   }
-  if (!batchId) throw new Error('未取得可复用的 CLX 正式批次 batchId，未执行导入。')
-  return batchId
+  return payload
 }
 
 const importGroupToTdx = async (group) => {
@@ -314,20 +331,31 @@ const importGroupToTdx = async (group) => {
 
   runningTdxGroup.value = groupName
   try {
-    const batchId = await resolveTdxBatchId()
+    const batchId = resolveSnapshotBatchId()
+    if (!batchId) {
+      const result = await syncGroupToTdxViaLocalAdapter(groupName, members)
+      ElMessage.success(`已通过本地适配导入通达信 ${result.group_name || 'clx_18'}：${result.written_count ?? members.length} 只（${groupName}）`)
+      return
+    }
     const payload = await clxDailySelectionApi.syncSelectedBatchResultsToTdx(
       batchId,
       {
-        items: members.map((member) => ({
-          asset_type: 'stock',
-          symbol: member.symbol,
-        })),
+        items: buildTdxItems(members),
       },
     )
     const result = payload?.data || payload || {}
     ElMessage.success(`已导入通达信 ${result.group_name || 'clx_18'}：${result.written_count ?? members.length} 只（${groupName}）`)
   } catch (err) {
-    ElMessage.error(err?.response?.data?.message || `${groupName} 导入通达信失败`)
+    if (shouldFallbackToLocalTdxAdapter(err)) {
+      try {
+        const result = await syncGroupToTdxViaLocalAdapter(groupName, members)
+        ElMessage.success(`已通过本地适配导入通达信 ${result.group_name || 'clx_18'}：${result.written_count ?? members.length} 只（${groupName}）`)
+      } catch (fallbackErr) {
+        ElMessage.error(fallbackErr?.message || `${groupName} 导入通达信失败`)
+      }
+    } else {
+      ElMessage.error(err?.response?.data?.message || err?.message || `${groupName} 导入通达信失败`)
+    }
   } finally {
     runningTdxGroup.value = ''
   }
