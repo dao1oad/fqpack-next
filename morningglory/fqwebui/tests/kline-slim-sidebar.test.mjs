@@ -33,6 +33,26 @@ test('buildSidebarSections keeps fixed order and sidebar metadata', () => {
   assert.equal(sections.find(section => section.key === 'must_pool').deletable, true)
 })
 
+test('buildSidebarSections excludes holdings from stock_pools section', () => {
+  const stockPoolSection = buildSidebarSections({
+    holdings: [
+      { symbol: 'sz000001', name: '平安银行' },
+      { stock_code: '600000.SH', name: '浦发银行' }
+    ],
+    stockPools: [
+      { symbol: 'sz000001', name: '平安银行' },
+      { code: '600000', name: '浦发银行' },
+      { symbol: 'sz000002', name: '万科A' }
+    ],
+    expandedKey: 'stock_pools'
+  }).find(section => section.key === 'stock_pools')
+
+  assert.deepEqual(
+    stockPoolSection.items.map(item => item.code6),
+    ['000002']
+  )
+})
+
 test('toggleSidebarExpandedKey keeps at most one section expanded', () => {
   assert.equal(toggleSidebarExpandedKey('holding', 'must_pool'), 'must_pool')
   assert.equal(toggleSidebarExpandedKey('must_pool', 'must_pool'), '')
@@ -159,11 +179,19 @@ test('KlineSlim renders accordion toggle, stacked name/code, and delete affordan
 
   assert.match(content, /@click="toggleSidebarSection\(section.key\)"/)
   assert.match(content, /v-show="section.expanded"/)
+  assert.doesNotMatch(content, /sidebar-section-action/)
   assert.match(content, /class="sidebar-item-meta"/)
   assert.match(content, /class="sidebar-item-title"/)
   assert.match(content, /class="sidebar-item-subtitle"/)
   assert.match(content, /v-if="section.deletable"/)
   assert.match(content, /@confirm="deleteSidebarItem\(section.key, item\)"/)
+})
+
+test('KlineSlim stock_pools sync button uses compact self-select label', async () => {
+  const content = await readFile(new URL('../src/views/KlineSlim.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /同步自选股/)
+  assert.doesNotMatch(content, /同步通达信自选股/)
 })
 
 test('KlineSlim loads holding API data and renders item.name before code fallback', async () => {

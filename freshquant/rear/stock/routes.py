@@ -344,7 +344,7 @@ def sync_stock_pools_from_tdx_self_select():
             jsonify(
                 {
                     "code": "1",
-                    "msg": f"同步通达信自选股失败: {exc}",
+                    "msg": f"同步自选股失败: {exc}",
                 }
             ),
             500,

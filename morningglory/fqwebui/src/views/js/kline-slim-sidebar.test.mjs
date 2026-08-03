@@ -56,3 +56,25 @@ test('buildSidebarSections sorts holding items by position size descending and k
     ['招商银行(600036)', '工商银行(601398)', '平安银行(000001)', '宁德时代(300750)']
   )
 })
+
+test('buildSidebarSections hides stock_pools items already shown as holdings', () => {
+  const sections = buildSidebarSections({
+    holdings: [
+      { symbol: 'sz000001', name: '平安银行' },
+      { stock_code: '600000.SH', name: '浦发银行' }
+    ],
+    stockPools: [
+      { symbol: 'sz000001', name: '平安银行' },
+      { code: '600000', name: '浦发银行' },
+      { symbol: 'sz000002', name: '万科A' }
+    ],
+    expandedKey: 'stock_pools'
+  })
+
+  const stockPoolSection = sections.find((section) => section.key === 'stock_pools')
+
+  assert.deepEqual(
+    stockPoolSection.items.map((item) => item.code6),
+    ['000002']
+  )
+})

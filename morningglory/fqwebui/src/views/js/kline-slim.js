@@ -992,13 +992,15 @@ export default {
         await this.loadStockPools()
         const summary = result?.data || {}
         this.$message?.success?.(
-          '通达信自选股已同步：新增 ' +
+          '自选股已同步：新增 ' +
             (summary.appended_count || 0) +
             '，已存在 ' +
-            (summary.skipped_existing_count || 0)
+            (summary.skipped_existing_count || 0) +
+            '，持仓去重 ' +
+            (summary.skipped_holding_count || 0)
         )
       } catch (error) {
-        this.$message?.error?.('同步通达信自选股失败')
+        this.$message?.error?.('同步自选股失败')
       } finally {
         this.stockPoolsTdxSyncing = false
       }

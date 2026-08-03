@@ -15,7 +15,7 @@ from freshquant.db import DBfreshquant
 from freshquant.pre_pool_service import PrePoolService
 from freshquant.signal.a_stock_common import save_a_stock_pools
 from freshquant.strategy.toolkit.grid import plan_grid_distribution
-from freshquant.util.code import fq_util_code_append_market_code
+from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
 
 def _format_datetime(value, fmt):
@@ -33,6 +33,25 @@ def _normalize_page_size(page, size):
 TDX_SELF_SELECT_FILENAME = "ZXG.blk"
 TDX_SELF_SELECT_CATEGORY = "通达信自选股"
 TDX_SELF_SELECT_SOURCE = "tdx_self_select"
+
+
+def _normalize_stock_code6(value):
+    code = normalize_to_base_code(value or "")
+    return code if re.fullmatch(r"\d{6}", str(code or "")) else None
+
+
+def get_current_stock_holding_codes():
+    """Return current xt_positions base codes for stock_pools de-duplication."""
+    codes = set()
+    for record in DBfreshquant["xt_positions"].find(
+        {}, {"stock_code": 1, "code": 1, "symbol": 1}
+    ):
+        for key in ("symbol", "stock_code", "code"):
+            code = _normalize_stock_code6(record.get(key))
+            if code:
+                codes.add(code)
+                break
+    return codes
 
 
 def _require_tdx_home(tdx_home=None):
@@ -110,10 +129,16 @@ def sync_stock_pools_from_tdx_self_select(
     now = pendulum.now()
     expire_at = now.add(days=int(days or 30))
     appended_codes = []
+    skipped_holding_codes = []
     skipped_existing_codes = []
     skipped_invalid_codes = []
+    holding_codes = get_current_stock_holding_codes()
 
     for code in codes:
+        if code in holding_codes:
+            skipped_holding_codes.append(code)
+            continue
+
         existing = DBfreshquant["stock_pools"].find_one({"code": code})
         if existing is not None:
             skipped_existing_codes.append(code)
@@ -154,9 +179,11 @@ def sync_stock_pools_from_tdx_self_select(
         "read_count": len(codes),
         "unique_count": len(codes),
         "appended_count": len(appended_codes),
+        "skipped_holding_count": len(skipped_holding_codes),
         "skipped_existing_count": len(skipped_existing_codes),
         "skipped_invalid_count": len(skipped_invalid_codes),
         "appended_codes": appended_codes,
+        "skipped_holding_codes": skipped_holding_codes,
         "skipped_existing_codes": skipped_existing_codes,
         "skipped_invalid_codes": skipped_invalid_codes,
     }

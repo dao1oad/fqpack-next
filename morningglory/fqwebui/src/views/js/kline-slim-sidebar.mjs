@@ -51,9 +51,11 @@ const joinLabels = (values = []) => {
 }
 
 export const getSidebarCode6 = (item = {}) => {
-  const rawCode = toText(item.code || item.code6)
+  const rawCode = toText(item.code || item.code6 || item.stock_code)
   const symbol = toText(item.symbol)
   if (/^\d{6}$/.test(rawCode)) return rawCode
+  const rawCodeDigits = rawCode.replace(/\D/g, '')
+  if (/^\d{6}$/.test(rawCodeDigits)) return rawCodeDigits
   const digits = symbol.replace(/\D/g, '')
   return /^\d{6}$/.test(digits) ? digits : ''
 }
@@ -111,6 +113,25 @@ export const sortHoldingItemsByAmountDesc = (items = []) => {
     .map(({ item }) => item)
 }
 
+const getSidebarCodeSet = (items = []) => {
+  const codes = new Set()
+  for (const item of Array.isArray(items) ? items : []) {
+    const code6 = getSidebarCode6(item)
+    if (code6) codes.add(code6)
+  }
+  return codes
+}
+
+export const filterStockPoolsAgainstHoldings = (stockPools = [], holdings = []) => {
+  const holdingCodes = getSidebarCodeSet(holdings)
+  if (!holdingCodes.size) return Array.isArray(stockPools) ? stockPools : []
+  return (Array.isArray(stockPools) ? stockPools : [])
+    .filter((item) => {
+      const code6 = getSidebarCode6(item)
+      return !code6 || !holdingCodes.has(code6)
+    })
+}
+
 export const normalizeSidebarItem = (item = {}, { sectionKey = '' } = {}) => {
   const code6 = getSidebarCode6(item)
   const amount = item?.position_amount ?? item?.market_value ?? item?.amount
@@ -137,7 +158,12 @@ export const buildSidebarSections = ({
   prePools = [],
   expandedKey = 'holding'
 } = {}) => {
-  const sourceMap = { holdings, mustPools, stockPools, prePools }
+  const sourceMap = {
+    holdings,
+    mustPools,
+    stockPools: filterStockPoolsAgainstHoldings(stockPools, holdings),
+    prePools
+  }
   return SECTION_DEFS.map((section) => ({
     key: section.key,
     label: section.label,

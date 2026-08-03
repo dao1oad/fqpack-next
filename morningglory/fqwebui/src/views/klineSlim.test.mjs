@@ -65,7 +65,8 @@ test('KlineSlim stock_pools sidebar can sync TDX self-select symbols', () => {
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
   const apiSource = fs.readFileSync(new URL('../api/stockApi.js', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /同步通达信自选股/)
+  assert.match(viewSource, /同步自选股/)
+  assert.doesNotMatch(viewSource, /同步通达信自选股/)
   assert.match(viewSource, /section\.key === 'stock_pools'/)
   assert.match(viewSource, /@click\.stop="syncStockPoolsFromTdxSelfSelect"/)
   assert.match(scriptSource, /stockPoolsTdxSyncing: false/)
