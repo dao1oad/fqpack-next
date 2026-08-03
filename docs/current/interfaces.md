@@ -66,6 +66,7 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/stock_data_chanlun_structure`
 - `/api/guardian_buy_grid_state`
 - `/api/get_stock_pools_list`
+- `POST /api/sync_stock_pools_from_tdx_self_select`
 - `/api/get_stock_pre_pools_list`
 - `/api/get_stock_must_pools_list`
 - `/api/add_to_stock_pools_by_code`
@@ -168,6 +169,14 @@ python -m freshquant.rear.api_server --port 5000
   - `position_series` 按真实成交时点连续回放，并在窗口起点和终点提供仓位锚点；即使窗口内没有成交，持仓阶梯线也覆盖整个请求时间窗。同秒跨订单、缺少可证明先后关系时，订单事件以 `data_quality` 明示仓位归属不确定，不承诺任一订单的确定前后仓位
   - 当一个策略请求拆分为多个订单或账户分区、但没有可用分配证据时，相关 `expected_quantity` 返回 `null` 并附带 `expected_quantity_ambiguous_across_orders` warning，避免在数量轨重复计算策略应有量
   - `events[].signal` 只在存在 `request_id / internal_order_id / trace_id / intent_id` 等明确关联键时返回；不以时间邻近规则伪造信号与订单关联
+- `/api/stock_data`、`/api/stock_data_v2`、`/api/stock_data_chanlun_structure`
+  - 当前分钟周期参数兼容 `1min / 5min / 15min / 30min` 与 `1m / 5m / 15m / 30m`，进入服务前统一归一到前端/缠论服务使用的 `1m / 5m / 15m / 30m`
+  - `/api/stock_data?realtimeCache=1` 优先读取实时 K 线缓存；若仅实时 QFQ 当日覆盖未就绪，则记录 warning 并回退历史 K 线读取，避免行情图表左侧列表标的出现主图空白
+  - 非实时历史读取或结构读取遇到 QFQ 未就绪时仍返回 `QFQ_DATA_NOT_READY` 对应 HTTP 状态
+- `POST /api/sync_stock_pools_from_tdx_self_select`
+  - 从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 读取通达信自选股，解码为 6 位标的代码后去重追加到 `freshquant.stock_pools`
+  - 查询参数 `days` 控制新增记录有效期，默认 `30`
+  - 返回 `appended_count / skipped_existing_count / skipped_invalid_count` 与对应代码列表；只写 `stock_pools`，不写 `must_pool`，不触发交易动作
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`

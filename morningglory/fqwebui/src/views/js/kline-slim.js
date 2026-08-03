@@ -388,6 +388,7 @@ export default {
       holdings: [],
       mustPools: [],
       stockPools: [],
+      stockPoolsTdxSyncing: false,
       prePools: [],
       sidebarLoading: {
         holding: false,
@@ -976,6 +977,30 @@ export default {
         this.sidebarErrors.stock_pools = '加载失败'
       } finally {
         this.sidebarLoading.stock_pools = false
+      }
+    },
+    async syncStockPoolsFromTdxSelfSelect() {
+      if (this.stockPoolsTdxSyncing) {
+        return
+      }
+      this.stockPoolsTdxSyncing = true
+      try {
+        const result = await stockApi.syncStockPoolsFromTdxSelfSelect({ days: 30 })
+        if (result && String(result.code ?? '0') !== '0') {
+          throw new Error(result.msg || 'sync_stock_pools_from_tdx_self_select failed')
+        }
+        await this.loadStockPools()
+        const summary = result?.data || {}
+        this.$message?.success?.(
+          '通达信自选股已同步：新增 ' +
+            (summary.appended_count || 0) +
+            '，已存在 ' +
+            (summary.skipped_existing_count || 0)
+        )
+      } catch (error) {
+        this.$message?.error?.('同步通达信自选股失败')
+      } finally {
+        this.stockPoolsTdxSyncing = false
       }
     },
     async addCurrentSymbolToClx15Monitor() {

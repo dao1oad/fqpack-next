@@ -12,6 +12,7 @@
   - `/api/stock_data`
   - `/api/stock_data_v2`
   - `/api/stock_data_chanlun_structure`
+  - `POST /api/sync_stock_pools_from_tdx_self_select`
   - `/api/subject-management/<symbol>`
   - `/api/subject-management/<symbol>/guardian-buy-grid`
   - `/api/order-management/stoploss/bind`
@@ -45,7 +46,7 @@
 ## 当前页面结构
 
 - 三栏统一布局
-  - 左栏：CLX 批次/scope、完整筛选条件和 cursor 结果列表
+  - 左栏：持仓、`stock_pools`、`must_pool`、预选池和 CLX 批次/scope、完整筛选条件、cursor 结果列表；`stock_pools` 分组提供 `同步通达信自选股` 按钮，可从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 去重追加到 `freshquant.stock_pools`
   - 中栏：当前标的主图与多周期结构
   - 右栏：CLX 信号显示控制、时间轴和证据详情
 - 标的设置浮层
@@ -87,6 +88,9 @@
   - K 线加载完成后，按当前主图时间窗请求 `/api/position-review/symbols/<symbol>/timeline`
   - 前端只消费订单级 `events` 和连续 `position_series`；成交笔数和均价仅作为订单聚合字段，不渲染逐笔 fill。窗口请求中的实际成交量只代表当前主图窗口内成交
   - 服务未部署或返回 `404` 时，复盘层显示明确的不可用状态，不会退回旧请求级 `reviews` 并伪装为订单级复盘
+- `stock_pools` 左栏
+  - 列表来自 `/api/get_stock_pools_list`；点击任一标的后使用同一 K 线加载链路，因此 `15min / 30min` 兼容别名与实时缓存 QFQ 未就绪回退对所有左侧列表标的生效
+  - `同步通达信自选股` 调用 `POST /api/sync_stock_pools_from_tdx_self_select?days=30`，只把新增标的写入 `stock_pools`，不写 `must_pool`，不触发下单；同步完成后刷新 `stock_pools` 列表并提示新增/已存在数量
 - `CLX 左栏`
   - 先请求 batch 列表和默认 latest `published/not_required` final，再查询当前 scope 结果
   - `include_partial=1` 只用于观察最新运行/发布状态；未显式选择 partial 时，左栏仍保持 latest published final
@@ -105,7 +109,7 @@
 - `entry stoploss` 当前合并在同一个标的设置浮层里编辑
 - 图表页不再直接展示长 `buy_lot_id`
 - 交易复盘是可选只读覆盖层，不改变 K 线主图、订单账本、持仓真值或策略执行逻辑
-- CLX 工作台也是只读覆盖层，不写 batch、partition、选股结果、股票池或策略参数
+- CLX 工作台不写 batch、partition、选股结果或策略参数；仅在用户显式点击 `加入clx15分钟监控` 时把当前标的加入 `stock_pools`，且不写 `must_pool`、不触发下单
 - `/kline-slim` 的 CLX mode query 是 CLX 正式入口；裸路径保留普通模式，`/clx-daily-screening` 只执行兼容 query 映射与 redirect，不再承载独立工作台
 - partial 只允许明确展示已完成 partition，不能冒充 final；跨资产统计仍由 CLX finalizer 的完整 batch 提供
 - 旧 `/daily-screening` 的 12 模型结果不混入 Kline CLX section

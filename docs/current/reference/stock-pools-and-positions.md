@@ -91,6 +91,10 @@
   - `/kline-slim?clxScreening=1&clxWorkbench=1&period=1d` 右侧 `CLX 信号工作台` 的 `加入clx15分钟监控` 按钮会把当前标的写入 `stock_pools`
   - 该按钮只加入 `stock_pools`，不加入 `must_pool`，不触发下单
   - 写入后可作为 `clx_15_30_only` 的实时监控池来源
+- KlineSlim 从通达信自选股同步到 `stock_pools`
+  - `/kline-slim` 左侧 `stock_pools` 分组的 `同步通达信自选股` 按钮调用 `POST /api/sync_stock_pools_from_tdx_self_select?days=30`
+  - 后端读取当前 TDX home 下的 `T0002/blocknew/ZXG.blk`，解码通达信前缀代码并按 `code` 去重追加
+  - 同步只写 `stock_pools`，不写 `must_pool`，不触发下单；新增记录默认有效期 30 天，并写入 `tdx_self_select` 来源
 - 代码加入 `must_pool`
   - `/api/add_to_must_pool_by_code`
   - 当前显式加入后统一固定写 `forever=true`
