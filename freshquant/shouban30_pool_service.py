@@ -468,8 +468,12 @@ def _build_stock_pool_doc_from_source(source_doc, order, existing_doc=None):
         if existing_doc is not None and _workspace_order(existing_doc) is not None
         else order
     )
-    extra["shouban30_source"] = source_extra.get("shouban30_source") or source_extra.get("source") or "pre_pool"
-    extra["shouban30_from_category"] = source_doc.get("category") or SHOUBAN30_PRE_POOL_CATEGORY
+    extra["shouban30_source"] = (
+        source_extra.get("shouban30_source") or source_extra.get("source") or "pre_pool"
+    )
+    extra["shouban30_from_category"] = (
+        source_doc.get("category") or SHOUBAN30_PRE_POOL_CATEGORY
+    )
     for key in (
         "shouban30_provider",
         "shouban30_plate_key",
@@ -575,7 +579,6 @@ def append_pre_pool(items, context=None):
     }
 
 
-
 def _build_stock_pool_source_doc(item, context=None):
     context = dict(context or {})
     extra = {
@@ -629,14 +632,20 @@ def append_stock_pool(items, context=None):
                 {
                     "$set": _build_stock_pool_doc_from_source(
                         source_doc,
-                        _workspace_order(existing_doc) if _workspace_order(existing_doc) is not None else 0,
+                        (
+                            _workspace_order(existing_doc)
+                            if _workspace_order(existing_doc) is not None
+                            else 0
+                        ),
                         existing_doc=existing_doc,
                     )
                 },
             )
             skipped_count += 1
             continue
-        DBfreshquant["stock_pools"].insert_one(_build_stock_pool_doc(source_doc, next_order))
+        DBfreshquant["stock_pools"].insert_one(
+            _build_stock_pool_doc(source_doc, next_order)
+        )
         existing_docs_by_code[item["code"]] = source_doc
         next_order += 1
         appended_count += 1
@@ -646,6 +655,7 @@ def append_stock_pool(items, context=None):
         "skipped_count": skipped_count,
         "category": SHOUBAN30_STOCK_POOL_CATEGORY,
     }
+
 
 def _clear_pool(collection_name, category, syncer):
     delete_result = DBfreshquant[collection_name].delete_many({"category": category})

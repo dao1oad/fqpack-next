@@ -728,9 +728,9 @@ def test_etf_universe_policy_excludes_lof_by_code_and_name():
         "502000",
         "506001",
     ]
-    assert {
-        row["classification"] for row in evidence["policy_excluded_symbols"]
-    } == {"lof_subject"}
+    assert {row["classification"] for row in evidence["policy_excluded_symbols"]} == {
+        "lof_subject"
+    }
     assert [call[2] for call in provider.calls if call[0] == "probe"] == ["510300"]
 
 

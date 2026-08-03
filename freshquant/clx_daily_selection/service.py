@@ -2999,9 +2999,10 @@ class ClxDailySelectionService:
             + len(reader_isolations)
         ):
             raise RuntimeError("CLX candidate universe accounting mismatch")
-        if evidence.get("credit_subject_snapshot_ready") is not True or int(
-            evidence.get("credit_subject_count") or 0
-        ) <= 0:
+        if (
+            evidence.get("credit_subject_snapshot_ready") is not True
+            or int(evidence.get("credit_subject_count") or 0) <= 0
+        ):
             raise RuntimeError("CLX credit subject evidence is incomplete")
 
     def _normalize_universe_candidates(self, rows) -> list[dict[str, str]]:
@@ -3113,7 +3114,9 @@ class ClxDailySelectionService:
                 lookup = {}
             return lookup, ready, account
 
-        from freshquant.data.gantt_readmodel import _load_shouban30_credit_subject_lookup
+        from freshquant.data.gantt_readmodel import (
+            _load_shouban30_credit_subject_lookup,
+        )
         from freshquant.system_settings import system_settings
 
         lookup, ready = _load_shouban30_credit_subject_lookup()

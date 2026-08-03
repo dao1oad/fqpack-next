@@ -56,10 +56,7 @@ def get_current_stock_holding_codes():
 
 def _require_tdx_home(tdx_home=None):
     value = str(
-        tdx_home
-        or bootstrap_config.tdx.home
-        or os.environ.get("TDX_HOME")
-        or ""
+        tdx_home or bootstrap_config.tdx.home or os.environ.get("TDX_HOME") or ""
     ).strip()
     if not value:
         raise RuntimeError("TDX_HOME not configured")
