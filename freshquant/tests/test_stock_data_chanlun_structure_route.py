@@ -91,6 +91,7 @@ def _install_route_stubs(monkeypatch):
     stock_service = types.ModuleType("freshquant.stock_service")
     stock_service.get_stock_signal_list = lambda *args, **kwargs: []
     stock_service.get_stock_pools_list = lambda *args, **kwargs: []
+    stock_service.sync_stock_pools_from_tdx_self_select = lambda *args, **kwargs: {}
 
     monkeypatch.setitem(sys.modules, "flask", flask_module)
     monkeypatch.setitem(sys.modules, "func_timeout", func_timeout_module)
@@ -152,6 +153,25 @@ def test_stock_data_chanlun_structure_route_calls_service(monkeypatch, stock_rou
         "endDate": "2026-03-07",
     }
     assert called["args"] == ("sz000001", "5m", "2026-03-07")
+
+
+def test_stock_data_chanlun_structure_normalizes_backend_minute_alias(
+    monkeypatch, stock_routes
+):
+    called = {}
+
+    def fake_service(symbol, period, end_date):
+        called["args"] = (symbol, period, end_date)
+        return {"period": period}
+
+    monkeypatch.setattr(stock_routes, "get_chanlun_structure", fake_service)
+    stock_routes.request.args = {"symbol": "sz000001", "period": "15min"}
+
+    response = stock_routes.stock_data_chanlun_structure()
+
+    assert response.status_code == 200
+    assert response.get_json() == {"period": "15m"}
+    assert called["args"] == ("sz000001", "15m", None)
 
 
 def test_stock_data_chanlun_structure_maps_qfq_not_ready_to_503(

@@ -41,6 +41,7 @@ from freshquant.util.period import (
     get_redis_cache_key,
     is_supported_realtime_period,
     to_backend_period,
+    to_frontend_period,
 )
 
 try:
@@ -243,7 +244,7 @@ def _tail_stock_data_payload(payload, bar_count):
 
 @stock_bp.route("/stock_data")
 def stock_data():
-    period = request.args.get("period")
+    period = to_frontend_period(request.args.get("period"))
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
     bar_count = _parse_bar_count(request.args.get("barCount"))
@@ -255,8 +256,18 @@ def stock_data():
     try:
         result = None
         if use_realtime_cache:
-            result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
-            result = _tail_stock_data_payload(result, bar_count)
+            try:
+                result = _get_realtime_stock_data_from_cache(symbol, period, end_date)
+                result = _tail_stock_data_payload(result, bar_count)
+            except QFQDataNotReadyError as error:
+                logging.warning(
+                    "stock_data realtime cache not ready, fallback to history: "
+                    "symbol=%s period=%s error=%s",
+                    symbol,
+                    period,
+                    error,
+                )
+                result = None
         if result is None:
             result = get_data_v2(symbol, period, end_date, bar_count=bar_count)
     except QFQDataNotReadyError as error:
@@ -266,7 +277,7 @@ def stock_data():
 
 @stock_bp.route("/stock_data_v2")
 def stock_data_v2():
-    period = request.args.get("period")
+    period = to_frontend_period(request.args.get("period"))
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
     try:
@@ -278,7 +289,7 @@ def stock_data_v2():
 
 @stock_bp.route("/stock_data_chanlun_structure")
 def stock_data_chanlun_structure():
-    period = request.args.get("period")
+    period = to_frontend_period(request.args.get("period"))
     symbol = request.args.get("symbol")
     end_date = request.args.get("endDate")
     try:
@@ -314,6 +325,31 @@ def get_stock_pools_list():
         page = 1
     pools_list = _get_stock_service().get_stock_pools_list(page)
     return jsonify(pools_list)
+
+
+@stock_bp.route("/sync_stock_pools_from_tdx_self_select", methods=["POST"])
+def sync_stock_pools_from_tdx_self_select():
+    try:
+        days = int(request.args.get("days", "30"))
+        result = _get_stock_service().sync_stock_pools_from_tdx_self_select(
+            days=days
+        )
+    except Exception as exc:
+        logging.error(
+            "sync stock_pools from TDX self-select failed: %s\n%s",
+            exc,
+            traceback.format_exc(),
+        )
+        return (
+            jsonify(
+                {
+                    "code": "1",
+                    "msg": f"同步通达信自选股失败: {exc}",
+                }
+            ),
+            500,
+        )
+    return jsonify({"code": "0", "msg": "操作成功", "data": result})
 
 
 # 计算股票网格交易计划

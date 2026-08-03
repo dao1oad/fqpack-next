@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 
+import os
 import re
+from pathlib import Path
 
 import pandas as pd
 import pendulum
 import pymongo
 
 import freshquant.util.df_helper as df_helper
+from freshquant.bootstrap_config import bootstrap_config
 from freshquant.data.astock import must_pool
 from freshquant.db import DBfreshquant
 from freshquant.pre_pool_service import PrePoolService
@@ -25,6 +28,138 @@ def _normalize_page_size(page, size):
     page = max(int(page or 1), 1)
     size = max(int(size or 1000), 1)
     return page, size
+
+
+TDX_SELF_SELECT_FILENAME = "ZXG.blk"
+TDX_SELF_SELECT_CATEGORY = "通达信自选股"
+TDX_SELF_SELECT_SOURCE = "tdx_self_select"
+
+
+def _require_tdx_home(tdx_home=None):
+    value = str(
+        tdx_home
+        or bootstrap_config.tdx.home
+        or os.environ.get("TDX_HOME")
+        or ""
+    ).strip()
+    if not value:
+        raise RuntimeError("TDX_HOME not configured")
+    return Path(value)
+
+
+def _tdx_self_select_path(tdx_home=None, filename=TDX_SELF_SELECT_FILENAME):
+    return _require_tdx_home(tdx_home) / "T0002" / "blocknew" / filename
+
+
+def decode_tdx_self_select_code(line):
+    """Decode one TDX .blk self-select line into a 6-digit China security code."""
+    raw = str(line or "").strip().upper()
+    if not raw:
+        return None
+
+    compact = re.sub(r"\s+", "", raw)
+    if re.fullmatch(r"[012]\d{6}", compact):
+        return _decode_tdx_prefixed_code(compact)
+    if re.fullmatch(r"\d{6}", compact):
+        return compact
+
+    digits = re.sub(r"\D", "", compact)
+    if re.fullmatch(r"[012]\d{6}", digits):
+        return _decode_tdx_prefixed_code(digits)
+    if re.fullmatch(r"\d{6}", digits):
+        return digits
+    return None
+
+
+def _decode_tdx_prefixed_code(value):
+    market_prefix = value[0]
+    code = value[1:]
+    if market_prefix == "1":
+        return code if code.startswith(("5", "6", "9", "11", "12")) else None
+    if market_prefix == "0":
+        return code if code.startswith(("0", "1", "2", "3")) else None
+    if market_prefix == "2":
+        return code if code.startswith(("4", "8", "92")) else None
+    return None
+
+
+def read_tdx_self_select_codes(tdx_home=None, filename=TDX_SELF_SELECT_FILENAME):
+    path = _tdx_self_select_path(tdx_home=tdx_home, filename=filename)
+    if not path.exists():
+        raise FileNotFoundError(f"TDX self-select file not found: {path}")
+
+    text = path.read_bytes().decode("gbk", errors="ignore")
+    codes = []
+    for line in text.splitlines():
+        code = decode_tdx_self_select_code(line)
+        if code and code not in codes:
+            codes.append(code)
+    return codes
+
+
+def sync_stock_pools_from_tdx_self_select(
+    days=30,
+    *,
+    tdx_home=None,
+    filename=TDX_SELF_SELECT_FILENAME,
+    category=TDX_SELF_SELECT_CATEGORY,
+    source=TDX_SELF_SELECT_SOURCE,
+):
+    """Append TDX self-select symbols into freshquant.stock_pools without duplicates."""
+    codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
+    now = pendulum.now()
+    expire_at = now.add(days=int(days or 30))
+    appended_codes = []
+    skipped_existing_codes = []
+    skipped_invalid_codes = []
+
+    for code in codes:
+        existing = DBfreshquant["stock_pools"].find_one({"code": code})
+        if existing is not None:
+            skipped_existing_codes.append(code)
+            continue
+
+        save_a_stock_pools(
+            code=code,
+            category=category,
+            dt=now,
+            stop_loss_price=None,
+            expire_at=expire_at,
+            sources=[source],
+            categories=[category],
+            memberships=[
+                {
+                    "source": source,
+                    "category": category,
+                    "added_at": now,
+                    "expire_at": expire_at,
+                    "extra": {
+                        "entrypoint": "tdx_self_select",
+                        "file_name": filename,
+                    },
+                }
+            ],
+            remark="tdx_self_select",
+        )
+        if DBfreshquant["stock_pools"].find_one({"code": code}) is None:
+            skipped_invalid_codes.append(code)
+            continue
+        appended_codes.append(code)
+
+    return {
+        "file_name": filename,
+        "file_path": str(_tdx_self_select_path(tdx_home=tdx_home, filename=filename)),
+        "category": category,
+        "source": source,
+        "read_count": len(codes),
+        "unique_count": len(codes),
+        "appended_count": len(appended_codes),
+        "skipped_existing_count": len(skipped_existing_codes),
+        "skipped_invalid_count": len(skipped_invalid_codes),
+        "appended_codes": appended_codes,
+        "skipped_existing_codes": skipped_existing_codes,
+        "skipped_invalid_codes": skipped_invalid_codes,
+    }
 
 
 def get_stock_signal_list(page=1, size=1000, category="candidates"):
