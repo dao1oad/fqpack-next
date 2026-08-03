@@ -1,10 +1,3 @@
-import {
-  buildKlineClxScreeningQuery,
-  parseKlineClxQuery,
-  parseKlineClxScreeningQuery,
-  stripLegacyClxQueryAliases,
-} from '../views/js/kline-slim-clx.mjs'
-
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key)
 
 const firstPresent = (value, keys = []) => {
@@ -13,33 +6,33 @@ const firstPresent = (value, keys = []) => {
   return key ? source[key] : undefined
 }
 
-const withLegacyScreeningAliases = (query = {}) => ({
-  ...(query || {}),
-  clxFilterModels: firstPresent(query, ['clxFilterModels', 'model_keys', 'clxModels']),
-  clxFilterConditions: firstPresent(query, ['clxFilterConditions', 'condition_keys', 'clxConditions']),
-})
+const appendIfPresent = (target, key, value) => {
+  if (value !== undefined && value !== null && String(value).trim()) target[key] = value
+}
 
 export const buildClxDailyScreeningRedirect = (to = {}) => {
   const incoming = { ...(to?.query || {}) }
-  const screeningState = parseKlineClxScreeningQuery(withLegacyScreeningAliases(incoming))
-  const selectedAssetType = parseKlineClxQuery(incoming).assetType
-  const baseQuery = stripLegacyClxQueryAliases(incoming)
+  const query = { ...incoming, tab: 'clx' }
 
-  // On the legacy screening route these names represented result filters, not
-  // right-hand marker visibility. They are migrated to clxFilter* above.
-  delete baseQuery.clxModels
-  delete baseQuery.clxConditions
+  appendIfPresent(query, 'scope_id', firstPresent(incoming, ['scope_id', 'scopeId', 'clxScope']))
+  appendIfPresent(query, 'asset_types', firstPresent(incoming, ['asset_types', 'clxAssets', 'clxAssetType']))
+  appendIfPresent(query, 'model_keys', firstPresent(incoming, ['model_keys', 'clxFilterModels', 'clxModels']))
+  appendIfPresent(query, 'condition_keys', firstPresent(incoming, ['condition_keys', 'clxFilterConditions', 'clxConditions']))
 
-  const query = buildKlineClxScreeningQuery(baseQuery, {
-    ...screeningState,
-    screeningOpen: true,
-  })
-  if (selectedAssetType) query.clxAssetType = selectedAssetType
-  query.clxWorkbench = '1'
-  if (!String(query.period || '').trim()) query.period = '1d'
+  delete query.clxScreening
+  delete query.clxWorkbench
+  delete query.period
+  delete query.clxScope
+  delete query.scopeId
+  delete query.clxAssetType
+  delete query.clxAssets
+  delete query.clxFilterModels
+  delete query.clxFilterConditions
+  delete query.clxModels
+  delete query.clxConditions
 
   return {
-    path: '/kline-slim',
+    path: '/daily-screening',
     query,
     hash: to?.hash,
   }

@@ -88,7 +88,7 @@ export const HEADER_NAV_TARGETS = {
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
   ['klineSlim', 'positionManagement', 'positionReview', 'runtime'],
-  ['gantt', 'shouban30', 'clxDailyScreening'],
+  ['gantt', 'shouban30', 'dailyScreening'],
   ['stock', 'pool'],
 ]
 

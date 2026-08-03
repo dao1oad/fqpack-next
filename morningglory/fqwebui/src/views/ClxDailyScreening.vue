@@ -1,6 +1,6 @@
 <template>
-  <WorkbenchPage class="clx-screening-page">
-    <MyHeader />
+  <WorkbenchPage class="clx-screening-page" :class="{ 'clx-screening-page--embedded': embedded }">
+    <MyHeader v-if="!embedded" />
     <div class="workbench-body clx-screening-body">
       <header class="clx-screening-header">
         <div class="clx-screening-title-row">
@@ -179,7 +179,19 @@
                   <strong>{{ queryResult.total }}</strong>
                   <span> 条服务端结果</span>
                 </div>
-                <StatusChip variant="muted">模型数 ↓ / 条件数 ↓ / symbol ↑</StatusChip>
+                <div class="clx-results-actions">
+                  <StatusChip variant="muted">模型数 ↓ / 条件数 ↓ / symbol ↑</StatusChip>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    plain
+                    :disabled="!queryResult.rows.length || !selectedScopeId"
+                    :loading="runningActionKey === 'tdx:selected-results'"
+                    @click="syncVisibleRowsToTdx"
+                  >
+                    导入通达信
+                  </el-button>
+                </div>
               </div>
               <div class="clx-results-table-wrap" v-loading="loading.results">
                 <el-table
@@ -227,6 +239,20 @@
                     <template #default="{ row }">{{ formatLineState(row.aboveMa250.state) }}</template>
                   </el-table-column>
                   <el-table-column label="最近触发" min-width="112" prop="latestTrigger" />
+                  <el-table-column label="操作" width="190" fixed="right">
+                    <template #default="{ row }">
+                      <el-button size="small" type="primary" link @click.stop="openRowInKline(row)">看图</el-button>
+                      <el-button
+                        size="small"
+                        type="success"
+                        link
+                        :loading="runningActionKey === `stock-monitor:${row.symbol}`"
+                        @click.stop="addRowToClx15Monitor(row)"
+                      >
+                        加入clx15分钟监控
+                      </el-button>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="数据" width="74">
                     <template #default="{ row }">{{ row.dataQuality || '-' }}</template>
                   </el-table-column>
@@ -376,7 +402,10 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
+
 import { clxDailySelectionApi } from '@/api/clxDailySelectionApi.js'
+import { appendShouban30StockPool } from '@/api/ganttShouban30.js'
 import MyHeader from '@/views/MyHeader.vue'
 import StatusChip from '@/components/workbench/StatusChip.vue'
 import WorkbenchPage from '@/components/workbench/WorkbenchPage.vue'
@@ -399,8 +428,18 @@ import {
   pickDefaultClxScope,
 } from './clxDailySelection.mjs'
 
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+})
+
 const route = useRoute()
 const router = useRouter()
+
+const activeRoutePath = () => (props.embedded ? '/daily-screening' : '/clx-daily-screening')
+const isActiveClxRoute = () => (
+  route.path === activeRoutePath() &&
+  (!props.embedded || String(route.query?.tab || 'intersection') === 'clx')
+)
 
 const emptySummary = () => normalizeClxSummary({})
 const emptyQueryResult = () => normalizeClxSelectionQuery({})
@@ -419,6 +458,7 @@ const activeTab = ref('results')
 const modelSearch = ref('')
 const cursorStack = ref([])
 const currentCursor = ref('')
+const runningActionKey = ref('')
 const pageError = ref('')
 const loading = reactive({ bootstrap: false, scope: false, results: false, statistics: false, detail: false })
 const filters = reactive({
@@ -534,8 +574,10 @@ const syncRoute = async (navigationId = navigationEpoch) => {
   try {
     if (navigationId !== navigationEpoch) return
     await router.replace({
-      path: '/clx-daily-screening',
-      query: buildClxSelectionRouteQuery({
+      path: activeRoutePath(),
+      query: {
+        ...(props.embedded ? { tab: 'clx' } : {}),
+        ...buildClxSelectionRouteQuery({
         scopeId: selectedScopeId.value,
         q: filters.q,
         assetTypes: filters.assetTypes,
@@ -545,6 +587,7 @@ const syncRoute = async (navigationId = navigationEpoch) => {
         minModelCount: filters.minModelCount,
         symbol: selectedRow.value?.symbol || '',
       }),
+      },
     })
   } finally {
     routeSyncing = false
@@ -720,7 +763,7 @@ const selectRouteScope = async (scopeId) => {
   const isCurrent = () => (
     navigationEpoch === navigationId &&
     routeScopeRequests.isCurrent(token, requestKey) &&
-    route.path === '/clx-daily-screening' &&
+    isActiveClxRoute() &&
     parseClxSelectionRouteQuery(route.query).scopeId === scopeId
   )
   let prefetchedSummary = null
@@ -809,6 +852,56 @@ const openRowInKline = (row) => {
   })
 }
 const openSelectedInKline = () => openRowInKline(selectedRow.value)
+
+
+const syncVisibleRowsToTdx = async () => {
+  if (!selectedScopeId.value || !queryResult.value.rows.length) return
+  runningActionKey.value = 'tdx:selected-results'
+  try {
+    const payload = await clxDailySelectionApi.syncSelectedBatchResultsToTdx(
+      selectedScopeId.value,
+      {
+        items: queryResult.value.rows.map((row) => ({
+          asset_type: row.assetType || 'stock',
+          symbol: row.symbol,
+        })),
+      },
+    )
+    const data = payload?.data || payload || {}
+    ElMessage.success(`已导入通达信 clx_18：${data.written_count ?? queryResult.value.rows.length} 条`)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || 'CLX 18 导入通达信失败')
+  } finally {
+    runningActionKey.value = ''
+  }
+}
+
+const addRowToClx15Monitor = async (row) => {
+  const code6 = String(row?.code || row?.symbol || '').replace(/\D/g, '').slice(0, 6)
+  if (!code6) return
+  runningActionKey.value = `stock-monitor:${row.symbol}`
+  try {
+    const payload = await appendShouban30StockPool({
+      items: [{ code6, name: row.name || code6 }],
+      context: {
+        source: 'clx15_monitor',
+        category: 'CLX15分钟监控',
+        clx_scope_id: selectedScopeId.value,
+        clx_asset_type: row.assetType || 'stock',
+        clx_model_keys: row.modelKeys.join(','),
+      },
+    })
+    const data = payload?.data || payload || {}
+    const appended = Number(data.appended_count ?? 0)
+    const skipped = Number(data.skipped_count ?? 0)
+    ElMessage.success(appended > 0 ? `${code6} 已加入 stock_pools` : `${code6} 已在 stock_pools 中（更新 CLX15 来源）`)
+    if (skipped > 0 && appended > 0) ElMessage.info(`${code6} stock_pools 已存在记录已合并来源`)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || `${code6} 加入 stock_pools 失败`)
+  } finally {
+    runningActionKey.value = ''
+  }
+}
 const nextPage = async () => {
   if (!queryResult.value.nextCursor) return
   cursorStack.value.push(currentCursor.value)
@@ -843,7 +936,7 @@ watch(
 )
 
 watch(() => route.fullPath, async () => {
-  if (routeSyncing || route.path !== '/clx-daily-screening') return
+  if (routeSyncing || !isActiveClxRoute()) return
   const routeState = applyRouteState()
   if (loading.bootstrap) {
     await loadBootstrap()
@@ -869,6 +962,11 @@ onBeforeUnmount(() => {
 .clx-screening-page {
   background: #eef1f5;
   color: #172033;
+}
+
+.clx-screening-page--embedded {
+  min-height: 0;
+  height: 100%;
 }
 
 .clx-screening-body {
@@ -905,6 +1003,7 @@ onBeforeUnmount(() => {
 }
 
 .clx-screening-actions,
+.clx-results-actions,
 .clx-scope-state-row,
 .clx-latest-progress,
 .clx-detail-summary {
@@ -1071,6 +1170,7 @@ button.clx-kpi:hover {
 }
 
 .clx-results-toolbar,
+.clx-results-actions,
 .clx-pagination-row {
   flex: 0 0 auto;
   justify-content: space-between;

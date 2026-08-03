@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 
 import {
   buildClxSelectionQueryPayload,
+  CLX_DAILY_SELECTION_MODEL_KEYS,
   createClxRequestChannel,
   formatClxNumber,
   getClxScopeStatusMeta,
   mergeClxScopes,
+  normalizeClxCatalog,
   normalizeClxScope,
   normalizeClxStatistics,
   normalizeClxSummary,
@@ -19,6 +21,21 @@ const completedPartition = (assetType) => ({
   execution_status: 'completed',
   selection_key: `2026-07-31|${assetType}|production_v1`,
   attempt_no: 1,
+})
+
+test('normalizeClxCatalog keeps only S0000-S0017 and maps numeric 10000-10017', () => {
+  const catalog = normalizeClxCatalog({
+    models: [
+      { model_key: '10000', display_name: 'numeric first' },
+      { model_key: 'S0017', display_name: 'last' },
+      { model_key: '10018', display_name: 'outside numeric' },
+      { model_key: 'S0018', display_name: 'outside key' },
+    ],
+  })
+
+  assert.deepEqual(CLX_DAILY_SELECTION_MODEL_KEYS.slice(0, 2), ['S0000', 'S0001'])
+  assert.deepEqual(catalog.models.map((item) => item.key), ['S0000', 'S0017'])
+  assert.deepEqual(catalog.models.map((item) => item.numericCode), ['10000', '10017'])
 })
 
 test('normalizeClxScope only exposes final when publication and both immutable partitions are complete', () => {

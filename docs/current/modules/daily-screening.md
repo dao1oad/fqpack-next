@@ -10,9 +10,10 @@
   - 负责按交易日生成条件集合与指标快照
   - 把正式结果落到 `fqscreening`
 - 前端 `/daily-screening`
-  - 只读取正式 scope
-  - 让用户自由勾选条件并取交集
-  - 展示交集列表和单标的详情
+  - 是纯选股工作台，不展示主体 K 线
+  - 顶层整合 `综合交集` 与 `CLX 18 模型` 两个工作区
+  - `综合交集` 只读取正式 scope，让用户自由勾选条件并取交集，展示交集列表和单标的详情
+  - `CLX 18 模型` 嵌入 CLX 日线结果工作台，复用 CLX 批次、筛选、统计和结果详情 API
 
 ## 入口
 
@@ -139,7 +140,7 @@
 - 工作台说明标签、页头摘要条、右侧详情数值摘要与命中条件 chip 当前统一复用共享 `StatusChip`
 - 条件分组勾选
 - 页头 `每日选股` 的工作说明下方直接放 `Scope` 下拉；左侧筛选面板不再重复展示独立 `Scope` 卡片，也不再显示“筛选工作台”标题和说明
-- `DailyScreening.vue` 当前只保留页面壳编排；默认筛选值、查询防抖、共享工作区 tab 归一和右侧详情 chip 归一分别下沉到 `dailyScreeningFilters.mjs`、`dailyScreeningWorkspace.mjs`、`dailyScreeningDetail.mjs`
+- `DailyScreening.vue` 当前负责 `/daily-screening` 顶层 tab 编排；`综合交集` 保留原交集页面壳，默认筛选值、查询防抖、共享工作区 tab 归一和右侧详情 chip 归一分别下沉到 `dailyScreeningFilters.mjs`、`dailyScreeningWorkspace.mjs`、`dailyScreeningDetail.mjs`；`CLX 18 模型` 以 embedded 模式复用 `ClxDailyScreening.vue`
 - `基础池（并集）`
   - `CLS 模型分组`
   - `热门窗口`
@@ -158,10 +159,15 @@
 - 交集列表改成“内部滚动 + 分页”；桌面端当前固定每页 8 条，用来压缩首屏高度并保持工作区可见
 - 交集列表左侧的 `全部加入pre_pools`
 - 交集列表单行 `加入 pre_pools`
-- 共享工作区
+- 综合交集共享工作区
   - `pre_pools`
   - `stock_pools`
   - `must_pools`
+- CLX 18 模型工作区
+  - 固定模型范围为 `S0000-S0017` / `10000..10017`
+  - 结果行提供 `看图`，跳转 `/kline-slim` 查看 K 线
+  - 结果行提供 `加入clx15分钟监控`，只追加到 `stock_pools`，不写 `must_pool`、不触发下单
+  - 顶部提供导入通达信动作，复用 CLX 正式批次选中结果导入合同
 - 单标的条件画像与热门理由
 
 页面中的说明文案固定解释：
@@ -228,6 +234,7 @@
 - `/api/gantt/shouban30/pre-pool`
 - `/api/gantt/shouban30/pre-pool/append`
 - `/api/gantt/shouban30/pre-pool/add-to-stock-pools`
+- `/api/gantt/shouban30/stock-pool/append`
 - `/api/gantt/shouban30/pre-pool/sync-to-stock-pool`
 - `/api/gantt/shouban30/pre-pool/sync-to-tdx`
 - `/api/gantt/shouban30/pre-pool/clear`
@@ -249,6 +256,7 @@
 - 每行会携带 `sources / categories / memberships`
 - `/api/gantt/shouban30/stock-pool` 也会返回并展示 `sources / categories / memberships`
 - 从 `pre_pools` 加入 `stock_pools` 时会保留来源与分类 provenance；同 code 已存在时会补齐这些字段
+- CLX 18 模型的“加入clx15分钟监控”调用 `/api/gantt/shouban30/stock-pool/append` 直接写 `stock_pools`，记录 `clx_scope_id / clx_asset_type / clx_model_keys` 等上下文，不经过 `pre_pools` 或 `must_pool`
 - `/api/get_stock_must_pools_list` 返回共享 `must_pool` 的去重列表，并带上 `manual_category / sources / categories / memberships / workspace_order_hint`
 - 从 `stock_pools` 加入 `must_pool` 时会 merge provenance，不再把 `category` 固定写成单一常量
 - `/api/gantt/shouban30/pre-pool/delete` 按 `code` 删除整条共享记录
@@ -299,7 +307,7 @@
 ## 当前边界
 
 - `/gantt/shouban30` 仍是板块工作台；每日选股除了消费其读模型与缠论快照语义，也直接复用其共享工作区接口。
-- 本模块仍是旧 12 模型 `/daily-screening` 链；独立 18 模型 CLX 工作台统一位于 `/kline-slim`，使用 `freshquant_clx_daily_selection` 与 `clx_daily_selection_ready`，两者不共用 scope、集合、API 或默认结果。`/clx-daily-screening` 仅为兼容 redirect。
+- `/daily-screening` 同时承载旧 12 模型综合交集与独立 18 模型 CLX 工作区；两者使用不同 scope、集合、API 与默认结果。CLX 工作区使用 `freshquant_clx_daily_selection` 与 `clx_daily_selection_ready`，`/clx-daily-screening` 仅为兼容 redirect 到 `/daily-screening?tab=clx`。
 - `daily_screening_postclose_sensor` 继续等待自己的股票/Gantt 上游合同；这条旧链的门禁不适用于 CLX。CLX 的 stock/ETF marker 各自 success 即启动本侧 partition，双侧只门控 CLX finalizer、正式发布和跨资产统计。
 - 页面查询不会重新触发算法运行。
 - API 仍保留旧执行接口，但当前页面不再使用。

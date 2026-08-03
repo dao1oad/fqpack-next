@@ -9,6 +9,11 @@ const FAILED_PARTITION_STATES = new Set([
 ])
 const FAILED_PUBLICATION_STATES = new Set(['failed', 'error'])
 const COMPLETE_PUBLICATION_STATES = new Set(['published', 'not_required'])
+export const CLX_DAILY_SELECTION_MODEL_KEYS = Array.from({ length: 18 }, (_, index) => `S${String(index).padStart(4, '0')}`)
+const CLX_DAILY_SELECTION_MODEL_KEY_SET = new Set(CLX_DAILY_SELECTION_MODEL_KEYS)
+const CLX_DAILY_SELECTION_MODEL_NUMERIC_CODE_SET = new Set(
+  CLX_DAILY_SELECTION_MODEL_KEYS.map((_, index) => String(10000 + index)),
+)
 
 const toText = (value) => String(value ?? '').trim()
 
@@ -514,18 +519,29 @@ export const normalizeClxCatalog = (payload = {}) => {
     : Array.isArray(root.items)
       ? root.items
       : []
-  const normalizedModels = models.map((item, index) => ({
-    key: toText(item.model_key || item.key || `S${String(index).padStart(4, '0')}`),
-    label: toText(item.display_name || item.label || item.model_key || item.key),
-    description: toText(item.description),
-    enabled: item.enabled !== false,
-    eligibleAssetTypes: toArray(item.eligible_asset_types),
-    conditions: (Array.isArray(item.conditions) ? item.conditions : []).map((condition) => ({
-      key: toText(condition.code || condition.key),
-      label: toText(condition.label || condition.code || condition.key),
-      direction: toText(condition.direction),
-    })),
-  }))
+  const normalizedModels = models.map((item, index) => {
+    const rawKey = toText(item.model_key || item.key || `S${String(index).padStart(4, '0')}`)
+    const numericCode = toText(item.model_code || item.code || item.id)
+    const key = CLX_DAILY_SELECTION_MODEL_NUMERIC_CODE_SET.has(rawKey)
+      ? `S${String(Number(rawKey) - 10000).padStart(4, '0')}`
+      : rawKey
+    return {
+      key,
+      numericCode: numericCode || (CLX_DAILY_SELECTION_MODEL_KEY_SET.has(key) ? String(10000 + Number(key.slice(1))) : ''),
+      label: toText(item.display_name || item.label || item.model_key || item.key || key),
+      description: toText(item.description),
+      enabled: item.enabled !== false,
+      eligibleAssetTypes: toArray(item.eligible_asset_types),
+      conditions: (Array.isArray(item.conditions) ? item.conditions : []).map((condition) => ({
+        key: toText(condition.code || condition.key),
+        label: toText(condition.label || condition.code || condition.key),
+        direction: toText(condition.direction),
+      })),
+    }
+  }).filter((item) => (
+    CLX_DAILY_SELECTION_MODEL_KEY_SET.has(item.key) ||
+    CLX_DAILY_SELECTION_MODEL_NUMERIC_CODE_SET.has(item.numericCode)
+  ))
   const catalogConditions = Array.isArray(root.conditions) ? root.conditions : []
   const conditions = catalogConditions.length
     ? catalogConditions.map((item) => ({
