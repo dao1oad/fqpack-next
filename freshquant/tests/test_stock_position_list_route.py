@@ -98,7 +98,14 @@ def _install_route_stubs(monkeypatch):
     util_code = types.ModuleType("freshquant.util.code")
     util_code.fq_util_code_append_market_code_suffix = lambda code: code
     util_code.fq_util_code_append_market_code = lambda code: code
-    util_code.normalize_to_base_code = lambda code: str(code or "").replace(".SH", "").replace(".SZ", "").replace("sh", "").replace("sz", "")[-6:].zfill(6)
+    util_code.normalize_to_base_code = (
+        lambda code: str(code or "")
+        .replace(".SH", "")
+        .replace(".SZ", "")
+        .replace("sh", "")
+        .replace("sz", "")[-6:]
+        .zfill(6)
+    )
 
     util_encoder = types.ModuleType("freshquant.util.encoder")
 
