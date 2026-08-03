@@ -77,7 +77,7 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
     ['klineSlim', 'positionManagement', 'positionReview', 'runtime'],
-    ['gantt', 'shouban30', 'dailyScreening'],
+    ['gantt', 'shouban30', 'dailyScreening', 'clxEvaluation'],
     ['stock', 'pool'],
   ])
 
@@ -92,6 +92,9 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.equal(groups[2][2].label, '每日选股')
   assert.equal(groups[2][2].path, '/daily-screening')
   assert.equal(groups[2][2].query.tabTitle, '每日选股')
+  assert.equal(groups[2][3].label, 'CLX评价')
+  assert.equal(groups[2][3].path, '/clx-evaluation')
+  assert.equal(groups[2][3].query.tabTitle, 'CLX评价')
   assert.equal(Object.hasOwn(groups[2][2].query, 'clxScreening'), false)
   assert.equal(Object.hasOwn(groups[2][2].query, 'clxWorkbench'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/daily-screening'), true)

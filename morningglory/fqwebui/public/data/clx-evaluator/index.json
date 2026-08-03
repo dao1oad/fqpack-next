@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "clx-eval-index.v1",
+  "runs": [
+    {
+      "tradeDate": "2026-07-31",
+      "runId": "2026-07-31-group-rerun-industry-fallback",
+      "status": "published",
+      "validationStatus": "passed_with_fundamental_data_gaps",
+      "stockRows": 454,
+      "groupCount": 164,
+      "remainingUnmapped": 0,
+      "href": "/data/clx-evaluator/runs/2026-07-31/2026-07-31-group-rerun-industry-fallback/clx-eval.v1.json",
+      "generatedAt": "2026-08-03T11:11:44.393Z"
+    }
+  ]
+}

@@ -14,6 +14,7 @@ const GanttUnified = () => import('../views/GanttUnified.vue')
 const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const GanttShouban30Phase1 = () => import('../views/GanttShouban30Phase1.vue')
 const DailyScreening = () => import('../views/DailyScreening.vue')
+const ClxMarketEvaluation = () => import('../views/ClxMarketEvaluation.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
 const PositionReview = () => import('../views/PositionReview.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
@@ -76,6 +77,11 @@ const routes = [
     path: '/clx-daily-screening',
     name: 'clx-daily-screening',
     redirect: buildClxDailyScreeningRedirect
+  }),
+  withRouteTitle({
+    path: '/clx-evaluation',
+    name: 'clx-evaluation',
+    component: ClxMarketEvaluation
   }),
   withRouteTitle({
     path: '/gantt/stocks/:plateKey',
