@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { buildClxHistoryRequestKey } from './klineSlimPageState.mjs'
+import { normalizeChanlunPeriod } from './js/kline-slim-chanlun-periods.mjs'
 
 test('CLX history desired key changes with asset type and query inputs', () => {
   const stockKey = buildClxHistoryRequestKey({
@@ -21,6 +22,14 @@ test('CLX history desired key changes with asset type and query inputs', () => {
   assert.equal(etfKey, 'sh520001__etf__2026-07-31__250')
   assert.notEqual(stockKey, etfKey)
   assert.equal(buildClxHistoryRequestKey({ symbol: '' }), '')
+})
+
+
+test('KlineSlim period normalizer accepts backend minute aliases from legacy links', () => {
+  assert.equal(normalizeChanlunPeriod('15min'), '15m')
+  assert.equal(normalizeChanlunPeriod('30min'), '30m')
+  assert.equal(normalizeChanlunPeriod('15m'), '15m')
+  assert.equal(normalizeChanlunPeriod('bad'), '5m')
 })
 
 test('KlineSlim aborts and fences CLX history requests across route changes and teardown', () => {
