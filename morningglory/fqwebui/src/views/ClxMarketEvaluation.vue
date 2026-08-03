@@ -8,6 +8,8 @@
           <p>基于固定快照 contract 展示当日分组排序、组内排序、统计分析和映射审计。</p>
         </div>
         <div v-if="data" class="clx-eval-badges">
+          <span>tradeDate={{ data.tradeDate }}</span>
+          <span>run={{ data.runId }}</span>
           <span>{{ data.schemaVersion }}</span>
           <span>{{ data.validationStatus }}</span>
           <span>latest={{ data.review?.promotedToLatest }}</span>
@@ -30,155 +32,214 @@
         </article>
       </section>
 
-      <section v-if="data" class="clx-eval-run">
-        <dl>
-          <dt>tradeDate</dt><dd>{{ data.tradeDate }}</dd>
-          <dt>runId</dt><dd>{{ data.runId }}</dd>
-          <dt>动态行数</dt><dd>members {{ data.members.length }} / summary.stockRows {{ data.summary.stockRows }}</dd>
-          <dt>动态分组</dt><dd>groups {{ data.groups.length }} / summary.groupCount {{ data.summary.groupCount }}</dd>
-          <dt>marketStateHash</dt><dd>{{ shortHash(data.marketStateHash) }}</dd>
-          <dt>sourceHashFiles</dt><dd>{{ Object.keys(data.sourceHashes || {}).length }}</dd>
-        </dl>
-      </section>
-
-      <section v-if="data" class="clx-eval-stats">
-        <div v-for="box in statBoxes" :key="box.title" class="clx-eval-stat-box">
-          <h3>{{ box.title }}</h3>
-          <div v-for="row in box.rows" :key="row[0]" class="clx-eval-stat-row">
-            <span>{{ row[0] }}</span>
-            <strong>{{ row[1] }}</strong>
+      <section v-if="data" class="clx-eval-workbench">
+        <aside class="clx-eval-groups" aria-label="CLX 分组导航">
+          <div class="clx-eval-panel-head clx-eval-panel-head--compact">
+            <div>
+              <h2>分组导航 <small>({{ visibleGroups.length }}/{{ data.groups.length }})</small></h2>
+              <p>按分组切换右侧成员表，审计信息移至底部折叠区。</p>
+            </div>
+            <el-input
+              v-model="groupSearch"
+              clearable
+              size="small"
+              placeholder="搜索分组/线索/主题"
+            />
           </div>
-        </div>
-      </section>
+          <div class="clx-eval-group-list">
+            <article
+              v-for="group in visibleGroups"
+              :key="`${group.groupRank}-${group.groupName}`"
+              class="clx-eval-group-card"
+              :class="{ 'clx-eval-group-card--selected': selectedGroupName === group.groupName }"
+              role="button"
+              tabindex="0"
+              @click="selectGroup(group)"
+              @keyup.enter="selectGroup(group)"
+            >
+              <div class="clx-eval-group-card__title">
+                <span class="clx-eval-rank">#{{ group.groupRank }}</span>
+                <strong>{{ group.groupName }}</strong>
+              </div>
+              <div class="clx-eval-chips">
+                <span>{{ group.marketLane || '未分类线索' }}</span>
+                <span>{{ group.marketFitGrade || '未评级' }}</span>
+                <span>{{ group.themeId || '无主题' }}</span>
+              </div>
+              <div class="clx-eval-group-metrics">
+                <div>
+                  <span>CLX数</span>
+                  <strong>{{ group.clxStockCount }}</strong>
+                </div>
+                <div>
+                  <span>shortlist</span>
+                  <strong>{{ group.shortlistCount }}</strong>
+                </div>
+                <div>
+                  <span>金额(亿)</span>
+                  <strong>{{ formatNumber(group.clxGroupAmountYi) }}</strong>
+                </div>
+              </div>
+              <div class="clx-eval-representatives">
+                <span
+                  v-for="symbol in representativePreview(group.representativeSymbols)"
+                  :key="symbol"
+                >
+                  {{ symbol }}
+                </span>
+                <em v-if="(group.representativeSymbols || []).length > 3">
+                  +{{ group.representativeSymbols.length - 3 }}
+                </em>
+              </div>
+              <p class="clx-eval-fit-reason" :title="group.fitReason || ''">
+                {{ group.fitReason || '—' }}
+              </p>
+              <div class="clx-eval-group-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="runningTdxGroup === group.groupName"
+                  @click.stop="importGroupToTdx(group)"
+                >
+                  导入通达信
+                </el-button>
+              </div>
+            </article>
+          </div>
+        </aside>
 
-      <section v-if="data" class="clx-eval-panel">
-        <div class="clx-eval-panel-head">
-          <h2>组间排序 <small>({{ data.groups.length }})</small></h2>
-        </div>
-        <div class="clx-eval-table-wrap clx-eval-table-wrap--groups">
-          <table>
-            <thead>
-              <tr>
-                <th>组排名</th>
-                <th>分组</th>
-                <th>市场线索</th>
-                <th>吻合度</th>
-                <th>主题</th>
-                <th>CLX数</th>
-                <th>shortlist</th>
-                <th>金额(亿)</th>
-                <th>代表标的</th>
-                <th>理由</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="group in data.groups"
-                :key="`${group.groupRank}-${group.groupName}`"
-                :class="{ 'clx-eval-row--selected': selectedGroupName === group.groupName }"
-                @click="selectGroup(group)"
+        <section class="clx-eval-members" aria-label="CLX 组内成员">
+          <div class="clx-eval-members-toolbar">
+            <div>
+              <h2>
+                组内股票
+                <small>({{ filteredMembers.length }}/{{ data.members.length }})</small>
+              </h2>
+              <p v-if="selectedGroupName">当前分组：{{ selectedGroupName }}</p>
+              <p v-else>未选择分组时展示全量成员。</p>
+            </div>
+            <div class="clx-eval-filters">
+              <el-input v-model="filters.q" clearable size="small" placeholder="代码/名称/分组" />
+              <el-select v-model="filters.primaryGroup" clearable size="small" placeholder="分组">
+                <el-option v-for="value in filterOptions.primaryGroup" :key="value" :label="value" :value="value" />
+              </el-select>
+              <el-select v-model="filters.marketLane" clearable size="small" placeholder="市场线索">
+                <el-option v-for="value in filterOptions.marketLane" :key="value" :label="value" :value="value" />
+              </el-select>
+              <el-select v-model="filters.shortlistEligible" clearable size="small" placeholder="shortlist">
+                <el-option label="true" value="true" />
+                <el-option label="false" value="false" />
+              </el-select>
+              <el-button size="small" :disabled="!selectedGroupName" @click="clearSelectedGroup">
+                清除组筛选
+              </el-button>
+            </div>
+          </div>
+
+          <article v-if="selectedGroup" class="clx-eval-selected-summary">
+            <div>
+              <h3>{{ selectedGroup.groupName }}</h3>
+              <p>{{ selectedGroup.fitReason || '—' }}</p>
+              <p v-if="selectedGroup.contraEvidence" class="clx-eval-contra">
+                反证：{{ selectedGroup.contraEvidence }}
+              </p>
+            </div>
+            <div class="clx-eval-selected-side">
+              <div class="clx-eval-representatives">
+                <span
+                  v-for="symbol in representativePreview(selectedGroup.representativeSymbols, 6)"
+                  :key="symbol"
+                >
+                  {{ symbol }}
+                </span>
+              </div>
+              <el-button
+                size="small"
+                type="primary"
+                :loading="runningTdxGroup === selectedGroup.groupName"
+                @click="importGroupToTdx(selectedGroup)"
               >
-                <td>{{ group.groupRank }}</td>
-                <td><strong>{{ group.groupName }}</strong></td>
-                <td>{{ group.marketLane }}</td>
-                <td>{{ group.marketFitGrade }}</td>
-                <td>{{ group.themeId || '—' }}</td>
-                <td>{{ group.clxStockCount }}</td>
-                <td>{{ group.shortlistCount }}</td>
-                <td>{{ formatNumber(group.clxGroupAmountYi) }}</td>
-                <td>{{ (group.representativeSymbols || []).join('；') }}</td>
-                <td>{{ group.fitReason || '—' }}</td>
-                <td>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    :loading="runningTdxGroup === group.groupName"
-                    @click.stop="importGroupToTdx(group)"
-                  >
-                    导入通达信
-                  </el-button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+                导入通达信
+              </el-button>
+            </div>
+          </article>
 
-      <section v-if="data" class="clx-eval-panel">
-        <div class="clx-eval-panel-head">
-          <h2>组内全量排序 <small>({{ filteredMembers.length }}/{{ data.members.length }})</small></h2>
-          <div class="clx-eval-filters">
-            <el-input v-model="filters.q" clearable size="small" placeholder="代码/名称/分组" />
-            <el-select v-model="filters.primaryGroup" clearable size="small" placeholder="分组">
-              <el-option v-for="value in filterOptions.primaryGroup" :key="value" :label="value" :value="value" />
-            </el-select>
-            <el-select v-model="filters.marketLane" clearable size="small" placeholder="市场线索">
-              <el-option v-for="value in filterOptions.marketLane" :key="value" :label="value" :value="value" />
-            </el-select>
-            <el-select v-model="filters.shortlistEligible" clearable size="small" placeholder="shortlist">
-              <el-option label="true" value="true" />
-              <el-option label="false" value="false" />
-            </el-select>
-            <el-button size="small" :disabled="!selectedGroupName" @click="clearSelectedGroup">
-              清除组筛选
-            </el-button>
+          <div class="clx-eval-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>全局</th>
+                  <th>组/组内</th>
+                  <th>代码</th>
+                  <th>名称</th>
+                  <th>主分组</th>
+                  <th>市场线索</th>
+                  <th>吻合度</th>
+                  <th>shortlist</th>
+                  <th>当日涨幅</th>
+                  <th>金额(亿)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="member in filteredMembers" :key="`${member.globalRank}-${member.symbol}`">
+                  <td>{{ member.globalRank }}</td>
+                  <td>{{ member.groupRank }}/{{ member.memberRank }}</td>
+                  <td><strong>{{ member.symbol }}</strong></td>
+                  <td>{{ member.name }}</td>
+                  <td>{{ member.primaryGroup }}</td>
+                  <td>{{ member.marketLane }}</td>
+                  <td>{{ member.marketFitGrade }}</td>
+                  <td>{{ member.shortlistEligible }}</td>
+                  <td>{{ formatNumber(member.sameDayReturnPctDiagnostic) }}</td>
+                  <td>{{ formatNumber(member.amountYi) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </div>
-        <div class="clx-eval-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>全局</th>
-                <th>组/组内</th>
-                <th>代码</th>
-                <th>名称</th>
-                <th>主分组</th>
-                <th>市场线索</th>
-                <th>主题</th>
-                <th>吻合度</th>
-                <th>shortlist</th>
-                <th>映射来源</th>
-                <th>当日涨幅</th>
-                <th>金额(亿)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="member in filteredMembers" :key="`${member.globalRank}-${member.symbol}`">
-                <td>{{ member.globalRank }}</td>
-                <td>{{ member.groupRank }}/{{ member.memberRank }}</td>
-                <td><strong>{{ member.symbol }}</strong></td>
-                <td>{{ member.name }}</td>
-                <td>{{ member.primaryGroup }}</td>
-                <td>{{ member.marketLane }}</td>
-                <td>{{ member.marketThemeId || '—' }}</td>
-                <td>{{ member.marketFitGrade }}</td>
-                <td>{{ member.shortlistEligible }}</td>
-                <td>{{ member.mappingSourceRank }}</td>
-                <td>{{ formatNumber(member.sameDayReturnPctDiagnostic) }}</td>
-                <td>{{ formatNumber(member.amountYi) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        </section>
       </section>
 
-      <section v-if="data" class="clx-eval-panel">
-        <div class="clx-eval-panel-head">
-          <h2>映射审计</h2>
-        </div>
-        <div class="clx-eval-table-wrap clx-eval-table-wrap--audit">
-          <table>
-            <thead><tr><th>指标</th><th>值</th><th>说明</th></tr></thead>
-            <tbody>
-              <tr v-for="row in data.mappingAudit" :key="row.metric">
-                <td>{{ row.metric }}</td>
-                <td>{{ row.value }}</td>
-                <td>{{ row.detail }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <section v-if="data" class="clx-eval-audit-stack" aria-label="CLX 运行与审计">
+        <details class="clx-eval-details">
+          <summary>运行合同</summary>
+          <dl class="clx-eval-run-contract">
+            <dt>tradeDate</dt><dd>{{ data.tradeDate }}</dd>
+            <dt>runId</dt><dd>{{ data.runId }}</dd>
+            <dt>动态行数</dt><dd>members {{ data.members.length }} / summary.stockRows {{ data.summary.stockRows }}</dd>
+            <dt>动态分组</dt><dd>groups {{ data.groups.length }} / summary.groupCount {{ data.summary.groupCount }}</dd>
+            <dt>marketStateHash</dt><dd>{{ shortHash(data.marketStateHash) }}</dd>
+            <dt>sourceHashFiles</dt><dd>{{ Object.keys(data.sourceHashes || {}).length }}</dd>
+          </dl>
+        </details>
+
+        <details class="clx-eval-details">
+          <summary>统计分布</summary>
+          <div class="clx-eval-stats">
+            <div v-for="box in statBoxes" :key="box.title" class="clx-eval-stat-box">
+              <h3>{{ box.title }}</h3>
+              <div v-for="row in box.rows" :key="row[0]" class="clx-eval-stat-row">
+                <span>{{ row[0] }}</span>
+                <strong>{{ row[1] }}</strong>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="clx-eval-details">
+          <summary>映射审计</summary>
+          <div class="clx-eval-table-wrap clx-eval-table-wrap--audit">
+            <table>
+              <thead><tr><th>指标</th><th>值</th><th>说明</th></tr></thead>
+              <tbody>
+                <tr v-for="row in data.mappingAudit" :key="row.metric">
+                  <td>{{ row.metric }}</td>
+                  <td>{{ row.value }}</td>
+                  <td>{{ row.detail }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
       </section>
     </main>
   </div>
@@ -195,6 +256,7 @@ const data = ref(null)
 const error = ref('')
 const selectedGroupName = ref('')
 const runningTdxGroup = ref('')
+const groupSearch = ref('')
 const filters = reactive({
   q: '',
   primaryGroup: '',
@@ -238,6 +300,23 @@ const filterOptions = computed(() => {
   }
 })
 
+const visibleGroups = computed(() => {
+  const groups = data.value?.groups || []
+  const q = groupSearch.value.trim().toLowerCase()
+  if (!q) return groups
+  return groups.filter((group) => [
+    group.groupName,
+    group.marketLane,
+    group.themeId,
+  ].some((value) => String(value || '').toLowerCase().includes(q)))
+})
+
+const selectedGroup = computed(() => {
+  const groupName = selectedGroupName.value
+  if (!groupName) return null
+  return (data.value?.groups || []).find((group) => group.groupName === groupName) || null
+})
+
 const filteredMembers = computed(() => {
   const members = data.value?.members || []
   const q = filters.q.trim().toLowerCase()
@@ -261,6 +340,10 @@ const formatNumber = (value) => {
 }
 
 const shortHash = (value) => value ? `${String(value).slice(0, 12)}…` : '—'
+
+const representativePreview = (symbols = [], limit = 3) => (
+  Array.isArray(symbols) ? symbols.slice(0, limit) : []
+)
 
 const selectGroup = (group) => {
   selectedGroupName.value = group?.groupName || ''
@@ -396,8 +479,9 @@ onMounted(loadSnapshot)
 }
 
 .clx-eval-hero,
-.clx-eval-run,
-.clx-eval-panel,
+.clx-eval-groups,
+.clx-eval-members,
+.clx-eval-details,
 .clx-eval-stat-box,
 .clx-eval-kpis article {
   border: 1px solid #d7dde6;
@@ -418,8 +502,11 @@ onMounted(loadSnapshot)
   font-size: 24px;
 }
 
-.clx-eval-hero p {
-  margin: 8px 0 0;
+.clx-eval-hero p,
+.clx-eval-panel-head p,
+.clx-eval-members-toolbar p,
+.clx-eval-selected-summary p {
+  margin: 6px 0 0;
   color: #64748b;
 }
 
@@ -430,12 +517,16 @@ onMounted(loadSnapshot)
   gap: 8px;
 }
 
-.clx-eval-badges span {
+.clx-eval-badges span,
+.clx-eval-chips span,
+.clx-eval-representatives span,
+.clx-eval-representatives em {
   padding: 4px 8px;
   border-radius: 999px;
   background: #e0f2fe;
   color: #075985;
   font-size: 12px;
+  font-style: normal;
 }
 
 .clx-eval-alert {
@@ -465,92 +556,183 @@ onMounted(loadSnapshot)
   font-size: 24px;
 }
 
-.clx-eval-run {
-  margin-top: 12px;
-  padding: 12px 16px;
-}
-
-.clx-eval-run dl {
+.clx-eval-workbench {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) 150px minmax(0, 1fr);
-  gap: 8px 12px;
-  margin: 0;
-  font-size: 12px;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-top: 12px;
 }
 
-.clx-eval-run dt {
-  color: #64748b;
-}
-
-.clx-eval-run dd {
+.clx-eval-groups,
+.clx-eval-members {
   min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-.clx-eval-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.clx-eval-stat-box {
-  min-height: 160px;
-  padding: 12px;
-}
-
-.clx-eval-stat-box h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-}
-
-.clx-eval-stat-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 0;
-  border-top: 1px solid #eef2f7;
-  font-size: 12px;
-}
-
-.clx-eval-panel {
-  margin-top: 12px;
   overflow: hidden;
 }
 
-.clx-eval-panel-head {
+.clx-eval-panel-head,
+.clx-eval-members-toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.clx-eval-panel-head h2 {
+.clx-eval-panel-head--compact {
+  flex-direction: column;
+}
+
+.clx-eval-panel-head h2,
+.clx-eval-members-toolbar h2,
+.clx-eval-selected-summary h3 {
   margin: 0;
   font-size: 16px;
 }
 
-.clx-eval-panel-head small {
+.clx-eval-panel-head small,
+.clx-eval-members-toolbar small {
   color: #64748b;
+}
+
+.clx-eval-group-list {
+  max-height: calc(100vh - 284px);
+  min-height: 560px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.clx-eval-group-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.clx-eval-group-card + .clx-eval-group-card {
+  margin-top: 10px;
+}
+
+.clx-eval-group-card:hover,
+.clx-eval-group-card--selected {
+  border-color: #2563eb;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.12);
+}
+
+.clx-eval-group-card--selected {
+  background: #eff6ff;
+}
+
+.clx-eval-group-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clx-eval-rank {
+  color: #2563eb;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 700;
+}
+
+.clx-eval-chips,
+.clx-eval-representatives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.clx-eval-chips span:nth-child(2) {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.clx-eval-group-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.clx-eval-group-metrics div {
+  padding: 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.clx-eval-group-metrics span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.clx-eval-group-metrics strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+}
+
+.clx-eval-fit-reason {
+  display: -webkit-box;
+  min-height: 34px;
+  margin: 0;
+  overflow: hidden;
+  color: #475569;
+  font-size: 12px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.clx-eval-group-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.clx-eval-members {
+  position: relative;
+}
+
+.clx-eval-members-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #fff;
 }
 
 .clx-eval-filters {
   display: grid;
-  grid-template-columns: 200px 220px 180px 120px 108px;
+  grid-template-columns: 180px 200px 160px 120px 108px;
   gap: 8px;
 }
 
-.clx-eval-table-wrap {
-  max-height: 620px;
-  overflow: auto;
+.clx-eval-selected-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px;
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
 }
 
-.clx-eval-table-wrap--groups {
-  max-height: 420px;
+.clx-eval-contra {
+  color: #b45309;
+}
+
+.clx-eval-selected-side {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.clx-eval-table-wrap {
+  max-height: calc(100vh - 360px);
+  overflow: auto;
 }
 
 .clx-eval-table-wrap--audit {
@@ -559,6 +741,7 @@ onMounted(loadSnapshot)
 
 table {
   width: 100%;
+  min-width: 980px;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -584,10 +767,67 @@ tbody tr:hover {
   background: #f8fbff;
 }
 
-.clx-eval-row--selected,
-.clx-eval-row--selected:hover {
-  background: #eff6ff;
-  box-shadow: inset 3px 0 0 #2563eb;
+.clx-eval-audit-stack {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.clx-eval-details {
+  overflow: hidden;
+}
+
+.clx-eval-details summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.clx-eval-run-contract {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 150px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  padding: 0 14px 14px;
+  font-size: 12px;
+}
+
+.clx-eval-run-contract dt {
+  color: #64748b;
+}
+
+.clx-eval-run-contract dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.clx-eval-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.clx-eval-stat-box {
+  min-height: 160px;
+  padding: 12px;
+}
+
+.clx-eval-stat-box h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.clx-eval-stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid #eef2f7;
+  font-size: 12px;
 }
 
 @media (max-width: 1280px) {
@@ -596,13 +836,33 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .clx-eval-run dl {
-    grid-template-columns: 120px minmax(0, 1fr);
+  .clx-eval-workbench {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .clx-eval-panel-head {
+  .clx-eval-group-list,
+  .clx-eval-table-wrap {
+    max-height: none;
+    min-height: 0;
+  }
+
+  .clx-eval-members-toolbar,
+  .clx-eval-selected-summary {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .clx-eval-selected-side {
+    justify-items: start;
+    min-width: 0;
+  }
+
+  .clx-eval-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .clx-eval-run-contract {
+    grid-template-columns: 120px minmax(0, 1fr);
   }
 }
 </style>

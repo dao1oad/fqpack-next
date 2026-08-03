@@ -422,6 +422,18 @@ class FakeEngine:
         return [[0, model_id * 1000 + 101] for model_id in range(18)]
 
 
+class AllCreditSubjectLookup(dict):
+    def __contains__(self, key):
+        return bool(str(key or "").strip())
+
+    def __len__(self):
+        return 999999
+
+
+def all_credit_subject_policy():
+    return AllCreditSubjectLookup(), True, "test-account"
+
+
 def marker(asset_type, *, run_id="run-1", updated_at="2026-03-19T08:00:00Z"):
     return {
         "pipeline_key": f"{asset_type}_postclose_ready",
@@ -477,6 +489,7 @@ def make_service(
     now_provider=None,
     qfq_pair_provider=None,
     qfq_universe_validator=None,
+    credit_subject_policy_provider=all_credit_subject_policy,
 ):
     return ClxDailySelectionService(
         repository=repository or FakeRepository(),
@@ -487,6 +500,7 @@ def make_service(
         or (lambda _trade_date: qfq_snapshot_pair()),
         qfq_universe_validator=qfq_universe_validator
         or (lambda _asset_type, _trade_date, _pair: None),
+        credit_subject_policy_provider=credit_subject_policy_provider,
         now_provider=now_provider or (lambda: "2026-03-19T08:30:00+00:00"),
     )
 
@@ -573,6 +587,7 @@ def test_runtime_marker_exclusions_freeze_a_disjoint_effective_universe():
         market_data_provider=provider,
         engine=FakeEngine(),
         qfq_snapshot_pair_provider=lambda _trade_date: pair,
+        credit_subject_policy_provider=all_credit_subject_policy,
         now_provider=lambda: "2026-03-19T08:30:00+00:00",
     )
 
@@ -597,6 +612,153 @@ def test_runtime_marker_exclusions_freeze_a_disjoint_effective_universe():
     assert not any(
         call[0] == "bars" and call[2] in excluded_codes for call in provider.calls
     )
+
+
+def test_stock_universe_policy_excludes_non_credit_before_qfq_probe():
+    class PolicyProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [
+                {"symbol": "000001", "name": "credit-stock"},
+                {"symbol": "000002", "name": "non-credit-stock"},
+            ]
+
+    provider = PolicyProvider()
+    service = make_service(
+        provider=provider,
+        credit_subject_policy_provider=lambda: (
+            {"000001": {"symbol": "000001"}},
+            True,
+            "test-account",
+        ),
+    )
+
+    plan = service.plan_partition("stock", marker("stock"))
+    attempt = service.repository.attempts[plan["attempt_id"]]
+    evidence = plan["universe_evidence"]
+
+    assert [row["symbol"] for row in attempt["effective_instruments"]] == ["000001"]
+    assert evidence["universe_policy_contract_version"] == "credit-lof-v1"
+    assert evidence["credit_subject_snapshot_ready"] is True
+    assert evidence["credit_subject_count"] == 1
+    assert evidence["policy_excluded_symbols"] == [
+        {
+            "code": "000002",
+            "classification": "non_credit_subject",
+            "error_code": "CLX_UNIVERSE_POLICY_EXCLUDED",
+            "reason": "not in credit subject snapshot",
+            "source": "clx_universe_policy",
+        }
+    ]
+    assert evidence["policy_excluded_count"] == 1
+    assert evidence["policy_excluded_hash"] == canonical_hash(
+        evidence["policy_excluded_symbols"]
+    )
+    assert evidence["candidate_universe_count"] == 2
+    assert evidence["isolation_count"] == 1
+    assert evidence["isolations"] == evidence["policy_excluded_symbols"]
+    assert evidence["isolation_hash"] == canonical_hash(evidence["isolations"])
+    assert [call[2] for call in provider.calls if call[0] == "probe"] == ["000001"]
+
+
+def test_etf_universe_policy_excludes_non_credit_before_qfq_probe():
+    class PolicyProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [
+                {"symbol": "510300", "name": "credit-etf"},
+                {"symbol": "159915", "name": "non-credit-etf"},
+            ]
+
+    provider = PolicyProvider()
+    service = make_service(
+        provider=provider,
+        credit_subject_policy_provider=lambda: (
+            {"510300": {"symbol": "510300"}},
+            True,
+            "test-account",
+        ),
+    )
+
+    plan = service.plan_partition("etf", marker("etf"))
+    attempt = service.repository.attempts[plan["attempt_id"]]
+    evidence = plan["universe_evidence"]
+
+    assert [row["symbol"] for row in attempt["effective_instruments"]] == ["510300"]
+    assert evidence["policy_excluded_count"] == 1
+    assert evidence["policy_excluded_symbols"][0]["code"] == "159915"
+    assert evidence["policy_excluded_symbols"][0]["classification"] == (
+        "non_credit_subject"
+    )
+    assert [call[2] for call in provider.calls if call[0] == "probe"] == ["510300"]
+
+
+def test_etf_universe_policy_excludes_lof_by_code_and_name():
+    class LofProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [
+                {"symbol": "510300", "name": "沪深300ETF"},
+                {"symbol": "161022", "name": "创业板指数"},
+                {"symbol": "501018", "name": "南方原油"},
+                {"symbol": "502000", "name": "证券分级"},
+                {"symbol": "506001", "name": "科创基金"},
+                {"symbol": "159999", "name": "名称含 LOF 基金"},
+            ]
+
+    provider = LofProvider()
+    credit = {
+        code: {"symbol": code}
+        for code in ("510300", "161022", "501018", "502000", "506001", "159999")
+    }
+    service = make_service(
+        provider=provider,
+        credit_subject_policy_provider=lambda: (credit, True, "test-account"),
+    )
+
+    plan = service.plan_partition("etf", marker("etf"))
+    attempt = service.repository.attempts[plan["attempt_id"]]
+    evidence = plan["universe_evidence"]
+
+    assert [row["symbol"] for row in attempt["effective_instruments"]] == ["510300"]
+    assert [row["code"] for row in evidence["policy_excluded_symbols"]] == [
+        "159999",
+        "161022",
+        "501018",
+        "502000",
+        "506001",
+    ]
+    assert {
+        row["classification"] for row in evidence["policy_excluded_symbols"]
+    } == {"lof_subject"}
+    assert [call[2] for call in provider.calls if call[0] == "probe"] == ["510300"]
+
+
+def test_credit_subject_snapshot_missing_fails_closed_before_attempt_creation():
+    class PolicyProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [{"symbol": "000001", "name": "stock"}]
+
+    repository = FakeRepository()
+    provider = PolicyProvider()
+    service = make_service(
+        repository=repository,
+        provider=provider,
+        credit_subject_policy_provider=lambda: ({}, False, ""),
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        service.plan_partition("stock", marker("stock"))
+
+    message = str(excinfo.value)
+    assert "CLX_CREDIT_SUBJECTS_NOT_READY" in message
+    assert "asset_type=stock" in message
+    assert "trade_date=2026-03-19" in message
+    assert "account_present=False" in message
+    assert "lookup_count=0" in message
+    assert repository.attempts == {}
+    assert [call[0] for call in provider.calls] == ["list"]
 
 
 def test_strict_reader_isolates_stock_and_etf_target_day_gaps_before_attempt():
@@ -757,6 +919,42 @@ def test_old_target_day_probe_evidence_is_rejected_and_refrozen():
         refrozen["universe_evidence"]["reader_probe_contract_version"]
         == "full-profile-window-v1"
     )
+    assert (
+        refrozen["universe_evidence"]["universe_policy_contract_version"]
+        == "credit-lof-v1"
+    )
+
+
+def test_old_universe_evidence_without_policy_contract_is_rejected_and_refrozen():
+    repository = FakeRepository()
+    provider = FakeMarketDataProvider()
+    service = make_service(repository=repository, provider=provider)
+    plan = service.plan_partition("stock", marker("stock"))
+    attempt = repository.attempts[plan["attempt_id"]]
+    attempt["universe_evidence"].pop("universe_policy_contract_version")
+    stale = {
+        "effective_instruments": deepcopy(attempt["effective_instruments"]),
+        "effective_universe_hash": attempt["effective_universe_hash"],
+        "universe_evidence": deepcopy(attempt["universe_evidence"]),
+    }
+
+    with pytest.raises(RuntimeError, match="reader probe evidence contract mismatch"):
+        service._validate_effective_universe_plan("stock", qfq_snapshot_pair(), stale)
+
+    probe_count = sum(1 for call in provider.calls if call[0] == "probe")
+    refrozen = service._effective_universe_plan(
+        asset_type="stock",
+        trade_date="2026-03-19",
+        marker_snapshot_hash=plan["marker_snapshot_hash"],
+        qfq_pair=qfq_snapshot_pair(),
+        qfq_pair_hash=plan["qfq_snapshot_pair_hash"],
+    )
+
+    assert sum(1 for call in provider.calls if call[0] == "probe") == probe_count + 1
+    assert (
+        refrozen["universe_evidence"]["universe_policy_contract_version"]
+        == "credit-lof-v1"
+    )
 
 
 def test_non_qfq_probe_failure_propagates_before_attempt_creation():
@@ -807,6 +1005,7 @@ def test_residual_source_exclusion_overlap_fails_before_attempt_creation():
         qfq_snapshot_pair_provider=lambda _trade_date: qfq_snapshot_pair(
             stock_exclusions=[exclusion]
         ),
+        credit_subject_policy_provider=all_credit_subject_policy,
         now_provider=lambda: "2026-03-19T08:30:00+00:00",
     )
 

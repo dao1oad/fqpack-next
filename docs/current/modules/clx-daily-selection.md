@@ -7,6 +7,7 @@
 - 以冻结的 `production_v1 / switch_opt=1` profile 计算 `S0000-S0017`
 - 以 `clx-daily-selection.v2` 保存 Stock+ETF canonical QFQ snapshot pair 与 pair hash
 - 分别消费股票、ETF 盘后 ready marker，独立生成不可变 partition 输出
+- 在进入 strict QFQ probe 与模型计算前执行 `credit-lof-v1` universe policy：Stock 和 ETF 都仅保留融资标的，ETF 额外排除 LOF
 - 在页面明确展示 partial，但只把双 partition 校验通过的 batch 标为 final
 - 提供批次、结果、解释证据、统计和单标的历史 marker API
 - 为 `/daily-screening?tab=clx` 的 CLX 18 模型工作区和 `/kline-slim` 的历史 marker 图层提供同一套服务端事实
@@ -31,6 +32,7 @@
 - API client：`morningglory/fqwebui/src/api/clxDailySelectionApi.js`
 - Kline CLX marker 投影：`morningglory/fqwebui/src/views/js/kline-slim-clx.mjs`
 - 兼容路由：`morningglory/fqwebui/src/router/clxDailyScreeningRedirect.mjs`
+- 静态 CLX 评价页：`morningglory/fqwebui/src/views/ClxMarketEvaluation.vue`
 
 ## 计算 profile
 
@@ -69,7 +71,7 @@ Schema v2 要求每个新 generation 冻结同一个完整 QFQ snapshot pair。p
 - `marker_snapshot / marker_snapshot_hash`
 - 完整 `qfq_snapshot_pair / qfq_snapshot_pair_hash` 及两侧 snapshot id
 - 冻结的 `effective_instruments / effective_universe_hash`
-- `universe_evidence`：candidate/effective 数量与 hash、marker source exclusions、strict-reader isolations 及 isolation hash，并保存 `reader_probe_bar_count=1200 / reader_probe_contract_version=full-profile-window-v1`
+- `universe_evidence`：candidate/effective 数量与 hash、marker source exclusions、`credit-lof-v1` policy exclusions、strict-reader isolations 及 isolation hash；同时保存 `credit_subject_snapshot_ready / credit_subject_count / policy_excluded_count / policy_excluded_hash`、`reader_probe_bar_count=1200 / reader_probe_contract_version=full-profile-window-v1` 与 `universe_policy_contract_version=credit-lof-v1`
 - `input_snapshot_hash`
 - `partition_id / content_hash`
 - `status / claim_owner / claim_token / lease_expires_at / error`
@@ -80,9 +82,11 @@ Schema v2 要求每个新 generation 冻结同一个完整 QFQ snapshot pair。p
 
 ### 输入冻结与漂移
 
-规划 attempt 前，服务通过严格 QFQ reader 解析 Stock+ETF 两侧 active snapshot，按目标交易日规范化 canonical pair。Stock 与 ETF 各自只规划本侧 raw candidate universe：先按 marker 中通用的 `source_exclusions` 规范化代码并剔除，再对其余标的调用 shared strict reader，读取截至目标日最多 `profile.bar_count` 根实际 BFQ bar，且要求返回 metadata 与冻结 pair 完全一致。只有错误码为 `QFQ_DATA_NOT_READY` 的逐标的 probe 会被隔离；隔离事实保存 `code / classification / error_code / reason / source` 及 count/hash，缺失日期包含目标日时分类为 `target_date_not_covered_by_active_qfq_snapshot`，仅缺历史窗口日期时分类为 `historical_window_not_covered_by_active_qfq_snapshot`，其他异常在创建 attempt 前直接向上抛出。最终冻结 strict-QFQ-effective universe，断言它与 marker exclusions 无交集且非空，并保存完整 instruments/hash；旧 target-day-only probe evidence 不复用，也不向 QFQ marker 伪造新的 `source_exclusions`。
+规划 attempt 前，服务通过严格 QFQ reader 解析 Stock+ETF 两侧 active snapshot，按目标交易日规范化 canonical pair。Stock 与 ETF 各自只规划本侧 raw candidate universe：先按 marker 中通用的 `source_exclusions` 规范化代码并剔除；随后读取 `freshquant.data.gantt_readmodel._load_shouban30_credit_subject_lookup()` 作为融资标的快照，执行 `credit-lof-v1` universe policy；最后才对剩余标的调用 shared strict reader，读取截至目标日最多 `profile.bar_count` 根实际 BFQ bar，且要求返回 metadata 与冻结 pair 完全一致。policy 对 Stock 和 ETF 都要求代码存在于融资标的 lookup；ETF 还会排除名称包含 `LOF` 或代码以 `16 / 501 / 502 / 506` 开头的 LOF。信用标的 snapshot 未 ready 或 lookup 为空时，本侧在创建 attempt 前 fail-closed，错误包含 `CLX_CREDIT_SUBJECTS_NOT_READY`、asset type、trade date、account 是否存在和 lookup count。
 
-一侧 source exclusion 或窗口内实际 BFQ 日期缺 QFQ proof 不阻塞另一侧规划，也不让少量已分类异常停掉整个 scope。attempt 执行阶段只读取已冻结的 effective instruments，不重新枚举 raw universe；重试只复用同一 marker/pair 且 probe 窗口合同一致的冻结有效集合。candidate、effective、source-excluded、reader-isolated 的数量必须守恒，任一残余交集、hash/count 不一致或未分类异常都在零 attempt 或零提交边界 fail-closed。
+只有错误码为 `QFQ_DATA_NOT_READY` 的逐标的 probe 会被 reader 隔离；policy 排除项单独记录为 `policy_excluded_symbols`，source/policy/reader 三类证据共同组成 `isolations`。隔离事实保存 `code / classification / error_code / reason / source` 及 count/hash，缺失日期包含目标日时分类为 `target_date_not_covered_by_active_qfq_snapshot`，仅缺历史窗口日期时分类为 `historical_window_not_covered_by_active_qfq_snapshot`，policy 中非融资分类为 `non_credit_subject`，ETF LOF 分类为 `lof_subject`。最终冻结 strict-QFQ-effective universe，断言它与 marker exclusions 及 policy/reader isolations 无交集且非空，并保存完整 instruments/hash；旧 target-day-only probe evidence 或缺少 `universe_policy_contract_version=credit-lof-v1` 的 evidence 不复用，也不向 QFQ marker 伪造新的 `source_exclusions`。
+
+一侧 source exclusion、policy exclusion 或窗口内实际 BFQ 日期缺 QFQ proof 不阻塞另一侧规划，也不让少量已分类异常停掉整个 scope。attempt 执行阶段只读取已冻结的 effective instruments，不重新枚举 raw universe；重试只复用同一 marker/pair 且 probe 窗口合同一致、policy 合同一致的冻结有效集合。candidate、effective、source-excluded、policy-excluded、reader-isolated 的数量必须守恒：`candidate_universe_count = effective_universe_count + source_excluded_count + policy_excluded_count + reader_isolation_count`。任一残余交集、hash/count 不一致或未分类异常都在零 attempt 或零提交边界 fail-closed。
 
 partition 在计算前后各解析一次本侧 ready marker 和完整 Stock+ETF QFQ pair，以 attempt 冻结的 `effective_universe_hash` 重新构造 current selection key，并与规划时冻结的完整 `selection_key` 对比。每只标的的完整历史严格读取还必须返回与 attempt 一致的 `snapshot_id / factor_asof / effective_version / collection` provenance。任一阶段发生 marker 或 pair 漂移、或逐标的 provenance 不一致时，本侧 attempt 结束为 `upstream_drift` 或计算失败，本次输出不提交；另一侧旧 pair 的成功输出保持不可变历史，但新 pair generation 会让两侧 selection key 都失效并重算。
 
@@ -115,7 +119,7 @@ finalizer 在发布前校验两侧：
 
 每个不可变 partition 包含：
 
-- candidate/effective universe、source exclusion、strict-reader isolation、成功评估、命中标的、信号事件和错误计数
+- candidate/effective universe、source exclusion、policy exclusion、strict-reader isolation、成功评估、命中标的、信号事件和错误计数
 - marker、输入和内容 hash
 - canonical `qfq_snapshot_pair / qfq_snapshot_pair_hash`、`effective_universe_hash / universe_isolation_hash / universe_evidence` 与逐标的 QFQ input provenance hash
 - `memberships`：标的 × 模型 × 触发事实
@@ -190,6 +194,10 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 - 输出：`clx_daily_selection_ready`
 
 ## 统一桌面工作台
+
+### `/clx-evaluation` 静态评价页
+
+`/clx-evaluation` 继续只读取 `/data/clx-evaluator/latest.json` 与其指向的 `clx-eval.v1.json` 静态快照，不改变 JSON schema 或新增后端接口。当前页面采用 master-detail 工作台：顶部展示标题、trade date/run badges 与 KPI strip；左侧为分组导航卡片，展示 rank、分组名、market lane、fit grade、theme、CLX 数、shortlist、金额、代表标的、fit reason 和导入通达信按钮；右侧为 sticky 筛选条、选中分组摘要和组内成员表。点击左侧分组会过滤右侧 members；清除组筛选恢复全量。运行合同、统计分布和映射审计保留在原生 `details` 折叠区，小屏下工作台降为单列。导入通达信仍复用 `importGroupToTdx(group)` 的现有 batch API 与本地 adapter fallback 行为。
 
 ### `/daily-screening?tab=clx` CLX 18 模型工作区
 
@@ -276,6 +284,12 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/daily-screening?tab=c
 - 比较 attempt 中冻结的完整 `selection_key` 与由当前本侧 marker snapshot、完整 canonical QFQ pair、冻结 `effective_universe_hash` 和 profile 重建的 current selection key。
 - 同时核对逐标的 `snapshot_id / factor_asof / effective_version / collection` provenance；确认漂移来自 marker 还是 QFQ pair。
 - 仅 marker 漂移时重试对应侧；QFQ pair 漂移会让 Stock、ETF 两侧 selection key 同时失效，必须形成新的双 partition generation。
+
+### partition 在创建 attempt 前报 `CLX_CREDIT_SUBJECTS_NOT_READY`
+
+- 这是 `credit-lof-v1` universe policy 的 fail-closed 行为，表示融资标的快照未 ready 或 lookup 为空；此时不会创建错误 universe，也不会进入 QFQ probe。
+- 先查 `system_settings.xtquant.account` 是否存在，再查 `om_credit_subjects` 中该 account 的融资标的同步结果和数量。
+- ETF 分区同样使用融资标的 lookup；若 ETF 覆盖不足，应修复信用标的同步源，不在前端或 CLX 结果页绕开该 policy。
 
 ### Kline 没有 CLX marker
 
