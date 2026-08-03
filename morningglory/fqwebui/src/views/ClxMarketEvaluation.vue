@@ -69,10 +69,16 @@
                 <th>金额(亿)</th>
                 <th>代表标的</th>
                 <th>理由</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="group in data.groups" :key="`${group.groupRank}-${group.groupName}`">
+              <tr
+                v-for="group in data.groups"
+                :key="`${group.groupRank}-${group.groupName}`"
+                :class="{ 'clx-eval-row--selected': selectedGroupName === group.groupName }"
+                @click="selectGroup(group)"
+              >
                 <td>{{ group.groupRank }}</td>
                 <td><strong>{{ group.groupName }}</strong></td>
                 <td>{{ group.marketLane }}</td>
@@ -83,6 +89,16 @@
                 <td>{{ formatNumber(group.clxGroupAmountYi) }}</td>
                 <td>{{ (group.representativeSymbols || []).join('；') }}</td>
                 <td>{{ group.fitReason || '—' }}</td>
+                <td>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :loading="runningTdxGroup === group.groupName"
+                    @click.stop="importGroupToTdx(group)"
+                  >
+                    导入通达信
+                  </el-button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -104,6 +120,9 @@
               <el-option label="true" value="true" />
               <el-option label="false" value="false" />
             </el-select>
+            <el-button size="small" :disabled="!selectedGroupName" @click="clearSelectedGroup">
+              清除组筛选
+            </el-button>
           </div>
         </div>
         <div class="clx-eval-table-wrap">
@@ -167,11 +186,15 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 
+import { clxDailySelectionApi } from '@/api/clxDailySelectionApi.js'
 import MyHeader from './MyHeader.vue'
 
 const data = ref(null)
 const error = ref('')
+const selectedGroupName = ref('')
+const runningTdxGroup = ref('')
 const filters = reactive({
   q: '',
   primaryGroup: '',
@@ -221,6 +244,7 @@ const filteredMembers = computed(() => {
   return members
     .filter((member) => {
       if (q && ![member.symbol, member.name, member.primaryGroup].some((value) => String(value || '').toLowerCase().includes(q))) return false
+      if (selectedGroupName.value && member.primaryGroup !== selectedGroupName.value) return false
       if (filters.primaryGroup && member.primaryGroup !== filters.primaryGroup) return false
       if (filters.marketLane && member.marketLane !== filters.marketLane) return false
       if (filters.shortlistEligible && String(Boolean(member.shortlistEligible)) !== filters.shortlistEligible) return false
@@ -237,6 +261,77 @@ const formatNumber = (value) => {
 }
 
 const shortHash = (value) => value ? `${String(value).slice(0, 12)}…` : '—'
+
+const selectGroup = (group) => {
+  selectedGroupName.value = group?.groupName || ''
+  filters.primaryGroup = ''
+}
+
+const clearSelectedGroup = () => {
+  selectedGroupName.value = ''
+}
+
+const getGroupMembers = (group) => {
+  const groupName = group?.groupName || ''
+  if (!groupName) return []
+  return (data.value?.members || [])
+    .filter((member) => member.primaryGroup === groupName)
+    .slice()
+    .sort((a, b) => a.memberRank - b.memberRank || a.globalRank - b.globalRank)
+}
+
+const resolveSnapshotBatchId = () => {
+  const snapshot = data.value || {}
+  const manifest = snapshot.sourceManifest || {}
+  return snapshot.clxBatchId ||
+    snapshot.batchId ||
+    snapshot.scopeId ||
+    manifest.clxBatchId ||
+    manifest.batchId ||
+    manifest.scopeId ||
+    ''
+}
+
+const resolveTdxBatchId = async () => {
+  const snapshotBatchId = resolveSnapshotBatchId()
+  if (snapshotBatchId) return snapshotBatchId
+
+  const latest = await clxDailySelectionApi.getLatestBatch({ includePartial: false })
+  const batch = latest?.data || latest || {}
+  const batchId = batch.batchId || batch.batch_id || batch.scopeId || batch.scope_id || ''
+  const batchTradeDate = batch.tradeDate || batch.trade_date || ''
+  if (batchTradeDate && data.value?.tradeDate && batchTradeDate !== data.value.tradeDate) {
+    throw new Error(`最新 CLX 正式批次交易日为 ${batchTradeDate}，当前评价快照交易日为 ${data.value.tradeDate}，未执行导入。`)
+  }
+  if (!batchId) throw new Error('未取得可复用的 CLX 正式批次 batchId，未执行导入。')
+  return batchId
+}
+
+const importGroupToTdx = async (group) => {
+  const groupName = group?.groupName || ''
+  const members = getGroupMembers(group)
+  if (!data.value || !groupName || !members.length) return
+
+  runningTdxGroup.value = groupName
+  try {
+    const batchId = await resolveTdxBatchId()
+    const payload = await clxDailySelectionApi.syncSelectedBatchResultsToTdx(
+      batchId,
+      {
+        items: members.map((member) => ({
+          asset_type: 'stock',
+          symbol: member.symbol,
+        })),
+      },
+    )
+    const result = payload?.data || payload || {}
+    ElMessage.success(`已导入通达信 ${result.group_name || 'clx_18'}：${result.written_count ?? members.length} 只（${groupName}）`)
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.message || `${groupName} 导入通达信失败`)
+  } finally {
+    runningTdxGroup.value = ''
+  }
+}
 
 const loadSnapshot = async () => {
   error.value = ''
@@ -417,7 +512,7 @@ onMounted(loadSnapshot)
 
 .clx-eval-filters {
   display: grid;
-  grid-template-columns: 200px 220px 180px 120px;
+  grid-template-columns: 200px 220px 180px 120px 108px;
   gap: 8px;
 }
 
@@ -459,6 +554,12 @@ th {
 
 tbody tr:hover {
   background: #f8fbff;
+}
+
+.clx-eval-row--selected,
+.clx-eval-row--selected:hover {
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 #2563eb;
 }
 
 @media (max-width: 1280px) {
