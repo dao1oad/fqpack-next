@@ -119,7 +119,6 @@
                 <span>{{ section.label }}</span>
                 <span class="sidebar-section-count">{{ section.items.length }}</span>
               </span>
-              <span class="sidebar-section-action">{{ section.expanded ? '收起' : '展开' }}</span>
             </button>
             <button
               v-if="section.key === 'stock_pools'"
@@ -128,7 +127,7 @@
               :disabled="stockPoolsTdxSyncing"
               @click.stop="syncStockPoolsFromTdxSelfSelect"
             >
-              {{ stockPoolsTdxSyncing ? '同步中' : '同步通达信自选股' }}
+              {{ stockPoolsTdxSyncing ? '同步中' : '同步自选股' }}
             </button>
           </header>
           <transition name="sidebar-section-collapse">
@@ -978,9 +977,6 @@ export default {
   display inline-flex
   align-items center
   gap 8px
-
-.sidebar-section-action
-  color #93c5fd
 
 .sidebar-section-sync
   flex 0 0 auto
