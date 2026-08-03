@@ -5,7 +5,7 @@
       <section class="clx-eval-hero">
         <div>
           <h1>CLX 日线评价</h1>
-          <p>基于固定快照 contract 展示当日分组排序、组内排序、统计分析和映射审计。</p>
+          <p>基于固定快照 contract 展示市场吻合度、基本面承载力、ETF 暴露确认、sell 诊断和映射审计。</p>
         </div>
         <div v-if="data" class="clx-eval-badges">
           <span>tradeDate={{ data.tradeDate }}</span>
@@ -173,8 +173,19 @@
                   <th>代码</th>
                   <th>名称</th>
                   <th>主分组</th>
+                  <th>细分行业</th>
                   <th>市场线索</th>
+                  <th>主题</th>
                   <th>吻合度</th>
+                  <th>基本面</th>
+                  <th>成长</th>
+                  <th>盈利</th>
+                  <th>现金流/负债</th>
+                  <th>估值</th>
+                  <th>风险</th>
+                  <th>容量</th>
+                  <th>财报期</th>
+                  <th>映射来源</th>
                   <th>shortlist</th>
                   <th>当日涨幅</th>
                   <th>金额(亿)</th>
@@ -187,8 +198,19 @@
                   <td><strong>{{ member.symbol }}</strong></td>
                   <td>{{ member.name }}</td>
                   <td>{{ member.primaryGroup }}</td>
+                  <td>{{ member.exactIndustry || '—' }}</td>
                   <td>{{ member.marketLane }}</td>
+                  <td>{{ member.marketThemeId || '—' }}</td>
                   <td>{{ member.marketFitGrade }}</td>
+                  <td>{{ member.fundamentalQualityGrade || '—' }}</td>
+                  <td>{{ member.growthGrade || '—' }}</td>
+                  <td>{{ member.profitabilityGrade || '—' }}</td>
+                  <td>{{ member.cashflowBalanceGrade || '—' }}</td>
+                  <td>{{ member.valuationGrade || '—' }}</td>
+                  <td :title="joinValues(member.riskFlags)">{{ member.riskFlagGrade || '—' }}</td>
+                  <td>{{ member.liquidityCapacityGrade || '—' }}</td>
+                  <td>{{ member.financialReportDate || '—' }}</td>
+                  <td>{{ member.mappingSourceRank || '—' }}</td>
                   <td>{{ member.shortlistEligible }}</td>
                   <td>{{ formatNumber(member.sameDayReturnPctDiagnostic) }}</td>
                   <td>{{ formatNumber(member.amountYi) }}</td>
@@ -240,6 +262,78 @@
             </table>
           </div>
         </details>
+
+        <details class="clx-eval-details">
+          <summary>
+            ETF 暴露确认
+            ({{ data.diagnostics?.etfConfirmations?.length || 0 }}；有效确认
+            {{ data.diagnostics?.directionSummary?.eligible_etf_confirmation_count || 0 }})
+          </summary>
+          <div class="clx-eval-table-wrap clx-eval-table-wrap--audit">
+            <table>
+              <thead>
+                <tr>
+                  <th>排名</th><th>代码</th><th>名称</th><th>底层暴露</th><th>映射</th>
+                  <th>组大小</th><th>代表产品</th><th>重复暴露</th><th>有效确认</th><th>主题</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in data.diagnostics?.etfConfirmations || []" :key="row.symbol">
+                  <td>{{ row.rank }}</td>
+                  <td><strong>{{ row.symbol }}</strong></td>
+                  <td>{{ row.name }}</td>
+                  <td>{{ row.underlying_exposure_key || '—' }}</td>
+                  <td>{{ row.exposure_mapping_status }}</td>
+                  <td>{{ row.exposure_group_size }}</td>
+                  <td>{{ row.exposure_representative }}</td>
+                  <td>{{ row.duplicate_exposure }}</td>
+                  <td>{{ row.confirmation_eligible }}</td>
+                  <td>{{ joinValues(row.theme_ids) || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="clx-eval-details">
+          <summary>sell / mixed 诊断 ({{ data.diagnostics?.sellDiagnostics?.length || 0 }})</summary>
+          <div class="clx-eval-table-wrap clx-eval-table-wrap--audit">
+            <table>
+              <thead>
+                <tr>
+                  <th>代码</th><th>名称</th><th>类型</th><th>方向</th><th>分类</th>
+                  <th>主题</th><th>独立信号家族</th><th>诊断理由</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in data.diagnostics?.sellDiagnostics || []" :key="`${row.security_type}-${row.symbol}`">
+                  <td><strong>{{ row.symbol }}</strong></td>
+                  <td>{{ row.name }}</td>
+                  <td>{{ row.security_type }}</td>
+                  <td>{{ row.direction }}</td>
+                  <td>{{ row.classification }}</td>
+                  <td>{{ joinValues(row.theme_ids) || '—' }}</td>
+                  <td>{{ row.independent_signal_family_count }}</td>
+                  <td>{{ row.rationale }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="clx-eval-details">
+          <summary>信号事件勾稽</summary>
+          <dl class="clx-eval-run-contract">
+            <dt>official signal_event_count</dt>
+            <dd>{{ data.diagnostics?.signalEventReconciliation?.official_unique_signal_event_count }}</dd>
+            <dt>row sum</dt>
+            <dd>{{ data.diagnostics?.signalEventReconciliation?.row_signal_event_count_sum }}</dd>
+            <dt>旧方向展开诊断数</dt>
+            <dd>{{ data.diagnostics?.signalEventReconciliation?.direction_expanded_membership_count_previous }}</dd>
+            <dt>状态</dt>
+            <dd>{{ data.diagnostics?.signalEventReconciliation?.reconciliation_status }}</dd>
+          </dl>
+        </details>
       </section>
     </main>
   </div>
@@ -273,9 +367,10 @@ const kpis = computed(() => {
     ['Stock buy', summary.stockRows],
     ['分组数', summary.groupCount],
     ['业务覆盖', summary.businessPrimaryGroupCovered],
-    ['主题映射', summary.marketThemeMapped],
-    ['shortlist', summary.shortlistCount],
-    ['remainingUnmapped', summary.remainingUnmapped],
+    ['财报覆盖', summary.fundamentalReportCovered],
+    ['ETF映射', summary.mappedEtfCount],
+    ['sell诊断', summary.sellDiagnosticCount],
+    ['signal events', summary.officialSignalEventCount],
   ].map(([label, value]) => ({ label, value }))
 })
 
@@ -286,6 +381,9 @@ const statBoxes = computed(() => {
     ['Lane 分布', statistics.laneCounts],
     ['marketFitGrade 分布', statistics.marketFitGradeCounts],
     ['mappingSourceRank 分布', statistics.mappingSourceRankCounts],
+    ['基本面质量分布', statistics.fundamentalQualityGradeCounts],
+    ['成长分布', statistics.growthGradeCounts],
+    ['估值分布', statistics.valuationGradeCounts],
     ['shortlist 分布', statistics.shortlistCounts],
   ].map(([title, counts]) => ({ title, rows: sortCounts(counts) }))
 })
@@ -338,6 +436,8 @@ const formatNumber = (value) => {
   if (typeof value !== 'number') return value
   return Number.isInteger(value) ? String(value) : value.toFixed(3)
 }
+
+const joinValues = (values = []) => Array.isArray(values) ? values.join('；') : String(values || '')
 
 const shortHash = (value) => value ? `${String(value).slice(0, 12)}…` : '—'
 
