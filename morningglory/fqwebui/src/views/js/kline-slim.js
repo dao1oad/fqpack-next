@@ -384,6 +384,7 @@ export default {
       clxSelectedMarkerId: '',
       clxLegendSelected: true,
       clxWorkbenchTab: 'controls',
+      clxMonitorAdding: false,
       holdings: [],
       mustPools: [],
       stockPools: [],
@@ -975,6 +976,34 @@ export default {
         this.sidebarErrors.stock_pools = '加载失败'
       } finally {
         this.sidebarLoading.stock_pools = false
+      }
+    },
+    async addCurrentSymbolToClx15Monitor() {
+      const code6 = this.activeCode6 || getSidebarCode6({
+        symbol: this.routeSymbol,
+        code: this.routeSymbol
+      })
+      if (!code6) {
+        this.$message?.warning?.('请先选择标的')
+        return
+      }
+      this.clxMonitorAdding = true
+      try {
+        const result = await stockApi.addToStockPoolsByCode(code6, 30, {
+          allowDirect: true,
+          category: 'CLX15分钟监控',
+          source: 'clx_signal_workbench',
+          remark: 'clx15_monitor'
+        })
+        if (result && String(result.code ?? '0') !== '0') {
+          throw new Error(result.msg || 'add_to_stock_pools_by_code failed')
+        }
+        await this.loadStockPools()
+        this.$message?.success?.(`${code6} 已加入clx15分钟监控`)
+      } catch (error) {
+        this.$message?.error?.('加入clx15分钟监控失败')
+      } finally {
+        this.clxMonitorAdding = false
       }
     },
     async loadPrePools() {

@@ -78,6 +78,7 @@ Guardian buy grid 当前区分两类语义：
   - 正式值：
     - `guardian_1m`
     - `guardian_and_clx_15_30`
+  - `clx_15_30_only` 不启用 Guardian 能力，不能作为 Guardian 事件模式配置
 - `monitor.xtdata.max_symbols`
 - buy grid 初始金额与层级配置
 - Redis 冷却键
@@ -137,6 +138,7 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 
 - 检查是否跑在 `--mode event`
 - 检查 `monitor.xtdata.mode` 是否是 `guardian_1m` 或 `guardian_and_clx_15_30`
+- `clx_15_30_only` 只运行 CLX 实时模型，不运行 Guardian event
 
 ### BUY_LONG 信号没有下单
 

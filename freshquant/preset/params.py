@@ -55,7 +55,7 @@ def init_param_dict(quiet=False):
         upsert=True,
     )
 
-    # XTData 监控模式（正式值为 guardian_1m / guardian_and_clx_15_30）
+    # XTData 监控模式（正式值为 guardian_1m / guardian_and_clx_15_30 / clx_15_30_only）
     monitor_config = DBfreshquant.params.find_one({"code": "monitor"}) or {}
     xtdata_cfg = (monitor_config.get("value", {}) or {}).get("xtdata", {}) or {}
     xtdata_mode = normalize_xtdata_mode(xtdata_cfg.get("mode"))
@@ -65,7 +65,10 @@ def init_param_dict(quiet=False):
 
     if quiet:
         print("\n当前XTData监控配置：")
-        print(f"mode: {xtdata_mode} (guardian_1m | guardian_and_clx_15_30)")
+        print(
+            "mode: "
+            f"{xtdata_mode} (guardian_1m | guardian_and_clx_15_30 | clx_15_30_only)"
+        )
         print(f"max_symbols: {xtdata_max_symbols}")
         print(f"prewarm.max_bars: {prewarm_max_bars}")
 

@@ -674,6 +674,15 @@
             </div>
           </div>
           <div class="clx-workbench-header__actions">
+            <el-button
+              size="small"
+              type="primary"
+              :disabled="!routeSymbol"
+              :loading="clxMonitorAdding"
+              @click="addCurrentSymbolToClx15Monitor"
+            >
+              加入clx15分钟监控
+            </el-button>
             <el-button size="small" :loading="clxHistoryLoading" @click="loadClxHistory({ force: true })">刷新</el-button>
             <el-button size="small" @click="closeClxWorkbench">关闭</el-button>
           </div>

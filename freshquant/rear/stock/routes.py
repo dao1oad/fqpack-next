@@ -433,7 +433,20 @@ def add_to_stock_pools_by_code():
     if code is None:
         return jsonify({"code": "1", "msg": "code is None"})
     days = int(request.args.get("days", "30"))
-    result = _get_stock_service().add_to_stock_pools_by_code(code, days)
+    allow_direct = str(request.args.get("allow_direct", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    result = _get_stock_service().add_to_stock_pools_by_code(
+        code,
+        days,
+        allow_direct=allow_direct,
+        category=request.args.get("category"),
+        source=request.args.get("source"),
+        remark=request.args.get("remark"),
+    )
     if result:
         return jsonify({"code": "0", "msg": "操作成功"})
     else:

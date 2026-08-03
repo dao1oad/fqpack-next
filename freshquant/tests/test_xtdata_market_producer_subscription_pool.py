@@ -33,6 +33,24 @@ def test_resolve_producer_runtime_config_uses_system_settings_and_bootstrap():
     }
 
 
+def test_resolve_producer_runtime_config_preserves_clx_only_mode():
+    config = market_producer.resolve_producer_runtime_config(
+        settings_provider=SimpleNamespace(
+            monitor=SimpleNamespace(
+                xtdata_mode="clx_15_30_only",
+                xtdata_max_symbols=77,
+            )
+        ),
+        bootstrap_provider=SimpleNamespace(xtdata=SimpleNamespace(port=58611)),
+    )
+
+    assert config == {
+        "port": 58611,
+        "mode": "clx_15_30_only",
+        "max_symbols": 77,
+    }
+
+
 def test_run_producer_with_xtdata_retry_retries_retryable_connect_errors():
     start_calls = []
     sleep_calls = []

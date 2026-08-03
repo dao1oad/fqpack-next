@@ -40,6 +40,10 @@ producer 是唯一 XTData 实时订阅入口；consumer 是唯一 bar 队列消�
     - 先保留 Guardian 池
     - 再补未过期 `stock_pools`
     - 总数不超过 `monitor.xtdata.max_symbols`
+  - `clx_15_30_only = stock_pools`
+    - 只读取未过期 `stock_pools`
+    - 不启用 Guardian 1 分钟事件能力
+    - 总数不超过 `monitor.xtdata.max_symbols`
 
 ## 数据流
 
@@ -94,6 +98,8 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
   - `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b` 与 `qfq_ready`
 
 当前模块会在启用 CLX 能力时把命中的多周期 CLX 信号写入 `realtime_screen_multi_period`。
+实时 CLX 只在 15/30 分钟 bar 上运行，生产模型为 `S0000-S0017`，对应 `model_opt=10000..10017`。
+正信号写库后会复用现有 DingTalk 私聊发送链做聚合通知；webhook 配置入口已存在，只有启用 CLX 实时模式且出现正信号时才发送，不在文档或日志中输出真实 webhook/token。
 
 ## 配置
 
@@ -103,6 +109,8 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
   - `guardian_and_clx_15_30` 同时服务：
     - Guardian 1 分钟事件链
     - `stock_pools` 的 15/30 分钟 CLX 模型
+  - `clx_15_30_only` 只服务：
+    - 未过期 `stock_pools` 的 15/30 分钟 CLX 模型
   - 兼容旧值：
     - `clx_15_30`
       - 读取时自动归一到 `guardian_and_clx_15_30`
@@ -118,6 +126,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 
 - `monitor.xtdata.mode` 启用了 Guardian 能力
   - 正式值可为 `guardian_1m` 或 `guardian_and_clx_15_30`
+  - `clx_15_30_only` 不启用 Guardian 能力
 
 ## 部署/运行
 

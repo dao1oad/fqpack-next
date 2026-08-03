@@ -50,6 +50,9 @@ except Exception as e:  # pragma: no cover
     _REDIS_IMPORT_ERR = e
 
 
+REALTIME_CLX_MODEL_IDS = list(range(10000, 10018))
+
+
 def resolve_consumer_runtime_config(*, settings_provider=None) -> dict[str, int | str]:
     settings_provider = settings_provider or system_settings
     mode = normalize_xtdata_mode(
@@ -488,7 +491,7 @@ class StrategyConsumer:
         code = str(code_prefixed or "").strip().lower()
         if not code or code not in self._clx_monitor_codes():
             return []
-        return list(range(10001, 10013))
+        return list(REALTIME_CLX_MODEL_IDS)
 
     def _get_qfq_factor(self, *, kind: str, base_code6: str, date_str: str) -> float:
         """

@@ -323,6 +323,7 @@ test('resolveEditorMeta returns official select options for enum settings', () =
   assert.deepEqual(resolveEditorMeta('monitor.xtdata.mode').options.map((item) => item.value), [
     'guardian_1m',
     'guardian_and_clx_15_30',
+    'clx_15_30_only',
   ])
   assert.deepEqual(resolveEditorMeta('xtquant.account_type').options.map((item) => item.value), [
     'STOCK',
@@ -404,11 +405,11 @@ test('position inventory supplement keeps only non-duplicated readonly rows for 
   assert.equal(section.rows[0].readonly, true)
 })
 
-test('monitor mode editor only exposes official guardian and combined modes', () => {
+test('monitor mode editor exposes official guardian, combined, and clx-only modes', () => {
   const options = resolveEditorMeta('monitor.xtdata.mode').options.map((item) => item.value)
   const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
 
-  assert.deepEqual(options, ['guardian_1m', 'guardian_and_clx_15_30'])
+  assert.deepEqual(options, ['guardian_1m', 'guardian_and_clx_15_30', 'clx_15_30_only'])
   assert.equal(options.includes('clx_15_30'), false)
   assert.match(content, /buildSettingsLedgerSections/)
 })

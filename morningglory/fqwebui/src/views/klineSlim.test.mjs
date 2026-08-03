@@ -35,6 +35,22 @@ test('KlineSlim aborts and fences CLX history requests across route changes and 
   assert.match(controllerSource, /else \{\s*this\.abortClxHistoryRequest\(\)/)
 })
 
+test('KlineSlim CLX workbench can add the current symbol to CLX 15 minute monitor stock_pools', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /加入clx15分钟监控/)
+  assert.match(viewSource, /:loading="clxMonitorAdding"/)
+  assert.match(viewSource, /@click="addCurrentSymbolToClx15Monitor"/)
+  assert.match(scriptSource, /clxMonitorAdding: false/)
+  assert.match(scriptSource, /async addCurrentSymbolToClx15Monitor\(\)/)
+  assert.match(scriptSource, /stockApi\.addToStockPoolsByCode\(code6, 30, \{[\s\S]*allowDirect: true/)
+  assert.match(scriptSource, /category: 'CLX15分钟监控'/)
+  assert.match(scriptSource, /source: 'clx_signal_workbench'/)
+  assert.match(scriptSource, /remark: 'clx15_monitor'/)
+  assert.match(scriptSource, /await this\.loadStockPools\(\)/)
+})
+
 test('KlineSlim page script delegates lifecycle hooks and orchestration to a dedicated controller module', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')

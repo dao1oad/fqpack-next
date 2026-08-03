@@ -25,6 +25,7 @@
 - 表示进入进一步跟踪或候选交易的池子
 - 若由 `stock_pre_pools` / `pre_pool` 转入，会保留顶层 `sources / categories / memberships`，用于说明来源和命中分类
 - `load_monitor_codes(mode=guardian_and_clx_15_30)` 会在 Guardian 池之后补充非过期 `stock_pools`
+- `load_monitor_codes(mode=clx_15_30_only)` 只读取非过期 `stock_pools`
 - 兼容旧值 `clx_15_30`，读取时会按联合模式执行
 
 ### `must_pool`
@@ -55,6 +56,8 @@
   - `xt_positions`
 - CLX 多周期实时模型订阅池
   - 联合模式下由 Guardian 池优先后，再用非过期 `stock_pools` 补足
+  - `clx_15_30_only` 下只读取非过期 `stock_pools`
+  - 实时模型为 `S0000-S0017 / 10000..10017`
 - Shouban30 工作区
   - `stock_pre_pools -> stock_pools`
 - `/stock-control` 的 `must_pools买入信号`
@@ -76,13 +79,18 @@
 - `/stock-control` 的 `stock_pools模型信号`
   - `realtime_screen_multi_period`
   - 当前展示 `datetime`、`created_at`、`code`、`name`、`period`、`source` 与单行价格摘要
-  - `分组 / 模型` 当前复用 `/daily-screening` 对 CLX 12 模型的中文映射与分组真值
+  - 实时 CLX 生产模型为 `S0000-S0017 / 10000..10017`
 
 ## 当前高频操作
 
 - 代码加入 `stock_pools`
   - `/api/add_to_stock_pools_by_code`
   - 会把 `pre_pool` 的 `sources / categories / memberships` 一并写入 `stock_pools`
+  - 默认仍依赖 `pre_pool`；传 `allow_direct=1` 时可直接写入 `stock_pools`，并显式写入 `expire_at / sources / categories / memberships`
+- KlineSlim CLX 工作台加入实时监控
+  - `/kline-slim?clxScreening=1&clxWorkbench=1&period=1d` 右侧 `CLX 信号工作台` 的 `加入clx15分钟监控` 按钮会把当前标的写入 `stock_pools`
+  - 该按钮只加入 `stock_pools`，不加入 `must_pool`，不触发下单
+  - 写入后可作为 `clx_15_30_only` 的实时监控池来源
 - 代码加入 `must_pool`
   - `/api/add_to_must_pool_by_code`
   - 当前显式加入后统一固定写 `forever=true`
@@ -119,12 +127,13 @@
 
 - 检查 producer 订阅池是否刷新
 - 检查 `monitor.xtdata.mode` 是否是 `guardian_1m` 或 `guardian_and_clx_15_30`
+- 若生产配置为 `clx_15_30_only`，该模式不订阅 `must_pool`
 
 ### `stock_pools模型信号` 列表为空
 
 - 检查 `realtime_screen_multi_period` 是否有数据
 - 检查 XTData consumer 是否在跑
-- 检查 `monitor.xtdata.mode` 是否切到了 `guardian_and_clx_15_30`
+- 检查 `monitor.xtdata.mode` 是否切到了 `guardian_and_clx_15_30` 或 `clx_15_30_only`
 - 如果库里还是旧值 `clx_15_30`，运行时也会按联合模式执行
 
 ### 持仓有票，但 Guardian 卖点不触发

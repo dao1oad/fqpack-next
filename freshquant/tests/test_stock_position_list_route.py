@@ -223,3 +223,45 @@ def test_add_to_must_pool_route_ignores_forever_query_flag(stock_routes, monkeyp
     assert response.status_code == 200
     assert response.get_json() == {"code": "0", "msg": "操作成功"}
     assert captured["call"] == ("600000", 9.2, 80000.0, 50000.0)
+
+
+def test_add_to_stock_pools_by_code_route_forwards_direct_monitor_options(
+    stock_routes, monkeypatch
+):
+    stock_routes.request.args = {
+        "code": "000001",
+        "days": "15",
+        "allow_direct": "1",
+        "category": "CLX15分钟监控",
+        "source": "clx_signal_workbench",
+        "remark": "clx15_monitor",
+    }
+    captured = {}
+
+    def _add_to_stock_pools_by_code(code, days, **kwargs):
+        captured["call"] = (code, days, kwargs)
+        return True
+
+    monkeypatch.setattr(
+        stock_routes,
+        "_get_stock_service",
+        lambda: types.SimpleNamespace(
+            add_to_stock_pools_by_code=_add_to_stock_pools_by_code
+        ),
+        raising=False,
+    )
+
+    response = stock_routes.add_to_stock_pools_by_code()
+
+    assert response.status_code == 200
+    assert response.get_json() == {"code": "0", "msg": "操作成功"}
+    assert captured["call"] == (
+        "000001",
+        15,
+        {
+            "allow_direct": True,
+            "category": "CLX15分钟监控",
+            "source": "clx_signal_workbench",
+            "remark": "clx15_monitor",
+        },
+    )

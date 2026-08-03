@@ -239,7 +239,14 @@ def get_stock_must_pools_list(page=1):
         return []
 
 
-def add_to_stock_pools_by_code(code, days=30):
+def add_to_stock_pools_by_code(
+    code,
+    days=30,
+    allow_direct=False,
+    category=None,
+    source=None,
+    remark=None,
+):
     """
     根据code从stock_pre_pools中查找记录，并将其添加到stock_pools中
 
@@ -252,7 +259,42 @@ def add_to_stock_pools_by_code(code, days=30):
     old = DBfreshquant["stock_pools"].find_one({"code": code})
     record = PrePoolService(db=DBfreshquant).get_code(code)
     if record is None:
-        return False
+        if not allow_direct:
+            return False
+
+        now = pendulum.now()
+        expire_at = now.add(days=days)
+        direct_category = str(category or "CLX15分钟监控").strip() or "CLX15分钟监控"
+        direct_source = (
+            str(source or "clx_signal_workbench").strip() or "clx_signal_workbench"
+        )
+        membership_extra = {"entrypoint": "clx_signal_workbench"}
+        if remark:
+            membership_extra["remark"] = str(remark)
+        save_a_stock_pools(
+            code=code,
+            category=direct_category,
+            dt=now,
+            stop_loss_price=None,
+            expire_at=expire_at,
+            sources=[direct_source],
+            categories=[direct_category],
+            memberships=[
+                {
+                    "source": direct_source,
+                    "category": direct_category,
+                    "added_at": now,
+                    "expire_at": expire_at,
+                    "extra": membership_extra,
+                }
+            ],
+            remark=str(remark or ""),
+        )
+        DBfreshquant["stock_pools"].update_one(
+            {"code": code, "category": direct_category},
+            {"$set": {"expire_at": expire_at}},
+        )
+        return True
     target_category = (
         old.get("category")
         if old is not None

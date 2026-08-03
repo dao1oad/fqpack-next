@@ -73,6 +73,7 @@ def test_normalize_xtdata_mode_defaults_to_guardian_1m():
     assert pools.normalize_xtdata_mode("unknown_mode") == "guardian_1m"
     assert pools.normalize_xtdata_mode("GUARDIAN_1M") == "guardian_1m"
     assert pools.normalize_xtdata_mode("CLX_15_30") == "guardian_and_clx_15_30"
+    assert pools.normalize_xtdata_mode("CLX_15_30_ONLY") == "clx_15_30_only"
     assert (
         pools.normalize_xtdata_mode("guardian_and_clx_15_30")
         == "guardian_and_clx_15_30"
@@ -86,6 +87,8 @@ def test_xtdata_mode_capabilities_cover_combined_mode():
     assert pools.xtdata_mode_enables_clx("guardian_and_clx_15_30") is True
     assert pools.xtdata_mode_enables_guardian("clx_15_30") is True
     assert pools.xtdata_mode_enables_clx("clx_15_30") is True
+    assert pools.xtdata_mode_enables_guardian("clx_15_30_only") is False
+    assert pools.xtdata_mode_enables_clx("clx_15_30_only") is True
 
 
 def test_load_monitor_codes_defaults_unknown_mode_to_guardian(monkeypatch):
@@ -106,7 +109,7 @@ def test_load_monitor_codes_defaults_unknown_mode_to_guardian(monkeypatch):
     assert calls == [("guardian", 12)]
 
 
-def test_load_monitor_codes_preserves_explicit_clx_mode(monkeypatch):
+def test_load_monitor_codes_preserves_legacy_clx_alias_as_combined(monkeypatch):
     calls: list[tuple[str, int]] = []
 
     monkeypatch.setattr(
@@ -125,6 +128,27 @@ def test_load_monitor_codes_preserves_explicit_clx_mode(monkeypatch):
         "sz000002",
     ]
     assert calls == [("guardian", 2), ("clx", 2)]
+
+
+def test_load_monitor_codes_clx_only_uses_stock_pools_without_guardian(monkeypatch):
+    calls: list[tuple[str, int]] = []
+
+    monkeypatch.setattr(
+        pools,
+        "_load_guardian_codes",
+        lambda limit: calls.append(("guardian", limit)) or ["sz000001"],
+    )
+    monkeypatch.setattr(
+        pools,
+        "_load_clx_codes",
+        lambda limit: calls.append(("clx", limit)) or ["sz000002", "sh600000"],
+    )
+
+    assert pools.load_monitor_codes(mode="clx_15_30_only", max_symbols=2) == [
+        "sz000002",
+        "sh600000",
+    ]
+    assert calls == [("clx", 2)]
 
 
 def test_load_monitor_codes_combines_guardian_and_clx_with_guardian_priority(
@@ -182,6 +206,32 @@ def test_init_param_dict_preserves_explicit_clx_mode(monkeypatch):
 
     monitor_doc = fake_db.params.docs["monitor"]
     assert monitor_doc["value"]["xtdata"]["mode"] == "guardian_and_clx_15_30"
+    assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
+    assert monitor_doc["value"]["xtdata"]["prewarm"]["max_bars"] == 12345
+
+
+def test_init_param_dict_preserves_explicit_clx_only_mode(monkeypatch):
+    fake_db = FakeDb(
+        [
+            {
+                "code": "monitor",
+                "value": {
+                    "xtdata": {
+                        "mode": "clx_15_30_only",
+                        "max_symbols": 88,
+                        "prewarm": {"max_bars": 12345},
+                    }
+                },
+            }
+        ]
+    )
+    monkeypatch.setattr(params, "DBfreshquant", fake_db)
+    monkeypatch.setattr(params, "mask", lambda value, show_chars=0: value)
+
+    params.init_param_dict(quiet=True)
+
+    monitor_doc = fake_db.params.docs["monitor"]
+    assert monitor_doc["value"]["xtdata"]["mode"] == "clx_15_30_only"
     assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
     assert monitor_doc["value"]["xtdata"]["prewarm"]["max_bars"] == 12345
 
