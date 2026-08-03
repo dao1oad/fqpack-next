@@ -83,13 +83,17 @@ print(json.dumps(result, ensure_ascii=False))
   })
   let stdout = ''
   let stderr = ''
+  let responded = false
   child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8') })
   child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8') })
   child.stdin.end(JSON.stringify(body))
   child.on('error', (error) => {
+    responded = true
     sendJson(res, 500, {code: 'tdx_adapter_failed', message: error.message})
   })
   child.on('close', (code) => {
+    if (responded) return
+    responded = true
     if (code !== 0) {
       const message = stderr.trim().split(/\r?\n/).slice(-1)[0] || `uv python exited with ${code}`
       sendJson(res, 500, {code: 'tdx_adapter_failed', message})

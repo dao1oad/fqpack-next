@@ -130,7 +130,13 @@ def _load_clx_codes(limit: int) -> list[str]:
     codes: set[str] = set()
     now = datetime.now()
     for doc in DBfreshquant["stock_pools"].find(
-        {"$or": [{"expire_at": {"$exists": False}}, {"expire_at": {"$gt": now}}]},
+        {
+            "$or": [
+                {"expire_at": {"$exists": False}},
+                {"expire_at": None},
+                {"expire_at": {"$gt": now}},
+            ]
+        },
         {"code": 1},
     ):
         raw = doc.get("code") or ""

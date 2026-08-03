@@ -29,6 +29,8 @@ def test_decode_tdx_self_select_code_accepts_tdx_and_plain_codes():
     assert stock_service.decode_tdx_self_select_code("2830799") == "830799"
     assert stock_service.decode_tdx_self_select_code("300127") == "300127"
     assert stock_service.decode_tdx_self_select_code("1000001") is None
+    assert stock_service.decode_tdx_self_select_code("1113000") is None
+    assert stock_service.decode_tdx_self_select_code("0123456") is None
     assert stock_service.decode_tdx_self_select_code("bad") is None
 
 
@@ -108,3 +110,33 @@ def test_sync_stock_pools_from_tdx_self_select_skips_current_holdings(
     assert result["skipped_holding_count"] == 2
     assert collection.find_one({"code": "300127"}) is None
     assert collection.find_one({"code": "000001"}) is None
+
+
+def test_sync_stock_pools_from_tdx_self_select_skips_unsupported_securities(
+    monkeypatch, tmp_path
+):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "ZXG.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("113000\n123456\n900901\n0300127\n", encoding="gbk")
+    collection = FakeStockPoolsCollection([])
+    fake_db = {
+        "stock_pools": collection,
+        "xt_positions": FakeStockPoolsCollection(),
+    }
+    saved_codes = []
+
+    def fake_save_a_stock_pools(code, **kwargs):
+        saved_codes.append(code)
+        collection.insert_one({"code": code, "category": kwargs.get("category")})
+
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", fake_save_a_stock_pools)
+
+    result = stock_service.sync_stock_pools_from_tdx_self_select(
+        tdx_home=tmp_path,
+        days=15,
+    )
+
+    assert saved_codes == ["300127"]
+    assert result["appended_codes"] == ["300127"]
+    assert result["skipped_invalid_codes"] == ["113000", "123456", "900901"]

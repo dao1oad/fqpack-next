@@ -40,6 +40,42 @@ const toArray = (value) => {
   return String(value).split(',').map((item) => item.trim()).filter(Boolean)
 }
 
+const CLX_LINE_FLAG_KEYS = ['above_chanlun_line', 'above_ma250', 'above_reference_line']
+const CLX_LINE_FLAG_VALUES = new Set(['yes', 'no', 'unknown'])
+
+const normalizeLineFlagValue = (value) => {
+  const text = toText(value).toLowerCase()
+  return CLX_LINE_FLAG_VALUES.has(text) ? text : ''
+}
+
+export const parseClxLineFlags = (query = {}) => {
+  const source = query && typeof query === 'object' ? query : {}
+  let parsed = {}
+  const rawLineFlags = source.line_flags
+  if (rawLineFlags && typeof rawLineFlags === 'object' && !Array.isArray(rawLineFlags)) {
+    parsed = rawLineFlags
+  } else if (toText(rawLineFlags)) {
+    try {
+      const json = JSON.parse(toText(rawLineFlags))
+      parsed = json && typeof json === 'object' && !Array.isArray(json) ? json : {}
+    } catch {
+      parsed = {}
+    }
+  }
+
+  const flags = {}
+  for (const key of CLX_LINE_FLAG_KEYS) {
+    const value = normalizeLineFlagValue(parsed[key] ?? source[key])
+    if (value) flags[key] = value
+  }
+  return flags
+}
+
+export const stringifyClxLineFlags = (lineFlags = {}) => {
+  const flags = parseClxLineFlags(lineFlags)
+  return Object.keys(flags).length ? JSON.stringify(flags) : ''
+}
+
 const readPayload = (payload = {}) => {
   if (payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
     return payload.data
@@ -617,6 +653,7 @@ export const parseClxSelectionRouteQuery = (query = {}) => ({
   conditionKeys: toArray(query.condition_keys || query.clxConditions),
   directions: toArray(query.directions || query.clxDirections),
   minModelCount: Math.max(1, toNumber(query.min_model_count || query.clxMinModels, 1)),
+  lineFlags: parseClxLineFlags(query),
   q: toText(query.q),
   symbol: toText(query.symbol),
 })
@@ -629,6 +666,7 @@ export const buildClxSelectionRouteQuery = (state = {}) => {
   if (toArray(state.conditionKeys).length) query.condition_keys = toArray(state.conditionKeys).join(',')
   if (toArray(state.directions).length) query.directions = toArray(state.directions).join(',')
   if (toNumber(state.minModelCount, 1) > 1) query.min_model_count = String(toNumber(state.minModelCount, 1))
+  if (stringifyClxLineFlags(state.lineFlags)) query.line_flags = stringifyClxLineFlags(state.lineFlags)
   if (toText(state.q)) query.q = toText(state.q)
   if (toText(state.symbol)) query.symbol = toText(state.symbol)
   return query

@@ -997,7 +997,14 @@ def _load_shouban30_credit_subject_lookup(settings_provider=None):
     rows = list(
         repository.collection.find(
             {"account_id": account_id},
-            {"_id": 0, "symbol": 1, "instrument_id": 1},
+            {
+                "_id": 0,
+                "symbol": 1,
+                "instrument_id": 1,
+                "fin_status": 1,
+                "slo_status": 1,
+                "updated_at": 1,
+            },
         )
     )
     if not rows:

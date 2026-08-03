@@ -315,10 +315,10 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:11003/server_info
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/
-Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/kline-slim?clxScreening=1&clxWorkbench=1&period=1d'
+Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/daily-screening?tab=clx'
 ```
 
-CLX 浏览器 smoke 以 `/kline-slim?clxScreening=1&clxWorkbench=1&period=1d` 三栏工作台为主；另用带旧 query 的 `/clx-daily-screening` 检查兼容 redirect，最终地址应收敛到 `/kline-slim` 且保留 CLX mode query，不应重新挂载独立筛选页。
+CLX 浏览器 smoke 以 `/daily-screening?tab=clx` master-detail 工作台为主；另用带旧 query 的 `/clx-daily-screening` 检查兼容 redirect，最终地址应收敛到 `/daily-screening?tab=clx` 并保留可消费的 scope、条件和线关系状态，不应重新挂载独立筛选页。
 
 ### 通达信文件面
 

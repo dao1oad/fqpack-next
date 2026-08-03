@@ -435,7 +435,14 @@ def test_load_shouban30_credit_subject_lookup_scopes_to_configured_account(
     lookup, ready = svc._load_shouban30_credit_subject_lookup()
 
     assert seen["query"] == {"account_id": "acct-2"}
-    assert seen["projection"] == {"_id": 0, "symbol": 1, "instrument_id": 1}
+    assert seen["projection"] == {
+        "_id": 0,
+        "symbol": 1,
+        "instrument_id": 1,
+        "fin_status": 1,
+        "slo_status": 1,
+        "updated_at": 1,
+    }
     assert ready is True
     assert list(lookup) == ["000002"]
 

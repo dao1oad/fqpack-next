@@ -426,6 +426,11 @@ class AllCreditSubjectLookup(dict):
     def __contains__(self, key):
         return bool(str(key or "").strip())
 
+    def get(self, key, default=None):
+        if key in self:
+            return {"symbol": str(key), "fin_status": 48}
+        return default
+
     def __len__(self):
         return 999999
 
@@ -627,7 +632,7 @@ def test_stock_universe_policy_excludes_non_credit_before_qfq_probe():
     service = make_service(
         provider=provider,
         credit_subject_policy_provider=lambda: (
-            {"000001": {"symbol": "000001"}},
+            {"000001": {"symbol": "000001", "fin_status": 48}},
             True,
             "test-account",
         ),
@@ -674,7 +679,7 @@ def test_etf_universe_policy_excludes_non_credit_before_qfq_probe():
     service = make_service(
         provider=provider,
         credit_subject_policy_provider=lambda: (
-            {"510300": {"symbol": "510300"}},
+            {"510300": {"symbol": "510300", "fin_status": 48}},
             True,
             "test-account",
         ),
@@ -708,7 +713,7 @@ def test_etf_universe_policy_excludes_lof_by_code_and_name():
 
     provider = LofProvider()
     credit = {
-        code: {"symbol": code}
+        code: {"symbol": code, "fin_status": 48}
         for code in ("510300", "161022", "501018", "502000", "506001", "159999")
     }
     service = make_service(
@@ -732,6 +737,92 @@ def test_etf_universe_policy_excludes_lof_by_code_and_name():
         "lof_subject"
     }
     assert [call[2] for call in provider.calls if call[0] == "probe"] == ["510300"]
+
+
+def test_universe_policy_requires_financing_status_before_qfq_probe():
+    class PolicyProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [
+                {"symbol": "000001", "name": "finance-buy"},
+                {"symbol": "000002", "name": "securities-lending-only"},
+            ]
+
+    provider = PolicyProvider()
+    service = make_service(
+        provider=provider,
+        credit_subject_policy_provider=lambda: (
+            {
+                "000001": {"symbol": "000001", "fin_status": 48},
+                "000002": {"symbol": "000002", "fin_status": 64},
+            },
+            True,
+            "test-account",
+        ),
+    )
+
+    plan = service.plan_partition("stock", marker("stock"))
+    evidence = plan["universe_evidence"]
+
+    assert [
+        row["symbol"]
+        for row in service.repository.attempts[plan["attempt_id"]][
+            "effective_instruments"
+        ]
+    ] == ["000001"]
+    assert evidence["policy_excluded_symbols"] == [
+        {
+            "code": "000002",
+            "classification": "non_financing_credit_subject",
+            "error_code": "CLX_UNIVERSE_POLICY_EXCLUDED",
+            "reason": "credit subject is not financing eligible",
+            "source": "clx_universe_policy",
+        }
+    ]
+    assert [call[2] for call in provider.calls if call[0] == "probe"] == ["000001"]
+
+
+def test_credit_subject_snapshot_hash_replans_same_marker_qfq_universe():
+    class PolicyProvider(FakeMarketDataProvider):
+        def list_instruments(self, asset_type, trade_date):
+            self.calls.append(("list", asset_type, trade_date))
+            return [
+                {"symbol": "000001", "name": "first"},
+                {"symbol": "000002", "name": "second"},
+            ]
+
+    credit_lookup = {"000001": {"symbol": "000001", "fin_status": 48}}
+
+    def credit_policy_provider():
+        return deepcopy(credit_lookup), True, "test-account"
+
+    repository = FakeRepository()
+    provider = PolicyProvider()
+    service = make_service(
+        repository=repository,
+        provider=provider,
+        credit_subject_policy_provider=credit_policy_provider,
+    )
+
+    first = service.plan_partition("stock", marker("stock"))
+    credit_lookup["000002"] = {"symbol": "000002", "fin_status": 48}
+    second = service.plan_partition("stock", marker("stock"))
+
+    assert first["selection_key"] != second["selection_key"]
+    assert first["universe_evidence"]["credit_subject_snapshot_hash"] != (
+        second["universe_evidence"]["credit_subject_snapshot_hash"]
+    )
+    assert [
+        row["symbol"]
+        for row in repository.attempts[second["attempt_id"]][
+            "effective_instruments"
+        ]
+    ] == ["000001", "000002"]
+    assert [call[2] for call in provider.calls if call[0] == "probe"] == [
+        "000001",
+        "000001",
+        "000002",
+    ]
 
 
 def test_credit_subject_snapshot_missing_fails_closed_before_attempt_creation():
@@ -2870,3 +2961,4 @@ def test_history_signals_resolves_missing_end_date_from_latest_daily_bar():
     assert payload["end_date"] == "2026-03-19"
     assert provider.calls[0] == ("latest", "stock", "000001")
     assert provider.calls[1] == ("bars", "stock", "000001", "2026-03-19", 2)
+

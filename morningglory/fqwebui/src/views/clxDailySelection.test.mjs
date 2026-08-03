@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildClxSelectionRouteQuery,
   buildClxSelectionQueryPayload,
   CLX_DAILY_SELECTION_MODEL_KEYS,
   createClxRequestChannel,
@@ -13,6 +14,7 @@ import {
   normalizeClxStatistics,
   normalizeClxSummary,
   normalizeClxSelectionQuery,
+  parseClxSelectionRouteQuery,
   pickDefaultClxScope,
 } from './clxDailySelection.mjs'
 
@@ -36,6 +38,28 @@ test('normalizeClxCatalog keeps only S0000-S0017 and maps numeric 10000-10017', 
   assert.deepEqual(CLX_DAILY_SELECTION_MODEL_KEYS.slice(0, 2), ['S0000', 'S0001'])
   assert.deepEqual(catalog.models.map((item) => item.key), ['S0000', 'S0017'])
   assert.deepEqual(catalog.models.map((item) => item.numericCode), ['10000', '10017'])
+})
+
+test('CLX route query round-trips legacy line relation filters', () => {
+  const state = parseClxSelectionRouteQuery({
+    scope_id: 'scope-20260731',
+    line_flags: '{"above_ma250":"no","above_reference_line":"unknown"}',
+    above_chanlun_line: 'yes',
+  })
+
+  assert.deepEqual(state.lineFlags, {
+    above_chanlun_line: 'yes',
+    above_ma250: 'no',
+    above_reference_line: 'unknown',
+  })
+  assert.deepEqual(buildClxSelectionRouteQuery(state), {
+    scope_id: 'scope-20260731',
+    line_flags: '{"above_chanlun_line":"yes","above_ma250":"no","above_reference_line":"unknown"}',
+  })
+  assert.deepEqual(
+    buildClxSelectionQueryPayload(state).line_flags,
+    state.lineFlags,
+  )
 })
 
 test('normalizeClxScope only exposes final when publication and both immutable partitions are complete', () => {

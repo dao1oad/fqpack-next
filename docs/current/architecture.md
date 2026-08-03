@@ -56,9 +56,9 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 
 ### 读链
 
-`freshquant_clx_daily_selection -> /api/clx-daily-selection/* -> /kline-slim CLX mode 左栏筛选结果 -> 当前 symbol/endDate K 线 -> 右栏 CLX 信号工作台 -> ECharts CLX marker series`
+`freshquant_clx_daily_selection -> /api/clx-daily-selection/* -> /daily-screening?tab=clx CLX master-detail 工作区 -> 当前 symbol/endDate K 线与详情 -> ECharts CLX marker series`
 
-新链使用独立数据库、API 和 `clx_daily_selection_ready` marker，统一页面入口为 `/kline-slim?clxScreening=1&clxWorkbench=1&period=1d`。裸 `/kline-slim` 仍是普通行情模式；`/clx-daily-screening` 只把兼容 query 映射后重定向到 CLX mode，不再挂载第二套页面状态。旧 `/daily-screening`、`fqscreening` 与 `daily_screening_ready` 继续保持 12 模型链的原有语义。
+新链使用独立数据库、API 和 `clx_daily_selection_ready` marker，统一页面入口为 `/daily-screening?tab=clx`。页面采用高密度 master-detail 布局：左侧条件与交集结果，中间工作区，右侧标的详情；保留静态 JSON schema/API 与 `importGroupToTdx()` 能力。`/clx-daily-screening` 只把兼容 query 映射后重定向到该入口，不再挂载第二套页面状态；旧 `fqscreening` 与 `daily_screening_ready` 继续保持 12 模型链的原有语义。
 ## 当前行情复权边界
 
 - Stock / ETF 线上读取统一由 `freshquant.data.qfq_reader` 解析 `quantaxis.qfq_ready` 指向的 active A/B 快照；reader 每次请求重新解析 marker，不缓存 collection pointer。
@@ -175,10 +175,10 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
   - 左栏“筛选哪些标的”的模型/条件状态与右栏“显示哪些历史 marker”的模型/条件状态分别维护，切换任一侧都不静默改写另一侧
   - 中栏继续提供唯一 K 线主图；右侧工作台按 `production_v1` 历史响应控制 marker 可见性、时间轴和证据详情
   - CLX marker 由 renderer 生成独立 ECharts scatter series，并由 controller 处理点击、聚焦和 tooltip
-- `/clx-daily-screening` 兼容入口
-  - 保留旧收藏和深链可达性，将 `scope_id / asset_types / model_keys / condition_keys` 等兼容 query 映射为 `/kline-slim` 的 CLX 查询状态后重定向
+  - `/clx-daily-screening` 兼容入口
+  - 保留旧收藏和深链可达性，将 `scope_id / asset_types / model_keys / condition_keys / line_flags` 等兼容 query 映射为 `/daily-screening?tab=clx` 的 CLX 查询状态后重定向
   - 不挂载独立筛选页面，也不维护第二份 scope、筛选、选中标的或分页状态
-  - 正式导航、人工操作和 Web 健康检查都以 `/kline-slim` 的 CLX mode query 为准
+  - 正式导航、人工操作和 Web 健康检查都以 `/daily-screening?tab=clx` 为准
 - `PositionReview`
   - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
   - 与 `KlineSlim` 共享订单级时间线投影：信号、订单聚合成交、数量对比和连续持仓使用同一口径

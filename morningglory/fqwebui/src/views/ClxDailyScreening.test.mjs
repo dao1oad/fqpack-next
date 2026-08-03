@@ -71,6 +71,14 @@ test('CLX result navigation carries row asset type into the Kline route', async 
   assert.match(source, /const openSelectedInKline = \(\) => openRowInKline\(selectedRow\.value\)/)
   assert.match(source, /path:\s*'\/kline-slim'/)
   assert.match(source, /symbol:\s*row\.symbol/)
+  assert.match(source, /endDate:\s*activeScope\.value\?\.tradeDate \|\| ''/)
   assert.match(source, /clxAssetType:\s*row\.assetType \|\| 'stock'/)
   assert.match(source, /clxWorkbench:\s*'1'/)
+})
+
+test('CLX page restores and serializes line relation filters in the route', async () => {
+  const source = await readFile(new URL('./ClxDailyScreening.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /filters\.lineFlags = \{[\s\S]*above_chanlun_line: state\.lineFlags\?\.above_chanlun_line \|\| ''/)
+  assert.match(source, /lineFlags:\s*Object\.fromEntries\(Object\.entries\(filters\.lineFlags\)\.filter/)
 })

@@ -565,6 +565,11 @@ const applyRouteState = () => {
   filters.conditionKeys = state.conditionKeys
   filters.directions = state.directions
   filters.minModelCount = state.minModelCount
+  filters.lineFlags = {
+    above_chanlun_line: state.lineFlags?.above_chanlun_line || '',
+    above_ma250: state.lineFlags?.above_ma250 || '',
+    above_reference_line: state.lineFlags?.above_reference_line || '',
+  }
   return state
 }
 
@@ -584,6 +589,7 @@ const syncRoute = async (navigationId = navigationEpoch) => {
         modelKeys: filters.modelKeys,
         conditionKeys: filters.conditionKeys,
         directions: filters.directions,
+        lineFlags: Object.fromEntries(Object.entries(filters.lineFlags).filter(([, value]) => value)),
         minModelCount: filters.minModelCount,
         symbol: selectedRow.value?.symbol || '',
       }),
@@ -843,6 +849,7 @@ const openRowInKline = (row) => {
     query: {
       symbol: row.symbol,
       period: '1d',
+      endDate: activeScope.value?.tradeDate || '',
       clxScope: selectedScopeId.value,
       clxAssetType: row.assetType || 'stock',
       clxModels: filters.modelKeys.join(','),

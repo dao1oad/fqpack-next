@@ -10,8 +10,10 @@ import pymongo
 
 import freshquant.util.df_helper as df_helper
 from freshquant.bootstrap_config import bootstrap_config
+from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.data.astock import must_pool
 from freshquant.db import DBfreshquant
+from freshquant.instrument.general import query_instrument_type
 from freshquant.pre_pool_service import PrePoolService
 from freshquant.signal.a_stock_common import save_a_stock_pools
 from freshquant.strategy.toolkit.grid import plan_grid_distribution
@@ -33,6 +35,10 @@ def _normalize_page_size(page, size):
 TDX_SELF_SELECT_FILENAME = "ZXG.blk"
 TDX_SELF_SELECT_CATEGORY = "通达信自选股"
 TDX_SELF_SELECT_SOURCE = "tdx_self_select"
+TDX_SELF_SELECT_SUPPORTED_INSTRUMENT_TYPES = {
+    InstrumentType.STOCK_CN,
+    InstrumentType.ETF_CN,
+}
 
 
 def _normalize_stock_code6(value):
@@ -97,12 +103,36 @@ def _decode_tdx_prefixed_code(value):
     market_prefix = value[0]
     code = value[1:]
     if market_prefix == "1":
-        return code if code.startswith(("5", "6", "9", "11", "12")) else None
+        return code if code.startswith(("5", "6")) else None
     if market_prefix == "0":
-        return code if code.startswith(("0", "1", "2", "3")) else None
+        return code if code.startswith(("0", "2", "3")) else None
     if market_prefix == "2":
         return code if code.startswith(("4", "8", "92")) else None
     return None
+
+
+def _has_unsupported_tdx_stock_pool_prefix(code):
+    value = str(code or "").strip()
+    if not re.fullmatch(r"\d{6}", value):
+        return True
+    if value.startswith(("10", "11", "12", "13", "200", "900")):
+        return True
+    if value.startswith("1") and not value.startswith(("15", "16", "18")):
+        return True
+    return False
+
+
+def _is_supported_tdx_stock_pool_code(code):
+    value = str(code or "").strip()
+    if _has_unsupported_tdx_stock_pool_prefix(value):
+        return False
+    try:
+        instrument_type = query_instrument_type(value.lower())
+    except Exception:
+        instrument_type = None
+    if instrument_type is None:
+        return True
+    return instrument_type in TDX_SELF_SELECT_SUPPORTED_INSTRUMENT_TYPES
 
 
 def read_tdx_self_select_codes(tdx_home=None, filename=TDX_SELF_SELECT_FILENAME):
@@ -138,6 +168,9 @@ def sync_stock_pools_from_tdx_self_select(
     holding_codes = get_current_stock_holding_codes()
 
     for code in codes:
+        if not _is_supported_tdx_stock_pool_code(code):
+            skipped_invalid_codes.append(code)
+            continue
         if code in holding_codes:
             skipped_holding_codes.append(code)
             continue
@@ -459,7 +492,12 @@ def add_to_stock_pools_by_code(
             {"code": code, "category": direct_category},
             {"$set": {"expire_at": expire_at}},
         )
-        return True
+        return (
+            DBfreshquant["stock_pools"].find_one(
+                {"code": code, "category": direct_category}
+            )
+            is not None
+        )
     target_category = (
         old.get("category")
         if old is not None

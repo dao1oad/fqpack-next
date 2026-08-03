@@ -280,11 +280,13 @@ def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
     captured = {}
-    monkeypatch.setattr(
-        stock_service,
-        "save_a_stock_pools",
-        lambda **kwargs: captured.setdefault("kwargs", kwargs),
-    )
+    def fake_save_a_stock_pools(**kwargs):
+        captured.setdefault("kwargs", kwargs)
+        fake_db["stock_pools"].docs.append(
+            {"code": kwargs["code"], "category": kwargs["category"]}
+        )
+
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", fake_save_a_stock_pools)
 
     result = stock_service.add_to_stock_pools_by_code("000001", days=20)
 
@@ -312,11 +314,13 @@ def test_add_to_stock_pools_by_code_without_pre_pool_still_fails_by_default(
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
     captured = {}
-    monkeypatch.setattr(
-        stock_service,
-        "save_a_stock_pools",
-        lambda **kwargs: captured.setdefault("kwargs", kwargs),
-    )
+    def save_stub(**kwargs):
+        captured.setdefault("kwargs", kwargs)
+        fake_db["stock_pools"].docs.append(
+            {"code": kwargs["code"], "category": kwargs["category"]}
+        )
+
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", save_stub)
 
     result = stock_service.add_to_stock_pools_by_code("000001", days=20)
 
@@ -335,11 +339,13 @@ def test_add_to_stock_pools_by_code_allow_direct_writes_clx_monitor_provenance(
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
     captured = {}
-    monkeypatch.setattr(
-        stock_service,
-        "save_a_stock_pools",
-        lambda **kwargs: captured.setdefault("kwargs", kwargs),
-    )
+    def save_stub(**kwargs):
+        captured.setdefault("kwargs", kwargs)
+        fake_db["stock_pools"].docs.append(
+            {"code": kwargs["code"], "category": kwargs["category"]}
+        )
+
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", save_stub)
 
     result = stock_service.add_to_stock_pools_by_code(
         "000001",
@@ -374,6 +380,30 @@ def test_add_to_stock_pools_by_code_allow_direct_writes_clx_monitor_provenance(
             },
         }
     ]
+
+
+def test_add_to_stock_pools_by_code_allow_direct_reports_missing_write(
+    monkeypatch,
+):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection([]),
+        stock_pools=FakeCollection([]),
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", lambda **kwargs: None)
+
+    result = stock_service.add_to_stock_pools_by_code(
+        "000001",
+        days=20,
+        allow_direct=True,
+        category="CLX15分钟监控",
+        source="clx_signal_workbench",
+    )
+
+    assert result is False
+    assert "expire_at" in fake_db["stock_pools"].last_update["$set"]
 
 
 def test_add_to_stock_pools_by_code_allow_direct_refreshes_existing_expire_at(
