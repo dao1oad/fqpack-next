@@ -468,14 +468,18 @@ def _build_stock_pool_doc_from_source(source_doc, order, existing_doc=None):
         if existing_doc is not None and _workspace_order(existing_doc) is not None
         else order
     )
-    extra["shouban30_source"] = "pre_pool"
-    extra["shouban30_from_category"] = SHOUBAN30_PRE_POOL_CATEGORY
+    extra["shouban30_source"] = source_extra.get("shouban30_source") or source_extra.get("source") or "pre_pool"
+    extra["shouban30_from_category"] = source_doc.get("category") or SHOUBAN30_PRE_POOL_CATEGORY
     for key in (
         "shouban30_provider",
         "shouban30_plate_key",
         "shouban30_plate_name",
         "shouban30_hit_count_window",
         "shouban30_latest_trade_date",
+        "clx_scope_id",
+        "clx_asset_type",
+        "clx_model_keys",
+        "source",
     ):
         value = source_extra.get(key)
         if value not in (None, ""):
@@ -570,6 +574,78 @@ def append_pre_pool(items, context=None):
         "category": SHOUBAN30_PRE_POOL_CATEGORY,
     }
 
+
+
+def _build_stock_pool_source_doc(item, context=None):
+    context = dict(context or {})
+    extra = {
+        SHOUBAN30_ORDER_FIELD: item.get("order", 0),
+        "shouban30_source": context.get("source") or "manual",
+        "shouban30_provider": item.get("provider"),
+        "shouban30_plate_key": item.get("plate_key"),
+        "shouban30_plate_name": item.get("plate_name"),
+        "shouban30_hit_count_window": item.get("hit_count_window"),
+        "shouban30_latest_trade_date": item.get("latest_trade_date"),
+    }
+    extra.update({k: v for k, v in context.items() if v not in (None, "")})
+    extra = {k: v for k, v in extra.items() if v not in (None, "")}
+    category = context.get("category") or SHOUBAN30_STOCK_POOL_CATEGORY
+    return {
+        "code": item["code"],
+        "name": item.get("name") or item["code"],
+        "category": category,
+        "datetime": datetime.now(),
+        "expire_at": None,
+        "stop_loss_price": None,
+        "extra": extra,
+        "sources": [context.get("source") or "manual"],
+        "categories": [category],
+        "memberships": [
+            {
+                "source": context.get("source") or "manual",
+                "category": category,
+                "added_at": datetime.now(),
+                "extra": extra,
+            }
+        ],
+    }
+
+
+def append_stock_pool(items, context=None):
+    context = dict(context or {})
+    normalized_items = _normalize_items(items)
+    stock_pool_docs = _ensure_stock_pool_orders()
+    existing_docs_by_code = {doc.get("code"): doc for doc in stock_pool_docs}
+    next_order = _next_workspace_order(stock_pool_docs)
+    appended_count = 0
+    skipped_count = 0
+
+    for item in normalized_items:
+        existing_doc = existing_docs_by_code.get(item["code"])
+        source_doc = _build_stock_pool_source_doc(item, context)
+        if existing_doc is not None:
+            DBfreshquant["stock_pools"].update_one(
+                {"code": item["code"], "category": SHOUBAN30_STOCK_POOL_CATEGORY},
+                {
+                    "$set": _build_stock_pool_doc_from_source(
+                        source_doc,
+                        _workspace_order(existing_doc) if _workspace_order(existing_doc) is not None else 0,
+                        existing_doc=existing_doc,
+                    )
+                },
+            )
+            skipped_count += 1
+            continue
+        DBfreshquant["stock_pools"].insert_one(_build_stock_pool_doc(source_doc, next_order))
+        existing_docs_by_code[item["code"]] = source_doc
+        next_order += 1
+        appended_count += 1
+
+    return {
+        "appended_count": appended_count,
+        "skipped_count": skipped_count,
+        "category": SHOUBAN30_STOCK_POOL_CATEGORY,
+    }
 
 def _clear_pool(collection_name, category, syncer):
     delete_result = DBfreshquant[collection_name].delete_many({"category": category})

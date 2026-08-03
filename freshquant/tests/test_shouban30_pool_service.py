@@ -359,6 +359,44 @@ def test_append_pre_pool_uses_next_order_after_existing_order_gap(monkeypatch):
     assert saved_docs[2]["extra"]["shouban30_order"] == 3
 
 
+def test_append_stock_pool_adds_clx_monitor_without_must_pool(monkeypatch):
+    service, called = _import_service_with_stubs(monkeypatch)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection(),
+        stock_pools=FakeCollection(),
+        must_pool=FakeCollection(),
+    )
+    monkeypatch.setattr(service, "DBfreshquant", fake_db)
+
+    result = service.append_stock_pool(
+        [{"code6": "600001", "name": "alpha"}],
+        {
+            "source": "clx15_monitor",
+            "category": "CLX15分钟监控",
+            "clx_scope_id": "scope-1",
+            "clx_asset_type": "stock",
+            "clx_model_keys": "S0000,S0017",
+        },
+    )
+
+    saved = fake_db["stock_pools"].find_one(
+        {"code": "600001", "category": "三十涨停Pro自选"}
+    )
+    assert result == {
+        "appended_count": 1,
+        "skipped_count": 0,
+        "category": "三十涨停Pro自选",
+    }
+    assert saved is not None
+    assert saved["extra"]["shouban30_source"] == "clx15_monitor"
+    assert saved["extra"]["shouban30_from_category"] == "CLX15分钟监控"
+    assert saved["extra"]["clx_model_keys"] == "S0000,S0017"
+    assert saved["sources"] == ["clx15_monitor"]
+    assert saved["categories"] == ["CLX15分钟监控"]
+    assert list(fake_db["must_pool"].find({})) == []
+    assert called["must_pool"] == []
+
+
 def test_append_pre_pool_keeps_single_row_and_adds_membership(monkeypatch):
     service, _ = _import_service_with_stubs(monkeypatch)
     fake_db = FakeDB(

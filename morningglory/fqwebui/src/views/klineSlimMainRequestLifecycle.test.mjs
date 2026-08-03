@@ -195,3 +195,50 @@ test('first 1d chart route discards the data default 5m legend selection', () =>
   assert.deepEqual(vm.visibleChanlunPeriods, [])
   assert.deepEqual(refreshes, ['1d'])
 })
+
+
+test('main period switch resets chanlun period legend to the new current period only', () => {
+  const refreshes = []
+  const vm = {
+    ...component.data(),
+    $route: { query: { symbol: 'TEST', period: '15m' } },
+    $router: { replace() {} },
+    routeSymbol: 'TEST',
+    subjectPanelState: { lastSubjectSymbol: '' },
+    chart: null,
+    chartController: null,
+    showPriceGuidePanel: false,
+    showClxWorkbench: false,
+    lastHandledChartRouteKey: 'TEST|30m|',
+    currentPeriod: '30m',
+    periodLegendSelected: { '1m': true, '5m': true, '15m': false, '30m': true, '1d': true },
+    priceGuideLegendSelected: { '价格辅助线': true },
+    orderReviewLegendSelected: { '订单复盘': true },
+    clxLegendSelected: true,
+    lastSubjectDetailSymbol: '',
+    applyClxRouteState() {},
+    resetChanlunStructureState() {},
+    resetSlimDataState() {},
+    stopPolling() {},
+    loadSubjectPriceDetail() {},
+    refreshVisibleChanlunPeriods: component.methods.refreshVisibleChanlunPeriods,
+    ensureChanlunPeriodLoaded(period) {
+      refreshes.push(period)
+      return Promise.resolve()
+    },
+    ensureRealtimePolling() {}
+  }
+
+  component.methods.handleRouteChange.call(vm)
+
+  assert.equal(vm.periodLegendSelected['15m'], true)
+  assert.equal(vm.periodLegendSelected['1m'], false)
+  assert.equal(vm.periodLegendSelected['5m'], false)
+  assert.equal(vm.periodLegendSelected['30m'], false)
+  assert.equal(vm.periodLegendSelected['1d'], false)
+  assert.deepEqual(vm.visibleChanlunPeriods, [])
+  assert.deepEqual(vm.priceGuideLegendSelected, { '价格辅助线': true })
+  assert.deepEqual(vm.orderReviewLegendSelected, { '订单复盘': true })
+  assert.equal(vm.clxLegendSelected, true)
+  assert.deepEqual(refreshes, ['15m'])
+})

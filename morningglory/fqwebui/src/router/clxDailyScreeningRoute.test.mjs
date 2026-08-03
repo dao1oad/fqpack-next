@@ -8,14 +8,11 @@ import {
 } from './pageMeta.mjs'
 import { buildClxDailyScreeningRedirect } from './clxDailyScreeningRedirect.mjs'
 
-test('CLX daily screening navigation opens the unified Kline workbench', () => {
-  assert.deepEqual(getHeaderNavTarget('clxDailyScreening'), {
+test('daily screening navigation opens the pure daily screening workbench', () => {
+  assert.deepEqual(getHeaderNavTarget('dailyScreening'), {
     label: '每日选股',
-    path: '/kline-slim',
+    path: '/daily-screening',
     query: {
-      clxScreening: '1',
-      clxWorkbench: '1',
-      period: '1d',
       tabTitle: '每日选股',
     },
   })
@@ -49,33 +46,29 @@ test('legacy redirect migrates every screening field and never re-emits aliases'
     hash: '#signals',
   })
 
-  assert.equal(redirected.path, '/kline-slim')
+  assert.equal(redirected.path, '/daily-screening')
   assert.equal(redirected.hash, '#signals')
   assert.deepEqual(redirected.query, {
+    scope_id: 'scope-20260731',
+    q: '半导体',
+    asset_types: 'stock,etf',
+    directions: 'buy,sell',
+    min_model_count: '2',
+    above_chanlun_line: 'yes',
+    line_flags: '{"above_ma250":"no","above_reference_line":"unknown"}',
+    asset_type: 'etf',
     symbol: 'sz159577',
     endDate: '2026-07-31',
     tabTitle: '旧收藏',
-    period: '1w',
-    clxScreening: '1',
-    clxScope: 'scope-20260731',
-    clxFilterQ: '半导体',
-    clxFilterAssets: 'stock,etf',
-    clxFilterModels: 'S0001,S0003',
-    clxFilterConditions: 'breakout,fallback_fractal',
-    clxFilterDirections: 'buy,sell',
-    clxFilterMinModels: '2',
-    clxFilterAboveChanlun: 'yes',
-    clxFilterAboveMa250: 'no',
-    clxFilterAboveReference: 'unknown',
-    clxAssetType: 'etf',
-    clxWorkbench: '1',
+    tab: 'clx',
+    model_keys: 'S1,S0003',
+    condition_keys: 'breakout,fallback_fractal',
   })
   ;[
-    'scope_id', 'asset_type', 'asset_types', 'clxAssets', 'model_keys',
-    'condition_keys', 'directions', 'clxDirections', 'min_model_count',
-    'clxMinModels', 'q', 'line_flags', 'above_chanlun_line', 'above_ma250',
-    'above_reference_line', 'clxModels', 'clxConditions',
+    'clxAssets', 'clxDirections', 'clxMinModels',
+    'clxModels', 'clxConditions', 'clxScope', 'scopeId', 'clxAssetType',
+    'clxFilterModels', 'clxFilterConditions', 'period', 'clxWorkbench', 'clxScreening',
   ].forEach((key) => assert.equal(Object.hasOwn(redirected.query, key), false, key))
 
-  assert.equal(buildClxDailyScreeningRedirect({ query: {} }).query.period, '1d')
+  assert.equal(buildClxDailyScreeningRedirect({ query: {} }).query.tab, 'clx')
 })
