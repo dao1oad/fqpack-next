@@ -66,6 +66,16 @@ def get_current_stock_holding_codes():
     return codes
 
 
+def _resolve_instrument_name(code):
+    try:
+        from freshquant.instrument.general import query_instrument_info
+
+        info = query_instrument_info(fq_util_code_append_market_code(code)) or {}
+        return str(info.get("name") or "").strip()
+    except Exception:
+        return ""
+
+
 def _require_tdx_home(tdx_home=None):
     value = str(
         tdx_home or bootstrap_config.tdx.home or os.environ.get("TDX_HOME") or ""
@@ -302,13 +312,21 @@ def get_stock_signal_list(page=1, size=1000, category="candidates"):
 def get_stock_model_signal_list(page=1, size=1000):
     page, size = _normalize_page_size(page, size)
     start = (page - 1) * size
-    data = list(
-        DBfreshquant["realtime_screen_multi_period"]
-        .find({})
-        .sort([("datetime", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)])
-        .skip(start)
-        .limit(size)
+    try:
+        holding_codes = get_current_stock_holding_codes()
+    except Exception:
+        holding_codes = set()
+    cursor = DBfreshquant["realtime_screen_multi_period"].find({}).sort(
+        [("datetime", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)]
     )
+    if not holding_codes:
+        data = list(cursor.skip(start).limit(size))
+    else:
+        data = [
+            doc
+            for doc in cursor
+            if _normalize_stock_code6(doc.get("code")) not in holding_codes
+        ][start : start + size]
     out = []
     for doc in data:
         out.append(
@@ -318,7 +336,7 @@ def get_stock_model_signal_list(page=1, size=1000):
                     doc.get("created_at"), "%Y-%m-%d %H:%M:%S"
                 ),
                 "code": doc.get("code") or "",
-                "name": doc.get("name") or "",
+                "name": doc.get("name") or _resolve_instrument_name(doc.get("code")),
                 "period": doc.get("period") or "",
                 "model": doc.get("model") or "",
                 "close": doc.get("close"),
@@ -338,10 +356,16 @@ def get_stock_pools_list(page=1):
         .limit(1000)
     )
     if len(data) > 0:
-        df = pd.DataFrame(data)
-        df = df.drop(columns=["_id"])
-        df["symbol"] = df["code"].apply(lambda x: fq_util_code_append_market_code(x))
-        return df_helper.to_dict(df)
+        out = []
+        for doc in data:
+            item = dict(doc)
+            item.pop("_id", None)
+            code = item.get("code") or ""
+            if not str(item.get("name") or "").strip():
+                item["name"] = _resolve_instrument_name(code)
+            item["symbol"] = fq_util_code_append_market_code(code)
+            out.append(item)
+        return out
     else:
         return []
 

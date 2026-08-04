@@ -729,6 +729,21 @@ class StrategyConsumer:
 
         code = meta.get("code") or ""
         period = meta.get("period") or ""
+        holding_codes = {
+            normalize_prefixed_code(str(doc.get(field) or "")).lower()
+            for doc in DBfreshquant["xt_positions"].find(
+                {}, {"stock_code": 1, "code": 1, "symbol": 1}
+            )
+            for field in ("stock_code", "code", "symbol")
+            if doc.get(field)
+        }
+        if str(code).strip().lower() in holding_codes:
+            logger.info(
+                "[Consumer] drop CLX signal for current holding code=%s period=%s",
+                code,
+                period,
+            )
+            return
         ts = int(meta.get("bar_time") or 0)
         if ts <= 0:
             return

@@ -128,6 +128,17 @@ def _load_guardian_codes(limit: int) -> list[str]:
 
 def _load_clx_codes(limit: int) -> list[str]:
     codes: set[str] = set()
+    holding_codes: set[str] = set()
+    for doc in DBfreshquant["xt_positions"].find(
+        {}, {"stock_code": 1, "code": 1, "symbol": 1}
+    ):
+        for field in ("stock_code", "code", "symbol"):
+            raw = doc.get(field) or ""
+            norm = normalize_prefixed_code(str(raw)).lower()
+            if norm:
+                holding_codes.add(norm)
+                break
+
     now = datetime.now()
     for doc in DBfreshquant["stock_pools"].find(
         {
@@ -141,7 +152,7 @@ def _load_clx_codes(limit: int) -> list[str]:
     ):
         raw = doc.get("code") or ""
         norm = normalize_prefixed_code(str(raw)).lower()
-        if norm:
+        if norm and norm not in holding_codes:
             codes.add(norm)
     out = sorted(c for c in codes if len(c) >= 8)[:limit]
     return out
