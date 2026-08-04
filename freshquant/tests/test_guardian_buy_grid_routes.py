@@ -163,10 +163,10 @@ def test_guardian_buy_grid_config_routes_get_and_post(monkeypatch, stock_routes)
         "code": "000001",
         "buy_1": 10.1,
         "buy_2": 9.1,
-                "buy_3": 8.1,
-                "buy_enabled": [True, False, True],
-                "max_position_amounts": None,
-                "enabled": True,
+        "buy_3": 8.1,
+        "buy_enabled": [True, False, True],
+        "max_position_amounts": None,
+        "enabled": True,
         "updated_by": "pytest",
     }
     response = stock_routes.guardian_buy_grid_config_post()
@@ -179,6 +179,7 @@ def test_guardian_buy_grid_config_routes_get_and_post(monkeypatch, stock_routes)
             "buy_2": 9.1,
             "buy_3": 8.1,
             "buy_enabled": [True, False, True],
+            "max_position_amounts": None,
             "enabled": True,
             "updated_by": "pytest",
         },
