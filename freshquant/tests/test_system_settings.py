@@ -261,27 +261,18 @@ def test_system_settings_marks_initial_load_unready_when_database_unavailable():
     from freshquant.system_settings import SystemSettings
 
     database = BrokenDatabase()
-    settings = SystemSettings(
-        database=database,
-        reload_retry_attempts=2,
-        reload_retry_delay_seconds=0,
-        sleep_fn=lambda _: None,
-    )
+    try:
+        SystemSettings(
+            database=database,
+            reload_retry_attempts=2,
+            reload_retry_delay_seconds=0,
+            sleep_fn=lambda _: None,
+        )
+    except RuntimeError as exc:
+        assert "database unavailable" in str(exc)
+    else:
+        raise AssertionError("unavailable configuration must fail startup")
 
-    assert settings.notification.dingtalk_private_webhook == ""
-    assert settings.monitor.xtdata_mode == "guardian_1m"
-    assert settings.xtquant.account == ""
-    assert settings.xtquant.auto_repay_enabled is True
-    assert settings.xtquant.auto_repay_reserve_cash == 5000.0
-    assert settings.guardian.stock_lot_amount == 50000
-    assert settings.guardian.stock_threshold == {
-        "mode": "percent",
-        "percent": 1,
-    }
-    assert settings.position_management.allow_open_min_bail == 800000.0
-    assert settings.get_strategy_id("Guardian") == ""
-    assert settings.loaded_once is False
-    assert isinstance(settings.last_reload_error, RuntimeError)
     assert database.calls >= 2
 
 

@@ -141,7 +141,10 @@ class SystemSettings:
         self._strategies_by_code: dict[str, dict[str, Any]] = {}
         self.loaded_once = False
         self.last_reload_error: Exception | None = None
-        self.reload(strict=False)
+        # A service must not start with operational defaults when the
+        # database-backed configuration is unavailable. Callers that create
+        # long-running workers need a hard startup failure instead.
+        self.reload(strict=True)
 
     def reload(
         self,

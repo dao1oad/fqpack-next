@@ -35,6 +35,7 @@ from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
 from freshquant.market_data.xtdata.schema import BarCloseEvent
 from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
+from freshquant.runtime_singleton import ProcessSingleton, SingletonAlreadyRunning
 from freshquant.system_settings import system_settings
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.period import (
@@ -1333,14 +1334,22 @@ class StrategyConsumer:
     "--prewarm/--no-prewarm", default=True, help="启动时预热历史窗口并推送结构"
 )
 def main(max_bars: int, workers: int | None, max_inflight: int | None, prewarm: bool):
-    consumer = StrategyConsumer(
-        max_bars=max_bars,
-        fullcalc_workers=workers,
-        fullcalc_max_inflight=max_inflight,
-    )
-    if prewarm:
-        consumer.prewarm()
-    consumer.run_forever()
+    try:
+        with ProcessSingleton("xtdata-strategy-consumer"):
+            # Reload strictly at worker startup so a transient Mongo outage
+            # terminates this process instead of selecting guardian_1m.
+            system_settings.reload(strict=True)
+            consumer = StrategyConsumer(
+                max_bars=max_bars,
+                fullcalc_workers=workers,
+                fullcalc_max_inflight=max_inflight,
+            )
+            if prewarm:
+                consumer.prewarm()
+            consumer.run_forever()
+    except SingletonAlreadyRunning as exc:
+        logger.error(str(exc))
+        raise click.ClickException(str(exc)) from exc
 
 
 _runtime_logger = None
