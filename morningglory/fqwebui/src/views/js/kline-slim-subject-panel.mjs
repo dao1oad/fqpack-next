@@ -33,6 +33,7 @@ const cloneStoplossDrafts = (rows = []) => {
 
 export const normalizeKlineSlimSubjectPanelDetail = (detail = {}) => {
   const normalized = buildDetailViewModel(detail)
+  const rawPositionLimit = detail?.position_limit_summary || {}
   return {
     symbol: normalized.symbol,
     name: normalized.name,
@@ -44,6 +45,8 @@ export const normalizeKlineSlimSubjectPanelDetail = (detail = {}) => {
       market_value: normalized.positionLimitSummary?.market_value ?? null,
       using_override: Boolean(normalized.positionLimitSummary?.using_override),
       blocked: Boolean(normalized.positionLimitSummary?.blocked),
+      available: rawPositionLimit?.available !== false,
+      error: String(rawPositionLimit?.error || '').trim(),
     },
     entries: normalized.entries || [],
     runtimeSummary: normalized.runtimeSummary,
@@ -69,6 +72,33 @@ export const buildInitialKlineSlimSubjectPanelState = () => ({
   stoplossDrafts: {},
   savingStoploss: {},
 })
+
+export const restoreKlineSlimPositionLimitDefault = async (
+  state,
+  {
+    actions,
+    symbol,
+    refresh,
+  } = {},
+) => {
+  const refreshed = await refresh()
+  if (refreshed !== true) {
+    throw new Error('刷新最新系统默认仓位上限失败')
+  }
+  if (String(state?.subjectPanelDetail?.symbol || '').trim() !== String(symbol || '').trim()) {
+    throw new Error('刷新后的标的仓位上限详情无效')
+  }
+  const positionLimit = state?.subjectPanelDetail?.positionLimit || {}
+  const defaultLimit = Number(positionLimit.default_limit)
+  if (positionLimit.available === false || !Number.isFinite(defaultLimit) || defaultLimit <= 0) {
+    throw new Error(positionLimit.error || '未取得有效的系统默认仓位上限')
+  }
+  await actions.savePositionLimit(symbol, { limit: defaultLimit })
+  const confirmed = await refresh()
+  if (confirmed !== true) {
+    throw new Error('恢复后刷新仓位上限详情失败')
+  }
+}
 
 export const applyKlineSlimSubjectPanelDetailState = (state, detail) => {
   const normalized = normalizeKlineSlimSubjectPanelDetail(detail)

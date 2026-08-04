@@ -25,6 +25,7 @@ import {
 import {
   buildInitialKlineSlimSubjectPanelState,
   createKlineSlimSubjectPanelActions,
+  restoreKlineSlimPositionLimitDefault,
 } from './kline-slim-subject-panel.mjs'
 import {
   getKlineSlimEmptyMessage,
@@ -83,9 +84,9 @@ const CHANLUN_SOURCE_LABELS = {
   fallback_fullcalc: '实时回退 fullcalc'
 }
 const GUARDIAN_GUIDE_META = [
-  { key: 'buy_1', label: 'BUY-1', shortLabel: 'B1', tone: 'blue', lineLabel: '蓝线' },
-  { key: 'buy_2', label: 'BUY-2', shortLabel: 'B2', tone: 'red', lineLabel: '红线' },
-  { key: 'buy_3', label: 'BUY-3', shortLabel: 'B3', tone: 'green', lineLabel: '绿线' }
+  { key: 'buy_1', label: 'BUY-1', capLabel: 'CAP-1', tierLabel: '第一档', shortLabel: 'B1', tone: 'blue', lineLabel: '蓝线' },
+  { key: 'buy_2', label: 'BUY-2', capLabel: 'CAP-2', tierLabel: '第二档', shortLabel: 'B2', tone: 'red', lineLabel: '红线' },
+  { key: 'buy_3', label: 'BUY-3', capLabel: 'CAP-3', tierLabel: '第三档', shortLabel: 'B3', tone: 'green', lineLabel: '绿线' }
 ]
 const TAKEPROFIT_GUIDE_META = [
   { level: 1, label: 'L1', tone: 'blue', lineLabel: '蓝线' },
@@ -302,6 +303,14 @@ function formatIntegerLabel(value) {
   return String(Math.trunc(number))
 }
 
+function formatAmountLabel(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return '--'
+  }
+  return Math.trunc(number).toLocaleString('zh-CN')
+}
+
 function formatWanQuantityLabel(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) {
@@ -509,6 +518,36 @@ export default {
     guardianLastHitLabel() {
       const lastHitLevel = String(this.guardianState?.last_hit_level || '').trim()
       return lastHitLevel || '未命中'
+    },
+    positionLimitSummary() {
+      return this.subjectPanelState.subjectPanelDetail?.positionLimit || {}
+    },
+    positionLimitAvailable() {
+      return this.positionLimitSummary.available !== false
+    },
+    positionLimitSourceLabel() {
+      return this.positionLimitSummary.using_override ? '单独设置' : '系统默认值'
+    },
+    positionLimitUnavailableReason() {
+      return this.positionLimitSummary.error || '该标的不在仓位管理跟踪范围'
+    },
+    effectivePositionLimit() {
+      const limit = Number(this.positionLimitSummary.effective_limit)
+      return Number.isFinite(limit) && limit > 0 ? limit : null
+    },
+    guardianCapExceedsPositionLimit() {
+      if (!this.effectivePositionLimit) {
+        return false
+      }
+      return (this.guardianDraft?.max_position_amounts || [])
+        .some((value) => Number(value) > this.effectivePositionLimit)
+    },
+    positionLimitUsageLabel() {
+      const marketValue = Number(this.positionLimitSummary.market_value)
+      if (!Number.isFinite(marketValue) || !this.effectivePositionLimit) {
+        return '--'
+      }
+      return `${Math.max(0, marketValue / this.effectivePositionLimit * 100).toFixed(1)}%`
     },
     takeprofitGuideRows() {
       return TAKEPROFIT_GUIDE_META.map((item) => {
@@ -1371,6 +1410,47 @@ export default {
         this.subjectPanelState.savingSubjectConfigBundle = false
       }
     },
+    async handleSaveSubjectPositionLimit() {
+      if (!this.routeSymbol || !this.subjectPanelState.subjectPanelDetail || !this.positionLimitAvailable) {
+        return
+      }
+      const parsedLimit = Number(this.subjectPanelState.positionLimitDraft.limit)
+      if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+        this.$message?.warning?.('请先填写有效的单标的总仓位上限')
+        return
+      }
+      this.subjectPanelState.savingSubjectConfigBundle = true
+      try {
+        await this.subjectPanelActions.savePositionLimit(
+          this.routeSymbol,
+          buildSubjectPanelPositionLimitPayload(this.subjectPanelState.positionLimitDraft)
+        )
+        await this.loadSubjectPanelDetail({ force: true })
+        this.$message?.success?.('单标的总仓位上限已保存')
+      } catch (error) {
+        this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '总仓位上限保存失败')
+      } finally {
+        this.subjectPanelState.savingSubjectConfigBundle = false
+      }
+    },
+    async handleRestoreSubjectPositionLimitDefault() {
+      if (!this.routeSymbol || !this.subjectPanelState.subjectPanelDetail || !this.positionLimitAvailable) {
+        return
+      }
+      this.subjectPanelState.savingSubjectConfigBundle = true
+      try {
+        await restoreKlineSlimPositionLimitDefault(this.subjectPanelState, {
+          actions: this.subjectPanelActions,
+          symbol: this.routeSymbol,
+          refresh: () => this.loadSubjectPanelDetail({ force: true }),
+        })
+        this.$message?.success?.('已恢复系统默认总仓位上限')
+      } catch (error) {
+        this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '恢复系统默认失败')
+      } finally {
+        this.subjectPanelState.savingSubjectConfigBundle = false
+      }
+    },
     async handleSaveSubjectStoploss(entryId) {
       if (!entryId) {
         return
@@ -1601,7 +1681,8 @@ export default {
         actions: this.pricePanelActions,
         symbol: this.routeSymbol,
         notify: this.$message,
-        afterRefresh: () => this.scheduleRender()
+        afterRefresh: () => this.scheduleRender(),
+        effectivePositionLimit: this.effectivePositionLimit
       })
     },
     async handleSaveTakeprofitPriceGuides() {
@@ -1617,7 +1698,8 @@ export default {
         actions: this.pricePanelActions,
         symbol: this.routeSymbol,
         notify: this.$message,
-        afterRefresh: () => this.scheduleRender()
+        afterRefresh: () => this.scheduleRender(),
+        effectivePositionLimit: this.effectivePositionLimit
       })
     },
     async handleGuardianGuideEnabledChange(index, enabled) {
@@ -1644,7 +1726,8 @@ export default {
           symbol: this.routeSymbol,
           notify: this.$message,
           afterRefresh: () => this.scheduleRender(),
-          nextBuyEnabled
+          nextBuyEnabled,
+          effectivePositionLimit: this.effectivePositionLimit
         })
       } catch (error) {
         this.guardianDraft = previousGuardianDraft
@@ -1720,7 +1803,8 @@ export default {
           notify: this.$message,
           afterRefresh: () => this.scheduleRender(),
           nextBuyEnabled,
-          syncRuntimeState: true
+          syncRuntimeState: true,
+          effectivePositionLimit: this.effectivePositionLimit
         })
       } catch (error) {
         this.guardianDraft = previousGuardianDraft
@@ -1945,6 +2029,9 @@ export default {
     },
     formatWanAmountValue(value) {
       return formatWanAmountLabel(value)
+    },
+    formatAmountValue(value) {
+      return formatAmountLabel(value)
     },
     formatIntegerValue(value) {
       return formatIntegerLabel(value)
