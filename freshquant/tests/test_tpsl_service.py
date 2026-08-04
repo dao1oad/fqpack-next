@@ -294,11 +294,12 @@ def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
 
     batch = service.evaluate_takeprofit(symbol="000001", ask1=10.8)
 
-    assert batch["status"] == "blocked"
-    assert batch["blocked_reason"] == "can_use_volume"
+    assert batch["status"] == "skipped"
+    assert batch["skip_reason"] == "no_submittable_quantity"
+    assert batch["trigger_consumed"] is False
 
 
-def test_evaluate_takeprofit_zero_quantity_marks_level_triggered_without_order():
+def test_evaluate_takeprofit_uses_other_slice_to_meet_position_ratio():
     repo = InMemoryTpslRepository()
     tp_service = TakeprofitService(repository=repo)
     tp_service.save_profile(
@@ -330,18 +331,13 @@ def test_evaluate_takeprofit_zero_quantity_marks_level_triggered_without_order()
 
     batch = service.evaluate_takeprofit(symbol="000001", ask1=10.0)
 
-    assert batch["status"] == "triggered_no_order"
-    assert batch["skip_reason"] == "no_profitable_quantity"
-    assert batch["quantity"] == 0
+    assert batch["status"] == "ready"
+    assert batch["quantity"] == 100
     assert batch["level"] == 1
     assert batch["trace_id"].startswith("trc_")
-    assert batch["batch_id"].startswith("takeprofit_trigger_")
-    assert tp_service.get_state("000001")["armed_levels"] == {1: False}
-    assert repo.events[-1]["event_type"] == "takeprofit_hit"
-    assert repo.events[-1]["batch_id"] == batch["batch_id"]
-    assert repo.events[-1]["trigger_price"] == 10.0
-    assert repo.events[-1]["entry_details"] == []
-    assert repo.events[-1]["buy_lot_details"] == []
+    assert batch["batch_id"].startswith("takeprofit_batch_")
+    assert batch["entry_quantities"] == {"entry1": 100}
+    assert tp_service.get_state("000001")["armed_levels"] == {1: True}
 
 
 def test_evaluate_stoploss_returns_symbol_full_stoploss_batch_when_symbol_price_hits():

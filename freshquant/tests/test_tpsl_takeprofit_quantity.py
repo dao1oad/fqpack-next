@@ -24,7 +24,13 @@ def test_takeprofit_quantity_uses_guardian_profit_slices_only():
         },
     ]
 
-    result = resolve_takeprofit_sell_quantity(open_slices=open_slices, tier_price=10.0)
+    result = resolve_takeprofit_sell_quantity(
+        open_slices=open_slices,
+        tier_price=10.0,
+        level=1,
+        total_position_quantity=600,
+        can_use_volume=600,
+    )
 
     assert result["quantity"] == 200
     assert result["slice_quantities"] == {"s1": 200}

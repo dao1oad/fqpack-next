@@ -651,6 +651,20 @@ class StrategyGuardian(metaclass=SingletonType):
                 decision_outcome={"outcome": "pass"},
             )
 
+            active_order_result = _prepare_guardian_buy_orders(code)
+            if active_order_result["blocked"]:
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="skipped",
+                    reason_code=active_order_result["reason_code"],
+                    outcome="skip",
+                    decision_branch=f"{submit_branch}_active_buy_orders",
+                    decision_expr="no_active_buy_orders",
+                    decision_context={"orders": active_order_result},
+                )
+                return
+
             strategy_context = {
                 "guardian_buy_grid": {
                     "path": decision.get("path"),
@@ -1405,6 +1419,69 @@ def _get_order_management_repository():
     if _order_management_repository is None:
         _order_management_repository = OrderManagementRepository()
     return _order_management_repository
+
+
+def _prepare_guardian_buy_orders(code):
+    states = {
+        "ACCEPTED",
+        "QUEUED",
+        "SUBMITTING",
+        "SUBMITTED",
+        "PARTIAL_FILLED",
+        "BROKER_BYPASSED",
+        "CANCEL_REQUESTED",
+        "INFERRED_PENDING",
+    }
+    repository = _get_order_management_repository()
+    if not hasattr(repository, "list_broker_orders"):
+        return {"blocked": False, "reason_code": None, "count": 0}
+    orders = [
+        item
+        for item in repository.list_broker_orders(symbol=code, states=states)
+        if str(item.get("side") or "").lower() == "buy"
+    ]
+    if not orders:
+        return {"blocked": False, "reason_code": None, "count": 0}
+    from freshquant.order_management.submit.service import OrderSubmitService
+
+    canceled = 0
+    waiting = 0
+    for order in orders:
+        state = str(order.get("state") or "").upper()
+        source = str(order.get("source_type") or "").lower()
+        broker_order_id = order.get("broker_order_id")
+        if state in {"CANCEL_REQUESTED", "INFERRED_PENDING"} or source in {
+            "external_reported",
+            "external_inferred",
+        }:
+            waiting += 1
+            continue
+        if state == "BROKER_BYPASSED" and not broker_order_id:
+            waiting += 1
+            continue
+        internal_order_id = order.get("internal_order_id")
+        if internal_order_id:
+            OrderSubmitService().cancel_order(
+                {
+                    "internal_order_id": internal_order_id,
+                    "source": "guardian_replace_buy",
+                    "strategy_name": "Guardian",
+                    "remark": "cancel active buy before recalculation",
+                }
+            )
+            canceled += 1
+    reason = (
+        "active_buy_orders_cancel_requested"
+        if canceled
+        else "active_buy_orders_waiting"
+    )
+    return {
+        "blocked": True,
+        "reason_code": reason,
+        "count": len(orders),
+        "canceled": canceled,
+        "waiting": waiting,
+    }
 
 
 def _resolve_guardian_arrangement_scope(code):

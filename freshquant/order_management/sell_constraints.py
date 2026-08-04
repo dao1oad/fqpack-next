@@ -8,6 +8,9 @@ class PositionVolumeReader:
         self.database = database
 
     def get_can_use_volume(self, symbol):
+        return self.get_position_volumes(symbol)["can_use_volume"]
+
+    def get_position_volumes(self, symbol):
         base_symbol = _normalize_symbol(symbol)
         for doc in self.database["xt_positions"].find(
             {},
@@ -30,7 +33,7 @@ class PositionVolumeReader:
                 default=0,
             )
             if doc.get("can_use_volume") in (None, ""):
-                return volume
+                return {"volume": volume, "can_use_volume": volume}
 
             can_use_volume = _parse_non_negative_int(
                 doc.get("can_use_volume"),
@@ -39,9 +42,9 @@ class PositionVolumeReader:
                 default=0,
             )
             if volume > 0:
-                return min(can_use_volume, volume)
-            return can_use_volume
-        return 0
+                can_use_volume = min(can_use_volume, volume)
+            return {"volume": volume, "can_use_volume": can_use_volume}
+        return {"volume": 0, "can_use_volume": 0}
 
 
 def floor_to_board_lot(quantity):

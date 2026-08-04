@@ -247,53 +247,45 @@ class TpslService:
                 symbol=base_symbol,
                 repository=self.order_repository,
             )
+            if hasattr(self.position_reader, "get_position_volumes"):
+                position_volumes = self.position_reader.get_position_volumes(
+                    base_symbol
+                )
+            else:
+                legacy_volume = self.position_reader.get_can_use_volume(base_symbol)
+                position_volumes = {
+                    "volume": legacy_volume,
+                    "can_use_volume": legacy_volume,
+                }
             quantity_result = resolve_takeprofit_sell_quantity(
                 open_slices=open_slices,
                 tier_price=hit["price"],
+                level=int(hit["level"]),
+                total_position_quantity=position_volumes["volume"],
+                can_use_volume=position_volumes["can_use_volume"],
             )
             if int(quantity_result["quantity"] or 0) <= 0:
-                trace_id_value = str(trace_id or "").strip() or new_trace_id()
-                batch_id = f"takeprofit_trigger_{uuid4().hex}"
-                self.mark_takeprofit_triggered(
-                    symbol=base_symbol,
-                    level=int(hit["level"]),
-                    batch_id=batch_id,
-                    updated_by="tpsl_trigger",
-                    trigger_price=hit["price"],
-                    entry_details=[],
-                    buy_lot_details=[],
-                )
                 self._emit_runtime(
                     "trigger_eval",
                     symbol=base_symbol,
-                    trace_id=trace_id_value,
-                    status="success",
-                    reason_code="no_profitable_quantity",
+                    trace_id=trace_id or new_trace_id(),
+                    status="skipped",
+                    reason_code="no_submittable_quantity",
                     payload={
                         **trigger_payload,
                         "quantity": 0,
-                        "batch_id": batch_id,
-                        "trigger_consumed": True,
+                        "trigger_consumed": False,
                     },
                 )
                 return {
-                    "batch_id": batch_id,
-                    "status": "triggered_no_order",
+                    "status": "skipped",
                     "symbol": base_symbol,
-                    "trace_id": trace_id_value,
-                    "price": float(hit["price"]),
                     "quantity": 0,
-                    "level": int(hit["level"]),
-                    "tier_price": float(hit["price"]),
-                    "ask1": float(ask1 or 0.0),
-                    "bid1": float(bid1 or 0.0),
-                    "last_price": float(last_price or 0.0),
-                    "tick_time": int(tick_time or 0),
-                    "skip_reason": "no_profitable_quantity",
-                    "trigger_consumed": True,
+                    "skip_reason": "no_submittable_quantity",
+                    "trigger_consumed": False,
                 }
 
-            sell_cap = self.position_reader.get_can_use_volume(base_symbol)
+            sell_cap = position_volumes["can_use_volume"]
             sell_quantity = _resolve_sell_submission_quantity(
                 requested_quantity=quantity_result["quantity"],
                 can_use_volume=sell_cap,
@@ -361,6 +353,7 @@ class TpslService:
                 "buy_lot_quantities": capped["buy_lot_quantities"],
                 "slice_quantities": capped["slice_quantities"],
                 "slice_details": capped["slice_details"],
+                "allocation_policy": "takeprofit_ratio_v1",
             }
         except Exception as exc:
             self._emit_runtime(
@@ -596,6 +589,21 @@ class TpslService:
                     "source": source,
                     "strategy_name": batch.get("strategy_name") or strategy_name,
                     "remark": batch.get("remark") or f"{scope_type}:{batch_id}",
+                    "price_mode": "auto",
+                    "strategy_context": (
+                        {
+                            "guardian_sell_sources": {
+                                "allocation_policy": batch.get("allocation_policy"),
+                                "level": batch.get("level"),
+                                "tier_price": batch.get("tier_price"),
+                                "entries": _build_entry_details(
+                                    batch.get("entry_quantities") or {}
+                                ),
+                            }
+                        }
+                        if scope_type == "takeprofit_batch"
+                        else None
+                    ),
                 }
             )
             self._emit_runtime(

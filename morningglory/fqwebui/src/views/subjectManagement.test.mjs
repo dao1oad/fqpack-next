@@ -107,7 +107,7 @@ test('buildOverviewRows separates guardian trigger from level summary', () => {
   assert.equal(rows[0].guardianTrigger.timeLabel, '2026-03-18 09:45:00')
   assert.deepEqual(
     rows[0].guardianLevelSummary.map((item) => item.enabledLabel),
-    ['开', '关', '开'],
+    ['开', '开', '开'],
   )
 })
 

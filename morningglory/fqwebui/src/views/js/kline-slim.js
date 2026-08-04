@@ -495,9 +495,6 @@ export default {
       return null
     },
     guardianGuideRows() {
-      const buyActive = Array.isArray(this.guardianState?.buy_active)
-        ? this.guardianState.buy_active
-        : [false, false, false]
       const buyEnabled = Array.isArray(this.guardianDraft?.buy_enabled)
         ? this.guardianDraft.buy_enabled
         : [true, true, true]
@@ -506,13 +503,8 @@ export default {
         index,
         price: this.guardianDraft?.[item.key] ?? null,
         manual_enabled: buyEnabled[index] !== false,
-        runtime_active: buyActive[index] !== false,
-        runtimeStateLabel: buyActive[index] !== false ? '激活' : '未激活',
-        active: buyEnabled[index] !== false && buyActive[index] !== false
+        active: buyEnabled[index] !== false
       }))
-    },
-    guardianRuntimeActiveCount() {
-      return this.guardianGuideRows.filter((row) => row.runtime_active).length
     },
     guardianLastHitLabel() {
       const lastHitLevel = String(this.guardianState?.last_hit_level || '').trim()
@@ -701,9 +693,6 @@ export default {
     takeprofitRuntimeChipVariant() {
       return this.takeprofitRuntimeActiveCount > 0 ? 'success' : 'muted'
     },
-    guardianRuntimeChipVariant() {
-      return this.guardianRuntimeActiveCount > 0 ? 'success' : 'muted'
-    }
   },
   watch: klineSlimController.watch,
   created: klineSlimController.created,

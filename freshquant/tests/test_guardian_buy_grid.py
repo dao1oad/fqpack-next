@@ -137,8 +137,9 @@ def test_holding_add_uses_deepest_active_hit_level():
 
     assert decision["grid_level"] == "BUY-3"
     assert decision["hit_levels"] == ["BUY-1", "BUY-2", "BUY-3"]
-    assert decision["multiplier"] == 4
-    assert decision["quantity"] == 25600
+    assert decision["multiplier"] == 1
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_cap_unconfigured"
     assert decision["buy_active_before"] == [True, True, True]
 
 
@@ -166,9 +167,9 @@ def test_holding_add_skips_inactive_levels_and_uses_next_active_match():
     decision = service.build_holding_add_decision("000001", 8.5)
 
     assert decision["grid_level"] == "BUY-2"
-    assert decision["hit_levels"] == ["BUY-2"]
-    assert decision["multiplier"] == 3
-    assert decision["quantity"] == 17600
+    assert decision["hit_levels"] == ["BUY-1", "BUY-2"]
+    assert decision["multiplier"] == 1
+    assert decision["quantity"] == 0
 
 
 def test_holding_add_skips_levels_disabled_by_manual_config_switch():
@@ -197,7 +198,8 @@ def test_holding_add_skips_levels_disabled_by_manual_config_switch():
 
     assert decision["grid_level"] == "BUY-3"
     assert decision["hit_levels"] == ["BUY-1", "BUY-3"]
-    assert decision["multiplier"] == 4
+    assert decision["multiplier"] == 1
+    assert decision["quantity"] == 0
 
 
 def test_holding_add_without_config_falls_back_to_base_amount():
@@ -211,7 +213,7 @@ def test_holding_add_without_config_falls_back_to_base_amount():
     assert decision["quantity"] == 5000
 
 
-def test_missing_state_defaults_to_inactive_and_skips_guardian_levels():
+def test_missing_state_is_audit_only_and_does_not_gate_levels():
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
@@ -234,13 +236,13 @@ def test_missing_state_defaults_to_inactive_and_skips_guardian_levels():
 
     assert state["buy_active"] == [False, False, False]
     assert decision["buy_active_before"] == [False, False, False]
-    assert decision["grid_level"] is None
-    assert decision["hit_levels"] == []
+    assert decision["grid_level"] == "BUY-3"
+    assert decision["hit_levels"] == ["BUY-1", "BUY-2", "BUY-3"]
     assert decision["multiplier"] == 1
-    assert decision["quantity"] == 6400
+    assert decision["quantity"] == 0
 
 
-def test_accepting_buy_deactivates_all_hit_levels():
+def test_accepting_buy_keeps_buy_active_as_audit_only_state():
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
@@ -269,9 +271,65 @@ def test_accepting_buy_deactivates_all_hit_levels():
         source_price=decision["source_price"],
     )
 
-    assert state["buy_active"] == [False, False, False]
+    assert state["buy_active"] == [True, True, True]
     assert state["last_hit_level"] == "BUY-3"
     assert state["last_hit_price"] == 7.8
+
+
+def test_position_cap_limits_each_buy_to_base_amount_and_remaining_capacity():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [200000, 350000, 500000],
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(
+                [{"code": "000001", "buy_active": [False, False, False]}]
+            ),
+        }
+    )
+    service = _build_service(database)
+    service._load_position_capacity = lambda _code: (330000.0, 800000.0)
+
+    decision = service.build_holding_add_decision("000001", 9.5)
+
+    assert decision["stage"] == "BUY-1_TO_BUY-2"
+    assert decision["effective_stage_cap"] == 350000
+    assert decision["remaining_amount"] == 20000
+    assert decision["quantity"] == 2100
+
+
+def test_new_open_with_existing_grid_and_missing_caps_fails_closed():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            )
+        }
+    )
+
+    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_cap_unconfigured"
 
 
 def test_sell_trade_resets_all_buy_levels():

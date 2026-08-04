@@ -154,8 +154,8 @@ def test_tpsl_submit_intent_emits_trace_step():
             "batch_id": batch["batch_id"],
             "updated_by": "tpsl_submit",
             "trigger_price": 10.8,
-            "entry_details": [{"entry_id": "lot1", "quantity": 300}],
-            "buy_lot_details": [{"buy_lot_id": "lot1", "quantity": 300}],
+            "entry_details": [{"entry_id": "lot1", "quantity": 100}],
+            "buy_lot_details": [{"buy_lot_id": "lot1", "quantity": 100}],
         }
     ]
 
@@ -391,15 +391,16 @@ def test_evaluate_takeprofit_blocked_result_does_not_emit_trace_ids():
         tick_time=1710000000,
     )
 
-    assert batch["status"] == "blocked"
-    assert batch["blocked_reason"] == "can_use_volume"
+    assert batch["status"] == "skipped"
+    assert batch["skip_reason"] == "no_submittable_quantity"
+    assert batch["trigger_consumed"] is False
     assert [event["node"] for event in runtime_logger.events] == [
         "trigger_eval",
     ]
-    assert all(not event.get("trace_id") for event in runtime_logger.events)
+    assert runtime_logger.events[0]["trace_id"].startswith("trc_")
 
 
-def test_evaluate_takeprofit_zero_quantity_trigger_emits_success_trace_and_marks_level():
+def test_evaluate_takeprofit_uses_largest_slice_when_no_slice_reaches_tier_price():
     runtime_logger = FakeRuntimeLogger()
     takeprofit_service = FakeTakeprofitService()
 
@@ -434,23 +435,16 @@ def test_evaluate_takeprofit_zero_quantity_trigger_emits_success_trace_and_marks
         tick_time=1710000000,
     )
 
-    assert batch["status"] == "triggered_no_order"
+    assert batch["status"] == "ready"
     assert batch["trace_id"].startswith("trc_")
-    assert [event["node"] for event in runtime_logger.events] == ["trigger_eval"]
-    assert runtime_logger.events[0]["status"] == "success"
-    assert runtime_logger.events[0]["reason_code"] == "no_profitable_quantity"
-    assert runtime_logger.events[0]["trace_id"] == batch["trace_id"]
-    assert takeprofit_service.mark_calls == [
-        {
-            "symbol": "000001",
-            "level": 2,
-            "batch_id": batch["batch_id"],
-            "updated_by": "tpsl_trigger",
-            "trigger_price": 10.8,
-            "entry_details": [],
-            "buy_lot_details": [],
-        }
+    assert [event["node"] for event in runtime_logger.events] == [
+        "trigger_eval",
+        "batch_create",
     ]
+    assert runtime_logger.events[0]["status"] == "info"
+    assert runtime_logger.events[0]["trace_id"] == batch["trace_id"]
+    assert batch["quantity"] == 100
+    assert takeprofit_service.mark_calls == []
 
 
 def test_evaluate_stoploss_blocked_result_does_not_emit_trace_ids(monkeypatch):

@@ -322,6 +322,38 @@ def test_default_continuous_auction_provider_returns_true_during_morning_session
     assert execution_bridge._default_continuous_auction_provider() is True
 
 
+def test_stock_auto_price_uses_market_during_continuous_auction():
+    result = execution_bridge._resolve_runtime_execution(
+        {
+            "account_type": "STOCK",
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "price_mode": "auto",
+        },
+        {},
+        continuous_auction_provider=lambda: True,
+    )
+
+    assert result["price_mode_resolved"] == "market_5_cancel"
+
+
+def test_stock_auto_price_uses_limit_outside_continuous_auction():
+    result = execution_bridge._resolve_runtime_execution(
+        {
+            "account_type": "STOCK",
+            "action": "sell",
+            "symbol": "600000",
+            "price": 10.0,
+            "price_mode": "auto",
+        },
+        {},
+        continuous_auction_provider=lambda: False,
+    )
+
+    assert result["price_mode_resolved"] == "limit"
+
+
 def test_prepare_submit_execution_rejects_credit_auto_sell_when_credit_detail_missing():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)

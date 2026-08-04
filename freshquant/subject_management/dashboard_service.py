@@ -789,6 +789,10 @@ class SubjectManagementDashboardService:
             "buy_1": _safe_float_or_none(raw.get("BUY-1")),
             "buy_2": _safe_float_or_none(raw.get("BUY-2")),
             "buy_3": _safe_float_or_none(raw.get("BUY-3")),
+            "max_position_amounts": [
+                _safe_int_or_none(item)
+                for item in (raw.get("max_position_amounts") or [])
+            ],
         }
 
     @staticmethod

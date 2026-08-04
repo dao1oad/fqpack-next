@@ -89,6 +89,9 @@ class SubjectManagementWriteService:
             buy_2=_optional_float(payload.get("buy_2"), "buy_2"),
             buy_3=_optional_float(payload.get("buy_3"), "buy_3"),
             buy_enabled=_optional_bool_list(payload.get("buy_enabled"), "buy_enabled"),
+            max_position_amounts=_optional_int_list(
+                payload.get("max_position_amounts"), "max_position_amounts"
+            ),
             enabled=_optional_bool(payload.get("enabled")),
             updated_by=str(payload.get("updated_by") or "api"),
         )
@@ -101,6 +104,7 @@ class SubjectManagementWriteService:
             "buy_enabled": _optional_bool_list(
                 detail.get("buy_enabled"), "buy_enabled"
             ),
+            "max_position_amounts": list(detail.get("max_position_amounts") or []),
         }
 
     def _guardian_service(self):
@@ -172,3 +176,17 @@ def _optional_bool_list(value, field_name):
     if not isinstance(value, list) or len(value) != 3:
         raise ValueError(f"{field_name} must be a 3-item boolean list")
     return [bool(value[0]), bool(value[1]), bool(value[2])]
+
+
+def _optional_int_list(value, field_name):
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 3:
+        raise ValueError(f"{field_name} must be a 3-item integer list")
+    try:
+        values = [int(item) for item in value]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a 3-item integer list") from exc
+    if any(item <= 0 for item in values):
+        raise ValueError(f"{field_name} must contain positive integers")
+    return values

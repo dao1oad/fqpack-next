@@ -1,5 +1,18 @@
 # 当前架构
 
+## Guardian Grid 与三档止盈
+
+- Guardian 买入 Grid 使用三条 BUY 价格与三档累计仓位上限
+  `max_position_amounts`；四个价格区间分别受 CAP-1、CAP-2、CAP-3 和
+  Position Management 单标的有效上限约束。
+- 单次买入量取基础金额对应数量与剩余容量对应数量的较小值，不再使用
+  2/3/4 倍率；`buy_active` 仅保留兼容审计，不参与买入准入。
+- Guardian 新买单提交前复用订单管理撤单链处理同标的内部活动买单；存在
+  等待态、外部单或撤单请求时，本 Tick 不提交新单。
+- 三档止盈按触发时券商总仓位分别计算 1/3、1/2、全部，并受 open ledger
+  与 `can_use_volume` 截断；来源分配先使用达价 Slice，不足部分从剩余数量
+  最大的 Slice 补足。
+
 ## 总体分层
 
 - 行情层

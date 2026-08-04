@@ -277,3 +277,29 @@ def test_zero_symbol_position_limit_is_preserved_and_blocks_new_buy():
     assert decision.allowed is False
     assert decision.reason_code == "symbol_position_limit_blocked"
     assert decision.meta["symbol_position_limit"] == 0.0
+
+
+def test_buy_with_invalid_projection_input_is_blocked():
+    repository = FakeDecisionRepository()
+    service = PositionManagementService(
+        repository=repository,
+        holding_codes_provider=lambda: ["000001"],
+        now_provider=_fixed_now,
+        symbol_position_loader=lambda symbol: {
+            "symbol": symbol,
+            "market_value": 100000.0,
+            "market_value_source": "xt_positions_market_value",
+            "quantity_source": "xt_positions",
+        },
+    )
+
+    decision = service.evaluate_strategy_order(
+        payload={"source": "strategy", "action": "buy", "symbol": "000001"},
+        current_state={
+            "state": ALLOW_OPEN,
+            "evaluated_at": "2026-03-07T12:00:00+08:00",
+        },
+    )
+
+    assert decision.allowed is False
+    assert decision.reason_code == "symbol_position_projection_input_invalid"
