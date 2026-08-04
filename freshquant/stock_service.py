@@ -157,16 +157,17 @@ def sync_stock_pools_from_tdx_self_select(
     category=TDX_SELF_SELECT_CATEGORY,
     source=TDX_SELF_SELECT_SOURCE,
 ):
-    """Append TDX self-select symbols into freshquant.stock_pools without duplicates."""
+    """Make freshquant.stock_pools match the current TDX self-select pool."""
     codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
     now = pendulum.now()
     expire_at = now.add(days=int(days or 30))
-    appended_codes = []
+    synced_codes = []
+    removed_codes = []
     skipped_holding_codes = []
-    skipped_existing_codes = []
     skipped_invalid_codes = []
     holding_codes = get_current_stock_holding_codes()
 
+    target_codes = []
     for code in codes:
         if not _is_supported_tdx_stock_pool_code(code):
             skipped_invalid_codes.append(code)
@@ -174,38 +175,58 @@ def sync_stock_pools_from_tdx_self_select(
         if code in holding_codes:
             skipped_holding_codes.append(code)
             continue
+        target_codes.append(code)
 
-        existing = DBfreshquant["stock_pools"].find_one({"code": code})
-        if existing is not None:
-            skipped_existing_codes.append(code)
-            continue
+    target_code_set = set(target_codes)
+    existing_docs = list(DBfreshquant["stock_pools"].find({}, {"code": 1}))
+    for existing in existing_docs:
+        existing_code = _normalize_stock_code6(existing.get("code"))
+        if existing_code and existing_code not in target_code_set:
+            DBfreshquant["stock_pools"].delete_one({"code": existing_code})
+            removed_codes.append(existing_code)
 
-        save_a_stock_pools(
-            code=code,
-            category=category,
-            dt=now,
-            stop_loss_price=None,
-            expire_at=expire_at,
-            sources=[source],
-            categories=[category],
-            memberships=[
-                {
-                    "source": source,
-                    "category": category,
-                    "added_at": now,
-                    "expire_at": expire_at,
-                    "extra": {
-                        "entrypoint": "tdx_self_select",
-                        "file_name": filename,
-                    },
-                }
-            ],
-            remark="tdx_self_select",
+    for code in target_codes:
+        existing = DBfreshquant["stock_pools"].find_one({"code": code}) or {}
+
+        membership = {
+            "source": source,
+            "category": category,
+            "added_at": now,
+            "expire_at": expire_at,
+            "extra": {
+                "entrypoint": "tdx_self_select",
+                "file_name": filename,
+            },
+        }
+        update = {
+            "$set": {
+                "code": code,
+                "category": category,
+                "name": existing.get("name") or code,
+                "expire_at": expire_at,
+                "datetime": now,
+                "sources": [source],
+                "categories": [category],
+                "memberships": [membership],
+                "remark": "tdx_self_select",
+                "extra": {
+                    "entrypoint": "tdx_self_select",
+                    "file_name": filename,
+                },
+            },
+            "$setOnInsert": {
+                "stop_loss_price": None,
+            },
+        }
+        DBfreshquant["stock_pools"].update_one(
+            {"code": code},
+            update,
+            upsert=True,
         )
         if DBfreshquant["stock_pools"].find_one({"code": code}) is None:
             skipped_invalid_codes.append(code)
             continue
-        appended_codes.append(code)
+        synced_codes.append(code)
 
     return {
         "file_name": filename,
@@ -214,13 +235,17 @@ def sync_stock_pools_from_tdx_self_select(
         "source": source,
         "read_count": len(codes),
         "unique_count": len(codes),
-        "appended_count": len(appended_codes),
+        "appended_count": len(synced_codes),
+        "synced_count": len(synced_codes),
+        "removed_count": len(removed_codes),
         "skipped_holding_count": len(skipped_holding_codes),
-        "skipped_existing_count": len(skipped_existing_codes),
+        "skipped_existing_count": 0,
         "skipped_invalid_count": len(skipped_invalid_codes),
-        "appended_codes": appended_codes,
+        "appended_codes": synced_codes,
+        "synced_codes": synced_codes,
+        "removed_codes": removed_codes,
         "skipped_holding_codes": skipped_holding_codes,
-        "skipped_existing_codes": skipped_existing_codes,
+        "skipped_existing_codes": [],
         "skipped_invalid_codes": skipped_invalid_codes,
     }
 

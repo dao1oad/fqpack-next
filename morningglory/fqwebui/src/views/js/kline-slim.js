@@ -1020,10 +1020,10 @@ export default {
         await this.loadStockPools()
         const summary = result?.data || {}
         this.$message?.success?.(
-          '自选股已同步：新增 ' +
-            (summary.appended_count || 0) +
-            '，已存在 ' +
-            (summary.skipped_existing_count || 0) +
+          '自选股已覆盖同步：同步 ' +
+            (summary.synced_count ?? summary.appended_count ?? 0) +
+            '，移除旧标的 ' +
+            (summary.removed_count || 0) +
             '，持仓去重 ' +
             (summary.skipped_holding_count || 0)
         )

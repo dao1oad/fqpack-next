@@ -58,6 +58,11 @@ export const CLS_MODEL_LABELS = Object.freeze({
   S0010: '突破回调',
   S0011: '突破回踩',
   S0012: 'V反',
+  S0013: '一买后的二买',
+  S0014: '一买后的三买',
+  S0015: '站上年线',
+  S0016: '线段盘整分型区间',
+  S0017: '笔盘分型区间',
 })
 
 export const CLS_GROUP_DEFINITIONS = Object.freeze([
