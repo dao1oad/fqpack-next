@@ -708,6 +708,7 @@ Get-Content D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log -Tail 200
 - 怀疑 XTData 修订发生在默认 60 个交易日回看窗口之前时，使用同一 active 截止日执行 `build --scope <stock|etf> --target-date YYYY-MM-DD --full`；该命令重算整个 inactive scope，且不接受早于 active `factor_asof` 的日期。
 - 回切前先确认另一槽为 `ready` 并单独执行 `audit --slot <a|b>`，然后使用 `rollback --scope <stock|etf>`；命令会先将仍需生效的 intraday override 重新绑定到目标 snapshot，再以 CAS 切换 marker，factor A/B 集合本身不改写。
 - Stock / ETF 在线 reader 每次请求重新解析 active slot；先核对 marker 的 `snapshot_id/factor_asof/source_exclusions`、请求日期覆盖和同 snapshot 的 intraday override。Redis Kline key/payload 与 StrategyConsumer 常驻窗口均绑定 effective adjustment version；marker 或 override 版本变化后应 miss/reload，不要复制旧版本 cache key。真实 Index 固定使用 BFQ，不读取 Stock / ETF 因子。
+- KlineSlim 普通行情图表调用 `/api/stock_data?realtimeCache=1` 且未带 `endDate` 时，若只因当前交易日 intraday override 尚未生成而返回 `missing_dates=[today]`，API 会自动用交易日历回退到最近可读的已完成交易日分钟线；如果显式指定了 `endDate`，或缺口不是当前交易日，仍按 `QFQ_DATA_NOT_READY/503` 排查并修复 QFQ 链路。
 
 ## xt_account_sync worker 启动即 Fatal
 

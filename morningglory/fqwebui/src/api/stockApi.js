@@ -49,6 +49,13 @@ export const stockApi = {
       params: { page, size }
     })
   },
+  syncStockPoolsFromTdxSelfSelect ({ days = 30 } = {}) {
+    return http({
+      url: '/api/sync_stock_pools_from_tdx_self_select',
+      method: 'post',
+      params: { days }
+    })
+  },
   getStockPrePoolsCategory () {
     return http({
       url: '/api/get_stock_pre_pools_category',
@@ -119,11 +126,25 @@ export const stockApi = {
     })
   },
   // 添加到监控池
-  addToStockPoolsByCode (code, days) {
-    const url = `/api/add_to_stock_pools_by_code?code=${code}&days=${days}`
+  addToStockPoolsByCode (code, days, options = {}) {
+    const allowDirect = options.allowDirect ?? options.allow_direct
+    const params = { code, days }
+    if (allowDirect !== undefined) {
+      params.allow_direct = allowDirect ? 1 : 0
+    }
+    if (options.category) {
+      params.category = options.category
+    }
+    if (options.source) {
+      params.source = options.source
+    }
+    if (options.remark) {
+      params.remark = options.remark
+    }
     return http({
-      url,
-      method: 'get'
+      url: '/api/add_to_stock_pools_by_code',
+      method: 'get',
+      params
     })
   },
   // 添加到监控池

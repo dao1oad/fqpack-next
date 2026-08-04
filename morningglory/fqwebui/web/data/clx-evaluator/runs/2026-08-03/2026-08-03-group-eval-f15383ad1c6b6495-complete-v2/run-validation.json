@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "clx-eval-run-validation.v2",
+  "runId": "2026-08-03-group-eval-f15383ad1c6b6495-complete-v2",
+  "tradeDate": "2026-08-03",
+  "valid": true,
+  "checks": {
+    "stockRowsEqMembers": true,
+    "groupCountEqGroups": true,
+    "allBusinessGroupsResolved": true,
+    "allFundamentalsCovered": true,
+    "noFundamentalEvidenceGap": true,
+    "allEtfsMapped": true,
+    "officialSignalEventsReconciled": true,
+    "contiguousGlobalRanks": true,
+    "contiguousGroupRanks": true
+  },
+  "counts": {
+    "stockRows": 143,
+    "groupCount": 13,
+    "businessPrimaryGroupCovered": 143,
+    "remainingUnmapped": 0,
+    "marketThemeMapped": 11,
+    "shortlistCount": 6,
+    "fundamentalReportCovered": 143,
+    "fundamentalEvidenceGap": 0,
+    "mappedEtfCount": 94,
+    "eligibleEtfConfirmationCount": 13,
+    "sellDiagnosticCount": 232,
+    "officialSignalEventCount": 769
+  },
+  "sourceHashes": {
+    "market-state.v1.json": "cf91b6a75829a53a349c1815817f262e0e5bd669de508a75690e5630220059f0",
+    "market-state.lock.json": "52b289136b95b37ba948ff787eb3a8f09a326e8009f0b1dfdeaf5113de09a892",
+    "clx-normalized.json": "ec41c2de6e7236c863068777376226985c7730a1f532dcfca677446da5a7098c",
+    "clx-evaluation.v1.json": "36037c38fa3a479b6a1c283d2d15df31b484fdabbea48d59c2d6afa1d63dc960",
+    "clx-signal-event-reconciliation.json": "cdbc16fcf8e50d0b88fbca4769f4a54214026de89da3f18128243f24b7d7c116",
+    "clx-stock-primary-group-map.csv": "398b1498da209628753909d295b3d4e8be14c2b97b1364abddc2aac39af5bee1",
+    "clx-group-context-ranking.csv": "7a335464d69c1ae37db1f8154197ab9d624dcc29c4f1db543dfa8860a4b1e78c",
+    "clx-group-member-fundamental-ranking.csv": "66e38a3dd359dc612b46d05cff45ab85a44b0fd438f969f10bc02dca2167d291",
+    "clx-group-mapping-audit.csv": "ee1caefb13e9c427fd597f25c99913e9a7a65cacb1760ffbfb85da7aa6cd20ee"
+  }
+}

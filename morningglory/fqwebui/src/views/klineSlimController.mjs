@@ -139,12 +139,19 @@ export const klineSlimController = {
         return
       }
       const isFirstChartRoute = !this.lastHandledChartRouteKey
+      const nextPeriod = getRoutePeriod(this.$route)
+      const previousPeriod = this.currentPeriod
+      const periodChanged = Boolean(
+        !isFirstChartRoute &&
+        previousPeriod &&
+        previousPeriod !== nextPeriod
+      )
       this.lastHandledChartRouteKey = chartRouteKey
-      this.currentPeriod = getRoutePeriod(this.$route)
+      this.currentPeriod = nextPeriod
       this.applyClxRouteState(clxRouteState)
       this.periodLegendSelected = buildPeriodLegendSelectionState({
         currentPeriod: this.currentPeriod,
-        previousSelected: isFirstChartRoute ? null : this.periodLegendSelected
+        previousSelected: periodChanged || isFirstChartRoute ? null : this.periodLegendSelected
       })
       this.visibleChanlunPeriods = getVisibleChanlunPeriods({
         currentPeriod: this.currentPeriod,

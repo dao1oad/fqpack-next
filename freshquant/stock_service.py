@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
 
+import os
 import re
+from pathlib import Path
 
 import pandas as pd
 import pendulum
 import pymongo
 
 import freshquant.util.df_helper as df_helper
+from freshquant.bootstrap_config import bootstrap_config
+from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.data.astock import must_pool
 from freshquant.db import DBfreshquant
+from freshquant.instrument.general import query_instrument_type
 from freshquant.pre_pool_service import PrePoolService
 from freshquant.signal.a_stock_common import save_a_stock_pools
 from freshquant.strategy.toolkit.grid import plan_grid_distribution
-from freshquant.util.code import fq_util_code_append_market_code
+from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
 
 def _format_datetime(value, fmt):
@@ -25,6 +30,199 @@ def _normalize_page_size(page, size):
     page = max(int(page or 1), 1)
     size = max(int(size or 1000), 1)
     return page, size
+
+
+TDX_SELF_SELECT_FILENAME = "ZXG.blk"
+TDX_SELF_SELECT_CATEGORY = "通达信自选股"
+TDX_SELF_SELECT_SOURCE = "tdx_self_select"
+TDX_SELF_SELECT_SUPPORTED_INSTRUMENT_TYPES = {
+    InstrumentType.STOCK_CN,
+    InstrumentType.ETF_CN,
+}
+
+
+def _normalize_stock_code6(value):
+    raw = str(value or "").strip()
+    code = normalize_to_base_code(raw)
+    if re.fullmatch(r"\d{6}", str(code or "")):
+        return str(code)
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) >= 6:
+        return digits[-6:]
+    return None
+
+
+def get_current_stock_holding_codes():
+    """Return current xt_positions base codes for stock_pools de-duplication."""
+    codes = set()
+    for record in DBfreshquant["xt_positions"].find(
+        {}, {"stock_code": 1, "code": 1, "symbol": 1}
+    ):
+        for key in ("symbol", "stock_code", "code"):
+            code = _normalize_stock_code6(record.get(key))
+            if code:
+                codes.add(code)
+                break
+    return codes
+
+
+def _require_tdx_home(tdx_home=None):
+    value = str(
+        tdx_home or bootstrap_config.tdx.home or os.environ.get("TDX_HOME") or ""
+    ).strip()
+    if not value:
+        raise RuntimeError("TDX_HOME not configured")
+    return Path(value)
+
+
+def _tdx_self_select_path(tdx_home=None, filename=TDX_SELF_SELECT_FILENAME):
+    return _require_tdx_home(tdx_home) / "T0002" / "blocknew" / filename
+
+
+def decode_tdx_self_select_code(line):
+    """Decode one TDX .blk self-select line into a 6-digit China security code."""
+    raw = str(line or "").strip().upper()
+    if not raw:
+        return None
+
+    compact = re.sub(r"\s+", "", raw)
+    if re.fullmatch(r"[012]\d{6}", compact):
+        return _decode_tdx_prefixed_code(compact)
+    if re.fullmatch(r"\d{6}", compact):
+        return compact
+
+    digits = re.sub(r"\D", "", compact)
+    if re.fullmatch(r"[012]\d{6}", digits):
+        return _decode_tdx_prefixed_code(digits)
+    if re.fullmatch(r"\d{6}", digits):
+        return digits
+    return None
+
+
+def _decode_tdx_prefixed_code(value):
+    market_prefix = value[0]
+    code = value[1:]
+    if market_prefix == "1":
+        return code if code.startswith(("5", "6")) else None
+    if market_prefix == "0":
+        return code if code.startswith(("0", "2", "3")) else None
+    if market_prefix == "2":
+        return code if code.startswith(("4", "8", "92")) else None
+    return None
+
+
+def _has_unsupported_tdx_stock_pool_prefix(code):
+    value = str(code or "").strip()
+    if not re.fullmatch(r"\d{6}", value):
+        return True
+    if value.startswith(("10", "11", "12", "13", "200", "900")):
+        return True
+    if value.startswith("1") and not value.startswith(("15", "16", "18")):
+        return True
+    return False
+
+
+def _is_supported_tdx_stock_pool_code(code):
+    value = str(code or "").strip()
+    if _has_unsupported_tdx_stock_pool_prefix(value):
+        return False
+    try:
+        instrument_type = query_instrument_type(value.lower())
+    except Exception:
+        instrument_type = None
+    if instrument_type is None:
+        return True
+    return instrument_type in TDX_SELF_SELECT_SUPPORTED_INSTRUMENT_TYPES
+
+
+def read_tdx_self_select_codes(tdx_home=None, filename=TDX_SELF_SELECT_FILENAME):
+    path = _tdx_self_select_path(tdx_home=tdx_home, filename=filename)
+    if not path.exists():
+        raise FileNotFoundError(f"TDX self-select file not found: {path}")
+
+    text = path.read_bytes().decode("gbk", errors="ignore")
+    codes = []
+    for line in text.splitlines():
+        code = decode_tdx_self_select_code(line)
+        if code and code not in codes:
+            codes.append(code)
+    return codes
+
+
+def sync_stock_pools_from_tdx_self_select(
+    days=30,
+    *,
+    tdx_home=None,
+    filename=TDX_SELF_SELECT_FILENAME,
+    category=TDX_SELF_SELECT_CATEGORY,
+    source=TDX_SELF_SELECT_SOURCE,
+):
+    """Append TDX self-select symbols into freshquant.stock_pools without duplicates."""
+    codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
+    now = pendulum.now()
+    expire_at = now.add(days=int(days or 30))
+    appended_codes = []
+    skipped_holding_codes = []
+    skipped_existing_codes = []
+    skipped_invalid_codes = []
+    holding_codes = get_current_stock_holding_codes()
+
+    for code in codes:
+        if not _is_supported_tdx_stock_pool_code(code):
+            skipped_invalid_codes.append(code)
+            continue
+        if code in holding_codes:
+            skipped_holding_codes.append(code)
+            continue
+
+        existing = DBfreshquant["stock_pools"].find_one({"code": code})
+        if existing is not None:
+            skipped_existing_codes.append(code)
+            continue
+
+        save_a_stock_pools(
+            code=code,
+            category=category,
+            dt=now,
+            stop_loss_price=None,
+            expire_at=expire_at,
+            sources=[source],
+            categories=[category],
+            memberships=[
+                {
+                    "source": source,
+                    "category": category,
+                    "added_at": now,
+                    "expire_at": expire_at,
+                    "extra": {
+                        "entrypoint": "tdx_self_select",
+                        "file_name": filename,
+                    },
+                }
+            ],
+            remark="tdx_self_select",
+        )
+        if DBfreshquant["stock_pools"].find_one({"code": code}) is None:
+            skipped_invalid_codes.append(code)
+            continue
+        appended_codes.append(code)
+
+    return {
+        "file_name": filename,
+        "file_path": str(_tdx_self_select_path(tdx_home=tdx_home, filename=filename)),
+        "category": category,
+        "source": source,
+        "read_count": len(codes),
+        "unique_count": len(codes),
+        "appended_count": len(appended_codes),
+        "skipped_holding_count": len(skipped_holding_codes),
+        "skipped_existing_count": len(skipped_existing_codes),
+        "skipped_invalid_count": len(skipped_invalid_codes),
+        "appended_codes": appended_codes,
+        "skipped_holding_codes": skipped_holding_codes,
+        "skipped_existing_codes": skipped_existing_codes,
+        "skipped_invalid_codes": skipped_invalid_codes,
+    }
 
 
 def get_stock_signal_list(page=1, size=1000, category="candidates"):
@@ -239,7 +437,14 @@ def get_stock_must_pools_list(page=1):
         return []
 
 
-def add_to_stock_pools_by_code(code, days=30):
+def add_to_stock_pools_by_code(
+    code,
+    days=30,
+    allow_direct=False,
+    category=None,
+    source=None,
+    remark=None,
+):
     """
     根据code从stock_pre_pools中查找记录，并将其添加到stock_pools中
 
@@ -252,7 +457,47 @@ def add_to_stock_pools_by_code(code, days=30):
     old = DBfreshquant["stock_pools"].find_one({"code": code})
     record = PrePoolService(db=DBfreshquant).get_code(code)
     if record is None:
-        return False
+        if not allow_direct:
+            return False
+
+        now = pendulum.now()
+        expire_at = now.add(days=days)
+        direct_category = str(category or "CLX15分钟监控").strip() or "CLX15分钟监控"
+        direct_source = (
+            str(source or "clx_signal_workbench").strip() or "clx_signal_workbench"
+        )
+        membership_extra = {"entrypoint": "clx_signal_workbench"}
+        if remark:
+            membership_extra["remark"] = str(remark)
+        save_a_stock_pools(
+            code=code,
+            category=direct_category,
+            dt=now,
+            stop_loss_price=None,
+            expire_at=expire_at,
+            sources=[direct_source],
+            categories=[direct_category],
+            memberships=[
+                {
+                    "source": direct_source,
+                    "category": direct_category,
+                    "added_at": now,
+                    "expire_at": expire_at,
+                    "extra": membership_extra,
+                }
+            ],
+            remark=str(remark or ""),
+        )
+        DBfreshquant["stock_pools"].update_one(
+            {"code": code, "category": direct_category},
+            {"$set": {"expire_at": expire_at}},
+        )
+        return (
+            DBfreshquant["stock_pools"].find_one(
+                {"code": code, "category": direct_category}
+            )
+            is not None
+        )
     target_category = (
         old.get("category")
         if old is not None

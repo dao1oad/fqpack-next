@@ -1,0 +1,16 @@
+{
+  "runId": "2026-08-03-group-eval-f15383ad1c6b6495",
+  "tradeDate": "2026-08-03",
+  "batchId": "clx-2026-08-03-production_v1-f15383ad1c6b6495",
+  "status": "published",
+  "validationStatus": "passed_with_fundamental_data_gaps",
+  "stockRows": 143,
+  "groupCount": 6,
+  "remainingUnmapped": 98,
+  "sourceFiles": [
+    "market-state.v1.json",
+    "market-state.lock.json",
+    "run-validation.json",
+    "clx-eval.v1.json"
+  ]
+}

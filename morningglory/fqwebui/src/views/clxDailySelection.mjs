@@ -9,6 +9,11 @@ const FAILED_PARTITION_STATES = new Set([
 ])
 const FAILED_PUBLICATION_STATES = new Set(['failed', 'error'])
 const COMPLETE_PUBLICATION_STATES = new Set(['published', 'not_required'])
+export const CLX_DAILY_SELECTION_MODEL_KEYS = Array.from({ length: 18 }, (_, index) => `S${String(index).padStart(4, '0')}`)
+const CLX_DAILY_SELECTION_MODEL_KEY_SET = new Set(CLX_DAILY_SELECTION_MODEL_KEYS)
+const CLX_DAILY_SELECTION_MODEL_NUMERIC_CODE_SET = new Set(
+  CLX_DAILY_SELECTION_MODEL_KEYS.map((_, index) => String(10000 + index)),
+)
 
 const toText = (value) => String(value ?? '').trim()
 
@@ -33,6 +38,42 @@ const toArray = (value) => {
   if (Array.isArray(value)) return value
   if (value === null || value === undefined || value === '') return []
   return String(value).split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+const CLX_LINE_FLAG_KEYS = ['above_chanlun_line', 'above_ma250', 'above_reference_line']
+const CLX_LINE_FLAG_VALUES = new Set(['yes', 'no', 'unknown'])
+
+const normalizeLineFlagValue = (value) => {
+  const text = toText(value).toLowerCase()
+  return CLX_LINE_FLAG_VALUES.has(text) ? text : ''
+}
+
+export const parseClxLineFlags = (query = {}) => {
+  const source = query && typeof query === 'object' ? query : {}
+  let parsed = {}
+  const rawLineFlags = source.line_flags
+  if (rawLineFlags && typeof rawLineFlags === 'object' && !Array.isArray(rawLineFlags)) {
+    parsed = rawLineFlags
+  } else if (toText(rawLineFlags)) {
+    try {
+      const json = JSON.parse(toText(rawLineFlags))
+      parsed = json && typeof json === 'object' && !Array.isArray(json) ? json : {}
+    } catch {
+      parsed = {}
+    }
+  }
+
+  const flags = {}
+  for (const key of CLX_LINE_FLAG_KEYS) {
+    const value = normalizeLineFlagValue(parsed[key] ?? source[key])
+    if (value) flags[key] = value
+  }
+  return flags
+}
+
+export const stringifyClxLineFlags = (lineFlags = {}) => {
+  const flags = parseClxLineFlags(lineFlags)
+  return Object.keys(flags).length ? JSON.stringify(flags) : ''
 }
 
 const readPayload = (payload = {}) => {
@@ -514,18 +555,29 @@ export const normalizeClxCatalog = (payload = {}) => {
     : Array.isArray(root.items)
       ? root.items
       : []
-  const normalizedModels = models.map((item, index) => ({
-    key: toText(item.model_key || item.key || `S${String(index).padStart(4, '0')}`),
-    label: toText(item.display_name || item.label || item.model_key || item.key),
-    description: toText(item.description),
-    enabled: item.enabled !== false,
-    eligibleAssetTypes: toArray(item.eligible_asset_types),
-    conditions: (Array.isArray(item.conditions) ? item.conditions : []).map((condition) => ({
-      key: toText(condition.code || condition.key),
-      label: toText(condition.label || condition.code || condition.key),
-      direction: toText(condition.direction),
-    })),
-  }))
+  const normalizedModels = models.map((item, index) => {
+    const rawKey = toText(item.model_key || item.key || `S${String(index).padStart(4, '0')}`)
+    const numericCode = toText(item.model_code || item.code || item.id)
+    const key = CLX_DAILY_SELECTION_MODEL_NUMERIC_CODE_SET.has(rawKey)
+      ? `S${String(Number(rawKey) - 10000).padStart(4, '0')}`
+      : rawKey
+    return {
+      key,
+      numericCode: numericCode || (CLX_DAILY_SELECTION_MODEL_KEY_SET.has(key) ? String(10000 + Number(key.slice(1))) : ''),
+      label: toText(item.display_name || item.label || item.model_key || item.key || key),
+      description: toText(item.description),
+      enabled: item.enabled !== false,
+      eligibleAssetTypes: toArray(item.eligible_asset_types),
+      conditions: (Array.isArray(item.conditions) ? item.conditions : []).map((condition) => ({
+        key: toText(condition.code || condition.key),
+        label: toText(condition.label || condition.code || condition.key),
+        direction: toText(condition.direction),
+      })),
+    }
+  }).filter((item) => (
+    CLX_DAILY_SELECTION_MODEL_KEY_SET.has(item.key) ||
+    CLX_DAILY_SELECTION_MODEL_NUMERIC_CODE_SET.has(item.numericCode)
+  ))
   const catalogConditions = Array.isArray(root.conditions) ? root.conditions : []
   const conditions = catalogConditions.length
     ? catalogConditions.map((item) => ({
@@ -601,6 +653,7 @@ export const parseClxSelectionRouteQuery = (query = {}) => ({
   conditionKeys: toArray(query.condition_keys || query.clxConditions),
   directions: toArray(query.directions || query.clxDirections),
   minModelCount: Math.max(1, toNumber(query.min_model_count || query.clxMinModels, 1)),
+  lineFlags: parseClxLineFlags(query),
   q: toText(query.q),
   symbol: toText(query.symbol),
 })
@@ -613,6 +666,7 @@ export const buildClxSelectionRouteQuery = (state = {}) => {
   if (toArray(state.conditionKeys).length) query.condition_keys = toArray(state.conditionKeys).join(',')
   if (toArray(state.directions).length) query.directions = toArray(state.directions).join(',')
   if (toNumber(state.minModelCount, 1) > 1) query.min_model_count = String(toNumber(state.minModelCount, 1))
+  if (stringifyClxLineFlags(state.lineFlags)) query.line_flags = stringifyClxLineFlags(state.lineFlags)
   if (toText(state.q)) query.q = toText(state.q)
   if (toText(state.symbol)) query.symbol = toText(state.symbol)
   return query

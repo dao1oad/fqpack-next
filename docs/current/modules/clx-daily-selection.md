@@ -2,17 +2,18 @@
 
 ## 职责
 
-`clx_daily_selection` 是独立于旧 `/daily-screening` 的 18 模型日线选股链，负责：
+`clx_daily_selection` 是独立的 18 模型日线选股链，并通过 `/daily-screening?tab=clx` 嵌入每日选股页面，负责：
 
 - 以冻结的 `production_v1 / switch_opt=1` profile 计算 `S0000-S0017`
 - 以 `clx-daily-selection.v2` 保存 Stock+ETF canonical QFQ snapshot pair 与 pair hash
 - 分别消费股票、ETF 盘后 ready marker，独立生成不可变 partition 输出
+- 在进入 strict QFQ probe 与模型计算前执行 `credit-lof-v1` universe policy：Stock 和 ETF 都仅保留融资标的，ETF 额外排除 LOF
 - 在页面明确展示 partial，但只把双 partition 校验通过的 batch 标为 final
 - 提供批次、结果、解释证据、统计和单标的历史 marker API
-- 为桌面 `/kline-slim` 的筛选、K 线和历史信号三栏提供同一套服务端事实
+- 为 `/daily-screening?tab=clx` 的 CLX 18 模型工作区和 `/kline-slim` 的历史 marker 图层提供同一套服务端事实
 - 让用户先把已发布 final 批次中的结果加入人工篮子，再把确认后的篮子原子覆盖到通达信固定分组 `clx_18 / CLX_18.blk`
 
-旧 `/daily-screening` 的 12 模型 scope、集合和 `daily_screening_ready` marker 保持原语义，不参与本模块的 partition、batch 或默认页面结果。
+`/daily-screening` 的 `综合交集` 工作区仍使用旧 12 模型 scope、集合和 `daily_screening_ready` marker；这些事实不参与 CLX 18 模型的 partition、batch 或默认结果。
 
 ## 代码入口
 
@@ -25,12 +26,13 @@
 - HTTP blueprint：`freshquant/rear/clx_daily_selection/routes.py`
 - Dagster job：`fqdagster.defs.jobs.clx_daily_selection`
 - Dagster sensor：`fqdagster.defs.sensors.clx_daily_selection`
-- 统一页面：`morningglory/fqwebui/src/views/KlineSlim.vue`
-- 页面状态与控制器：`morningglory/fqwebui/src/views/js/kline-slim.js`、`morningglory/fqwebui/src/views/klineSlimController.mjs`
+- 每日选股容器：`morningglory/fqwebui/src/views/DailyScreening.vue`
+- CLX 18 模型工作区：`morningglory/fqwebui/src/views/ClxDailyScreening.vue`
 - 页面合同：`morningglory/fqwebui/src/views/clxDailySelection.mjs`
-- 左栏组件：`morningglory/fqwebui/src/views/components/ClxSelectionPanel.vue`
-- Kline CLX 投影：`morningglory/fqwebui/src/views/js/kline-slim-clx.mjs`
-- 兼容路由：`morningglory/fqwebui/src/router/index.js`
+- API client：`morningglory/fqwebui/src/api/clxDailySelectionApi.js`
+- Kline CLX marker 投影：`morningglory/fqwebui/src/views/js/kline-slim-clx.mjs`
+- 兼容路由：`morningglory/fqwebui/src/router/clxDailyScreeningRedirect.mjs`
+- 静态 CLX 评价页：`morningglory/fqwebui/src/views/ClxMarketEvaluation.vue`
 
 ## 计算 profile
 
@@ -69,7 +71,7 @@ Schema v2 要求每个新 generation 冻结同一个完整 QFQ snapshot pair。p
 - `marker_snapshot / marker_snapshot_hash`
 - 完整 `qfq_snapshot_pair / qfq_snapshot_pair_hash` 及两侧 snapshot id
 - 冻结的 `effective_instruments / effective_universe_hash`
-- `universe_evidence`：candidate/effective 数量与 hash、marker source exclusions、strict-reader isolations 及 isolation hash，并保存 `reader_probe_bar_count=1200 / reader_probe_contract_version=full-profile-window-v1`
+- `universe_evidence`：candidate/effective 数量与 hash、marker source exclusions、`credit-lof-v1` policy exclusions、strict-reader isolations 及 isolation hash；同时保存 `credit_subject_snapshot_ready / credit_subject_count / policy_excluded_count / policy_excluded_hash`、`reader_probe_bar_count=1200 / reader_probe_contract_version=full-profile-window-v1` 与 `universe_policy_contract_version=credit-lof-v1`
 - `input_snapshot_hash`
 - `partition_id / content_hash`
 - `status / claim_owner / claim_token / lease_expires_at / error`
@@ -80,9 +82,11 @@ Schema v2 要求每个新 generation 冻结同一个完整 QFQ snapshot pair。p
 
 ### 输入冻结与漂移
 
-规划 attempt 前，服务通过严格 QFQ reader 解析 Stock+ETF 两侧 active snapshot，按目标交易日规范化 canonical pair。Stock 与 ETF 各自只规划本侧 raw candidate universe：先按 marker 中通用的 `source_exclusions` 规范化代码并剔除，再对其余标的调用 shared strict reader，读取截至目标日最多 `profile.bar_count` 根实际 BFQ bar，且要求返回 metadata 与冻结 pair 完全一致。只有错误码为 `QFQ_DATA_NOT_READY` 的逐标的 probe 会被隔离；隔离事实保存 `code / classification / error_code / reason / source` 及 count/hash，缺失日期包含目标日时分类为 `target_date_not_covered_by_active_qfq_snapshot`，仅缺历史窗口日期时分类为 `historical_window_not_covered_by_active_qfq_snapshot`，其他异常在创建 attempt 前直接向上抛出。最终冻结 strict-QFQ-effective universe，断言它与 marker exclusions 无交集且非空，并保存完整 instruments/hash；旧 target-day-only probe evidence 不复用，也不向 QFQ marker 伪造新的 `source_exclusions`。
+规划 attempt 前，服务通过严格 QFQ reader 解析 Stock+ETF 两侧 active snapshot，按目标交易日规范化 canonical pair。Stock 与 ETF 各自只规划本侧 raw candidate universe：先按 marker 中通用的 `source_exclusions` 规范化代码并剔除；随后读取 `freshquant.data.gantt_readmodel._load_shouban30_credit_subject_lookup()` 作为融资标的快照，执行 `credit-lof-v1` universe policy；最后才对剩余标的调用 shared strict reader，读取截至目标日最多 `profile.bar_count` 根实际 BFQ bar，且要求返回 metadata 与冻结 pair 完全一致。policy 对 Stock 和 ETF 都要求代码存在于融资标的 lookup；ETF 还会排除名称包含 `LOF` 或代码以 `16 / 501 / 502 / 506` 开头的 LOF。信用标的 snapshot 未 ready 或 lookup 为空时，本侧在创建 attempt 前 fail-closed，错误包含 `CLX_CREDIT_SUBJECTS_NOT_READY`、asset type、trade date、account 是否存在和 lookup count。
 
-一侧 source exclusion 或窗口内实际 BFQ 日期缺 QFQ proof 不阻塞另一侧规划，也不让少量已分类异常停掉整个 scope。attempt 执行阶段只读取已冻结的 effective instruments，不重新枚举 raw universe；重试只复用同一 marker/pair 且 probe 窗口合同一致的冻结有效集合。candidate、effective、source-excluded、reader-isolated 的数量必须守恒，任一残余交集、hash/count 不一致或未分类异常都在零 attempt 或零提交边界 fail-closed。
+只有错误码为 `QFQ_DATA_NOT_READY` 的逐标的 probe 会被 reader 隔离；policy 排除项单独记录为 `policy_excluded_symbols`，source/policy/reader 三类证据共同组成 `isolations`。隔离事实保存 `code / classification / error_code / reason / source` 及 count/hash，缺失日期包含目标日时分类为 `target_date_not_covered_by_active_qfq_snapshot`，仅缺历史窗口日期时分类为 `historical_window_not_covered_by_active_qfq_snapshot`，policy 中非融资分类为 `non_credit_subject`，ETF LOF 分类为 `lof_subject`。最终冻结 strict-QFQ-effective universe，断言它与 marker exclusions 及 policy/reader isolations 无交集且非空，并保存完整 instruments/hash；旧 target-day-only probe evidence 或缺少 `universe_policy_contract_version=credit-lof-v1` 的 evidence 不复用，也不向 QFQ marker 伪造新的 `source_exclusions`。
+
+一侧 source exclusion、policy exclusion 或窗口内实际 BFQ 日期缺 QFQ proof 不阻塞另一侧规划，也不让少量已分类异常停掉整个 scope。attempt 执行阶段只读取已冻结的 effective instruments，不重新枚举 raw universe；重试只复用同一 marker/pair 且 probe 窗口合同一致、policy 合同一致的冻结有效集合。candidate、effective、source-excluded、policy-excluded、reader-isolated 的数量必须守恒：`candidate_universe_count = effective_universe_count + source_excluded_count + policy_excluded_count + reader_isolation_count`。任一残余交集、hash/count 不一致或未分类异常都在零 attempt 或零提交边界 fail-closed。
 
 partition 在计算前后各解析一次本侧 ready marker 和完整 Stock+ETF QFQ pair，以 attempt 冻结的 `effective_universe_hash` 重新构造 current selection key，并与规划时冻结的完整 `selection_key` 对比。每只标的的完整历史严格读取还必须返回与 attempt 一致的 `snapshot_id / factor_asof / effective_version / collection` provenance。任一阶段发生 marker 或 pair 漂移、或逐标的 provenance 不一致时，本侧 attempt 结束为 `upstream_drift` 或计算失败，本次输出不提交；另一侧旧 pair 的成功输出保持不可变历史，但新 pair generation 会让两侧 selection key 都失效并重算。
 
@@ -115,7 +119,7 @@ finalizer 在发布前校验两侧：
 
 每个不可变 partition 包含：
 
-- candidate/effective universe、source exclusion、strict-reader isolation、成功评估、命中标的、信号事件和错误计数
+- candidate/effective universe、source exclusion、policy exclusion、strict-reader isolation、成功评估、命中标的、信号事件和错误计数
 - marker、输入和内容 hash
 - canonical `qfq_snapshot_pair / qfq_snapshot_pair_hash`、`effective_universe_hash / universe_isolation_hash / universe_evidence` 与逐标的 QFQ input provenance hash
 - `memberships`：标的 × 模型 × 触发事实
@@ -191,38 +195,31 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 
 ## 统一桌面工作台
 
-### `/kline-slim` CLX mode
+### `/clx-evaluation` 静态评价页
 
-`/kline-slim?clxScreening=1&clxWorkbench=1&period=1d` 是 CLX 唯一正式页面入口，桌面采用“筛选结果 / K 线 / 信号工作台”三栏。裸 `/kline-slim` 仍保持普通持仓/股票池模式：
+`/clx-evaluation` 继续只读取 `/data/clx-evaluator/latest.json` 与其指向的 `clx-eval.v1.json` 静态快照，不改变 JSON schema 或新增后端接口。当前页面采用 master-detail 工作台：顶部展示标题、trade date/run badges 与 KPI strip；左侧为分组导航卡片，展示 rank、分组名、market lane、fit grade、theme、CLX 数、shortlist、金额、代表标的、fit reason 和导入通达信按钮；右侧为 sticky 筛选条、选中分组摘要和组内成员表。点击左侧分组会过滤右侧 members；清除组筛选恢复全量。运行合同、统计分布和映射审计保留在原生 `details` 折叠区，小屏下工作台降为单列。导入通达信仍复用 `importGroupToTdx(group)` 的现有 batch API 与本地 adapter fallback 行为。
 
-- 左栏 `每日选股 · 结果筛选`
-  - 默认选择最新 `published/not_required` final；用户显式选择时才查看 partial 或 publication 中间态。
-  - scope 摘要展示交易日、profile、股票/ETF partition 与 partial/final 状态。
-  - 支持资产、模型、条件、方向、三态线关系、最少模型数和代码/名称搜索；查询保持服务端排序，并使用 cursor 继续加载，不在浏览器端伪造全量分页。
-  - scope 或筛选条件改变时重置 cursor；切换 K 线标的、marker 显示条件或右栏详情不重置左栏筛选和已加载列表。
-  - 同一 scope 的筛选请求期间保留上一份稳定列表并标记 `aria-busy / 更新中`，成功后原子替换；失败仍保留旧列表并提供重试，不以短暂空白冒充零结果。
-  - 结果卡展示资产类型、模型数、条件数和模型键摘要；点击卡片直接成为当前标的。
-  - 每条结果都可加入或取消人工篮子；同一 batch、同一页面 session 内，篮子跨筛选条件和 cursor page 保留，切换 batch 或开启另一 session 时不混用。
-  - “全选当前筛选结果”遍历当前完整 filter 结果并与已有篮子取 union，不只选择已经加载的当前页；“清空”只清空当前 batch/session 的篮子。
-  - 最终动作显示“导入 N 只”。只有篮子非空且目标 batch 为已发布完整结果时可用；请求只发送篮子 `items`，运行中防重复点击。
-  - 每日选股左筛选栏使用自身暗色主题，不改变其他行情区域的视觉样式。
-- 中栏 `K 线`
-  - 复用既有多周期主图、缠论结构、标的设置和可选交易复盘能力。
-  - 行情图表与每日选股的各周期样式差异继续维持原有行为；人工篮子与通达信导入不改变既有 K 线展示合同。
-  - 从左栏选择标的时，同步 `symbol / asset type`，并把当前 `scope.tradeDate` 写入 `endDate`；主 K 线和历史 CLX 信号因此使用同一盘后截面。
-- 右栏 `CLX 信号工作台`
-  - 分为“显示控制 / 信号时间轴 / 信号详情”。
-  - 历史 marker 通过 `/history/signals` 加载；marker 按当前日/周/月 K 线日期锚定，并由 chart renderer 生成真实 ECharts scatter series。
-  - 同日 marker 可聚合或逐条显示，点击 marker 会联动时间轴、图表聚焦和证据详情。
-  - 只有历史响应满足 `production_v1 / switch_opt=1` 且 `future_function_guard.passed=true` 时，CLX series 才进入可见状态。
+### `/daily-screening?tab=clx` CLX 18 模型工作区
 
-左栏的模型/条件表示“哪些标的进入筛选结果”，右栏的模型/条件表示“当前标的显示哪些历史 marker”。两组状态独立保存：左栏使用 `clxFilterModels / clxFilterConditions`，右栏继续使用 `clxModels / clxConditions`；修改左栏会重新请求结果，但不改变右栏 marker 可见性，修改右栏只影响图层与时间轴，不改变左栏结果集合。URL 保存共享 `clxScope`、左栏 `clxFilter*`、当前 symbol/asset type、period/endDate 与右栏显示状态；cursor 只保存在当前列表请求链，刷新后按 URL 筛选从首批重新加载。
+`/daily-screening?tab=clx` 是 CLX 日线选股的正式工作区入口；页面只展示批次、筛选、统计、结果列表和详情，不承载主体 K 线。顶部“每日选股”进入 `/daily-screening`，用户可在 `综合交集 / CLX 18 模型` 两个工作区之间切换。
+
+- 默认选择最新 `published/not_required` final；用户显式选择时才查看 partial 或 publication 中间态。
+- scope 摘要展示交易日、profile、股票/ETF partition 与 partial/final 状态。
+- 模型目录固定为 18 个 CLX 模型：`S0000-S0017`，对应生产模型编号 `10000..10017`。前端 catalog 会过滤到这组固定范围，兼容数字编号反解为对应 `Sxxxx`。
+- 支持资产、模型、条件、方向、三态线关系、最少模型数和代码/名称搜索；查询保持服务端排序，并使用 cursor 继续加载，不在浏览器端伪造全量分页。
+- scope 或筛选条件改变时重置 cursor；详情查看不重置已加载列表。
+- 同一 scope 的筛选请求期间保留上一份稳定列表并标记 `aria-busy / 更新中`，成功后原子替换；失败仍保留旧列表并提供重试。
+- 结果行展示资产类型、模型数、条件数、线关系和触发摘要；`看图` 跳转 `/kline-slim` 查看单标的图表。
+- `加入clx15分钟监控` 调用 `/api/gantt/shouban30/stock-pool/append`，只追加到 `stock_pools`，记录 CLX scope、资产类型和模型上下文，不写 `must_pool`、不触发下单。
+- 顶部“导入通达信”复用 `/results/sync-selected-to-tdx`，只对正式完整发布 batch 的人工篮子/当前结果身份生效。
+
+CLX 18 模型工作区的模型/条件表示“哪些标的进入筛选结果”。Kline 图表页的 CLX marker 显示控制仍使用独立 `clxModels / clxConditions`，只影响当前标的历史 marker 图层，不改变 `/daily-screening?tab=clx` 的结果集合。
 
 ### `/clx-daily-screening` 兼容入口
 
-- 旧收藏或深链仍可进入该路径；路由把 `scope_id / asset_types / model_keys / condition_keys` 等兼容 query 映射到统一工作台状态后重定向至 `/kline-slim`。旧页面的 `clxModels / clxConditions` 也按筛选语义迁移为 `clxFilterModels / clxFilterConditions`，并强制打开筛选栏、信号栏和日线周期。
+- 旧收藏或深链仍可进入该路径；路由把 `scope_id / clxScope`、`asset_types / clxAssetType`、`model_keys / clxModels`、`condition_keys / clxConditions` 等兼容 query 映射到 CLX 18 模型工作区状态后重定向至 `/daily-screening?tab=clx`。
 - 该路径不再挂载独立筛选页面，不维护第二份 scope、筛选、分页或选中标的状态。
-- 顶部导航、部署验收和日常操作统一使用 `/kline-slim` 的 CLX mode query。
+- 顶部导航、部署验收和日常操作统一使用 `/daily-screening` 与 `/daily-screening?tab=clx`。
 
 ## 部署与健康检查
 
@@ -237,10 +234,10 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/health
 Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/model-catalog
 Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/batches/latest
-Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/kline-slim?clxScreening=1&clxWorkbench=1&period=1d'
+Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/daily-screening?tab=clx'
 ```
 
-浏览器验收还应打开带旧 query 的 `/clx-daily-screening`，确认最终地址为 `/kline-slim` 且 scope 与筛选状态已恢复；仅看到旧路径返回 SPA shell 不代表兼容重定向完成。
+浏览器验收还应打开带旧 query 的 `/clx-daily-screening`，确认最终地址为 `/daily-screening?tab=clx` 且 scope 与筛选状态已恢复；仅看到旧路径返回 SPA shell 不代表兼容重定向完成。
 
 健康接口应报告原生 batch、单模型和 S0002 evidence 能力；`model-catalog` 应返回 18 个模型和 `production_v1 / switch_opt=1`。没有 `published/not_required` final 时，默认 `batches/latest` 可以返回较早已发布 final 或 `no_ready_batch`；`pending/publishing/failed` 与普通 partial 都不能充当 final 健康证据。
 
@@ -287,6 +284,12 @@ Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/kline-slim?clxScreeni
 - 比较 attempt 中冻结的完整 `selection_key` 与由当前本侧 marker snapshot、完整 canonical QFQ pair、冻结 `effective_universe_hash` 和 profile 重建的 current selection key。
 - 同时核对逐标的 `snapshot_id / factor_asof / effective_version / collection` provenance；确认漂移来自 marker 还是 QFQ pair。
 - 仅 marker 漂移时重试对应侧；QFQ pair 漂移会让 Stock、ETF 两侧 selection key 同时失效，必须形成新的双 partition generation。
+
+### partition 在创建 attempt 前报 `CLX_CREDIT_SUBJECTS_NOT_READY`
+
+- 这是 `credit-lof-v1` universe policy 的 fail-closed 行为，表示融资标的快照未 ready 或 lookup 为空；此时不会创建错误 universe，也不会进入 QFQ probe。
+- 先查 `system_settings.xtquant.account` 是否存在，再查 `om_credit_subjects` 中该 account 的融资标的同步结果和数量。
+- ETF 分区同样使用融资标的 lookup；若 ETF 覆盖不足，应修复信用标的同步源，不在前端或 CLX 结果页绕开该 policy。
 
 ### Kline 没有 CLX marker
 

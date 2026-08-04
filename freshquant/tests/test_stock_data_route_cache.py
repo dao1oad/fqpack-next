@@ -2,6 +2,7 @@ import importlib
 import json
 import sys
 import types
+from datetime import datetime as real_datetime
 
 import pytest
 
@@ -47,6 +48,7 @@ def _install_route_stubs(monkeypatch):
     stock_service = types.ModuleType("freshquant.stock_service")
     stock_service.get_stock_signal_list = lambda *args, **kwargs: []
     stock_service.get_stock_pools_list = lambda *args, **kwargs: []
+    stock_service.sync_stock_pools_from_tdx_self_select = lambda *args, **kwargs: {}
 
     chanlun_service = types.ModuleType("freshquant.chanlun_service")
     chanlun_service.get_data_v2 = lambda *args, **kwargs: {}
@@ -169,6 +171,24 @@ def test_stock_data_uses_fallback_by_default(monkeypatch, stock_routes):
     assert fake_redis.keys == []
 
 
+def test_stock_data_normalizes_backend_minute_alias_before_fallback(
+    monkeypatch, stock_routes
+):
+    fallback_calls = []
+
+    def fake_get_data_v2(symbol, period, end_date, bar_count=0):
+        fallback_calls.append((symbol, period, end_date, bar_count))
+        return {"source": "fallback", "period": period}
+
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(stock_routes, symbol="sz000001", period="15min")
+
+    assert response.status_code == 200
+    assert response.get_json()["period"] == "15m"
+    assert fallback_calls == [("sz000001", "15m", None, 0)]
+
+
 def test_stock_data_maps_qfq_not_ready_to_503(monkeypatch, stock_routes):
     def fail(*_args, **_kwargs):
         raise stock_routes.QFQDataNotReadyError(
@@ -178,6 +198,113 @@ def test_stock_data_maps_qfq_not_ready_to_503(monkeypatch, stock_routes):
     monkeypatch.setattr(stock_routes, "get_data_v2", fail)
 
     response = call_stock_data(stock_routes, symbol="sz000001", period="5m")
+
+    assert response.status_code == 503
+    assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
+
+
+def test_stock_data_realtime_qfq_not_ready_falls_back_to_history(
+    monkeypatch, stock_routes
+):
+    fallback_calls = []
+
+    def fail_realtime(*_args, **_kwargs):
+        raise stock_routes.QFQDataNotReadyError(
+            "intraday override is missing", scope="stock", code="000001"
+        )
+
+    def fake_get_data_v2(symbol, period, end_date, bar_count=0):
+        fallback_calls.append((symbol, period, end_date, bar_count))
+        return {"source": "history", "symbol": symbol, "period": period}
+
+    monkeypatch.setattr(
+        stock_routes, "_get_realtime_stock_data_from_cache", fail_realtime
+    )
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(
+        stock_routes, symbol="sz000001", period="30min", realtimeCache="1"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "source": "history",
+        "symbol": "sz000001",
+        "period": "30m",
+    }
+    assert fallback_calls == [("sz000001", "30m", None, 0)]
+
+
+def test_stock_data_realtime_today_qfq_gap_uses_previous_trade_date(
+    monkeypatch, stock_routes
+):
+    class FakeDatetime:
+        @staticmethod
+        def now():
+            return real_datetime(2026, 8, 3, 10, 30)
+
+    calls = []
+
+    def fake_get_data_v2(symbol, period, end_date, bar_count=0):
+        calls.append((symbol, period, end_date, bar_count))
+        if end_date is None:
+            raise stock_routes.QFQDataNotReadyError(
+                "snapshot-bound intraday override is missing",
+                scope="stock",
+                code="300127",
+                missing_dates=["2026-08-03"],
+            )
+        return {"source": "history", "endDate": end_date, "barCount": bar_count}
+
+    monkeypatch.setattr(stock_routes, "datetime", FakeDatetime)
+    monkeypatch.setattr(
+        stock_routes, "_get_realtime_stock_data_from_cache", lambda *args: None
+    )
+    monkeypatch.setattr(
+        stock_routes,
+        "fq_trading_fetch_trade_dates",
+        lambda *args, **kwargs: ["2026-07-30", "2026-07-31", "2026-08-03"],
+    )
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sz300127",
+        period="15min",
+        realtimeCache="1",
+        barCount="5",
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "source": "history",
+        "endDate": "2026-07-31",
+        "barCount": 5,
+    }
+    assert calls == [
+        ("sz300127", "15m", None, 5),
+        ("sz300127", "15m", "2026-07-31", 5),
+    ]
+
+
+def test_stock_data_explicit_end_date_qfq_gap_stays_503(monkeypatch, stock_routes):
+    def fail(*_args, **_kwargs):
+        raise stock_routes.QFQDataNotReadyError(
+            "snapshot-bound intraday override is missing",
+            scope="stock",
+            code="300127",
+            missing_dates=["2026-08-03"],
+        )
+
+    monkeypatch.setattr(stock_routes, "get_data_v2", fail)
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sz300127",
+        period="15min",
+        endDate="2026-08-03",
+        realtimeCache="1",
+    )
 
     assert response.status_code == 503
     assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
@@ -196,6 +323,46 @@ def test_stock_data_v2_maps_qfq_not_ready_to_503(monkeypatch, stock_routes):
 
     assert response.status_code == 503
     assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
+
+
+def test_stock_data_v2_normalizes_backend_minute_alias(monkeypatch, stock_routes):
+    calls = []
+
+    def fake_get_data_v2(symbol, period, end_date):
+        calls.append((symbol, period, end_date))
+        return {"period": period}
+
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+    stock_routes.request.args = {"symbol": "sz000001", "period": "30min"}
+
+    response = stock_routes.stock_data_v2()
+
+    assert response.status_code == 200
+    assert response.get_json() == {"period": "30m"}
+    assert calls == [("sz000001", "30m", None)]
+
+
+def test_sync_stock_pools_from_tdx_self_select_route_calls_service(
+    monkeypatch, stock_routes
+):
+    calls = []
+
+    service = types.SimpleNamespace(
+        sync_stock_pools_from_tdx_self_select=lambda days: calls.append(days)
+        or {"appended_count": 2}
+    )
+    monkeypatch.setattr(stock_routes, "_get_stock_service", lambda: service)
+    stock_routes.request.args = {"days": "45"}
+
+    response = stock_routes.sync_stock_pools_from_tdx_self_select()
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "code": "0",
+        "msg": "操作成功",
+        "data": {"appended_count": 2},
+    }
+    assert calls == [45]
 
 
 def test_stock_data_cache_key_is_bound_to_adjustment_version(monkeypatch, stock_routes):

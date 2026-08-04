@@ -52,7 +52,7 @@
 
 - `notification.webhook.dingtalk.private`
   - 含义：私密钉钉机器人 Webhook。
-  - 用途：持仓内信号、must_pool 信号、市场数据告警默认发私密机器人。
+  - 用途：持仓内信号、must_pool 信号、市场数据告警和 CLX 实时正信号聚合默认发私密机器人。
   - 是否必填：否。
   - 空值行为：不报错，但对应通知不会真正发出。
 - `notification.webhook.dingtalk.public`
@@ -62,6 +62,7 @@
   - 空值行为：不报错，但对应通知不会真正发出。
 
 当前没有新系统用途的邮件参数；不要再往 `notification` 下写 SMTP 或邮件接收人。
+CLX 实时链路复用当前 DingTalk webhook 配置；只有 `monitor.xtdata.mode` 启用 CLX 实时能力且 15/30 分钟模型出现正信号时才发送聚合消息。文档、日志和输出中只使用脱敏示例，不输出真实 webhook/token。
 
 示例：
 
@@ -90,6 +91,7 @@
 - 正式支持值：
   - `guardian_1m`
   - `guardian_and_clx_15_30`
+  - `clx_15_30_only`
 - 缺省值：`guardian_1m`
 - 非法值行为：自动归一到 `guardian_1m`
 - 兼容读取值：
@@ -103,7 +105,11 @@
   - `guardian_and_clx_15_30`
     - 监控集合 = Guardian 池优先 + 未过期 `stock_pools` 补足
     - Guardian event 正常运行
-    - XTData consumer 会继续跑 15/30 分钟 CLX 模型并写 `realtime_screen_multi_period`
+    - XTData consumer 会继续跑 15/30 分钟 CLX 模型 `S0000-S0017 / 10000..10017` 并写 `realtime_screen_multi_period`
+  - `clx_15_30_only`
+    - 监控集合 = 未过期 `stock_pools`
+    - Guardian event 不运行
+    - XTData consumer 会跑 15/30 分钟 CLX 模型 `S0000-S0017 / 10000..10017` 并写 `realtime_screen_multi_period`
 
 ### monitor.xtdata.max_symbols
 

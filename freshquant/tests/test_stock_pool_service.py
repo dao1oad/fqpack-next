@@ -63,6 +63,17 @@ class FakeCollection:
                 return dict(doc)
         return None
 
+    def update_one(self, query, update):
+        query = query or {}
+        update = update or {}
+        self.last_query = query
+        self.last_update = update
+        for doc in self.docs:
+            if _doc_matches_query(doc, query):
+                doc.update(update.get("$set", {}))
+                return types.SimpleNamespace(matched_count=1, modified_count=1)
+        return types.SimpleNamespace(matched_count=0, modified_count=0)
+
 
 def _doc_matches_query(doc, query):
     for key, expected in query.items():
@@ -88,6 +99,14 @@ def _import_stock_service_with_stubs(monkeypatch):
 
     code_module = types.ModuleType("freshquant.util.code")
     code_module.fq_util_code_append_market_code = lambda code: code
+    code_module.normalize_to_base_code = (
+        lambda code: str(code or "")
+        .replace(".SH", "")
+        .replace(".SZ", "")
+        .replace("sh", "")
+        .replace("sz", "")[-6:]
+        .zfill(6)
+    )
 
     must_pool_module = types.ModuleType("freshquant.data.astock.must_pool")
     must_pool_module.import_pool = lambda *args, **kwargs: None
@@ -261,11 +280,14 @@ def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
     captured = {}
-    monkeypatch.setattr(
-        stock_service,
-        "save_a_stock_pools",
-        lambda **kwargs: captured.setdefault("kwargs", kwargs),
-    )
+
+    def fake_save_a_stock_pools(**kwargs):
+        captured.setdefault("kwargs", kwargs)
+        fake_db["stock_pools"].docs.append(
+            {"code": kwargs["code"], "category": kwargs["category"]}
+        )
+
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", fake_save_a_stock_pools)
 
     result = stock_service.add_to_stock_pools_by_code("000001", days=20)
 
@@ -280,6 +302,145 @@ def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch
         ("daily-screening", "CLXS_10008"),
         ("shouban30", "plate:11"),
     }
+
+
+def test_add_to_stock_pools_by_code_without_pre_pool_still_fails_by_default(
+    monkeypatch,
+):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection([]),
+        stock_pools=FakeCollection([]),
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    captured = {}
+
+    def save_stub(**kwargs):
+        captured.setdefault("kwargs", kwargs)
+        fake_db["stock_pools"].docs.append(
+            {"code": kwargs["code"], "category": kwargs["category"]}
+        )
+
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", save_stub)
+
+    result = stock_service.add_to_stock_pools_by_code("000001", days=20)
+
+    assert result is False
+    assert captured == {}
+
+
+def test_add_to_stock_pools_by_code_allow_direct_writes_clx_monitor_provenance(
+    monkeypatch,
+):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection([]),
+        stock_pools=FakeCollection([]),
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    captured = {}
+
+    def save_stub(**kwargs):
+        captured.setdefault("kwargs", kwargs)
+        fake_db["stock_pools"].docs.append(
+            {"code": kwargs["code"], "category": kwargs["category"]}
+        )
+
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", save_stub)
+
+    result = stock_service.add_to_stock_pools_by_code(
+        "000001",
+        days=20,
+        allow_direct=True,
+        category="CLX15分钟监控",
+        source="clx_signal_workbench",
+        remark="clx15_monitor",
+    )
+
+    assert result is True
+    kwargs = captured["kwargs"]
+    assert kwargs["code"] == "000001"
+    assert kwargs["category"] == "CLX15分钟监控"
+    assert kwargs["stop_loss_price"] is None
+    assert kwargs["sources"] == ["clx_signal_workbench"]
+    assert kwargs["categories"] == ["CLX15分钟监控"]
+    assert kwargs["expire_at"] > kwargs["dt"]
+    assert kwargs["remark"] == "clx15_monitor"
+    assert fake_db["stock_pools"].last_update == {
+        "$set": {"expire_at": kwargs["expire_at"]}
+    }
+    assert kwargs["memberships"] == [
+        {
+            "source": "clx_signal_workbench",
+            "category": "CLX15分钟监控",
+            "added_at": kwargs["dt"],
+            "expire_at": kwargs["expire_at"],
+            "extra": {
+                "entrypoint": "clx_signal_workbench",
+                "remark": "clx15_monitor",
+            },
+        }
+    ]
+
+
+def test_add_to_stock_pools_by_code_allow_direct_reports_missing_write(
+    monkeypatch,
+):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection([]),
+        stock_pools=FakeCollection([]),
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service, "save_a_stock_pools", lambda **kwargs: None)
+
+    result = stock_service.add_to_stock_pools_by_code(
+        "000001",
+        days=20,
+        allow_direct=True,
+        category="CLX15分钟监控",
+        source="clx_signal_workbench",
+    )
+
+    assert result is False
+    assert "expire_at" in fake_db["stock_pools"].last_update["$set"]
+
+
+def test_add_to_stock_pools_by_code_allow_direct_refreshes_existing_expire_at(
+    monkeypatch,
+):
+    stock_service = _import_stock_service_with_stubs(monkeypatch)
+
+    expired_at = datetime(2024, 1, 1)
+    fake_db = FakeDB(
+        stock_pre_pools=FakeCollection([]),
+        stock_pools=FakeCollection(
+            [{"code": "000001", "category": "CLX15分钟监控", "expire_at": expired_at}]
+        ),
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    captured = {}
+    monkeypatch.setattr(
+        stock_service,
+        "save_a_stock_pools",
+        lambda **kwargs: captured.setdefault("kwargs", kwargs),
+    )
+
+    result = stock_service.add_to_stock_pools_by_code(
+        "000001",
+        days=20,
+        allow_direct=True,
+        category="CLX15分钟监控",
+        source="clx_signal_workbench",
+    )
+
+    assert result is True
+    new_expire_at = captured["kwargs"]["expire_at"]
+    assert new_expire_at > captured["kwargs"]["dt"]
+    assert fake_db["stock_pools"].docs[0]["expire_at"] == new_expire_at
 
 
 def test_add_to_must_pool_merges_stock_pool_provenance(monkeypatch):

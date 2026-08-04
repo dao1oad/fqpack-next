@@ -9,8 +9,13 @@ from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 
 DEFAULT_XTDATA_MODE = "guardian_1m"
 COMBINED_XTDATA_MODE = "guardian_and_clx_15_30"
+CLX_ONLY_XTDATA_MODE = "clx_15_30_only"
 LEGACY_CLX_XTDATA_MODE = "clx_15_30"
-VALID_XTDATA_MODES = {DEFAULT_XTDATA_MODE, COMBINED_XTDATA_MODE}
+VALID_XTDATA_MODES = {
+    DEFAULT_XTDATA_MODE,
+    COMBINED_XTDATA_MODE,
+    CLX_ONLY_XTDATA_MODE,
+}
 XTDATA_MODE_ALIASES = {
     LEGACY_CLX_XTDATA_MODE: COMBINED_XTDATA_MODE,
 }
@@ -32,7 +37,10 @@ def xtdata_mode_enables_guardian(mode: str | None) -> bool:
 
 
 def xtdata_mode_enables_clx(mode: str | None) -> bool:
-    return normalize_xtdata_mode(mode) == COMBINED_XTDATA_MODE
+    return normalize_xtdata_mode(mode) in {
+        COMBINED_XTDATA_MODE,
+        CLX_ONLY_XTDATA_MODE,
+    }
 
 
 def load_monitor_codes(*, mode: str, max_symbols: int) -> list[str]:
@@ -42,6 +50,7 @@ def load_monitor_codes(*, mode: str, max_symbols: int) -> list[str]:
     - guardian_1m: holdings (xt_positions) + must_pool
     - guardian_and_clx_15_30:
       guardian pool first, then stock_pools supplement
+    - clx_15_30_only: non-expired stock_pools only
     """
     m = normalize_xtdata_mode(mode)
     limit = _normalize_symbol_limit(max_symbols)
@@ -121,7 +130,13 @@ def _load_clx_codes(limit: int) -> list[str]:
     codes: set[str] = set()
     now = datetime.now()
     for doc in DBfreshquant["stock_pools"].find(
-        {"$or": [{"expire_at": {"$exists": False}}, {"expire_at": {"$gt": now}}]},
+        {
+            "$or": [
+                {"expire_at": {"$exists": False}},
+                {"expire_at": None},
+                {"expire_at": {"$gt": now}},
+            ]
+        },
         {"code": 1},
     ):
         raw = doc.get("code") or ""

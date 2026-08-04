@@ -135,6 +135,14 @@ export const getShouban30StockPool = () => {
   })
 }
 
+export const appendShouban30StockPool = (payload = {}) => {
+  return http({
+    url: '/api/gantt/shouban30/stock-pool/append',
+    method: 'post',
+    data: payload
+  })
+}
+
 export const addShouban30StockPoolToMustPool = ({ code6 } = {}) => {
   return http({
     url: '/api/gantt/shouban30/stock-pool/add-to-must-pool',

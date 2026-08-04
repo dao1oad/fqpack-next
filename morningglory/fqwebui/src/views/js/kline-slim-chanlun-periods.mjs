@@ -73,7 +73,9 @@ function buildDefaultLegendSelection(currentPeriod) {
 }
 
 export function normalizeChanlunPeriod(period) {
-  return SUPPORTED_CHANLUN_PERIODS.includes(period) ? period : DEFAULT_MAIN_PERIOD
+  const raw = String(period || '').trim().toLowerCase()
+  const normalized = raw.endsWith('min') ? raw.slice(0, -3) + 'm' : raw
+  return SUPPORTED_CHANLUN_PERIODS.includes(normalized) ? normalized : DEFAULT_MAIN_PERIOD
 }
 
 export function buildPeriodLegendSelectionState({ currentPeriod, previousSelected = null } = {}) {

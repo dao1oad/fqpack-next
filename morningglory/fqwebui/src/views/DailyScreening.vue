@@ -2,7 +2,16 @@
   <WorkbenchPage class="daily-screening-page">
     <MyHeader />
 
-    <div class="workbench-body daily-screening-body" v-loading="pageLoading">
+    <div class="daily-workspace-switch">
+      <el-tabs v-model="activeDailyScreeningTab" @tab-change="handleDailyScreeningTabChange">
+        <el-tab-pane label="综合交集" name="intersection" />
+        <el-tab-pane label="CLX 18 模型" name="clx" />
+      </el-tabs>
+    </div>
+
+    <ClxDailyScreening v-if="activeDailyScreeningTab === 'clx'" embedded class="daily-clx-workbench" />
+
+    <div v-else class="workbench-body daily-screening-body" v-loading="pageLoading">
       <WorkbenchToolbar class="daily-screening-toolbar">
         <div class="workbench-toolbar__header daily-toolbar-header">
           <div class="workbench-title-group">
@@ -751,6 +760,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import StatusChip from '../components/workbench/StatusChip.vue'
@@ -760,6 +770,7 @@ import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
 import WorkbenchSidebarPanel from '../components/workbench/WorkbenchSidebarPanel.vue'
 import WorkbenchToolbar from '../components/workbench/WorkbenchToolbar.vue'
 import MyHeader from './MyHeader.vue'
+import ClxDailyScreening from './ClxDailyScreening.vue'
 import Shouban30ReasonPopover from './components/Shouban30ReasonPopover.vue'
 import { dailyScreeningApi } from '@/api/dailyScreeningApi.js'
 import { stockApi } from '@/api/stockApi.js'
@@ -814,6 +825,11 @@ import {
 
 const RESULT_PAGE_SIZE = 8
 
+const route = useRoute()
+const router = useRouter()
+const resolveDailyScreeningTab = () => (String(route.query?.tab || '').trim() === 'clx' ? 'clx' : 'intersection')
+const activeDailyScreeningTab = ref(resolveDailyScreeningTab())
+
 const loadingScopes = ref(false)
 const loadingFilters = ref(false)
 const queryLoading = ref(false)
@@ -846,6 +862,7 @@ const metricFilters = reactive({
 })
 
 let suppressMetricFilterAutoQuery = false
+let intersectionBootstrapped = false
 const dailyQueryDebouncer = createDailyScreeningQueryDebouncer({
   onQueryRows: () => {
     void queryRows()
@@ -1375,6 +1392,30 @@ const handleClearStockPool = async () => {
   })
 }
 
+const bootstrapIntersectionWorkbench = async () => {
+  if (intersectionBootstrapped) return
+  intersectionBootstrapped = true
+  await loadScopes()
+  await Promise.all([
+    selectedScopeId.value ? refreshCurrentScope() : Promise.resolve(),
+    loadWorkspace(),
+  ])
+}
+
+const handleDailyScreeningTabChange = async (tabName) => {
+  const nextTab = tabName === 'clx' ? 'clx' : 'intersection'
+  const query = { ...route.query }
+  if (nextTab === 'clx') {
+    query.tab = 'clx'
+  } else {
+    delete query.tab
+  }
+  await router.replace({ path: '/daily-screening', query })
+  if (nextTab === 'intersection') {
+    await bootstrapIntersectionWorkbench()
+  }
+}
+
 watch(
   () => [
     metricFilters.higherMultipleLte,
@@ -1399,16 +1440,21 @@ watch(selectedScopeId, async (scopeId) => {
   await refreshCurrentScope()
 })
 
+watch(() => route.query?.tab, async () => {
+  activeDailyScreeningTab.value = resolveDailyScreeningTab()
+  if (activeDailyScreeningTab.value === 'intersection') {
+    await bootstrapIntersectionWorkbench()
+  }
+})
+
 onBeforeUnmount(() => {
   dailyQueryDebouncer.cancel()
 })
 
 onMounted(async () => {
-  await loadScopes()
-  await Promise.all([
-    selectedScopeId.value ? refreshCurrentScope() : Promise.resolve(),
-    loadWorkspace(),
-  ])
+  if (activeDailyScreeningTab.value === 'intersection') {
+    await bootstrapIntersectionWorkbench()
+  }
 })
 </script>
 
@@ -1417,6 +1463,22 @@ onMounted(async () => {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+}
+
+.daily-workspace-switch {
+  flex: 0 0 auto;
+  padding: 0 16px;
+  border-bottom: 1px solid #d7dde6;
+  background: #fff;
+}
+
+.daily-workspace-switch :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.daily-clx-workbench {
+  flex: 1;
+  min-height: 0;
 }
 
 .daily-screening-body {

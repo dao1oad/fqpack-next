@@ -1,0 +1,41 @@
+{
+  "run_id": "2026-07-31-group-rerun",
+  "created_at": "2026-08-03T18:04:27+0800",
+  "files": {
+    "group": {
+      "path": "C:\\Users\\Administrator\\Documents\\Codex\\2026-08-02\\codex-threads-019fbb30-14be-7943-9230-2\\outputs\\CLX-2026-07-31-group-context-ranking-industry-fallback.csv",
+      "sha256": "5de7847a34ebed350287803da3b802fc7135bce9a24d9e819cb1247d9588f505",
+      "bytes": 77465
+    },
+    "member": {
+      "path": "C:\\Users\\Administrator\\Documents\\Codex\\2026-08-02\\codex-threads-019fbb30-14be-7943-9230-2\\outputs\\CLX-2026-07-31-group-member-fundamental-ranking-industry-fallback.csv",
+      "sha256": "48cfa868a3494c27d9f2a502c8f191ad331d0de59d3a5ad7e425c980d8c00e78",
+      "bytes": 276800
+    },
+    "map": {
+      "path": "C:\\Users\\Administrator\\Documents\\Codex\\2026-08-02\\codex-threads-019fbb30-14be-7943-9230-2\\outputs\\CLX-2026-07-31-stock-primary-group-map-industry-fallback.csv",
+      "sha256": "84cc397a98732624bc252a2191cd22bbb98657089fe81ef0627204c8be7b76e9",
+      "bytes": 185869
+    },
+    "mapping_audit": {
+      "path": "C:\\Users\\Administrator\\Documents\\Codex\\2026-08-02\\codex-threads-019fbb30-14be-7943-9230-2\\outputs\\CLX-2026-07-31-group-mapping-audit-industry-fallback.csv",
+      "sha256": "5ee22ccb1181b97abb8b0e951b36a6ed9d53400aed4d3ae41bfce918717eda83",
+      "bytes": 744
+    },
+    "strict": {
+      "path": "C:\\Users\\Administrator\\Documents\\Codex\\2026-08-02\\codex-threads-019fbb30-14be-7943-9230-2\\outputs\\CLX-2026-07-31-grouped-strict-shortlist-industry-fallback.csv",
+      "sha256": "9b02c46832ac41fe87c5db6e1b4b16a8a5b5f86c336bbf6a4da46ae27282de07",
+      "bytes": 2306
+    },
+    "validation": {
+      "path": "C:\\Users\\Administrator\\Documents\\Codex\\2026-08-02\\codex-threads-019fbb30-14be-7943-9230-2\\outputs\\CLX-2026-07-31-group-run-validation-industry-fallback.json",
+      "sha256": "0cfda68809f7cf852c0063311fb88ed2a0e63af3b144a0c118448f3f43ddec2a",
+      "bytes": 2985
+    },
+    "report": {
+      "path": "C:\\Users\\Administrator\\Documents\\Codex\\2026-08-02\\codex-threads-019fbb30-14be-7943-9230-2\\outputs\\CLX-2026-07-31-group-context-evaluation-industry-fallback.md",
+      "sha256": "080ba84cb6521d0e1d05183ba8d8a7d41128137c73232c330dafc723dd0de732",
+      "bytes": 11016
+    }
+  }
+}

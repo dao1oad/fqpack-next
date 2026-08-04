@@ -61,6 +61,7 @@
 - A/B 快照与发布 marker 写在 QuantAxis Mongo：数据集合为 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`，marker 集合为 `qfq_ready`；`qfq_writer_locks` 以 scope 唯一后台 heartbeat lease 强制 worker、人工 build 与 rollback 串行，单次 XTData 下载或 Mongo `$out` 阻塞期间也会持续续租，发布前再次核对 owner。
 - QFQ coverage 排除 `vol/amount` 同时命中 QASU 浮点哨兵的 BFQ 占位行；XTData 多出的真实交易日仍参与完整递推，之后才投影到有效 BFQ 日期。bootstrap、update 与 audit JSON 的 `coverage` 字段记录 sentinel 和无有效历史标的计数。
 - Stock / ETF 在线 reader 每次请求从 `qfq_ready` 解析 active slot；marker、coverage、factor 或 snapshot-bound override 不满足合同时 fail closed 为 `QFQ_DATA_NOT_READY`。Redis Kline 与 StrategyConsumer 常驻窗口按 effective adjustment version 隔离，marker/override 版本变化会 miss/reload。
+- `/api/stock_data?realtimeCache=1` 且未显式传 `endDate` 时，若只有当前交易日缺 snapshot-bound intraday override，Kline 读取会按交易日历最多回退最近 5 个已完成交易日取分钟历史；显式 `endDate` 或非当前交易日缺口仍保持 `QFQ_DATA_NOT_READY`。
 - 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 仅保留为人工 legacy 运维入口；`stock_adj` / `etf_adj` 集合至少保留 7 个交易日且不再作为在线真值。
 - 真实 Index 当前固定读取 BFQ 日线/分钟线与 `index_realtime`，不读取 `stock_adj`、`etf_adj` 或 QFQ A/B 集合。
 - 首次 bootstrap 与历史 backfill 只通过人工 `qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD [--full]` 执行；正常 worker 遇到缺失 `qfq_ready` marker 返回 `bootstrap_required`，不自动构建全历史。

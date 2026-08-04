@@ -436,6 +436,21 @@ def list_shouban30_stock_pool():
     )
 
 
+@gantt_bp.route("/shouban30/stock-pool/append", methods=["POST"])
+def append_shouban30_stock_pool():
+    try:
+        body = _request_json_body()
+        result = shouban30_pool_service.append_stock_pool(
+            body.get("items"),
+            context=body.get("context") or {},
+        )
+    except ValueError as exc:
+        return _bad_request(str(exc))
+    except RuntimeError as exc:
+        return _server_error(str(exc))
+    return jsonify({"data": result})
+
+
 @gantt_bp.route("/shouban30/stock-pool/add-to-must-pool", methods=["POST"])
 def add_shouban30_stock_pool_to_must_pool():
     try:

@@ -119,7 +119,15 @@
                 <span>{{ section.label }}</span>
                 <span class="sidebar-section-count">{{ section.items.length }}</span>
               </span>
-              <span class="sidebar-section-action">{{ section.expanded ? '收起' : '展开' }}</span>
+            </button>
+            <button
+              v-if="section.key === 'stock_pools'"
+              type="button"
+              class="sidebar-section-sync"
+              :disabled="stockPoolsTdxSyncing"
+              @click.stop="syncStockPoolsFromTdxSelfSelect"
+            >
+              {{ stockPoolsTdxSyncing ? '同步中' : '同步自选股' }}
             </button>
           </header>
           <transition name="sidebar-section-collapse">
@@ -674,6 +682,15 @@
             </div>
           </div>
           <div class="clx-workbench-header__actions">
+            <el-button
+              size="small"
+              type="primary"
+              :disabled="!routeSymbol"
+              :loading="clxMonitorAdding"
+              @click="addCurrentSymbolToClx15Monitor"
+            >
+              加入clx15分钟监控
+            </el-button>
             <el-button size="small" :loading="clxHistoryLoading" @click="loadClxHistory({ force: true })">刷新</el-button>
             <el-button size="small" @click="closeClxWorkbench">关闭</el-button>
           </div>
@@ -930,9 +947,13 @@ export default {
 
 .sidebar-section-header
   margin-bottom 8px
+  display flex
+  align-items center
+  gap 8px
 
 .sidebar-section-toggle
-  width 100%
+  flex 1
+  min-width 0
   display flex
   align-items center
   justify-content space-between
@@ -957,8 +978,20 @@ export default {
   align-items center
   gap 8px
 
-.sidebar-section-action
-  color #93c5fd
+.sidebar-section-sync
+  flex 0 0 auto
+  padding 8px 10px
+  border 1px solid rgba(96, 165, 250, 0.35)
+  border-radius 10px
+  background rgba(30, 64, 175, 0.24)
+  color #bfdbfe
+  cursor pointer
+  font-size 12px
+  white-space nowrap
+
+.sidebar-section-sync:disabled
+  opacity 0.6
+  cursor not-allowed
 
 .sidebar-section-body
   padding-top 8px

@@ -33,14 +33,26 @@ def test_strategy_consumer_combined_mode_only_enables_clx_models_for_clx_pool_co
         _clx_monitor_codes=lambda force=False: {"sh600001"},
     )
 
+    assert sc.REALTIME_CLX_MODEL_IDS == list(range(10000, 10018))
     assert sc.StrategyConsumer._model_ids_for(consumer, "sh600001", "15min") == list(
-        range(10001, 10013)
+        range(10000, 10018)
     )
     assert sc.StrategyConsumer._model_ids_for(consumer, "sh600001", "30min") == list(
-        range(10001, 10013)
+        range(10000, 10018)
     )
     assert sc.StrategyConsumer._model_ids_for(consumer, "sh600001", "1min") == []
     assert sc.StrategyConsumer._model_ids_for(consumer, "sh600002", "15min") == []
+
+
+def test_strategy_consumer_clx_only_mode_enables_same_realtime_model_ids():
+    consumer = SimpleNamespace(
+        mode="clx_15_30_only",
+        _clx_monitor_codes=lambda force=False: {"sz000001"},
+    )
+
+    assert sc.StrategyConsumer._model_ids_for(consumer, "sz000001", "15min") == list(
+        range(10000, 10018)
+    )
 
 
 def test_strategy_consumer_datetime_coercion_uses_runtime_constants_timezone(

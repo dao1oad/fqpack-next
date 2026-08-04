@@ -38,6 +38,7 @@ FINALIZATION_RUNNING_CLAIM_TTL_SECONDS = 10 * 60
 PUBLICATION_CLAIM_TTL_SECONDS = 2 * 60
 PUBLICATION_COMPLETE_STATUSES = frozenset({"published", "not_required"})
 READER_PROBE_CONTRACT_VERSION = "full-profile-window-v1"
+UNIVERSE_POLICY_CONTRACT_VERSION = "credit-lof-v1"
 
 
 class PartitionInstrumentError(RuntimeError):
@@ -58,6 +59,7 @@ class ClxDailySelectionService:
         ready_marker_publisher: Callable[[str, dict[str, Any]], Any] | None = None,
         qfq_snapshot_pair_provider: Callable[[str], dict[str, Any]] | None = None,
         qfq_universe_validator: Callable[[str, str, dict[str, Any]], Any] | None = None,
+        credit_subject_policy_provider: Callable[[], Any] | None = None,
         profile: dict[str, Any] | None = None,
         now_provider: Callable[[], Any] | None = None,
     ) -> None:
@@ -81,6 +83,7 @@ class ClxDailySelectionService:
             qfq_snapshot_pair_provider or self._default_qfq_snapshot_pair_provider
         )
         self.qfq_universe_validator = qfq_universe_validator
+        self.credit_subject_policy_provider = credit_subject_policy_provider
         self.profile = frozen_profile(profile)
         self.now_provider = now_provider or (lambda: datetime.now(UTC).isoformat())
 
@@ -1725,7 +1728,12 @@ class ClxDailySelectionService:
         asset_type = attempt["asset_type"]
         trade_date = attempt["trade_date"]
         instruments = deepcopy(attempt.get("effective_instruments") or [])
-        if canonical_hash(instruments) != attempt.get("effective_universe_hash"):
+        expected_instruments_hash = (
+            (attempt.get("universe_evidence") or {}).get("effective_instruments_hash")
+            if isinstance(attempt.get("universe_evidence"), dict)
+            else None
+        )
+        if canonical_hash(instruments) != expected_instruments_hash:
             raise RuntimeError("CLX frozen effective universe hash mismatch")
         memberships: list[dict[str, Any]] = []
         snapshots: list[dict[str, Any]] = []
@@ -1905,6 +1913,9 @@ class ClxDailySelectionService:
                 ),
                 "source_excluded_count": int(
                     attempt["universe_evidence"]["source_excluded_count"]
+                ),
+                "policy_excluded_count": int(
+                    attempt["universe_evidence"]["policy_excluded_count"]
                 ),
                 "reader_isolation_count": int(
                     attempt["universe_evidence"]["reader_isolation_count"]
@@ -2734,6 +2745,7 @@ class ClxDailySelectionService:
         qfq_pair: dict[str, Any],
         qfq_pair_hash: str,
     ) -> dict[str, Any]:
+        credit_policy_snapshot = self._load_credit_subject_policy_snapshot()
         latest = self.repository.latest_attempt(
             trade_date, asset_type, self.profile["id"]
         )
@@ -2744,7 +2756,10 @@ class ClxDailySelectionService:
             and isinstance(latest.get("effective_instruments"), list)
             and str(latest.get("effective_universe_hash") or "").strip()
             and isinstance(latest.get("universe_evidence"), dict)
-            and self._is_current_reader_probe_evidence(latest["universe_evidence"])
+            and self._is_current_reader_probe_evidence(
+                latest["universe_evidence"],
+                credit_subject_snapshot_hash=credit_policy_snapshot["snapshot_hash"],
+            )
         ):
             frozen = {
                 "effective_instruments": deepcopy(latest["effective_instruments"]),
@@ -2760,6 +2775,8 @@ class ClxDailySelectionService:
         asset_type: str,
         trade_date: str,
         qfq_pair: dict[str, Any],
+        *,
+        credit_policy_snapshot: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         candidates = self._normalize_universe_candidates(
             self.market_data_provider.list_instruments(asset_type, trade_date) or []
@@ -2770,8 +2787,32 @@ class ClxDailySelectionService:
         exclusions_by_code: dict[str, list[dict[str, str]]] = defaultdict(list)
         for exclusion in source_exclusions:
             exclusions_by_code[exclusion["code"]].append(exclusion)
+        credit_policy_snapshot = (
+            dict(credit_policy_snapshot)
+            if isinstance(credit_policy_snapshot, Mapping)
+            else self._load_credit_subject_policy_snapshot()
+        )
+        credit_lookup = credit_policy_snapshot.get("lookup")
+        if not isinstance(credit_lookup, Mapping):
+            credit_lookup = {}
+        credit_snapshot_ready = bool(credit_policy_snapshot.get("ready"))
+        credit_account = str(credit_policy_snapshot.get("account") or "").strip()
+        credit_count = int(credit_policy_snapshot.get("count") or 0)
+        credit_snapshot_hash = str(
+            credit_policy_snapshot.get("snapshot_hash") or ""
+        ).strip()
+        credit_financing_count = int(credit_policy_snapshot.get("financing_count") or 0)
+        if not credit_snapshot_ready or credit_count <= 0:
+            account_present = bool(str(credit_account or "").strip())
+            raise RuntimeError(
+                "CLX_CREDIT_SUBJECTS_NOT_READY "
+                f"asset_type={asset_type} trade_date={trade_date} "
+                f"account_present={account_present} lookup_count={credit_count} "
+                f"credit_subject_snapshot_ready={bool(credit_snapshot_ready)}"
+            )
 
         source_excluded: list[dict[str, str]] = []
+        policy_excluded: list[dict[str, str]] = []
         reader_isolations: list[dict[str, str]] = []
         effective: list[dict[str, str]] = []
         probe = getattr(self.market_data_provider, "probe_qfq_instrument", None)
@@ -2792,6 +2833,14 @@ class ClxDailySelectionService:
                         "source": "qfq_marker_source_exclusion",
                     }
                 )
+                continue
+            policy_exclusion = self._universe_policy_exclusion(
+                asset_type=asset_type,
+                candidate=candidate,
+                credit_lookup=credit_lookup,
+            )
+            if policy_exclusion:
+                policy_excluded.append(policy_exclusion)
                 continue
             try:
                 metadata = probe(
@@ -2827,24 +2876,47 @@ class ClxDailySelectionService:
         source_excluded.sort(
             key=lambda item: (item["code"], item["reason"], item["source"])
         )
+        policy_excluded.sort(
+            key=lambda item: (item["code"], item["reason"], item["source"])
+        )
         reader_isolations.sort(
             key=lambda item: (item["code"], item["reason"], item["source"])
         )
         isolations = sorted(
-            [*source_excluded, *reader_isolations],
+            [*source_excluded, *policy_excluded, *reader_isolations],
             key=lambda item: (item["code"], item["source"], item["reason"]),
         )
-        effective_universe_hash = canonical_hash(effective)
+        effective_instruments_hash = canonical_hash(effective)
+        effective_universe_hash = self._build_effective_universe_hash(
+            effective_instruments_hash,
+            credit_snapshot_hash,
+        )
+        candidate_universe_count = (
+            len(effective)
+            + len(source_excluded)
+            + len(policy_excluded)
+            + len(reader_isolations)
+        )
         evidence = {
-            "candidate_universe_count": len(candidates),
+            "candidate_universe_count": candidate_universe_count,
             "candidate_universe_hash": canonical_hash(candidates),
             "effective_universe_count": len(effective),
+            "effective_instruments_hash": effective_instruments_hash,
             "effective_universe_hash": effective_universe_hash,
+            "universe_policy_contract_version": UNIVERSE_POLICY_CONTRACT_VERSION,
+            "credit_subject_snapshot_ready": bool(credit_snapshot_ready),
+            "credit_subject_account": credit_account,
+            "credit_subject_count": credit_count,
+            "credit_subject_financing_count": credit_financing_count,
+            "credit_subject_snapshot_hash": credit_snapshot_hash,
             "source_exclusions": source_exclusions,
             "source_exclusion_count": len(source_exclusions),
             "source_exclusions_hash": canonical_hash(source_exclusions),
             "source_excluded_symbols": source_excluded,
             "source_excluded_count": len(source_excluded),
+            "policy_excluded_symbols": policy_excluded,
+            "policy_excluded_count": len(policy_excluded),
+            "policy_excluded_hash": canonical_hash(policy_excluded),
             "reader_isolations": reader_isolations,
             "reader_isolation_count": len(reader_isolations),
             "reader_isolation_hash": canonical_hash(reader_isolations),
@@ -2879,8 +2951,7 @@ class ClxDailySelectionService:
             raise RuntimeError("CLX effective universe is empty")
         if self._normalize_universe_candidates(instruments) != instruments:
             raise RuntimeError("CLX effective universe is not canonical")
-        if canonical_hash(instruments) != effective_hash:
-            raise RuntimeError("CLX effective universe hash mismatch")
+        effective_instruments_hash = canonical_hash(instruments)
         expected_exclusions = self._normalized_source_exclusions(
             qfq_pair[asset_type].get("source_exclusions") or []
         )
@@ -2908,6 +2979,16 @@ class ClxDailySelectionService:
                 scope=asset_type,
                 code=overlap[0],
             )
+        if evidence.get("effective_instruments_hash") != effective_instruments_hash:
+            raise RuntimeError("CLX effective universe instruments hash mismatch")
+        if (
+            self._build_effective_universe_hash(
+                effective_instruments_hash,
+                str(evidence.get("credit_subject_snapshot_hash") or "").strip(),
+            )
+            != effective_hash
+        ):
+            raise RuntimeError("CLX effective universe hash mismatch")
         if evidence.get("effective_universe_hash") != effective_hash:
             raise RuntimeError("CLX effective universe evidence hash mismatch")
         isolations = evidence.get("isolations")
@@ -2923,8 +3004,13 @@ class ClxDailySelectionService:
             raise RuntimeError("CLX universe isolation hash mismatch")
         if canonical_hash(reader_isolations) != evidence.get("reader_isolation_hash"):
             raise RuntimeError("CLX reader isolation hash mismatch")
+        policy_excluded = evidence.get("policy_excluded_symbols")
+        if not isinstance(policy_excluded, list):
+            raise TypeError("CLX universe policy exclusion evidence is incomplete")
+        if canonical_hash(policy_excluded) != evidence.get("policy_excluded_hash"):
+            raise RuntimeError("CLX universe policy exclusion hash mismatch")
         expected_isolations = sorted(
-            [*source_excluded, *reader_isolations],
+            [*source_excluded, *policy_excluded, *reader_isolations],
             key=lambda item: (item["code"], item["source"], item["reason"]),
         )
         if isolations != expected_isolations:
@@ -2939,15 +3025,25 @@ class ClxDailySelectionService:
         counts = {
             "effective_universe_count": len(instruments),
             "source_excluded_count": len(source_excluded),
+            "policy_excluded_count": len(policy_excluded),
             "reader_isolation_count": len(reader_isolations),
             "isolation_count": len(isolations),
         }
         if any(int(evidence.get(key, -1)) != value for key, value in counts.items()):
             raise RuntimeError("CLX universe isolation evidence count mismatch")
         if int(evidence.get("candidate_universe_count", -1)) != (
-            len(instruments) + len(source_excluded) + len(reader_isolations)
+            len(instruments)
+            + len(source_excluded)
+            + len(policy_excluded)
+            + len(reader_isolations)
         ):
             raise RuntimeError("CLX candidate universe accounting mismatch")
+        if (
+            evidence.get("credit_subject_snapshot_ready") is not True
+            or int(evidence.get("credit_subject_count") or 0) <= 0
+            or not str(evidence.get("credit_subject_snapshot_hash") or "").strip()
+        ):
+            raise RuntimeError("CLX credit subject evidence is incomplete")
 
     def _normalize_universe_candidates(self, rows) -> list[dict[str, str]]:
         candidates = []
@@ -3033,12 +3129,177 @@ class ClxDailySelectionService:
             return "target_date_not_covered_by_active_qfq_snapshot"
         return "historical_window_not_covered_by_active_qfq_snapshot"
 
-    def _is_current_reader_probe_evidence(self, evidence: Mapping[str, Any]) -> bool:
+    def _is_current_reader_probe_evidence(
+        self,
+        evidence: Mapping[str, Any],
+        *,
+        credit_subject_snapshot_hash: str | None = None,
+    ) -> bool:
         contract_version = evidence.get("reader_probe_contract_version")
+        policy_contract_version = evidence.get("universe_policy_contract_version")
         probe_bar_count = evidence.get("reader_probe_bar_count")
-        return (
+        if not (
             contract_version == READER_PROBE_CONTRACT_VERSION
+            and policy_contract_version == UNIVERSE_POLICY_CONTRACT_VERSION
             and probe_bar_count == int(self.profile["bar_count"])
+            and str(evidence.get("effective_instruments_hash") or "").strip()
+            and str(evidence.get("credit_subject_snapshot_hash") or "").strip()
+        ):
+            return False
+        if credit_subject_snapshot_hash is None:
+            return True
+        return (
+            str(evidence.get("credit_subject_snapshot_hash") or "").strip()
+            == str(credit_subject_snapshot_hash or "").strip()
+        )
+
+    def _load_credit_subject_policy(self) -> tuple[Mapping[str, Any], bool, str]:
+        if self.credit_subject_policy_provider is not None:
+            payload = self.credit_subject_policy_provider()
+            if not isinstance(payload, tuple) or len(payload) not in {2, 3}:
+                raise TypeError(
+                    "CLX credit subject policy provider must return "
+                    "(lookup, ready[, account])"
+                )
+            lookup = payload[0]
+            ready = bool(payload[1])
+            account = str((payload[2] if len(payload) == 3 else "") or "").strip()
+            if not isinstance(lookup, Mapping):
+                lookup = {}
+            return lookup, ready, account
+
+        from freshquant.data.gantt_readmodel import (
+            _load_shouban30_credit_subject_lookup,
+        )
+        from freshquant.system_settings import system_settings
+
+        lookup, ready = _load_shouban30_credit_subject_lookup()
+        account = str(getattr(system_settings.xtquant, "account", "") or "").strip()
+        if not isinstance(lookup, Mapping):
+            lookup = {}
+        return lookup, bool(ready), account
+
+    def _load_credit_subject_policy_snapshot(self) -> dict[str, Any]:
+        lookup, ready, account = self._load_credit_subject_policy()
+        if not isinstance(lookup, Mapping):
+            lookup = {}
+        subjects = self._normalize_credit_subject_snapshot_subjects(lookup)
+        snapshot_hash = canonical_hash(
+            {
+                "account": str(account or "").strip(),
+                "ready": bool(ready),
+                "subjects": subjects,
+            }
+        )
+        return {
+            "lookup": lookup,
+            "ready": bool(ready),
+            "account": str(account or "").strip(),
+            "count": len(lookup),
+            "financing_count": sum(
+                1 for item in subjects if self._is_financing_credit_subject(item)
+            ),
+            "snapshot_hash": snapshot_hash,
+            "subjects": subjects,
+        }
+
+    @staticmethod
+    def _normalize_credit_subject_snapshot_subjects(
+        lookup: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        subjects: list[dict[str, Any]] = []
+        items = list(lookup.items())
+        for raw_code, raw_subject in items:
+            code = normalize_to_base_code(str(raw_code or ""))
+            if len(code) != 6 or not code.isdigit():
+                continue
+            subject = dict(raw_subject) if isinstance(raw_subject, Mapping) else {}
+            subjects.append(
+                {
+                    "symbol": normalize_to_base_code(
+                        str(subject.get("symbol") or code)
+                    ),
+                    "instrument_id": str(subject.get("instrument_id") or "")
+                    .strip()
+                    .upper(),
+                    "fin_status": subject.get("fin_status"),
+                    "slo_status": subject.get("slo_status"),
+                    "updated_at": str(subject.get("updated_at") or "").strip(),
+                }
+            )
+        subjects.sort(key=lambda item: item["symbol"])
+        return subjects
+
+    @staticmethod
+    def _is_financing_credit_subject(subject: Any) -> bool:
+        if not isinstance(subject, Mapping):
+            return False
+        try:
+            return int(subject.get("fin_status", 0)) == 48
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _build_effective_universe_hash(
+        effective_instruments_hash: str,
+        credit_subject_snapshot_hash: str,
+    ) -> str:
+        return canonical_hash(
+            {
+                "effective_instruments_hash": str(
+                    effective_instruments_hash or ""
+                ).strip(),
+                "universe_policy_contract_version": UNIVERSE_POLICY_CONTRACT_VERSION,
+                "credit_subject_snapshot_hash": str(
+                    credit_subject_snapshot_hash or ""
+                ).strip(),
+            }
+        )
+
+    def _universe_policy_exclusion(
+        self,
+        *,
+        asset_type: str,
+        candidate: Mapping[str, Any],
+        credit_lookup: Mapping[str, Any],
+    ) -> dict[str, str] | None:
+        symbol = str(candidate.get("symbol") or "").strip()
+        if symbol not in credit_lookup:
+            return {
+                "code": symbol,
+                "classification": "non_credit_subject",
+                "error_code": "CLX_UNIVERSE_POLICY_EXCLUDED",
+                "reason": "not in credit subject snapshot",
+                "source": "clx_universe_policy",
+            }
+        subject = credit_lookup.get(symbol)
+        if not self._is_financing_credit_subject(subject):
+            return {
+                "code": symbol,
+                "classification": "non_financing_credit_subject",
+                "error_code": "CLX_UNIVERSE_POLICY_EXCLUDED",
+                "reason": "credit subject is not financing eligible",
+                "source": "clx_universe_policy",
+            }
+        if asset_type == "etf" and self._is_lof_subject(
+            symbol, str(candidate.get("name") or "")
+        ):
+            return {
+                "code": symbol,
+                "classification": "lof_subject",
+                "error_code": "CLX_UNIVERSE_POLICY_EXCLUDED",
+                "reason": "LOF subject excluded",
+                "source": "clx_universe_policy",
+            }
+        return None
+
+    @staticmethod
+    def _is_lof_subject(symbol: str, name: str) -> bool:
+        text = str(name or "").upper()
+        return (
+            "LOF" in text
+            or symbol.startswith("16")
+            or symbol.startswith(("501", "502", "506"))
         )
 
     @staticmethod
