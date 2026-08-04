@@ -123,6 +123,19 @@ class FakeGuardianBuyGridService:
         return dict(self.new_open_decision)
 
 
+@pytest.fixture(autouse=True)
+def _stub_empty_order_management_repository(monkeypatch):
+    class EmptyRepository:
+        def list_broker_orders(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(
+        guardian_module,
+        "_get_order_management_repository",
+        lambda: EmptyRepository(),
+    )
+
+
 def _prepare_guardian_buy_orders(monkeypatch, orders):
     queries = []
     cancel_calls = []
