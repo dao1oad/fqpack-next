@@ -29,7 +29,9 @@ class ProcessSingleton:
 
                 handle.seek(0)
                 try:
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    msvcrt.locking(  # type: ignore[attr-defined]
+                        handle.fileno(), msvcrt.LK_NBLCK, 1  # type: ignore[attr-defined]
+                    )
                 except OSError as exc:
                     raise SingletonAlreadyRunning(
                         f"singleton already running: {self.path}"
@@ -65,7 +67,9 @@ class ProcessSingleton:
                 import msvcrt
 
                 handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt.locking(  # type: ignore[attr-defined]
+                    handle.fileno(), msvcrt.LK_UNLCK, 1  # type: ignore[attr-defined]
+                )
             else:
                 import fcntl
 
