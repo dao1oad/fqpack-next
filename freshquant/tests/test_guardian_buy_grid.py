@@ -332,6 +332,98 @@ def test_new_open_with_existing_grid_and_missing_caps_fails_closed():
     assert decision["skip_reason"] == "grid_position_cap_unconfigured"
 
 
+def test_grid_with_invalid_cap_shape_fails_closed_as_invalid():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [200000, 350000],
+                    }
+                ]
+            )
+        }
+    )
+
+    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_config_invalid"
+
+
+def test_grid_with_invalid_cap_type_fails_closed_as_invalid():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": "200000,350000,500000",
+                    }
+                ]
+            )
+        }
+    )
+
+    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_config_invalid"
+
+
+def test_grid_with_non_positive_caps_fails_closed_as_invalid():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [-1, 350000, 500000],
+                    }
+                ]
+            )
+        }
+    )
+
+    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_config_invalid"
+
+
+def test_grid_with_descending_caps_fails_closed_as_invalid():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [350000, 200000, 500000],
+                    }
+                ]
+            )
+        }
+    )
+
+    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_config_invalid"
+
+
 def test_sell_trade_resets_all_buy_levels():
     database = FakeDatabase(
         {

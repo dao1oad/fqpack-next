@@ -303,3 +303,4 @@ def test_buy_with_invalid_projection_input_is_blocked():
 
     assert decision.allowed is False
     assert decision.reason_code == "symbol_position_projection_input_invalid"
+    assert decision.meta["symbol_position_limit_blocked"] is True

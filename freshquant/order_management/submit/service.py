@@ -396,12 +396,22 @@ def _load_queue_client():
 def _load_position_management_service(runtime_logger=None):
     from freshquant.position_management.repository import PositionManagementRepository
     from freshquant.position_management.service import PositionManagementService
+    from freshquant.position_management.symbol_position_service import (
+        SingleSymbolPositionService,
+    )
 
     repository = PositionManagementRepository()
+    symbol_position_service = SingleSymbolPositionService(repository=repository)
+
+    def load_symbol_position(symbol):
+        return repository.get_symbol_snapshot(
+            symbol
+        ) or symbol_position_service.resolve_symbol_snapshot(symbol)
+
     return PositionManagementService(
         repository=repository,
         runtime_logger=runtime_logger,
-        symbol_position_loader=lambda symbol: repository.get_symbol_snapshot(symbol),
+        symbol_position_loader=load_symbol_position,
     )
 
 

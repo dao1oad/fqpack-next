@@ -197,6 +197,12 @@ class PositionManagementService:
         market_value = _safe_float_or_none(snapshot.get("market_value"))
         payload_price = _safe_float_or_none(payload.get("price"))
         payload_quantity = _safe_float_or_none(payload.get("quantity"))
+        projection_input_invalid = (
+            payload_price is None
+            or payload_price <= 0
+            or payload_quantity is None
+            or payload_quantity <= 0
+        )
         projected_market_value = (
             market_value + payload_price * payload_quantity
             if market_value is not None
@@ -207,6 +213,7 @@ class PositionManagementService:
         blocked = (
             market_value is None
             or market_value >= effective_limit
+            or projection_input_invalid
             or (
                 projected_market_value is not None
                 and projected_market_value > effective_limit
@@ -237,12 +244,7 @@ class PositionManagementService:
                 "单标的实时仓位已达到上限，禁止继续买入",
                 meta,
             )
-        if (
-            payload_price is None
-            or payload_price <= 0
-            or payload_quantity is None
-            or payload_quantity <= 0
-        ):
+        if projection_input_invalid:
             return (
                 False,
                 "symbol_position_projection_input_invalid",
