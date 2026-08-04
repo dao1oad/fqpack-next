@@ -38,7 +38,9 @@ class ProcessSingleton:
                 import fcntl
 
                 try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(  # type: ignore[attr-defined]
+                        handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB  # type: ignore[attr-defined]
+                    )
                 except OSError as exc:
                     raise SingletonAlreadyRunning(
                         f"singleton already running: {self.path}"
@@ -67,7 +69,9 @@ class ProcessSingleton:
             else:
                 import fcntl
 
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(  # type: ignore[attr-defined]
+                    handle.fileno(), fcntl.LOCK_UN  # type: ignore[attr-defined]
+                )
         finally:
             handle.close()
 

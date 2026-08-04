@@ -316,8 +316,10 @@ def get_stock_model_signal_list(page=1, size=1000):
         holding_codes = get_current_stock_holding_codes()
     except Exception:
         holding_codes = set()
-    cursor = DBfreshquant["realtime_screen_multi_period"].find({}).sort(
-        [("datetime", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)]
+    cursor = (
+        DBfreshquant["realtime_screen_multi_period"]
+        .find({})
+        .sort([("datetime", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)])
     )
     if not holding_codes:
         data = list(cursor.skip(start).limit(size))

@@ -32,7 +32,7 @@ from freshquant.market_data.xtdata.pools import (
     xtdata_mode_enables_clx,
 )
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
-from freshquant.market_data.xtdata.schema import BarCloseEvent
+from freshquant.market_data.xtdata.schema import BarCloseEvent, normalize_prefixed_code
 from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.runtime_singleton import ProcessSingleton, SingletonAlreadyRunning

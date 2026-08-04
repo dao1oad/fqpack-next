@@ -63,9 +63,7 @@ def test_read_tdx_self_select_codes_dedupes_gbk_file(tmp_path):
     ]
 
 
-def test_sync_stock_pools_from_tdx_self_select_replaces_old_pool(
-    monkeypatch, tmp_path
-):
+def test_sync_stock_pools_from_tdx_self_select_replaces_old_pool(monkeypatch, tmp_path):
     target = Path(tmp_path) / "T0002" / "blocknew" / "ZXG.blk"
     target.parent.mkdir(parents=True)
     target.write_text("0300127\n000001\n000002\n000001\n", encoding="gbk")
