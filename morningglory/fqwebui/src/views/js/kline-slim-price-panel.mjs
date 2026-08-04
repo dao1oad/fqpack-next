@@ -17,6 +17,18 @@ const emitNotify = (notify, level, message) => {
   }
 }
 
+export const DEFAULT_GUARDIAN_POSITION_CAPS = Object.freeze([200000, 350000, 500000])
+
+const normalizeGuardianPositionCaps = (values) => {
+  if (!Array.isArray(values) || values.length < 3) {
+    return [...DEFAULT_GUARDIAN_POSITION_CAPS]
+  }
+  const caps = values.slice(0, 3).map((item) => Number(item))
+  return caps.every((item) => Number.isFinite(item) && item > 0)
+    ? caps
+    : [...DEFAULT_GUARDIAN_POSITION_CAPS]
+}
+
 export const cloneGuardianDraft = (draft = {}) => ({
   buy_enabled: Array.isArray(draft?.buy_enabled) && draft.buy_enabled.length >= 3
     ? draft.buy_enabled.slice(0, 3).map((item) => item !== false)
@@ -31,9 +43,7 @@ export const cloneGuardianDraft = (draft = {}) => ({
   buy_1: roundGuidePrice(draft?.buy_1),
   buy_2: roundGuidePrice(draft?.buy_2),
   buy_3: roundGuidePrice(draft?.buy_3),
-  max_position_amounts: Array.isArray(draft?.max_position_amounts)
-    ? draft.max_position_amounts.slice(0, 3).map((item) => Number(item))
-    : [],
+  max_position_amounts: normalizeGuardianPositionCaps(draft?.max_position_amounts),
 })
 
 export const cloneTakeprofitDrafts = (rows = []) => {
@@ -48,10 +58,31 @@ const cloneGuardianPriceDraft = (draft = {}) => ({
   buy_1: roundGuidePrice(draft?.buy_1),
   buy_2: roundGuidePrice(draft?.buy_2),
   buy_3: roundGuidePrice(draft?.buy_3),
-  max_position_amounts: Array.isArray(draft?.max_position_amounts)
-    ? draft.max_position_amounts.slice(0, 3).map((item) => Number(item))
-    : [],
+  max_position_amounts: normalizeGuardianPositionCaps(draft?.max_position_amounts),
 })
+
+export const validateGuardianPriceGuideDraft = (
+  draft = {},
+  { effectivePositionLimit = null } = {},
+) => {
+  const validation = validateGuardianGuideDraft(draft)
+  if (!validation.valid) {
+    return validation
+  }
+  const limit = Number(effectivePositionLimit)
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return validation
+  }
+  const caps = normalizeGuardianPositionCaps(draft?.max_position_amounts)
+  const exceededIndex = caps.findIndex((cap) => cap > limit)
+  if (exceededIndex >= 0) {
+    return {
+      valid: false,
+      message: `CAP-${exceededIndex + 1} 不能超过当前单标的总仓位上限`,
+    }
+  }
+  return validation
+}
 
 const normalizeBuyEnabled = (values, fallback = [true, true, true]) => {
   if (!Array.isArray(values) || values.length < 3) {
@@ -317,10 +348,11 @@ export const saveGuardianPriceGuides = async (
     notify,
     afterRefresh,
     notifySuccess = true,
+    effectivePositionLimit = null,
   } = {},
 ) => {
   const guardianDraft = buildGuardianPriceSaveDraft(state)
-  const validation = validateGuardianGuideDraft(guardianDraft)
+  const validation = validateGuardianPriceGuideDraft(guardianDraft, { effectivePositionLimit })
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)
     return {
@@ -409,10 +441,11 @@ export const savePriceGuides = async (
     notify,
     afterRefresh,
     notifySuccess = true,
+    effectivePositionLimit = null,
   } = {},
 ) => {
   const guardianDraft = buildGuardianPriceSaveDraft(state)
-  const guardianValidation = validateGuardianGuideDraft(guardianDraft)
+  const guardianValidation = validateGuardianPriceGuideDraft(guardianDraft, { effectivePositionLimit })
   if (!guardianValidation.valid) {
     emitNotify(notify, 'warning', guardianValidation.message)
     return {
@@ -469,11 +502,12 @@ export const saveGuardianGuideEnabledState = async (
     notifySuccess = true,
     nextBuyEnabled = [true, true, true],
     syncRuntimeState = false,
+    effectivePositionLimit = null,
   } = {},
 ) => {
   const localPriceDrafts = captureLocalPriceDrafts(state)
   const guardianDraft = buildGuardianEnabledSaveDraft(state, nextBuyEnabled)
-  const validation = validateGuardianGuideDraft(guardianDraft)
+  const validation = validateGuardianPriceGuideDraft(guardianDraft, { effectivePositionLimit })
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)
     return {

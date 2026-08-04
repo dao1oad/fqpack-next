@@ -32,10 +32,12 @@
 - 标的设置浮层详情返回 `entries`，不再依赖 `buy_lots`
 - 标的设置浮层当前固定合并三组卡片：
   - `止盈价格`
-  - `Guardian 倍量价格`
-  - `单笔止损`
+  - `Guardian 买入仓位上限`
+  - `Guardian 买入价格`
 - 图表页不再保留独立的“画线编辑”或“单笔止损”浮层；工具栏只保留一个 `标的设置` 入口
-- 标的设置浮层不再暴露 `must_pool`、止损价、首笔金额、常规金额和单标的仓位上限输入区
+- 标的设置浮层不再暴露 `must_pool`、止损价、首笔金额和常规金额输入区
+- `Guardian 买入仓位上限` 按 `CAP-1 / CAP-2 / CAP-3` 编辑 BUY-1/2/3 到价前允许达到的最大仓位金额；仅在服务端值缺失或非法时用 `200000 / 350000 / 500000` 初始化前端草稿，页面加载不会自动写库
+- 标的总仓位上限直接读写 Position Management 的 `pm_configs.thresholds.single_symbol_position_limit` / `symbol_position_limits.overrides.<symbol>` 真值，不建立第二份配置；该值独立保存、独立恢复默认，不并入 Guardian 顶部保存操作
 - 单笔止损卡片里的 entry 止损摘要当前显示买入价、原始数量、剩余数量与比例、该笔剩余市值以及买入时间；为节省横向空间，买入股数和剩余股数展示为 `万股`，且买入价不再显示 `买入价:` 标签
 - 单笔止损卡片里的每个 entry 整行 hover 都会显示 `切片明细`；浮层只展示当前 entry 的 open slices，不增加额外按钮，也不展开 `aggregation_members`
 - “剩余市值”当前优先显示后端按有效 `latest_price * remaining_quantity` 计算的结果；若 `latest_price <= 0` 或缺失，则先用 `xt_positions.market_value / quantity` 推导有效最新价；若仍不可用，再回退到均价口径
@@ -51,8 +53,8 @@
   - 右栏：CLX 信号显示控制、时间轴和证据详情
 - 标的设置浮层
   - 止盈价
-  - Guardian 阶梯价
-  - entry stoploss
+  - Guardian BUY-1/2/3 仓位上限与对应买入价
+  - 单标的总仓位上限
   - entry row hover slice 明细
 - 缠论结构浮层
 - 可选交易复盘模式
@@ -84,6 +86,10 @@
 - `保存标的设置`
   - Guardian 配置
   - takeprofit profile / rearm
+- `保存 Guardian 买入仓位上限`
+  - `max_position_amounts` 仍以“元”为单位提交，不使用“万元”作为 v-model
+- `保存/恢复单标的总仓位上限`
+  - 复用 Position Management 现有接口与同一 Mongo 真值；恢复默认时先刷新系统默认值，再提交并刷新当前生效值
 - `交易复盘模式`
   - K 线加载完成后，按当前主图时间窗请求 `/api/position-review/symbols/<symbol>/timeline`
   - 前端只消费订单级 `events` 和连续 `position_series`；成交笔数和均价仅作为订单聚合字段，不渲染逐笔 fill。窗口请求中的实际成交量只代表当前主图窗口内成交
@@ -100,7 +106,7 @@
 ## 当前边界
 
 - `KlineSlim` 继续负责 Guardian / takeprofit 的编辑入口
-- `entry stoploss` 当前合并在同一个标的设置浮层里编辑
+- `entry stoploss` 后端与订单管理语义保持不变，但当前不再显示在标的设置浮层中
 - 图表页不再直接展示长 `buy_lot_id`
 - 交易复盘是可选只读覆盖层，不改变 K 线主图、订单账本、持仓真值或策略执行逻辑
 - Kline 图表页不写 batch、partition、选股结果或策略参数；每日选股的 CLX 18 模型工作区位于 `/daily-screening?tab=clx`，结果行“看图”跳转到 `/kline-slim` 查看单标的图表。
