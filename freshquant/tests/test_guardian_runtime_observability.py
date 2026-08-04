@@ -74,9 +74,23 @@ sys.modules.setdefault(
     ),
 )
 
+import freshquant.strategy.guardian as guardian_module
 from freshquant.strategy.guardian import StrategyGuardian
 
 sys.modules.pop("freshquant.message", None)
+
+
+@pytest.fixture(autouse=True)
+def _stub_empty_order_management_repository(monkeypatch):
+    class EmptyRepository:
+        def list_broker_orders(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(
+        guardian_module,
+        "_get_order_management_repository",
+        lambda: EmptyRepository(),
+    )
 
 
 class FakeRuntimeLogger:
