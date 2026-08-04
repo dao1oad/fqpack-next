@@ -74,9 +74,23 @@ sys.modules.setdefault(
     ),
 )
 
+import freshquant.strategy.guardian as guardian_module
 from freshquant.strategy.guardian import StrategyGuardian
 
 sys.modules.pop("freshquant.message", None)
+
+
+@pytest.fixture(autouse=True)
+def _stub_empty_order_management_repository(monkeypatch):
+    class EmptyRepository:
+        def list_broker_orders(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(
+        guardian_module,
+        "_get_order_management_repository",
+        lambda: EmptyRepository(),
+    )
 
 
 class FakeRuntimeLogger:
@@ -219,6 +233,140 @@ def test_guardian_submit_intent_emits_trace_step(monkeypatch):
     assert submit_event["decision_outcome"]["outcome"] == "submit"
     assert captured["trace_id"] == submit_event["trace_id"]
     assert captured["intent_id"] == submit_event["intent_id"]
+
+
+@pytest.mark.parametrize(
+    ("skip_reason", "decision_fields"),
+    [
+        ("grid_position_cap_unconfigured", {}),
+        ("grid_position_config_invalid", {}),
+        ("grid_stage_disabled", {"stage": "BUY-1_TO_BUY-2"}),
+        (
+            "grid_position_capacity_exhausted",
+            {
+                "stage": "BUY-1_TO_BUY-2",
+                "effective_stage_cap": 350000.0,
+                "current_market_value": 350000.0,
+                "remaining_amount": 0.0,
+                "base_quantity": 5200,
+                "capacity_quantity": 0,
+            },
+        ),
+    ],
+)
+def test_guardian_zero_quantity_uses_grid_skip_reason_and_cap_context(
+    monkeypatch,
+    skip_reason,
+    decision_fields,
+):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    decision = {
+        "path": "holding_add",
+        "quantity": 0,
+        "grid_level": "BUY-1",
+        "source_price": signal["price"],
+        "skip_reason": skip_reason,
+        **decision_fields,
+    }
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    guardian._submit_buy_order(
+        signal=signal,
+        code=signal["code"],
+        price=signal["price"],
+        remark=signal["remark"],
+        decision=decision,
+        set_new_open_cooldown=False,
+        quantity_reason_code="quantity_invalid",
+        submit_branch="holding_add",
+    )
+
+    quantity_event = next(
+        event for event in runtime_logger.events if event["node"] == "quantity_check"
+    )
+    context = quantity_event["decision_context"]["quantity"]
+    assert quantity_event["reason_code"] == skip_reason
+    assert context["skip_reason"] == skip_reason
+    for field in (
+        "stage",
+        "effective_stage_cap",
+        "current_market_value",
+        "remaining_amount",
+        "base_quantity",
+        "capacity_quantity",
+    ):
+        assert field in context
+        assert context[field] == decision_fields.get(field)
+
+
+def test_guardian_successful_buy_carries_cap_decision_strategy_context(
+    monkeypatch,
+):
+    captured = {}
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    decision = {
+        "path": "holding_add",
+        "quantity": 2100,
+        "grid_level": "BUY-1",
+        "hit_levels": ["BUY-1"],
+        "source_price": signal["price"],
+        "stage": "BUY-1_TO_BUY-2",
+        "effective_stage_cap": 350000.0,
+        "current_market_value": 330000.0,
+        "remaining_amount": 20000.0,
+        "base_quantity": 5100,
+        "capacity_quantity": 2100,
+    }
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian._prepare_guardian_buy_orders",
+        lambda _code: {"blocked": False},
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    def fake_submit_guardian_order(**kwargs):
+        captured.update(kwargs)
+        return {"internal_order_id": "ord_1"}
+
+    monkeypatch.setattr(
+        guardian,
+        "_submit_guardian_order",
+        fake_submit_guardian_order,
+    )
+
+    guardian._submit_buy_order(
+        signal=signal,
+        code=signal["code"],
+        price=signal["price"],
+        remark=signal["remark"],
+        decision=decision,
+        set_new_open_cooldown=False,
+        quantity_reason_code="quantity_invalid",
+        submit_branch="holding_add",
+    )
+
+    context = captured["strategy_context"]["guardian_buy_grid"]
+    for field in (
+        "stage",
+        "effective_stage_cap",
+        "current_market_value",
+        "remaining_amount",
+        "base_quantity",
+        "capacity_quantity",
+    ):
+        assert context[field] == decision[field]
 
 
 def test_guardian_holding_buy_price_threshold_emits_structured_skip_finish(

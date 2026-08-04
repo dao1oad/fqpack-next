@@ -489,10 +489,20 @@ class StrategyGuardian(metaclass=SingletonType):
                 code, price
             )
             if decision.get("quantity", 0) <= 0:
+                reason_code = (
+                    decision.get("skip_reason") or "new_open_quantity_insufficient"
+                )
                 quantity_context = {
                     "quantity": {
                         "quantity": decision.get("quantity", 0),
                         "path": decision.get("path"),
+                        "skip_reason": decision.get("skip_reason"),
+                        "stage": decision.get("stage"),
+                        "effective_stage_cap": decision.get("effective_stage_cap"),
+                        "current_market_value": decision.get("current_market_value"),
+                        "remaining_amount": decision.get("remaining_amount"),
+                        "base_quantity": decision.get("base_quantity"),
+                        "capacity_quantity": decision.get("capacity_quantity"),
                         "set_new_open_cooldown": True,
                     }
                 }
@@ -501,7 +511,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     "quantity_check",
                     action="buy",
                     status="skipped",
-                    reason_code="new_open_quantity_insufficient",
+                    reason_code=reason_code,
                     decision_branch="new_open_quantity",
                     decision_expr="quantity > 0",
                     decision_context=quantity_context,
@@ -511,7 +521,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     signal,
                     action="buy",
                     status="skipped",
-                    reason_code="new_open_quantity_insufficient",
+                    reason_code=reason_code,
                     outcome="skip",
                     decision_branch="new_open_quantity",
                     decision_expr="quantity > 0",
@@ -566,16 +576,24 @@ class StrategyGuardian(metaclass=SingletonType):
                     "path": decision.get("path"),
                     "grid_level": decision.get("grid_level"),
                     "source_price": decision.get("source_price"),
+                    "skip_reason": decision.get("skip_reason"),
+                    "stage": decision.get("stage"),
+                    "effective_stage_cap": decision.get("effective_stage_cap"),
+                    "current_market_value": decision.get("current_market_value"),
+                    "remaining_amount": decision.get("remaining_amount"),
+                    "base_quantity": decision.get("base_quantity"),
+                    "capacity_quantity": decision.get("capacity_quantity"),
                     "set_new_open_cooldown": set_new_open_cooldown,
                 }
             }
             if quantity <= 0:
+                reason_code = decision.get("skip_reason") or quantity_reason_code
                 self._emit_runtime(
                     signal,
                     "quantity_check",
                     action="buy",
                     status="skipped",
-                    reason_code=quantity_reason_code,
+                    reason_code=reason_code,
                     decision_branch=f"{submit_branch}_quantity",
                     decision_expr="quantity > 0",
                     decision_context=quantity_context,
@@ -585,7 +603,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     signal,
                     action="buy",
                     status="skipped",
-                    reason_code=quantity_reason_code,
+                    reason_code=reason_code,
                     outcome="skip",
                     decision_branch=f"{submit_branch}_quantity",
                     decision_expr="quantity > 0",
@@ -651,6 +669,20 @@ class StrategyGuardian(metaclass=SingletonType):
                 decision_outcome={"outcome": "pass"},
             )
 
+            active_order_result = _prepare_guardian_buy_orders(code)
+            if active_order_result["blocked"]:
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="skipped",
+                    reason_code=active_order_result["reason_code"],
+                    outcome="skip",
+                    decision_branch=f"{submit_branch}_active_buy_orders",
+                    decision_expr="no_active_buy_orders",
+                    decision_context={"orders": active_order_result},
+                )
+                return
+
             strategy_context = {
                 "guardian_buy_grid": {
                     "path": decision.get("path"),
@@ -663,6 +695,13 @@ class StrategyGuardian(metaclass=SingletonType):
                     "buy_active_before": decision.get("buy_active_before"),
                     "initial_amount": decision.get("initial_amount"),
                     "base_amount": decision.get("base_amount"),
+                    "skip_reason": decision.get("skip_reason"),
+                    "stage": decision.get("stage"),
+                    "effective_stage_cap": decision.get("effective_stage_cap"),
+                    "current_market_value": decision.get("current_market_value"),
+                    "remaining_amount": decision.get("remaining_amount"),
+                    "base_quantity": decision.get("base_quantity"),
+                    "capacity_quantity": decision.get("capacity_quantity"),
                 }
             }
 
@@ -1405,6 +1444,88 @@ def _get_order_management_repository():
     if _order_management_repository is None:
         _order_management_repository = OrderManagementRepository()
     return _order_management_repository
+
+
+def _prepare_guardian_buy_orders(code):
+    states = {
+        "ACCEPTED",
+        "QUEUED",
+        "SUBMITTING",
+        "SUBMITTED",
+        "PARTIAL_FILLED",
+        "BROKER_BYPASSED",
+        "CANCEL_REQUESTED",
+        "INFERRED_PENDING",
+    }
+    repository = _get_order_management_repository()
+    if not hasattr(repository, "list_broker_orders"):
+        return {
+            "blocked": False,
+            "reason_code": None,
+            "count": 0,
+            "canceled": 0,
+            "waiting": 0,
+            "unmapped": 0,
+        }
+    orders = [
+        item
+        for item in repository.list_broker_orders(symbol=code, states=states)
+        if str(item.get("side") or "").lower() == "buy"
+    ]
+    if not orders:
+        return {
+            "blocked": False,
+            "reason_code": None,
+            "count": 0,
+            "canceled": 0,
+            "waiting": 0,
+            "unmapped": 0,
+        }
+    from freshquant.order_management.submit.service import OrderSubmitService
+
+    canceled = 0
+    waiting = 0
+    unmapped = 0
+    for order in orders:
+        state = str(order.get("state") or "").upper()
+        source = str(order.get("source_type") or "").lower()
+        broker_order_id = order.get("broker_order_id")
+        if state in {"CANCEL_REQUESTED", "INFERRED_PENDING"} or source in {
+            "external_reported",
+            "external_inferred",
+        }:
+            waiting += 1
+            continue
+        if state == "BROKER_BYPASSED" and not broker_order_id:
+            waiting += 1
+            continue
+        internal_order_id = order.get("internal_order_id")
+        if not internal_order_id:
+            waiting += 1
+            unmapped += 1
+            continue
+        OrderSubmitService().cancel_order(
+            {
+                "internal_order_id": internal_order_id,
+                "source": "guardian_replace_buy",
+                "strategy_name": "Guardian",
+                "remark": "cancel active buy before recalculation",
+            }
+        )
+        canceled += 1
+    reason = (
+        "active_buy_orders_cancel_requested"
+        if canceled
+        else "active_buy_orders_waiting"
+    )
+    return {
+        "blocked": True,
+        "reason_code": reason,
+        "count": len(orders),
+        "canceled": canceled,
+        "waiting": waiting,
+        "unmapped": unmapped,
+    }
 
 
 def _resolve_guardian_arrangement_scope(code):

@@ -24,6 +24,7 @@ const makeDetail = (symbol = '600000', overrides = {}) => ({
     buy_1: 10.2,
     buy_2: 9.9,
     buy_3: 9.5,
+    max_position_amounts: [200000, 350000, 500000],
   },
   guardian_buy_grid_state: {
     buy_active: [true, false, true],
@@ -249,6 +250,7 @@ test('saveGuardianGuideEnabledState updates only Guardian switches and keeps loc
           buy_1: 10.2,
           buy_2: 9.9,
           buy_3: 9.5,
+          max_position_amounts: [200000, 350000, 500000],
         },
       })
     },
@@ -361,6 +363,7 @@ test('saveGuardianGuideEnabledState syncs Guardian runtime state for bulk action
           buy_1: 10.2,
           buy_2: 9.9,
           buy_3: 9.5,
+          max_position_amounts: [200000, 350000, 500000],
         },
         guardian_buy_grid_state: {
           buy_active: savedBuyActive,

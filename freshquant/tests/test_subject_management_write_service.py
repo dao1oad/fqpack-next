@@ -137,6 +137,7 @@ def test_update_guardian_buy_grid_forwards_per_level_switches():
             "buy_2": 9.9,
             "buy_3": 9.5,
             "buy_enabled": [True, False, True],
+            "max_position_amounts": None,
             "enabled": None,
             "updated_by": "pytest",
         },

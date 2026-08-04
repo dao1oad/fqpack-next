@@ -31,6 +31,9 @@ export const cloneGuardianDraft = (draft = {}) => ({
   buy_1: roundGuidePrice(draft?.buy_1),
   buy_2: roundGuidePrice(draft?.buy_2),
   buy_3: roundGuidePrice(draft?.buy_3),
+  max_position_amounts: Array.isArray(draft?.max_position_amounts)
+    ? draft.max_position_amounts.slice(0, 3).map((item) => Number(item))
+    : [],
 })
 
 export const cloneTakeprofitDrafts = (rows = []) => {
@@ -45,6 +48,9 @@ const cloneGuardianPriceDraft = (draft = {}) => ({
   buy_1: roundGuidePrice(draft?.buy_1),
   buy_2: roundGuidePrice(draft?.buy_2),
   buy_3: roundGuidePrice(draft?.buy_3),
+  max_position_amounts: Array.isArray(draft?.max_position_amounts)
+    ? draft.max_position_amounts.slice(0, 3).map((item) => Number(item))
+    : [],
 })
 
 const normalizeBuyEnabled = (values, fallback = [true, true, true]) => {

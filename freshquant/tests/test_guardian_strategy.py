@@ -4,6 +4,7 @@ import sys
 import types
 
 import pendulum
+import pytest
 
 from freshquant.position_management.errors import PositionManagementRejectedError
 
@@ -75,6 +76,7 @@ sys.modules.setdefault(
     ),
 )
 
+import freshquant.strategy.guardian as guardian_module
 from freshquant.strategy.guardian import StrategyGuardian
 
 sys.modules.pop("freshquant.message", None)
@@ -119,6 +121,212 @@ class FakeGuardianBuyGridService:
     def build_new_open_decision(self, code, price):
         self.calls.append(("new_open", code, price))
         return dict(self.new_open_decision)
+
+
+@pytest.fixture(autouse=True)
+def _stub_empty_order_management_repository(monkeypatch):
+    class EmptyRepository:
+        def list_broker_orders(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(
+        guardian_module,
+        "_get_order_management_repository",
+        lambda: EmptyRepository(),
+    )
+
+
+def _prepare_guardian_buy_orders(monkeypatch, orders):
+    queries = []
+    cancel_calls = []
+
+    class FakeRepository:
+        def list_broker_orders(self, **kwargs):
+            queries.append(kwargs)
+            return list(orders)
+
+    class FakeSubmitService:
+        def cancel_order(self, payload):
+            cancel_calls.append(payload)
+
+    monkeypatch.setattr(
+        guardian_module,
+        "_get_order_management_repository",
+        lambda: FakeRepository(),
+    )
+    monkeypatch.setattr(
+        "freshquant.order_management.submit.service.OrderSubmitService",
+        FakeSubmitService,
+    )
+    result = guardian_module._prepare_guardian_buy_orders("000001")
+    return result, queries, cancel_calls
+
+
+def test_prepare_guardian_buy_orders_allows_when_no_active_buy(monkeypatch):
+    result, queries, cancel_calls = _prepare_guardian_buy_orders(monkeypatch, [])
+
+    assert result == {
+        "blocked": False,
+        "reason_code": None,
+        "count": 0,
+        "canceled": 0,
+        "waiting": 0,
+        "unmapped": 0,
+    }
+    assert queries[0]["symbol"] == "000001"
+    assert cancel_calls == []
+
+
+@pytest.mark.parametrize("state", ["SUBMITTED", "PARTIAL_FILLED"])
+def test_prepare_guardian_buy_orders_cancels_internal_active_buy(monkeypatch, state):
+    result, _queries, cancel_calls = _prepare_guardian_buy_orders(
+        monkeypatch,
+        [
+            {
+                "state": state,
+                "side": "buy",
+                "internal_order_id": "ord_buy_1",
+                "broker_order_id": "broker_buy_1",
+                "source_type": "guardian",
+            }
+        ],
+    )
+
+    assert result == {
+        "blocked": True,
+        "reason_code": "active_buy_orders_cancel_requested",
+        "count": 1,
+        "canceled": 1,
+        "waiting": 0,
+        "unmapped": 0,
+    }
+    assert cancel_calls == [
+        {
+            "internal_order_id": "ord_buy_1",
+            "source": "guardian_replace_buy",
+            "strategy_name": "Guardian",
+            "remark": "cancel active buy before recalculation",
+        }
+    ]
+
+
+@pytest.mark.parametrize("state", ["CANCEL_REQUESTED", "INFERRED_PENDING"])
+def test_prepare_guardian_buy_orders_waits_without_repeated_cancel(monkeypatch, state):
+    result, _queries, cancel_calls = _prepare_guardian_buy_orders(
+        monkeypatch,
+        [
+            {
+                "state": state,
+                "side": "buy",
+                "internal_order_id": "ord_buy_1",
+                "broker_order_id": "broker_buy_1",
+                "source_type": "guardian",
+            }
+        ],
+    )
+
+    assert result["blocked"] is True
+    assert result["reason_code"] == "active_buy_orders_waiting"
+    assert result["canceled"] == 0
+    assert result["waiting"] == 1
+    assert result["unmapped"] == 0
+    assert cancel_calls == []
+
+
+@pytest.mark.parametrize("source_type", ["external_reported", "external_inferred"])
+def test_prepare_guardian_buy_orders_waits_for_external_buy(monkeypatch, source_type):
+    result, _queries, cancel_calls = _prepare_guardian_buy_orders(
+        monkeypatch,
+        [
+            {
+                "state": "SUBMITTED",
+                "side": "buy",
+                "internal_order_id": "ord_external_1",
+                "broker_order_id": "broker_external_1",
+                "source_type": source_type,
+            }
+        ],
+    )
+
+    assert result["blocked"] is True
+    assert result["reason_code"] == "active_buy_orders_waiting"
+    assert result["canceled"] == 0
+    assert result["waiting"] == 1
+    assert result["unmapped"] == 0
+    assert cancel_calls == []
+
+
+@pytest.mark.parametrize(
+    ("broker_order_id", "expected_canceled", "expected_waiting"),
+    [(None, 0, 1), ("broker_bypass_1", 1, 0)],
+)
+def test_prepare_guardian_buy_orders_classifies_broker_bypassed_buy(
+    monkeypatch,
+    broker_order_id,
+    expected_canceled,
+    expected_waiting,
+):
+    result, _queries, cancel_calls = _prepare_guardian_buy_orders(
+        monkeypatch,
+        [
+            {
+                "state": "BROKER_BYPASSED",
+                "side": "buy",
+                "internal_order_id": "ord_bypass_1",
+                "broker_order_id": broker_order_id,
+                "source_type": "guardian",
+            }
+        ],
+    )
+
+    assert result["blocked"] is True
+    assert result["canceled"] == expected_canceled
+    assert result["waiting"] == expected_waiting
+    assert result["unmapped"] == 0
+    assert len(cancel_calls) == expected_canceled
+
+
+def test_prepare_guardian_buy_orders_ignores_sell_orders(monkeypatch):
+    result, _queries, cancel_calls = _prepare_guardian_buy_orders(
+        monkeypatch,
+        [
+            {
+                "state": "SUBMITTED",
+                "side": "sell",
+                "internal_order_id": "ord_sell_1",
+                "broker_order_id": "broker_sell_1",
+                "source_type": "guardian",
+            }
+        ],
+    )
+
+    assert result["blocked"] is False
+    assert result["count"] == 0
+    assert cancel_calls == []
+
+
+def test_prepare_guardian_buy_orders_blocks_unmapped_active_buy(monkeypatch):
+    result, _queries, cancel_calls = _prepare_guardian_buy_orders(
+        monkeypatch,
+        [
+            {
+                "state": "SUBMITTED",
+                "side": "buy",
+                "broker_order_id": "broker_unmapped_1",
+                "source_type": "guardian",
+            }
+        ],
+    )
+
+    assert result == {
+        "blocked": True,
+        "reason_code": "active_buy_orders_waiting",
+        "count": 1,
+        "canceled": 0,
+        "waiting": 1,
+        "unmapped": 1,
+    }
+    assert cancel_calls == []
 
 
 def _make_fill_reference(fire_time, *, price=10.0, source="execution_fill"):

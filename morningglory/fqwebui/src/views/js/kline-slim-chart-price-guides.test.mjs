@@ -227,7 +227,7 @@ test('buildKlineSlimChartOption exposes cost basis and entry legend toggles', ()
   assert.equal(option.series.find((item) => item.id === 'entry-entry_1')?.lineStyle.type, 'dotted')
 })
 
-test('buildChartPriceGuides does not mark guardian lines active when runtime state is missing', () => {
+test('buildChartPriceGuides uses Guardian manual switches without buy_active runtime admission', () => {
   const guides = buildChartPriceGuides({
     guardianDraft: {
       buy_enabled: [true, true, true],
@@ -243,7 +243,7 @@ test('buildChartPriceGuides does not mark guardian lines active when runtime sta
   assert.equal(
     guides.lines
       .filter((item) => item.group === 'guardian')
-      .every((item) => item.active === false),
+      .every((item) => item.active === true),
     true
   )
 })

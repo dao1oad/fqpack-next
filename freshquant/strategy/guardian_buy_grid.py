@@ -6,11 +6,6 @@ from typing import Any
 from freshquant.util.code import normalize_to_base_code
 
 BUY_LEVELS = ("BUY-1", "BUY-2", "BUY-3")
-BUY_LEVEL_MULTIPLIERS = {
-    "BUY-1": 2,
-    "BUY-2": 3,
-    "BUY-3": 4,
-}
 MISSING_STATE_BUY_ACTIVE = [False, False, False]
 RESET_BUY_ACTIVE = [True, True, True]
 DEFAULT_BUY_ENABLED = [True, True, True]
@@ -59,6 +54,15 @@ def _coerce_buy_enabled(
     return fallback
 
 
+def _coerce_caps(value: Any) -> list[int]:
+    if not isinstance(value, list) or len(value) != 3:
+        return []
+    try:
+        return [int(value[0]), int(value[1]), int(value[2])]
+    except (TypeError, ValueError):
+        return []
+
+
 def _amount_to_quantity(amount: float, price: float) -> int:
     if amount <= 0 or price <= 0:
         return 0
@@ -76,6 +80,7 @@ class GuardianBuyGridService:
         database=None,
         get_trade_amount_fn=None,
         now_fn=None,
+        position_repository=None,
     ):
         if database is None:
             from freshquant.db import DBfreshquant
@@ -88,6 +93,7 @@ class GuardianBuyGridService:
         self.database = database
         self.get_trade_amount_fn = get_trade_amount_fn
         self.now_fn = now_fn or _now_iso
+        self.position_repository = position_repository
 
     def _config_collection(self):
         return self.database[self.config_collection_name]
@@ -116,6 +122,7 @@ class GuardianBuyGridService:
         buy_2: float | None = None,
         buy_3: float | None = None,
         buy_enabled: list[bool] | None = None,
+        max_position_amounts: list[int] | None = None,
         enabled: bool | None = True,
         updated_by: str = "manual",
     ) -> dict[str, Any]:
@@ -149,10 +156,27 @@ class GuardianBuyGridService:
                 buy_3 if buy_3 is not None else current.get("BUY-3")
             ),
             "buy_enabled": resolved_buy_enabled,
+            "max_position_amounts": (
+                _coerce_caps(max_position_amounts)
+                if max_position_amounts is not None
+                else current.get("max_position_amounts")
+            ),
             "enabled": any(resolved_buy_enabled),
             "updated_at": self.now_fn(),
             "updated_by": updated_by,
         }
+        caps = document["max_position_amounts"]
+        if caps:
+            prices = [document[level] for level in BUY_LEVELS]
+            if not (prices[0] > prices[1] > prices[2] > 0):
+                raise ValueError("BUY prices must satisfy BUY-1 > BUY-2 > BUY-3 > 0")
+            if any(item <= 0 for item in caps) or not (caps[0] <= caps[1] <= caps[2]):
+                raise ValueError("max_position_amounts must be positive and ascending")
+            _, global_limit = self._load_position_capacity(normalized)
+            if global_limit is None or any(item > global_limit for item in caps):
+                raise ValueError(
+                    "max_position_amounts must not exceed global symbol position limit"
+                )
         self._config_collection().update_one(
             {"code": normalized},
             {"$set": document},
@@ -235,6 +259,13 @@ class GuardianBuyGridService:
         normalized = normalize_to_base_code(code)
         initial_amount = self.get_initial_lot_amount(normalized)
         source_price = _coerce_float(price)
+        config = self.get_config(normalized)
+        if config:
+            quantity, context = self._resolve_capped_quantity(
+                normalized, source_price, initial_amount, config
+            )
+        else:
+            quantity, context = _amount_to_quantity(initial_amount, source_price), {}
         return {
             "code": normalized,
             "path": "new_open",
@@ -245,7 +276,8 @@ class GuardianBuyGridService:
             "multiplier": 1,
             "buy_prices_snapshot": None,
             "buy_active_before": None,
-            "quantity": _amount_to_quantity(initial_amount, source_price),
+            "quantity": quantity,
+            **context,
         }
 
     def build_holding_add_decision(self, code: str, price: float) -> dict[str, Any]:
@@ -260,8 +292,12 @@ class GuardianBuyGridService:
             buy_active=state["buy_active"],
         )
         grid_level = hit_levels[-1] if hit_levels else None
-        multiplier = BUY_LEVEL_MULTIPLIERS[grid_level] if grid_level is not None else 1
-        amount = base_amount * multiplier
+        if config:
+            quantity, context = self._resolve_capped_quantity(
+                normalized, source_price, base_amount, config
+            )
+        else:
+            quantity, context = _amount_to_quantity(base_amount, source_price), {}
         return {
             "code": normalized,
             "path": "holding_add",
@@ -269,10 +305,11 @@ class GuardianBuyGridService:
             "source_price": source_price,
             "grid_level": grid_level,
             "hit_levels": hit_levels,
-            "multiplier": multiplier,
+            "multiplier": 1,
             "buy_prices_snapshot": self._build_buy_price_snapshot(config),
             "buy_active_before": list(state["buy_active"]),
-            "quantity": _amount_to_quantity(amount, source_price),
+            "quantity": quantity,
+            **context,
         }
 
     def mark_buy_order_accepted(
@@ -287,13 +324,9 @@ class GuardianBuyGridService:
     ) -> dict[str, Any]:
         normalized = normalize_to_base_code(code)
         current = self.get_state(normalized)
-        new_buy_active = list(current["buy_active"])
-        for level in hit_levels or []:
-            if level in BUY_LEVELS:
-                new_buy_active[BUY_LEVELS.index(level)] = False
         return self.upsert_state(
             normalized,
-            buy_active=new_buy_active,
+            buy_active=list(current["buy_active"]),
             last_hit_level=grid_level,
             last_hit_price=(
                 _coerce_float(source_price, default=0.0)
@@ -364,8 +397,6 @@ class GuardianBuyGridService:
         for index, level in enumerate(BUY_LEVELS):
             if not buy_enabled[index]:
                 continue
-            if not buy_active[index]:
-                continue
             level_price = _coerce_float(config.get(level))
             if level_price > 0 and price <= level_price:
                 hit_levels.append(level)
@@ -377,6 +408,77 @@ class GuardianBuyGridService:
         if not config:
             return None
         return {level: _coerce_float(config.get(level)) for level in BUY_LEVELS}
+
+    def _resolve_capped_quantity(self, code, price, base_amount, config):
+        raw_caps = config.get("max_position_amounts")
+        if raw_caps is None:
+            return 0, {"skip_reason": "grid_position_cap_unconfigured"}
+        caps = list(raw_caps or [])
+        if len(caps) != 3:
+            return 0, {"skip_reason": "grid_position_config_invalid"}
+        p1, p2, p3 = (_coerce_float(config.get(level)) for level in BUY_LEVELS)
+        if (
+            not (p1 > p2 > p3 > 0)
+            or any(cap <= 0 for cap in caps)
+            or not (caps[0] <= caps[1] <= caps[2])
+        ):
+            return 0, {"skip_reason": "grid_position_config_invalid"}
+        if price > p1:
+            index, stage, cap = 0, "PRE-BUY-1", caps[0]
+        elif price > p2:
+            index, stage, cap = 1, "BUY-1_TO_BUY-2", caps[1]
+        elif price > p3:
+            index, stage, cap = 2, "BUY-2_TO_BUY-3", caps[2]
+        else:
+            index, stage, cap = 2, "BUY-3_BELOW", None
+        if not _coerce_buy_enabled(config.get("buy_enabled"), default=[True] * 3)[
+            index
+        ]:
+            return 0, {"skip_reason": "grid_stage_disabled", "stage": stage}
+        current_value, global_limit = self._load_position_capacity(code)
+        if current_value is None or global_limit is None:
+            return 0, {"skip_reason": "position_capacity_unavailable", "stage": stage}
+        effective_cap = global_limit if cap is None else min(float(cap), global_limit)
+        remaining = max(effective_cap - current_value, 0.0)
+        base_quantity = _amount_to_quantity(base_amount, price)
+        capacity_quantity = _amount_to_quantity(remaining, price)
+        context = {
+            "stage": stage,
+            "effective_stage_cap": effective_cap,
+            "current_market_value": current_value,
+            "remaining_amount": remaining,
+            "base_quantity": base_quantity,
+            "capacity_quantity": capacity_quantity,
+        }
+        if capacity_quantity <= 0:
+            context["skip_reason"] = "grid_position_capacity_exhausted"
+        return min(base_quantity, capacity_quantity), context
+
+    def _load_position_capacity(self, code):
+        try:
+            from freshquant.position_management.repository import (
+                PositionManagementRepository,
+            )
+            from freshquant.position_management.service import PositionManagementService
+            from freshquant.position_management.symbol_position_service import (
+                SingleSymbolPositionService,
+            )
+
+            repository = self.position_repository or PositionManagementRepository()
+            snapshot = repository.get_symbol_snapshot(code)
+            if snapshot is None:
+                snapshot = SingleSymbolPositionService(
+                    repository=repository
+                ).resolve_symbol_snapshot(code)
+            if snapshot.get("market_value") is None:
+                return None, None
+            current_value = float(snapshot.get("market_value") or 0.0)
+            limit = PositionManagementService(
+                repository=repository
+            ).resolve_single_symbol_position_limit(code)
+            return current_value, limit
+        except Exception:
+            return None, None
 
     def _default_state(self, code: str) -> dict[str, Any]:
         return {
@@ -402,6 +504,11 @@ class GuardianBuyGridService:
             "BUY-3": _coerce_float(raw.get("BUY-3")),
             "buy_enabled": buy_enabled,
             "enabled": any(buy_enabled),
+            "max_position_amounts": (
+                _coerce_caps(raw.get("max_position_amounts"))
+                if raw.get("max_position_amounts") is not None
+                else None
+            ),
             "updated_at": raw.get("updated_at"),
             "updated_by": raw.get("updated_by"),
         }

@@ -343,7 +343,7 @@
               <section v-if="subjectPriceDetail" class="price-panel-section">
                 <div class="price-panel-section-header">
                   <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">Guardian 倍量价格</span>
+                    <span class="price-panel-section-title">Guardian 买入价格与仓位上限</span>
                   </div>
                   <div class="price-panel-section-actions">
                     <div class="price-panel-action-buttons">
@@ -370,9 +370,6 @@
                 <div class="price-panel-summary">
                   <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     已开启 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" :variant="guardianRuntimeChipVariant">
-                    运行态 {{ guardianRuntimeActiveCount }}/3
                   </StatusChip>
                   <StatusChip class="price-panel-summary-status-chip" variant="muted">
                     最近命中 {{ guardianLastHitLabel }}
@@ -404,9 +401,16 @@
                         :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         controls-position="right"
                       />
-                      <span class="price-panel-state-chip" :class="{ active: row.runtime_active }">
-                        运行态 {{ row.runtimeStateLabel }}
-                      </span>
+                      <el-input-number
+                        v-model="guardianDraft.max_position_amounts[row.index]"
+                        size="small"
+                        :min="1"
+                        :step="10000"
+                        :precision="0"
+                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                        controls-position="right"
+                        placeholder="仓位上限"
+                      />
                       <el-switch
                         :model-value="guardianDraft.buy_enabled[row.index]"
                         size="small"

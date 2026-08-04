@@ -163,12 +163,13 @@ test('KlineSlim merges price guides and entry stoploss into a single 标的设�
   assert.match(source, /暂无标的设置/)
   assert.match(source, /kline-slim-price-panel/)
   assert.match(source, /<span class="price-panel-section-title">单笔止损<\/span>/)
-  assert.match(source, /Guardian 倍量价格/)
+  assert.match(source, /Guardian 买入价格与仓位上限/)
   assert.match(source, /止盈价格/)
   assert.match(source, /price-guide-badge--guardian/)
   assert.match(source, /price-guide-badge--takeprofit/)
   assert.match(source, /guardianGuideRows\.filter\(\(row\) => row\.manual_enabled\)\.length/)
   assert.match(source, /:model-value="guardianDraft\.buy_enabled\[row\.index\]"/)
+  assert.match(source, /guardianDraft\.max_position_amounts\[row\.index\]/)
   assert.doesNotMatch(source, /v-model="guardianDraft\.enabled"/)
 })
 
@@ -274,7 +275,7 @@ test('KlineSlim price guide panel separates price saving from switch control', (
 
   assert.match(viewSource, />\s*保存\s*<\/el-button>/)
   assert.match(viewSource, /@click="handleSavePriceGuides"/)
-  assert.match(viewSource, /Guardian 倍量价格/)
+  assert.match(viewSource, /Guardian 买入价格与仓位上限/)
   assert.match(viewSource, /止盈价格/)
   assert.match(viewSource, /@click="handleGuardianGuideEnabledAll\(true\)"/)
   assert.match(viewSource, /@click="handleGuardianGuideEnabledAll\(false\)"/)
@@ -297,7 +298,7 @@ test('KlineSlim price guide panel keeps takeprofit above guardian to match line 
 
   assert.equal(
     viewSource.indexOf('<span class="price-panel-section-title">止盈价格</span>') <
-      viewSource.indexOf('<span class="price-panel-section-title">Guardian 倍量价格</span>'),
+      viewSource.indexOf('<span class="price-panel-section-title">Guardian 买入价格与仓位上限</span>'),
     true
   )
 })
@@ -315,17 +316,17 @@ test('KlineSlim bulk price guide toggles sync runtime state while row toggles st
   )
 })
 
-test('KlineSlim price guide panel shows read-only runtime states for Guardian and takeprofit', () => {
+test('KlineSlim price guide panel keeps takeprofit runtime state and removes Guardian runtime admission', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
-  assert.match(viewSource, /运行态 \{\{ guardianRuntimeActiveCount \}\}\/3/)
+  assert.doesNotMatch(viewSource, /运行态 \{\{ guardianRuntimeActiveCount \}\}\/3/)
   assert.match(viewSource, /运行态 \{\{ takeprofitRuntimeActiveCount \}\}\/3/)
   assert.match(viewSource, /最近命中 \{\{ guardianLastHitLabel \}\}/)
   assert.match(viewSource, /最近命中价/)
   assert.match(viewSource, /运行态 \{\{ row\.runtimeStateLabel \}\}/)
   assert.match(scriptSource, /guardianLastHitLabel\(\)/)
-  assert.match(scriptSource, /guardianRuntimeActiveCount\(\)/)
+  assert.doesNotMatch(scriptSource, /guardianRuntimeActiveCount\(\)/)
   assert.match(scriptSource, /takeprofitRuntimeActiveCount\(\)/)
   assert.match(scriptSource, /isTakeprofitLevelArmed/)
   assert.match(scriptSource, /runtime_active:/)
@@ -377,8 +378,8 @@ test('KlineSlim appends single-entry stoploss as the third settings section unde
   assert.doesNotMatch(viewSource, /单标的上限设置/)
   assert.equal(
     viewSource.indexOf('<span class="price-panel-section-title">止盈价格</span>') <
-      viewSource.indexOf('<span class="price-panel-section-title">Guardian 倍量价格</span>') &&
-      viewSource.indexOf('<span class="price-panel-section-title">Guardian 倍量价格</span>') <
+      viewSource.indexOf('<span class="price-panel-section-title">Guardian 买入价格与仓位上限</span>') &&
+      viewSource.indexOf('<span class="price-panel-section-title">Guardian 买入价格与仓位上限</span>') <
       viewSource.indexOf('<span class="price-panel-section-title">单笔止损</span>'),
     true
   )
@@ -568,10 +569,10 @@ test('KlineSlim routes toolbar and overlay summary pills through shared StatusCh
   assert.doesNotMatch(viewSource, /<StatusChip[\s\S]*variant="muted"[\s\S]*>\s*当前止损/)
   assert.doesNotMatch(viewSource, /<StatusChip[\s\S]*:variant="subjectPositionLimitChipVariant"/)
   assert.match(viewSource, /<StatusChip[\s\S]*:variant="takeprofitRuntimeChipVariant"/)
-  assert.match(viewSource, /<StatusChip[\s\S]*:variant="guardianRuntimeChipVariant"/)
+  assert.doesNotMatch(viewSource, /guardianRuntimeChipVariant/)
   assert.match(scriptSource, /toolbarStatusChipVariant\(\)/)
   assert.match(scriptSource, /takeprofitRuntimeChipVariant\(\)/)
-  assert.match(scriptSource, /guardianRuntimeChipVariant\(\)/)
+  assert.doesNotMatch(scriptSource, /guardianRuntimeChipVariant\(\)/)
 })
 
 test('KlineSlim removes local summary chip classes after StatusChip migration', () => {

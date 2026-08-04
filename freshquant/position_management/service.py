@@ -89,6 +89,7 @@ class PositionManagementService:
                     symbol_position_meta,
                 ) = self._apply_single_symbol_position_limit(
                     symbol=symbol,
+                    payload=payload,
                     allowed=allowed,
                     reason_code=reason_code,
                     reason_text=reason_text,
@@ -180,6 +181,7 @@ class PositionManagementService:
         self,
         *,
         symbol,
+        payload,
         allowed,
         reason_code,
         reason_text,
@@ -193,7 +195,30 @@ class PositionManagementService:
             effective_limit,
         ) = self._resolve_single_symbol_position_limit(symbol)
         market_value = _safe_float_or_none(snapshot.get("market_value"))
-        blocked = market_value is None or market_value >= effective_limit
+        payload_price = _safe_float_or_none(payload.get("price"))
+        payload_quantity = _safe_float_or_none(payload.get("quantity"))
+        projection_input_invalid = (
+            payload_price is None
+            or payload_price <= 0
+            or payload_quantity is None
+            or payload_quantity <= 0
+        )
+        projected_market_value = (
+            market_value + payload_price * payload_quantity
+            if market_value is not None
+            and payload_price is not None
+            and payload_quantity is not None
+            else None
+        )
+        blocked = (
+            market_value is None
+            or market_value >= effective_limit
+            or projection_input_invalid
+            or (
+                projected_market_value is not None
+                and projected_market_value > effective_limit
+            )
+        )
         meta = {
             "symbol_position_limit": effective_limit,
             "symbol_position_limit_default": default_limit,
@@ -201,6 +226,7 @@ class PositionManagementService:
             "symbol_position_limit_effective": effective_limit,
             "symbol_position_limit_blocked": blocked,
             "symbol_market_value": market_value,
+            "projected_market_value": projected_market_value,
             "symbol_market_value_source": snapshot.get("market_value_source"),
             "symbol_quantity_source": snapshot.get("quantity_source"),
         }
@@ -218,7 +244,27 @@ class PositionManagementService:
                 "单标的实时仓位已达到上限，禁止继续买入",
                 meta,
             )
+        if projection_input_invalid:
+            return (
+                False,
+                "symbol_position_projection_input_invalid",
+                "买入价格或数量无效，禁止绕过单标的仓位上限检查",
+                meta,
+            )
+        if (
+            projected_market_value is not None
+            and projected_market_value > effective_limit
+        ):
+            return (
+                False,
+                "symbol_position_limit_blocked",
+                "本单执行后单标的仓位将超过上限，禁止买入",
+                meta,
+            )
         return allowed, reason_code, reason_text, meta
+
+    def resolve_single_symbol_position_limit(self, symbol):
+        return self._resolve_single_symbol_position_limit(symbol)[2]
 
     def _resolve_single_symbol_position_limit(self, symbol):
         config = (

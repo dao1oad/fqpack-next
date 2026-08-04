@@ -315,7 +315,7 @@ test('KlineSlim.vue reuses StatusChip for toolbar, overlay summaries and chanlun
   assert.doesNotMatch(klineSlimSource, /<StatusChip[\s\S]*variant="muted"[\s\S]*>\s*当前止损/)
   assert.doesNotMatch(klineSlimSource, /<StatusChip[\s\S]*:variant="subjectPositionLimitChipVariant"/)
   assert.match(klineSlimSource, /<StatusChip[\s\S]*:variant="takeprofitRuntimeChipVariant"/)
-  assert.match(klineSlimSource, /<StatusChip[\s\S]*:variant="guardianRuntimeChipVariant"/)
+  assert.doesNotMatch(klineSlimSource, /guardianRuntimeChipVariant/)
   assert.match(klineSlimSource, /<StatusChip[\s\S]*v-for="field in chanlunHigherSegmentSummary"[\s\S]*variant="info"/)
   assert.match(klineSlimSource, /<StatusChip[\s\S]*v-for="field in chanlunSegmentSummary"[\s\S]*variant="info"/)
   assert.match(klineSlimSource, /<StatusChip[\s\S]*v-for="field in chanlunBiSummary"[\s\S]*variant="info"/)

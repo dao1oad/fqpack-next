@@ -1,5 +1,18 @@
 # 当前运行面
 
+## Guardian / TPSL 交易运行规则
+
+- Guardian 买入以 Position Management 的 `pm_symbol_position_snapshots.market_value`
+  计算阶段剩余容量，容量真值不可读取时本次 Grid 买入退出。
+- Guardian 与最终提交门禁都优先读取持久化的单标的仓位快照；快照缺失时才
+  解析 `xt_positions`。券商持仓中明确没有该标的按市值 `0` 处理；存在持仓
+  但市值不可得时保持 fail-closed。
+- Position Management 在最终买入门禁检查
+  `market_value + payload.price * payload.quantity <= effective_limit`。
+- TPSL 止盈订单统一提交 `price_mode=auto`；STOCK 与 CREDIT 在连续竞价时复用
+  五档市价解析，其他时段使用限价。
+- 止盈订单成功提交后才关闭本档及更低档；没有可提交数量时保留档位。
+
 ## 宿主机与 Docker 分层
 
 ### Windows 宿主机承担

@@ -288,43 +288,27 @@ const buildTakeprofitSummary = (tiers = [], state = {}) => {
 
 const buildGuardianLevelSummary = (config = {}, state = {}) => {
   const normalizedConfig = normalizeGuardianConfig(config)
-  const normalizedState = normalizeGuardianState(state)
   return [
     {
       level: 1,
       priceLabel: formatPrice(normalizedConfig.buy_1),
-      enabled: (
-        normalizedConfig.buy_enabled[0] !== false
-        && normalizedState.buy_active[0] !== false
-      ),
-      enabledLabel: (
-        normalizedConfig.buy_enabled[0] !== false
-        && normalizedState.buy_active[0] !== false
-      ) ? '开' : '关',
+      capLabel: formatAmountWan(normalizedConfig.max_position_amounts[0]),
+      enabled: normalizedConfig.buy_enabled[0] !== false,
+      enabledLabel: normalizedConfig.buy_enabled[0] !== false ? '开' : '关',
     },
     {
       level: 2,
       priceLabel: formatPrice(normalizedConfig.buy_2),
-      enabled: (
-        normalizedConfig.buy_enabled[1] !== false
-        && normalizedState.buy_active[1] !== false
-      ),
-      enabledLabel: (
-        normalizedConfig.buy_enabled[1] !== false
-        && normalizedState.buy_active[1] !== false
-      ) ? '开' : '关',
+      capLabel: formatAmountWan(normalizedConfig.max_position_amounts[1]),
+      enabled: normalizedConfig.buy_enabled[1] !== false,
+      enabledLabel: normalizedConfig.buy_enabled[1] !== false ? '开' : '关',
     },
     {
       level: 3,
       priceLabel: formatPrice(normalizedConfig.buy_3),
-      enabled: (
-        normalizedConfig.buy_enabled[2] !== false
-        && normalizedState.buy_active[2] !== false
-      ),
-      enabledLabel: (
-        normalizedConfig.buy_enabled[2] !== false
-        && normalizedState.buy_active[2] !== false
-      ) ? '开' : '关',
+      capLabel: formatAmountWan(normalizedConfig.max_position_amounts[2]),
+      enabled: normalizedConfig.buy_enabled[2] !== false,
+      enabledLabel: normalizedConfig.buy_enabled[2] !== false ? '开' : '关',
     },
   ]
 }

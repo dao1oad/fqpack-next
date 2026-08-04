@@ -392,19 +392,13 @@ def _resolve_runtime_execution(
                 raise RuntimeError(
                     "continuous auction state unavailable for credit auto price resolution"
                 ) from exc
-        if account_type == "CREDIT":
-            price_resolution = resolve_price_mode(
-                symbol=symbol,
-                action=action,
-                price_mode=requested_price_mode,
-                input_price=input_price,
-                continuous_auction=continuous_auction,
-            )
-        else:
-            price_resolution = _limit_price_resolution(
-                requested_price_mode,
-                input_price,
-            )
+        price_resolution = resolve_price_mode(
+            symbol=symbol,
+            action=action,
+            price_mode=requested_price_mode,
+            input_price=input_price,
+            continuous_auction=continuous_auction,
+        )
 
     return {
         "account_type": account_type,
@@ -531,10 +525,7 @@ def _requires_runtime_credit_detail(
 
 
 def _requires_continuous_auction_probe(*, account_type, price_mode):
-    return (
-        _normalize_account_type(account_type) == "CREDIT"
-        and _normalize_mode(price_mode) == AUTO_PRICE_MODE
-    )
+    return _normalize_mode(price_mode) == AUTO_PRICE_MODE
 
 
 def _normalize_optional_mode(value):

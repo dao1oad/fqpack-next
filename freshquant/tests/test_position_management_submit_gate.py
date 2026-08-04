@@ -17,6 +17,11 @@ class FakeQueueClient:
         return len(self.messages)
 
 
+class FakeRuntimeLogger:
+    def emit(self, _event):
+        return True
+
+
 class InMemoryRepository:
     def __init__(self):
         self.order_requests = []
@@ -245,6 +250,188 @@ def test_default_position_management_service_injects_symbol_position_loader(
     assert captured["repository"] is not None
     assert captured["runtime_logger"] == "runtime-logger"
     assert callable(captured["symbol_position_loader"])
+
+
+class FakePositionRepository:
+    def __init__(self, *, limit=800000.0, snapshot=None):
+        self.limit = limit
+        self.snapshot = snapshot
+        self.decisions = []
+
+    def get_symbol_snapshot(self, _symbol):
+        return self.snapshot
+
+    def get_current_state(self):
+        return {
+            "state": "ALLOW_OPEN",
+            "evaluated_at": "2099-03-22T10:00:00+08:00",
+        }
+
+    def get_config(self):
+        return {
+            "thresholds": {
+                "single_symbol_position_limit": self.limit,
+            }
+        }
+
+    def insert_decision(self, document):
+        self.decisions.append(document)
+        return document
+
+
+class FakeXtPositionsCollection:
+    def __init__(self, rows):
+        self.rows = list(rows)
+
+    def find(self, _query):
+        return list(self.rows)
+
+
+def _build_submit_service_with_default_position_loader(
+    monkeypatch,
+    *,
+    xt_positions,
+    limit,
+    snapshot=None,
+):
+    import freshquant.order_management.submit.service as submit_service_module
+
+    position_repository = FakePositionRepository(limit=limit, snapshot=snapshot)
+    monkeypatch.setattr(
+        "freshquant.position_management.repository.PositionManagementRepository",
+        lambda: position_repository,
+    )
+    monkeypatch.setattr(
+        "freshquant.position_management.service._default_holding_codes_provider",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "freshquant.db.DBfreshquant",
+        {"xt_positions": FakeXtPositionsCollection(xt_positions)},
+    )
+    runtime_logger = FakeRuntimeLogger()
+    position_service = submit_service_module._load_position_management_service(
+        runtime_logger=runtime_logger
+    )
+    submit_service = OrderSubmitService(
+        repository=InMemoryRepository(),
+        queue_client=FakeQueueClient(),
+        position_management_service=position_service,
+        account_type_loader=lambda: "STOCK",
+        runtime_logger=runtime_logger,
+    )
+    return submit_service, position_repository
+
+
+def test_default_submit_gate_prefers_persisted_symbol_snapshot(monkeypatch):
+    service, position_repository = _build_submit_service_with_default_position_loader(
+        monkeypatch,
+        xt_positions=[],
+        limit=2000.0,
+        snapshot={
+            "symbol": "000001",
+            "market_value": 500.0,
+            "market_value_source": "persisted_test_snapshot",
+        },
+    )
+
+    result = service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "strategy",
+            "strategy_name": "Guardian",
+        }
+    )
+
+    assert result["internal_order_id"]
+    decision = position_repository.decisions[-1]
+    assert decision["allowed"] is True
+    assert decision["meta"]["symbol_market_value"] == 500.0
+    assert decision["meta"]["symbol_market_value_source"] == "persisted_test_snapshot"
+    assert decision["meta"]["projected_market_value"] == 1500.0
+
+
+def test_default_submit_gate_allows_confirmed_empty_position_within_limit(
+    monkeypatch,
+):
+    service, position_repository = _build_submit_service_with_default_position_loader(
+        monkeypatch,
+        xt_positions=[],
+        limit=2000.0,
+    )
+
+    result = service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "strategy",
+            "strategy_name": "Guardian",
+        }
+    )
+
+    assert result["internal_order_id"]
+    decision = position_repository.decisions[-1]
+    assert decision["allowed"] is True
+    assert decision["meta"]["symbol_market_value"] == 0.0
+    assert decision["meta"]["symbol_market_value_source"] == "no_broker_position"
+    assert decision["meta"]["projected_market_value"] == 1000.0
+
+
+def test_default_submit_gate_rejects_position_without_market_value(monkeypatch):
+    service, position_repository = _build_submit_service_with_default_position_loader(
+        monkeypatch,
+        xt_positions=[{"symbol": "000001", "volume": 100}],
+        limit=2000.0,
+    )
+
+    with pytest.raises(PositionManagementRejectedError):
+        service.submit_order(
+            {
+                "action": "buy",
+                "symbol": "000001",
+                "price": 10.0,
+                "quantity": 100,
+                "source": "strategy",
+                "strategy_name": "Guardian",
+            }
+        )
+
+    decision = position_repository.decisions[-1]
+    assert decision["allowed"] is False
+    assert decision["reason_code"] == "symbol_position_unavailable"
+    assert decision["meta"]["symbol_market_value"] is None
+    assert decision["meta"]["symbol_market_value_source"] == "unavailable"
+
+
+def test_default_submit_gate_rejects_projected_position_above_limit(monkeypatch):
+    service, position_repository = _build_submit_service_with_default_position_loader(
+        monkeypatch,
+        xt_positions=[],
+        limit=900.0,
+    )
+
+    with pytest.raises(PositionManagementRejectedError):
+        service.submit_order(
+            {
+                "action": "buy",
+                "symbol": "000001",
+                "price": 10.0,
+                "quantity": 100,
+                "source": "strategy",
+                "strategy_name": "Guardian",
+            }
+        )
+
+    decision = position_repository.decisions[-1]
+    assert decision["allowed"] is False
+    assert decision["reason_code"] == "symbol_position_limit_blocked"
+    assert decision["meta"]["symbol_market_value"] == 0.0
+    assert decision["meta"]["projected_market_value"] == 1000.0
 
 
 def test_position_gate_prefers_symbol_override_limit_over_default_limit():

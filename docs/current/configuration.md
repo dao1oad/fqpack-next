@@ -1,5 +1,30 @@
 # 当前配置
 
+## Guardian 买入 Grid
+
+`guardian_buy_grid_configs` 的当前核心字段为：
+
+```json
+{
+  "BUY-1": 10.0,
+  "BUY-2": 9.0,
+  "BUY-3": 8.0,
+  "max_position_amounts": [200000, 350000, 500000],
+  "buy_enabled": [true, true, true]
+}
+```
+
+价格须满足 `BUY-1 > BUY-2 > BUY-3 > 0`，CAP 须为三个正数且
+`CAP-1 <= CAP-2 <= CAP-3`，并且不得超过当前全局单标的上限。完全没有
+Grid 配置的标的保持基础量兼容；已有 BUY 价格但缺 CAP 或配置非法时运行期
+关闭本次 Grid 买入。部署前运行：
+
+```text
+python -m freshquant.script.inventory_guardian_grid_position_caps
+```
+
+该命令只读输出缺 CAP、价格顺序非法和 CAP 顺序非法的配置。
+
 ## 正式真值
 
 新系统正式配置只保留两处真值：

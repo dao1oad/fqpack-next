@@ -87,6 +87,9 @@ export const normalizeGuardianConfig = (row = {}) => ({
   buy_1: roundGuidePrice(row?.buy_1),
   buy_2: roundGuidePrice(row?.buy_2),
   buy_3: roundGuidePrice(row?.buy_3),
+  max_position_amounts: Array.isArray(row?.max_position_amounts)
+    ? row.max_position_amounts.slice(0, 3).map((item) => toNullableNumber(item))
+    : [],
 })
 
 export const normalizeGuardianState = (row = {}) => ({
@@ -220,7 +223,7 @@ export const buildGuardianPriceGuides = (config = {}, state = {}) => {
         color: item.color,
         label: `G-${item.shortLabel} ${formatGuidePrice(price)}`,
         manual_enabled: manualEnabled,
-        active: manualEnabled && normalizedState.buy_active[index] !== false,
+        active: manualEnabled,
         lineStyle: 'dashed',
       }
     })
@@ -366,7 +369,7 @@ export const buildEditablePriceGuides = ({
       color: item.color,
       label: `G-${item.shortLabel} ${formatGuidePrice(resolvedGuardianDraft[item.key])}`,
       manual_enabled: manualEnabled,
-      active: manualEnabled && normalizeGuardianState(guardianState).buy_active[index] !== false,
+      active: manualEnabled,
       lineStyle: 'solid',
       placeholder: originalPrice === null,
     }
@@ -492,6 +495,13 @@ export const validateGuardianGuideDraft = (draft = {}) => {
   }
   if (!(normalized.buy_1 > normalized.buy_2 && normalized.buy_2 > normalized.buy_3)) {
     return { valid: false, message: 'Guardian 价格必须满足 buy_1 > buy_2 > buy_3' }
+  }
+  const caps = normalized.max_position_amounts
+  if (caps.length !== 3 || caps.some((value) => value === null || value <= 0)) {
+    return { valid: false, message: '请填写完整的 Guardian 三档仓位上限' }
+  }
+  if (!(caps[0] <= caps[1] && caps[1] <= caps[2])) {
+    return { valid: false, message: 'Guardian 仓位上限必须满足 CAP-1 <= CAP-2 <= CAP-3' }
   }
   return { valid: true, message: '' }
 }
