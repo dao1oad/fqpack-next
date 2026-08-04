@@ -814,9 +814,7 @@ def test_credit_subject_snapshot_hash_replans_same_marker_qfq_universe():
     )
     assert [
         row["symbol"]
-        for row in repository.attempts[second["attempt_id"]][
-            "effective_instruments"
-        ]
+        for row in repository.attempts[second["attempt_id"]]["effective_instruments"]
     ] == ["000001", "000002"]
     assert [call[2] for call in provider.calls if call[0] == "probe"] == [
         "000001",
@@ -2961,4 +2959,3 @@ def test_history_signals_resolves_missing_end_date_from_latest_daily_bar():
     assert payload["end_date"] == "2026-03-19"
     assert provider.calls[0] == ("latest", "stock", "000001")
     assert provider.calls[1] == ("bars", "stock", "000001", "2026-03-19", 2)
-

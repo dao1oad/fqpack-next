@@ -2801,9 +2801,7 @@ class ClxDailySelectionService:
         credit_snapshot_hash = str(
             credit_policy_snapshot.get("snapshot_hash") or ""
         ).strip()
-        credit_financing_count = int(
-            credit_policy_snapshot.get("financing_count") or 0
-        )
+        credit_financing_count = int(credit_policy_snapshot.get("financing_count") or 0)
         if not credit_snapshot_ready or credit_count <= 0:
             account_present = bool(str(credit_account or "").strip())
             raise RuntimeError(
@@ -3210,10 +3208,7 @@ class ClxDailySelectionService:
         lookup: Mapping[str, Any],
     ) -> list[dict[str, Any]]:
         subjects: list[dict[str, Any]] = []
-        try:
-            items = lookup.items()
-        except AttributeError:
-            items = []
+        items = list(lookup.items())
         for raw_code, raw_subject in items:
             code = normalize_to_base_code(str(raw_code or ""))
             if len(code) != 6 or not code.isdigit():
@@ -3224,9 +3219,9 @@ class ClxDailySelectionService:
                     "symbol": normalize_to_base_code(
                         str(subject.get("symbol") or code)
                     ),
-                    "instrument_id": str(
-                        subject.get("instrument_id") or ""
-                    ).strip().upper(),
+                    "instrument_id": str(subject.get("instrument_id") or "")
+                    .strip()
+                    .upper(),
                     "fin_status": subject.get("fin_status"),
                     "slo_status": subject.get("slo_status"),
                     "updated_at": str(subject.get("updated_at") or "").strip(),

@@ -280,6 +280,7 @@ def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
     captured = {}
+
     def fake_save_a_stock_pools(**kwargs):
         captured.setdefault("kwargs", kwargs)
         fake_db["stock_pools"].docs.append(
@@ -314,6 +315,7 @@ def test_add_to_stock_pools_by_code_without_pre_pool_still_fails_by_default(
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
     captured = {}
+
     def save_stub(**kwargs):
         captured.setdefault("kwargs", kwargs)
         fake_db["stock_pools"].docs.append(
@@ -339,6 +341,7 @@ def test_add_to_stock_pools_by_code_allow_direct_writes_clx_monitor_provenance(
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
     captured = {}
+
     def save_stub(**kwargs):
         captured.setdefault("kwargs", kwargs)
         fake_db["stock_pools"].docs.append(
