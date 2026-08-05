@@ -261,6 +261,38 @@ def test_system_settings_marks_initial_load_unready_when_database_unavailable():
     from freshquant.system_settings import SystemSettings
 
     database = BrokenDatabase()
+    settings = SystemSettings(
+        database=database,
+        reload_retry_attempts=2,
+        reload_retry_delay_seconds=0,
+        sleep_fn=lambda _: None,
+    )
+
+    assert settings.notification.dingtalk_private_webhook == ""
+    assert settings.monitor.xtdata_mode == "guardian_1m"
+    assert settings.xtquant.account == ""
+    assert settings.xtquant.auto_repay_enabled is True
+    assert settings.xtquant.auto_repay_reserve_cash == 5000.0
+    assert settings.guardian.stock_lot_amount == 50000
+    assert settings.guardian.stock_threshold == {
+        "mode": "percent",
+        "percent": 1,
+    }
+    assert settings.position_management.allow_open_min_bail == 800000.0
+    assert settings.get_strategy_id("Guardian") == ""
+    assert settings.loaded_once is False
+    assert isinstance(settings.last_reload_error, RuntimeError)
+    assert database.calls >= 2
+
+
+def test_system_settings_fails_startup_when_strict_env_enabled(monkeypatch):
+    # 先加载模块（默认非 strict，避免模块级单例在 import 时因 strict 失败）
+    import freshquant.system_settings as system_settings_module
+
+    monkeypatch.setenv("FQ_SYSTEM_SETTINGS_STRICT", "1")
+    SystemSettings = system_settings_module.SystemSettings
+
+    database = BrokenDatabase()
     try:
         SystemSettings(
             database=database,
@@ -271,7 +303,7 @@ def test_system_settings_marks_initial_load_unready_when_database_unavailable():
     except RuntimeError as exc:
         assert "database unavailable" in str(exc)
     else:
-        raise AssertionError("unavailable configuration must fail startup")
+        raise AssertionError("unavailable configuration must fail startup when strict")
 
     assert database.calls >= 2
 

@@ -5,7 +5,10 @@ import os
 import pytest
 
 from freshquant.clx_daily_selection.tdx_export import (
+    CLX_15_30_TDX_BLK_FILENAME,
+    append_tdx_group_members,
     encode_tdx_blk_code,
+    read_tdx_blk_lines,
     write_clx_tdx_group,
 )
 
@@ -85,3 +88,85 @@ def test_write_clx_tdx_group_rejects_empty_without_touching_old_file(tmp_path):
         write_clx_tdx_group([], tdx_home=tmp_path)
 
     assert target.read_bytes() == b"old-group\r\n"
+
+
+def test_read_tdx_blk_lines_returns_normalized_dedup_lines(tmp_path):
+    target = tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME
+    target.parent.mkdir(parents=True)
+    target.write_bytes("1510050\r\n0000001\r\n1510050\r\n0000001\r\n".encode("gbk"))
+
+    assert read_tdx_blk_lines(tdx_home=tmp_path) == ["1510050", "0000001"]
+
+
+def test_read_tdx_blk_lines_missing_file_returns_empty(tmp_path):
+    assert read_tdx_blk_lines(tdx_home=tmp_path) == []
+
+
+def test_append_tdx_group_members_appends_dedup_preserves_order(tmp_path):
+    target = tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME
+    target.parent.mkdir(parents=True)
+    target.write_bytes("1510050\r\n".encode("gbk"))
+
+    result = append_tdx_group_members(
+        ["sh600000", "000001", "sh600000", {"symbol": "160512", "asset_type": "etf"}],
+        tdx_home=tmp_path,
+    )
+
+    assert result == {
+        "group_name": "clx_15_30",
+        "file_name": "CLX_15_30.blk",
+        "appended_count": 3,
+        "written_count": 4,
+    }
+    assert target.read_bytes() == b"1510050\r\n1600000\r\n0000001\r\n0160512\r\n"
+
+
+def test_append_tdx_group_members_no_new_members_is_noop(tmp_path):
+    target = tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME
+    target.parent.mkdir(parents=True)
+    target.write_bytes("1510050\r\n".encode("gbk"))
+
+    result = append_tdx_group_members(["sh510050"], tdx_home=tmp_path)
+
+    assert result == {
+        "group_name": "clx_15_30",
+        "file_name": "CLX_15_30.blk",
+        "appended_count": 0,
+        "written_count": 1,
+    }
+    assert target.read_bytes() == b"1510050\r\n"
+
+
+def test_append_tdx_group_members_atomic_failure_preserves_old(monkeypatch, tmp_path):
+    target = tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"old-group\r\n")
+
+    def fail_replace(_source, _target):
+        raise OSError("replace denied")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+
+    with pytest.raises(RuntimeError, match="旧分组已保留"):
+        append_tdx_group_members(["sh600000"], tdx_home=tmp_path)
+
+    assert target.read_bytes() == b"old-group\r\n"
+    assert list(target.parent.glob(".CLX_15_30.blk.*.tmp")) == []
+
+
+def test_append_tdx_group_members_supports_custom_block_key(tmp_path):
+    result = append_tdx_group_members(
+        ["sh510050"],
+        tdx_home=tmp_path,
+        block_key="CUSTOM",
+        display_name="custom",
+    )
+
+    target = tmp_path / "T0002" / "blocknew" / "CUSTOM.blk"
+    assert target.read_bytes() == b"1510050\r\n"
+    assert result == {
+        "group_name": "custom",
+        "file_name": "CUSTOM.blk",
+        "appended_count": 1,
+        "written_count": 1,
+    }

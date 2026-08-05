@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -10,6 +11,12 @@ from bson import ObjectId
 from pydash import get
 
 from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
+
+
+def _strict_settings_env_enabled() -> bool:
+    value = str(os.environ.get("FQ_SYSTEM_SETTINGS_STRICT", "") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
 
 DEFAULT_NOTIFICATION = {
     "webhook": {
@@ -144,7 +151,10 @@ class SystemSettings:
         # A service must not start with operational defaults when the
         # database-backed configuration is unavailable. Callers that create
         # long-running workers need a hard startup failure instead.
-        self.reload(strict=True)
+        # Production enables the strict switch via FQ_SYSTEM_SETTINGS_STRICT=1
+        # (see D:/fqpack/config/envs.conf); CI/test environments keep the
+        # permissive default so module import does not require MongoDB.
+        self.reload(strict=_strict_settings_env_enabled())
 
     def reload(
         self,

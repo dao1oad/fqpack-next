@@ -796,6 +796,31 @@ class StrategyConsumer:
         except Exception as e:
             logger.error(f"[Consumer] insert clx docs failed: {e}")
 
+        # 通达信 clx_15_30 分组：去重追加（best-effort，不影响信号主链）
+        try:
+            from freshquant.clx_daily_selection.tdx_export import (
+                append_tdx_group_members,
+            )
+
+            result = append_tdx_group_members(
+                sorted(
+                    {
+                        str(d.get("code") or "").strip()
+                        for d in docs
+                        if str(d.get("code") or "").strip()
+                    }
+                )
+            )
+            appended_count = int(str(result.get("appended_count") or 0))
+            if appended_count > 0:
+                logger.info(
+                    f"[Consumer] clx_15_30 tdx group appended "
+                    f"{appended_count} new member(s), "
+                    f"total {result.get('written_count')}"
+                )
+        except Exception as e:
+            logger.warning(f"[Consumer] append clx_15_30 tdx group failed: {e}")
+
         # DingTalk: minimal aggregation
         try:
             from freshquant.message.dingtalk import send_private_message

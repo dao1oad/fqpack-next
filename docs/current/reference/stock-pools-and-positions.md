@@ -80,6 +80,9 @@
   - `realtime_screen_multi_period`
   - 当前展示 `datetime`、`created_at`、`code`、`name`、`period`、`source` 与单行价格摘要
   - 实时 CLX 生产模型为 `S0000-S0017 / 10000..10017`
+- CLX 15/30 实时监控命中标的通达信分组
+  - consumer 正信号写库后会把本批命中标的去重追加到通达信自选股分组 `clx_15_30`（`T0002/blocknew/CLX_15_30.blk`）
+  - 复用 `freshquant/clx_daily_selection/tdx_export.py` 的编码与原子写实现，best-effort 失败不阻塞信号链
 
 ## 当前高频操作
 
