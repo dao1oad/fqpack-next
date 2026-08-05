@@ -275,6 +275,7 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
             "broker_order_id": None,
         }
     )
+    pending_order = repository.find_order("ord_recon_1")
     runtime_logger = FakeRuntimeLogger()
     service = ExternalOrderReconcileService(
         repository=repository,
@@ -294,6 +295,7 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
                 "traded_time": 1030,
                 "account_id": "acct-1",
                 "trading_day": 20260805,
+                "order_remark": pending_order["broker_correlation_token"],
             }
         ]
     )
@@ -352,6 +354,7 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
         "ord_recon_known_1",
         {"broker_order_id": "90012", "state": "SUBMITTED"},
     )
+    known_order = repository.find_order("ord_recon_known_1")
     reconcile_runtime_logger = FakeRuntimeLogger()
     ingest_runtime_logger = FakeRuntimeLogger()
     ingest_service = OrderManagementXtIngestService(
@@ -377,6 +380,7 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
             "traded_time": 1030,
             "account_id": "acct-1",
             "trading_day": 20260805,
+            "order_remark": known_order["broker_correlation_token"],
         }
     )
 
@@ -486,6 +490,7 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
         "ord_recon_known_sell_1",
         {"broker_order_id": "90021", "state": "SUBMITTED"},
     )
+    known_sell_order = repository.find_order("ord_recon_known_sell_1")
     reconcile_runtime_logger = FakeRuntimeLogger()
     service = ExternalOrderReconcileService(
         repository=repository,
@@ -505,6 +510,7 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
             "traded_time": 1710003600,
             "account_id": "acct-1",
             "trading_day": 20240310,
+            "order_remark": known_sell_order["broker_correlation_token"],
         }
     )
 

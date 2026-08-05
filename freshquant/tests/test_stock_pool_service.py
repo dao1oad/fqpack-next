@@ -4,6 +4,16 @@ import types
 from datetime import datetime
 
 import pymongo
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _restore_stock_service_after_stubbed_reload(monkeypatch):
+    yield
+    monkeypatch.undo()
+    stock_service = sys.modules.get("freshquant.stock_service")
+    if stock_service is not None:
+        importlib.reload(stock_service)
 
 
 class FakeCursor:

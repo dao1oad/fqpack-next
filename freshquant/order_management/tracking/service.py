@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 
+import hashlib
+import json
 from datetime import datetime, timezone
 
+from freshquant.order_management.broker_correlation import (
+    build_broker_correlation_token,
+    looks_like_broker_correlation_token,
+    normalize_broker_correlation_token,
+)
 from freshquant.order_management.broker_identity import (
     BrokerIdentityConflict,
     BrokerIdentityError,
@@ -34,12 +41,22 @@ class OrderTrackingService:
     def submit_order(self, payload):
         request_id = payload.get("request_id") or new_request_id()
         internal_order_id = payload.get("internal_order_id") or new_internal_order_id()
+        raw_correlation_token = payload.get("broker_correlation_token")
+        broker_correlation_token = normalize_broker_correlation_token(
+            raw_correlation_token
+        )
+        if raw_correlation_token not in (None, "", "None"):
+            if broker_correlation_token is None:
+                raise BrokerIdentityError("broker correlation token is invalid")
+        else:
+            broker_correlation_token = build_broker_correlation_token(internal_order_id)
         now = _utc_now_iso()
+        trading_day = resolve_trading_day(payload)
         initial_broker_order_key = (
             build_broker_order_key(
                 account_id=payload.get("account_id"),
                 order_sysid=payload.get("order_sysid"),
-                trading_day=resolve_trading_day(payload),
+                trading_day=trading_day,
                 symbol=payload.get("symbol"),
                 side=payload.get("action"),
                 broker_order_id=payload.get("broker_order_id"),
@@ -56,6 +73,7 @@ class OrderTrackingService:
             "intent_id": payload.get("intent_id"),
             "account_type": payload.get("account_type"),
             "account_id": normalize_account_id(payload.get("account_id")),
+            "trading_day": trading_day,
             "symbol": payload.get("symbol"),
             "price": payload.get("price"),
             "quantity": payload.get("quantity"),
@@ -67,6 +85,7 @@ class OrderTrackingService:
             "scope_type": payload.get("scope_type"),
             "scope_ref_id": payload.get("scope_ref_id"),
             "req_id": payload.get("req_id") or request_id,
+            "broker_correlation_token": broker_correlation_token,
             "state": "ACCEPTED",
             "created_at": now,
         }
@@ -77,10 +96,11 @@ class OrderTrackingService:
             "broker_order_key": initial_broker_order_key,
             "broker_order_type": payload.get("broker_order_type"),
             "broker_price_type": payload.get("broker_price_type"),
+            "broker_correlation_token": broker_correlation_token,
             "account_type": payload.get("account_type"),
             "account_id": normalize_account_id(payload.get("account_id")),
             "order_sysid": normalize_identifier(payload.get("order_sysid")),
-            "trading_day": resolve_trading_day(payload),
+            "trading_day": trading_day,
             "trace_id": payload.get("trace_id"),
             "intent_id": payload.get("intent_id"),
             "symbol": payload.get("symbol"),
@@ -116,10 +136,11 @@ class OrderTrackingService:
                     "broker_order_id": payload.get("broker_order_id"),
                     "broker_order_type": payload.get("broker_order_type"),
                     "broker_price_type": payload.get("broker_price_type"),
+                    "broker_correlation_token": broker_correlation_token,
                     "account_type": payload.get("account_type"),
                     "account_id": normalize_account_id(payload.get("account_id")),
                     "order_sysid": normalize_identifier(payload.get("order_sysid")),
-                    "trading_day": resolve_trading_day(payload),
+                    "trading_day": trading_day,
                     "trace_id": payload.get("trace_id"),
                     "intent_id": payload.get("intent_id"),
                     "symbol": payload.get("symbol"),
@@ -347,8 +368,9 @@ class OrderTrackingService:
     def ingest_trade_report_with_meta(self, report):
         report = _normalize_trade_report_identity(report)
         current_order = self.repository.find_order(report["internal_order_id"])
+        create_broker_only_order = current_order is None
         if current_order is None:
-            current_order = self._create_broker_only_order(
+            current_order = self._build_broker_only_order(
                 {**report, "state": "PARTIAL_FILLED"}
             )
         else:
@@ -367,11 +389,7 @@ class OrderTrackingService:
         )
         if current_order.get("broker_order_key") != broker_order_key:
             identity_updates["broker_order_key"] = broker_order_key
-        if identity_updates:
-            current_order = self.repository.update_order(
-                report["internal_order_id"],
-                {**identity_updates, "updated_at": _utc_now_iso()},
-            )
+        effective_order = {**current_order, **identity_updates}
 
         execution_identity = build_execution_identity(report)
         execution_fill = {
@@ -379,9 +397,9 @@ class OrderTrackingService:
             or new_execution_fill_id(),
             "broker_order_key": broker_order_key,
             "internal_order_id": report["internal_order_id"],
-            "request_id": current_order.get("request_id") if current_order else None,
+            "request_id": effective_order.get("request_id"),
             "broker_order_id": report.get("broker_order_id")
-            or (current_order.get("broker_order_id") if current_order else None),
+            or effective_order.get("broker_order_id"),
             "broker_trade_id": report["broker_trade_id"],
             "execution_identity": execution_identity,
             "account_id": report.get("account_id"),
@@ -396,6 +414,9 @@ class OrderTrackingService:
             "time": report.get("time"),
             "source": report.get("source", "unknown"),
             "provisional": report.get("provisional", False),
+            "projection_status": "PENDING",
+            "projection_plan": None,
+            "execution_record_version": 2,
         }
         trade_fact = {
             "trade_fact_id": report.get("trade_fact_id") or new_trade_fact_id(),
@@ -416,7 +437,10 @@ class OrderTrackingService:
             "time": report.get("time"),
             "source": report.get("source", "unknown"),
             "provisional": report.get("provisional", False),
+            "execution_record_version": 2,
         }
+        if hasattr(self.repository, "preflight_execution_replay"):
+            self.repository.preflight_execution_replay(execution_fill)
         saved_trade_fact, created = self.repository.upsert_trade_fact(
             trade_fact,
             unique_keys=["execution_identity"],
@@ -431,10 +455,26 @@ class OrderTrackingService:
         else:
             saved_execution_fill = dict(execution_fill)
             created_execution_fill = created
+            if not created_execution_fill:
+                saved_execution_fill["projection_status"] = "APPLIED"
         _assert_execution_replay_consistent(saved_trade_fact, trade_fact)
         _assert_execution_replay_consistent(saved_execution_fill, execution_fill)
+        if create_broker_only_order:
+            self.repository.insert_order(effective_order)
+            current_order = effective_order
+        elif identity_updates:
+            current_order = self.repository.update_order(
+                report["internal_order_id"],
+                {**identity_updates, "updated_at": _utc_now_iso()},
+            )
+        else:
+            current_order = effective_order
         created = bool(created_execution_fill)
-        if created:
+        projection_pending = (
+            str(saved_execution_fill.get("projection_status") or "").upper()
+            == "PENDING"
+        )
+        if created or projection_pending:
             self._migrate_broker_order_placeholder(
                 placeholder_key=placeholder_key,
                 broker_order_key=broker_order_key,
@@ -446,6 +486,7 @@ class OrderTrackingService:
                 saved_execution_fill,
                 current_order=current_order,
             )
+        if created:
             self.repository.insert_order_event(
                 {
                     "event_id": new_event_id(),
@@ -462,7 +503,7 @@ class OrderTrackingService:
             "created": created,
         }
 
-    def _create_broker_only_order(self, report):
+    def _build_broker_only_order(self, report):
         internal_order_id = normalize_identifier(report.get("internal_order_id"))
         if internal_order_id is None:
             internal_order_id = build_broker_only_internal_order_id(
@@ -484,6 +525,9 @@ class OrderTrackingService:
             "broker_order_id": normalize_identifier(report.get("broker_order_id")),
             "broker_order_type": report.get("broker_order_type")
             or report.get("order_type"),
+            "broker_correlation_token": normalize_broker_correlation_token(
+                report.get("broker_correlation_token") or report.get("order_remark")
+            ),
             "account_type": report.get("account_type"),
             "account_id": normalize_account_id(report.get("account_id")),
             "order_sysid": normalize_identifier(report.get("order_sysid")),
@@ -500,6 +544,10 @@ class OrderTrackingService:
             "created_at": now,
             "updated_at": now,
         }
+        return document
+
+    def _create_broker_only_order(self, report):
+        document = self._build_broker_only_order(report)
         self.repository.insert_order(document)
         return document
 
@@ -536,6 +584,11 @@ class OrderTrackingService:
                 or current_order.get("broker_order_id")
                 or source.get("broker_order_id")
             ),
+            "broker_correlation_token": normalize_broker_correlation_token(
+                report.get("broker_correlation_token") or report.get("order_remark")
+            )
+            or current_order.get("broker_correlation_token")
+            or source.get("broker_correlation_token"),
             "account_type": current_order.get("account_type")
             or report.get("account_type")
             or source.get("account_type"),
@@ -638,10 +691,22 @@ class OrderTrackingService:
             "symbol": normalize_symbol(report.get("symbol"))
             or broker_order.get("symbol"),
             "side": normalize_side(report.get("side")) or broker_order.get("side"),
+            "broker_correlation_token": normalize_broker_correlation_token(
+                report.get("broker_correlation_token") or report.get("order_remark")
+            )
+            or broker_order.get("broker_correlation_token"),
         }
+        update_fields = {
+            key: value for key, value in updates.items() if value is not None
+        }
+        if hasattr(self.repository, "update_broker_order_fields"):
+            return self.repository.update_broker_order_fields(
+                broker_order_key,
+                update_fields,
+            )
         next_document = {
             **broker_order,
-            **{key: value for key, value in updates.items() if value is not None},
+            **update_fields,
         }
         saved_broker_order, _ = self.repository.upsert_broker_order(
             next_document,
@@ -656,99 +721,132 @@ class OrderTrackingService:
             self.repository, "upsert_broker_order"
         ):
             return None
-        broker_order = self.repository.find_broker_order(broker_order_key)
-        if broker_order is None:
-            broker_order = {
-                "broker_order_key": broker_order_key,
-                "internal_order_id": (
-                    current_order.get("internal_order_id")
-                    if current_order
-                    else broker_order_key
-                ),
-                "request_id": (
-                    current_order.get("request_id") if current_order else None
-                ),
-                "broker_order_id": execution_fill.get("broker_order_id"),
-                "account_id": execution_fill.get("account_id"),
-                "order_sysid": execution_fill.get("order_sysid"),
-                "trading_day": execution_fill.get("trading_day"),
-                "account_type": (
-                    current_order.get("account_type") if current_order else None
-                ),
-                "trace_id": current_order.get("trace_id") if current_order else None,
-                "intent_id": current_order.get("intent_id") if current_order else None,
-                "symbol": execution_fill.get("symbol"),
-                "side": execution_fill.get("side"),
-                "state": "PARTIAL_FILLED",
-                "source_type": execution_fill.get("source"),
-                "submitted_at": (
-                    current_order.get("submitted_at") if current_order else None
-                ),
-                "requested_quantity": None,
-                "filled_quantity": 0,
-                "avg_filled_price": None,
-                "fill_count": 0,
-                "first_fill_time": None,
-                "last_fill_time": None,
-                "updated_at": _utc_now_iso(),
-            }
-        conflicts = identity_conflicts(broker_order, execution_fill)
-        if conflicts:
-            raise BrokerIdentityConflict(
-                "execution fill conflicts with broker aggregate: "
-                + ", ".join(sorted(conflicts))
-            )
-        fills = _list_broker_execution_fills(
-            self.repository,
-            broker_order_key=broker_order_key,
-            fallback_fill=execution_fill,
-        )
-        for fill in fills:
-            conflicts = identity_conflicts(broker_order, fill)
+        for _attempt in range(8):
+            broker_order = self.repository.find_broker_order(broker_order_key)
+            if broker_order is None:
+                broker_order = {
+                    "broker_order_key": broker_order_key,
+                    "internal_order_id": (
+                        current_order.get("internal_order_id")
+                        if current_order
+                        else broker_order_key
+                    ),
+                    "request_id": (
+                        current_order.get("request_id") if current_order else None
+                    ),
+                    "broker_order_id": execution_fill.get("broker_order_id"),
+                    "account_id": execution_fill.get("account_id"),
+                    "order_sysid": execution_fill.get("order_sysid"),
+                    "trading_day": execution_fill.get("trading_day"),
+                    "account_type": (
+                        current_order.get("account_type") if current_order else None
+                    ),
+                    "trace_id": (
+                        current_order.get("trace_id") if current_order else None
+                    ),
+                    "intent_id": (
+                        current_order.get("intent_id") if current_order else None
+                    ),
+                    "symbol": execution_fill.get("symbol"),
+                    "side": execution_fill.get("side"),
+                    "state": "PARTIAL_FILLED",
+                    "source_type": execution_fill.get("source"),
+                    "submitted_at": (
+                        current_order.get("submitted_at") if current_order else None
+                    ),
+                    "requested_quantity": None,
+                    "filled_quantity": 0,
+                    "avg_filled_price": None,
+                    "fill_count": 0,
+                    "fill_set_fingerprint": None,
+                    "aggregate_revision": 0,
+                    "first_fill_time": None,
+                    "last_fill_time": None,
+                    "updated_at": _utc_now_iso(),
+                }
+                broker_order, _ = self.repository.upsert_broker_order(
+                    broker_order,
+                    unique_keys=["broker_order_key"],
+                )
+                continue
+            conflicts = identity_conflicts(broker_order, execution_fill)
             if conflicts:
                 raise BrokerIdentityConflict(
-                    "broker aggregate contains mixed execution identities: "
+                    "execution fill conflicts with broker aggregate: "
                     + ", ".join(sorted(conflicts))
                 )
-        next_quantity = sum(int(fill.get("quantity") or 0) for fill in fills)
-        next_fill_count = len(fills)
-        next_notional = sum(
-            int(fill.get("quantity") or 0) * float(fill.get("price") or 0)
-            for fill in fills
+            fills = _list_broker_execution_fills(
+                self.repository,
+                broker_order_key=broker_order_key,
+                fallback_fill=execution_fill,
+            )
+            for fill in fills:
+                conflicts = identity_conflicts(broker_order, fill)
+                if conflicts:
+                    raise BrokerIdentityConflict(
+                        "broker aggregate contains mixed execution identities: "
+                        + ", ".join(sorted(conflicts))
+                    )
+            next_quantity = sum(int(fill.get("quantity") or 0) for fill in fills)
+            next_fill_count = len(fills)
+            next_notional = sum(
+                int(fill.get("quantity") or 0) * float(fill.get("price") or 0)
+                for fill in fills
+            )
+            next_avg_price = (
+                round(next_notional / next_quantity, 6) if next_quantity > 0 else None
+            )
+            first_fill_time, last_fill_time = _fill_time_bounds(fills)
+            requested_quantity = broker_order.get("requested_quantity")
+            next_state = "PARTIAL_FILLED"
+            if requested_quantity not in (None, "") and next_quantity >= int(
+                requested_quantity
+            ):
+                next_state = "FILLED"
+            fill_set_fingerprint = _fill_set_fingerprint(fills)
+            next_document = {
+                **broker_order,
+                "broker_order_id": execution_fill.get("broker_order_id")
+                or broker_order.get("broker_order_id"),
+                "account_id": execution_fill.get("account_id")
+                or broker_order.get("account_id"),
+                "order_sysid": execution_fill.get("order_sysid")
+                or broker_order.get("order_sysid"),
+                "trading_day": execution_fill.get("trading_day")
+                or broker_order.get("trading_day"),
+                "filled_quantity": next_quantity,
+                "avg_filled_price": next_avg_price,
+                "fill_count": next_fill_count,
+                "fill_set_fingerprint": fill_set_fingerprint,
+                "aggregate_revision": int(broker_order.get("aggregate_revision") or 0)
+                + 1,
+                "first_fill_time": first_fill_time,
+                "last_fill_time": last_fill_time,
+                "state": next_state,
+                "updated_at": _utc_now_iso(),
+            }
+            if hasattr(self.repository, "compare_and_set_broker_order"):
+                saved_broker_order = self.repository.compare_and_set_broker_order(
+                    before=broker_order,
+                    after=next_document,
+                )
+                if saved_broker_order is None:
+                    continue
+            else:
+                saved_broker_order, _ = self.repository.upsert_broker_order(
+                    next_document,
+                    unique_keys=["broker_order_key"],
+                )
+            latest_fills = _list_broker_execution_fills(
+                self.repository,
+                broker_order_key=broker_order_key,
+                fallback_fill=execution_fill,
+            )
+            if _fill_set_fingerprint(latest_fills) == fill_set_fingerprint:
+                return saved_broker_order
+        raise BrokerIdentityConflict(
+            "broker aggregate could not converge after concurrent updates"
         )
-        next_avg_price = (
-            round(next_notional / next_quantity, 6) if next_quantity > 0 else None
-        )
-        first_fill_time, last_fill_time = _fill_time_bounds(fills)
-        requested_quantity = broker_order.get("requested_quantity")
-        next_state = "PARTIAL_FILLED"
-        if requested_quantity not in (None, "") and next_quantity >= int(
-            requested_quantity
-        ):
-            next_state = "FILLED"
-        next_document = {
-            **broker_order,
-            "broker_order_id": execution_fill.get("broker_order_id")
-            or broker_order.get("broker_order_id"),
-            "account_id": execution_fill.get("account_id")
-            or broker_order.get("account_id"),
-            "order_sysid": execution_fill.get("order_sysid")
-            or broker_order.get("order_sysid"),
-            "trading_day": execution_fill.get("trading_day")
-            or broker_order.get("trading_day"),
-            "filled_quantity": next_quantity,
-            "avg_filled_price": next_avg_price,
-            "fill_count": next_fill_count,
-            "first_fill_time": first_fill_time,
-            "last_fill_time": last_fill_time,
-            "state": next_state,
-            "updated_at": _utc_now_iso(),
-        }
-        saved_broker_order, _ = self.repository.upsert_broker_order(
-            next_document,
-            unique_keys=["broker_order_key"],
-        )
-        return saved_broker_order
 
 
 def _utc_now_iso():
@@ -827,6 +925,14 @@ def _normalize_trade_report_identity(report):
 
 
 def _non_empty_identity_fields(payload):
+    raw_correlation_token = payload.get("broker_correlation_token") or payload.get(
+        "order_remark"
+    )
+    broker_correlation_token = normalize_broker_correlation_token(raw_correlation_token)
+    if broker_correlation_token is None and looks_like_broker_correlation_token(
+        raw_correlation_token
+    ):
+        raise BrokerIdentityConflict("broker correlation token is malformed")
     normalized = {
         "account_id": normalize_account_id(payload.get("account_id")),
         "order_sysid": normalize_identifier(payload.get("order_sysid")),
@@ -836,6 +942,7 @@ def _non_empty_identity_fields(payload):
         "broker_order_id": normalize_identifier(
             payload.get("broker_order_id") or payload.get("order_id")
         ),
+        "broker_correlation_token": broker_correlation_token,
     }
     return {key: value for key, value in normalized.items() if value is not None}
 
@@ -847,6 +954,21 @@ def _assert_order_report_identity(current_order, report):
         "trading_day": resolve_trading_day(current_order),
     }
     conflicts = identity_conflicts(current_identity, report_identity)
+    current_correlation_token = normalize_broker_correlation_token(
+        current_order.get("broker_correlation_token")
+    )
+    report_correlation_token = normalize_broker_correlation_token(
+        report_identity.get("broker_correlation_token")
+    )
+    if (
+        current_correlation_token is not None
+        and report_correlation_token is not None
+        and current_correlation_token != report_correlation_token
+    ):
+        conflicts["broker_correlation_token"] = (
+            current_correlation_token,
+            report_correlation_token,
+        )
     if conflicts:
         raise BrokerIdentityConflict(
             "broker report conflicts with internal order: "
@@ -917,6 +1039,20 @@ def _fill_time_bounds(fills):
     if not values:
         return None, None
     return min(values), max(values)
+
+
+def _fill_set_fingerprint(fills):
+    payload = sorted(
+        (
+            str(fill.get("execution_identity") or fill.get("execution_fill_id") or ""),
+            int(fill.get("quantity") or 0),
+            str(fill.get("price") or ""),
+            int(fill.get("trade_time") or 0),
+        )
+        for fill in fills
+    )
+    serialized = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _pick_first_time(previous, current):

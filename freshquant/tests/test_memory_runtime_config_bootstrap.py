@@ -2,8 +2,26 @@ from __future__ import annotations
 
 import importlib
 
+import pytest
 
-def test_memory_runtime_config_reads_bootstrap_file(tmp_path, monkeypatch):
+
+@pytest.fixture
+def isolated_bootstrap_modules(monkeypatch):
+    import freshquant.bootstrap_config as bootstrap_module
+    import freshquant.runtime.memory.config as memory_config_module
+
+    yield bootstrap_module, memory_config_module
+
+    # ``importlib.reload`` mutates these process-global module dictionaries.
+    # Restore the environment first, then rebuild both snapshots for later tests.
+    monkeypatch.undo()
+    importlib.reload(bootstrap_module)
+    importlib.reload(memory_config_module)
+
+
+def test_memory_runtime_config_reads_bootstrap_file(
+    tmp_path, monkeypatch, isolated_bootstrap_modules
+):
     bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
     bootstrap_file.write_text(
         "\n".join(
@@ -22,8 +40,7 @@ def test_memory_runtime_config_reads_bootstrap_file(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
 
-    import freshquant.bootstrap_config as bootstrap_module
-    import freshquant.runtime.memory.config as memory_config_module
+    bootstrap_module, memory_config_module = isolated_bootstrap_modules
 
     bootstrap_module = importlib.reload(bootstrap_module)
     memory_config_module = importlib.reload(memory_config_module)

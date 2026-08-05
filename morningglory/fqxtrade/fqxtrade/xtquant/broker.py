@@ -334,7 +334,11 @@ def trading_main_loop():
                                     resolved_order["price"],
                                     resolved_order["quantity"],
                                     pydash.get(resolved_order, "strategy_name", "N/A"),
-                                    pydash.get(resolved_order, "remark", "N/A"),
+                                    pydash.get(
+                                        resolved_order,
+                                        "broker_order_remark",
+                                        pydash.get(resolved_order, "remark", "N/A"),
+                                    ),
                                     pydash.get(resolved_order, "retry_count", 0),
                                     order_type=pydash.get(
                                         resolved_order, "broker_order_type"
@@ -369,7 +373,11 @@ def trading_main_loop():
                                     resolved_order["price"],
                                     resolved_order["quantity"],
                                     pydash.get(resolved_order, "strategy_name", "N/A"),
-                                    pydash.get(resolved_order, "remark", "N/A"),
+                                    pydash.get(
+                                        resolved_order,
+                                        "broker_order_remark",
+                                        pydash.get(resolved_order, "remark", "N/A"),
+                                    ),
                                     pydash.get(resolved_order, "retry_count", 0),
                                     order_type=pydash.get(
                                         resolved_order, "broker_order_type"

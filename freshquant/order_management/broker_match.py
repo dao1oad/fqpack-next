@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from freshquant.order_management.broker_correlation import (
+    looks_like_broker_correlation_token,
+    normalize_broker_correlation_token,
+)
 from freshquant.order_management.broker_identity import (
     BrokerIdentityConflict,
     identity_conflicts,
@@ -37,6 +41,7 @@ def find_order_for_broker_report(
     order_sysid=None,
     trading_day=None,
     pinned_internal_order_id=None,
+    broker_correlation_token=None,
 ):
     if repository is None:
         return None
@@ -65,6 +70,41 @@ def find_order_for_broker_report(
     }
     order_type = order_type if order_type is not None else report.get("order_type")
     report_identity["side"] = normalize_side(side) or side_from_order_type(order_type)
+    report_identity["broker_order_type"] = order_type
+
+    raw_correlation_token = (
+        broker_correlation_token
+        if broker_correlation_token is not None
+        else report.get("broker_correlation_token") or report.get("order_remark")
+    )
+    correlation_token = normalize_broker_correlation_token(raw_correlation_token)
+    if correlation_token is None and looks_like_broker_correlation_token(
+        raw_correlation_token
+    ):
+        raise BrokerIdentityConflict("broker correlation token is malformed")
+    if correlation_token is not None:
+        correlated_order = _find_order_by_broker_correlation_token(
+            repository,
+            correlation_token,
+        )
+        if correlated_order is None:
+            raise BrokerIdentityConflict("broker correlation token is unknown")
+        correlated_internal_order_id = normalize_identifier(
+            correlated_order.get("internal_order_id")
+        )
+        if correlated_internal_order_id is None:
+            raise BrokerIdentityConflict(
+                "broker correlation token has no internal order owner"
+            )
+        if (
+            pinned_internal_order_id not in (None, "", "None")
+            and normalize_identifier(pinned_internal_order_id)
+            != correlated_internal_order_id
+        ):
+            raise BrokerIdentityConflict(
+                "pinned internal order conflicts with broker correlation token"
+            )
+        pinned_internal_order_id = correlated_internal_order_id
 
     if pinned_internal_order_id not in (None, "", "None"):
         candidate = repository.find_order(str(pinned_internal_order_id))
@@ -72,12 +112,17 @@ def find_order_for_broker_report(
             raise BrokerIdentityConflict(
                 f"pinned internal order does not exist: {pinned_internal_order_id}"
             )
-        conflicts = identity_conflicts(_candidate_identity(candidate), report_identity)
+        conflicts = _identity_conflicts(_candidate_identity(candidate), report_identity)
         if conflicts:
             dimensions = ", ".join(sorted(conflicts))
             raise BrokerIdentityConflict(
                 f"pinned internal order conflicts with broker report: {dimensions}"
             )
+        _assert_no_competing_broker_identity(
+            repository,
+            candidate=candidate,
+            report_identity=report_identity,
+        )
         return candidate
 
     candidates = _list_order_candidates(
@@ -88,10 +133,22 @@ def find_order_for_broker_report(
     compatible = [
         candidate
         for candidate in candidates
-        if not identity_conflicts(_candidate_identity(candidate), report_identity)
+        if not _identity_conflicts(_candidate_identity(candidate), report_identity)
     ]
+    matching_unbound_orders = _list_matching_unbound_orders(
+        repository,
+        report_identity=report_identity,
+    )
     if not compatible:
+        if matching_unbound_orders:
+            raise BrokerIdentityConflict(
+                "broker report lacks correlation token for unbound internal order candidates"
+            )
         return None
+    if matching_unbound_orders:
+        raise BrokerIdentityConflict(
+            "broker report has bound and unbound internal order candidates without a correlation token"
+        )
 
     if (
         report_identity["account_id"]
@@ -110,7 +167,9 @@ def find_order_for_broker_report(
         if len(primary) == 1:
             return primary[0]
         if len(primary) > 1:
-            return None
+            raise BrokerIdentityConflict(
+                "broker report matches multiple primary internal orders"
+            )
 
     fallback_fields = (
         "account_id",
@@ -131,7 +190,9 @@ def find_order_for_broker_report(
         if len(exact_fallback) == 1:
             return exact_fallback[0]
         if len(exact_fallback) > 1:
-            return None
+            raise BrokerIdentityConflict(
+                "broker report matches multiple fallback internal orders"
+            )
 
     return None
 
@@ -193,7 +254,95 @@ def _candidate_identity(order):
         "symbol": order.get("symbol"),
         "side": _candidate_side(order),
         "broker_order_id": order.get("broker_order_id"),
+        "broker_order_type": order.get("broker_order_type"),
     }
+
+
+def _identity_conflicts(candidate_identity, report_identity):
+    conflicts = identity_conflicts(candidate_identity, report_identity)
+    candidate_order_type = candidate_identity.get("broker_order_type")
+    report_order_type = report_identity.get("broker_order_type")
+    if (
+        candidate_order_type not in (None, "")
+        and report_order_type not in (None, "")
+        and not _order_type_equivalent(candidate_order_type, report_order_type)
+    ):
+        conflicts["broker_order_type"] = (
+            candidate_order_type,
+            report_order_type,
+        )
+    return conflicts
+
+
+def _find_order_by_broker_correlation_token(repository, token):
+    finder = getattr(repository, "find_order_by_broker_correlation_token", None)
+    if callable(finder):
+        return finder(token)
+    if not hasattr(repository, "list_orders"):
+        return None
+    matches = [
+        order
+        for order in repository.list_orders()
+        if normalize_broker_correlation_token(order.get("broker_correlation_token"))
+        == token
+    ]
+    if len(matches) > 1:
+        raise BrokerIdentityConflict(
+            "broker correlation token has multiple internal order owners"
+        )
+    return matches[0] if matches else None
+
+
+def _list_matching_unbound_orders(repository, *, report_identity):
+    required_fields = ("account_id", "trading_day", "symbol", "side")
+    if not hasattr(repository, "list_orders") or not all(
+        report_identity.get(field) is not None for field in required_fields
+    ):
+        return []
+    try:
+        candidates = repository.list_orders(
+            symbol=report_identity["symbol"],
+            states=_NONTERMINAL_STATES,
+            missing_broker_only=True,
+        )
+    except TypeError:
+        candidates = repository.list_orders()
+    return [
+        candidate
+        for candidate in candidates
+        if normalize_identifier(candidate.get("broker_order_id")) is None
+        and str(candidate.get("state") or "").upper() in _NONTERMINAL_STATES
+        and all(
+            _candidate_identity(candidate).get(field) == report_identity[field]
+            for field in required_fields
+        )
+    ]
+
+
+def _assert_no_competing_broker_identity(
+    repository,
+    *,
+    candidate,
+    report_identity,
+):
+    candidate_internal_order_id = normalize_identifier(
+        candidate.get("internal_order_id")
+    )
+    for other in _list_order_candidates(
+        repository,
+        broker_order_id=report_identity.get("broker_order_id"),
+        order_sysid=report_identity.get("order_sysid"),
+    ):
+        other_internal_order_id = normalize_identifier(other.get("internal_order_id"))
+        if (
+            candidate_internal_order_id is not None
+            and other_internal_order_id == candidate_internal_order_id
+        ):
+            continue
+        if not identity_conflicts(_candidate_identity(other), report_identity):
+            raise BrokerIdentityConflict(
+                "broker identity is already owned by another internal order"
+            )
 
 
 def _order_type_equivalent(left, right):

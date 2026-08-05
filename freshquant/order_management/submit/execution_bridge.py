@@ -5,6 +5,10 @@ from datetime import time as dt_time
 from datetime import timezone
 
 from freshquant.carnation import xtconstant
+from freshquant.order_management.broker_correlation import (
+    build_broker_correlation_token,
+    normalize_broker_correlation_token,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
 
@@ -40,6 +44,24 @@ def prepare_submit_execution(
         )
         return {"status": "skipped", "reason": "already_canceled"}
 
+    message_correlation_token = normalize_broker_correlation_token(
+        order_message.get("broker_correlation_token")
+    )
+    order_correlation_token = normalize_broker_correlation_token(
+        order.get("broker_correlation_token")
+    )
+    if (
+        message_correlation_token is not None
+        and order_correlation_token is not None
+        and message_correlation_token != order_correlation_token
+    ):
+        raise ValueError("broker correlation token conflicts with internal order")
+    broker_correlation_token = (
+        order_correlation_token
+        or message_correlation_token
+        or build_broker_correlation_token(internal_order_id)
+    )
+
     runtime_resolution = _resolve_runtime_execution(
         order_message,
         order,
@@ -55,6 +77,7 @@ def prepare_submit_execution(
             "broker_order_type": runtime_resolution.get("broker_order_type"),
             "price_mode_resolved": runtime_resolution.get("price_mode_resolved"),
             "broker_price_type": runtime_resolution.get("broker_price_type"),
+            "broker_correlation_token": broker_correlation_token,
             "updated_at": _utc_now_iso(),
         },
     )
@@ -85,6 +108,8 @@ def prepare_submit_execution(
             "credit_available_amount": runtime_resolution.get(
                 "credit_available_amount"
             ),
+            "broker_correlation_token": broker_correlation_token,
+            "broker_order_remark": broker_correlation_token,
         }
     )
     return {"status": "execute", "order_message": resolved_message}

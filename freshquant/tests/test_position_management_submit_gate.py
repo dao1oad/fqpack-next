@@ -113,6 +113,7 @@ def test_strategy_order_is_blocked_before_tracking_when_position_management_reje
         queue_client=queue_client,
         position_management_service=position_management_service,
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
     )
 
     with pytest.raises(PositionManagementRejectedError):
@@ -140,6 +141,7 @@ def test_api_order_bypasses_position_management():
         queue_client=queue_client,
         position_management_service=position_management_service,
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
     )
 
     result = service.submit_order(
@@ -166,6 +168,7 @@ def test_allowed_strategy_order_carries_position_management_summary_to_queue():
         queue_client=queue_client,
         position_management_service=position_management_service,
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
     )
 
     result = service.submit_order(
@@ -193,6 +196,7 @@ def test_strategy_order_persists_strategy_context_to_tracking_and_queue():
         queue_client=queue_client,
         position_management_service=position_management_service,
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
     )
     strategy_context = {
         "guardian_buy_grid": {
@@ -318,6 +322,7 @@ def _build_submit_service_with_default_position_loader(
         queue_client=FakeQueueClient(),
         position_management_service=position_service,
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
         runtime_logger=runtime_logger,
     )
     return submit_service, position_repository

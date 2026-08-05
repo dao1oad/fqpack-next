@@ -15,6 +15,7 @@ from freshquant.order_management.broker_identity import (
     normalize_side,
     normalize_symbol,
     normalize_trading_day,
+    resolve_trading_day,
 )
 from freshquant.order_management.db import DBOrderManagement
 
@@ -32,14 +33,28 @@ _EXECUTION_IMMUTABLE_FIELDS = (
     "trade_time",
 )
 
+_CANONICAL_EXECUTION_RECORD_VERSION = 2
+
 
 class OrderManagementRepository:
     def __init__(self, database=None):
         self.database = database if database is not None else DBOrderManagement
-        self._ensure_canonical_indexes()
+        self._canonical_indexes_ready = False
 
     def _ensure_canonical_indexes(self):
+        if self._canonical_indexes_ready:
+            return
         for collection, field, name in (
+            (
+                self.orders,
+                "internal_order_id",
+                "uq_om_orders_internal_order_id",
+            ),
+            (
+                self.orders,
+                "broker_correlation_token",
+                "uq_om_orders_broker_correlation_token",
+            ),
             (
                 self.broker_orders,
                 "broker_order_key",
@@ -66,6 +81,11 @@ class OrderManagementRepository:
                 "uq_om_entry_slices_entry_slice_id",
             ),
             (
+                self.sell_allocations,
+                "allocation_id",
+                "uq_om_sell_allocations_allocation_id",
+            ),
+            (
                 self.exit_allocations,
                 "allocation_id",
                 "uq_om_exit_allocations_allocation_id",
@@ -80,6 +100,7 @@ class OrderManagementRepository:
                 partialFilterExpression={field: {"$type": "string"}},
                 name=name,
             )
+        self._canonical_indexes_ready = True
 
     @property
     def order_requests(self):
@@ -207,10 +228,57 @@ class OrderManagementRepository:
         return list(cursor)
 
     def insert_order(self, document):
-        self.orders.insert_one(document)
-        return document
+        self._ensure_canonical_indexes()
+        payload = _without_mongo_id(document)
+        internal_order_id = normalize_identifier(payload.get("internal_order_id"))
+        if internal_order_id is None:
+            raise BrokerIdentityConflict("internal_order_id is required")
+        payload["internal_order_id"] = internal_order_id
+        try:
+            self.orders.update_one(
+                {"internal_order_id": internal_order_id},
+                {"$setOnInsert": payload},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            pass
+        saved = self.find_order(internal_order_id)
+        if saved is None:
+            raise BrokerIdentityConflict("canonical order insert did not persist")
+        conflicts = identity_conflicts(saved, payload)
+        if conflicts:
+            raise BrokerIdentityConflict(
+                "order conflicts with canonical identity: "
+                + ", ".join(sorted(conflicts))
+            )
+        saved_request_id = normalize_identifier(saved.get("request_id"))
+        incoming_request_id = normalize_identifier(payload.get("request_id"))
+        if (
+            saved_request_id is not None
+            and incoming_request_id is not None
+            and saved_request_id != incoming_request_id
+        ):
+            raise BrokerIdentityConflict(
+                "order conflicts with canonical request ownership"
+            )
+        saved_correlation_token = normalize_identifier(
+            saved.get("broker_correlation_token")
+        )
+        incoming_correlation_token = normalize_identifier(
+            payload.get("broker_correlation_token")
+        )
+        if (
+            saved_correlation_token is not None
+            and incoming_correlation_token is not None
+            and saved_correlation_token != incoming_correlation_token
+        ):
+            raise BrokerIdentityConflict(
+                "order conflicts with canonical broker correlation ownership"
+            )
+        return saved
 
     def upsert_broker_order(self, document, unique_keys):
+        self._ensure_canonical_indexes()
         query = {key: document[key] for key in unique_keys}
         payload = _without_mongo_id(document)
         existing = self._find_canonical_broker_order(document, query=query)
@@ -236,7 +304,53 @@ class OrderManagementRepository:
         saved = self._find_canonical_broker_order(document, query=query)
         return saved, result.upserted_id is not None
 
+    def update_broker_order_fields(self, broker_order_key, updates):
+        self._ensure_canonical_indexes()
+        normalized_key = normalize_identifier(broker_order_key)
+        if normalized_key is None:
+            raise BrokerIdentityConflict("broker_order_key is required")
+        current = self.find_broker_order(normalized_key)
+        if current is None:
+            return None
+        payload = _without_mongo_id(updates)
+        _assert_broker_order_identity_consistent(current, {**current, **payload})
+        self.broker_orders.update_one(
+            {"broker_order_key": normalized_key},
+            {"$set": payload},
+            upsert=False,
+        )
+        return self.find_broker_order(normalized_key)
+
+    def compare_and_set_broker_order(self, *, before, after):
+        self._ensure_canonical_indexes()
+        before_payload = _without_mongo_id(before)
+        after_payload = _without_mongo_id(after)
+        broker_order_key = normalize_identifier(
+            after_payload.get("broker_order_key")
+            or before_payload.get("broker_order_key")
+        )
+        if broker_order_key is None:
+            raise BrokerIdentityConflict("broker_order_key is required")
+        before_payload["broker_order_key"] = broker_order_key
+        after_payload["broker_order_key"] = broker_order_key
+        _assert_broker_order_identity_consistent(before_payload, after_payload)
+        result = self.broker_orders.replace_one(
+            _exact_projection_selector(
+                before_payload,
+                identity_field="broker_order_key",
+            ),
+            after_payload,
+            upsert=False,
+        )
+        if result.matched_count:
+            return self.find_broker_order(broker_order_key)
+        current = self.find_broker_order(broker_order_key)
+        if current is not None and _without_mongo_id(current) == after_payload:
+            return current
+        return None
+
     def move_broker_order_key(self, old_key, new_key, document):
+        self._ensure_canonical_indexes()
         old_key = normalize_identifier(old_key)
         new_key = normalize_identifier(new_key)
         if new_key is None:
@@ -315,11 +429,47 @@ class OrderManagementRepository:
         return document
 
     def upsert_trade_fact(self, document, unique_keys):
+        self.preflight_execution_replay(document)
         return self._upsert_execution_document(
             collection=self.trade_facts,
             document=document,
             unique_keys=unique_keys,
+            document_id_field="trade_fact_id",
         )
+
+    def preflight_execution_replay(self, document):
+        execution_identity = normalize_identifier(document.get("execution_identity"))
+        if execution_identity is None:
+            return
+        states = []
+        for label, collection in (
+            ("trade_fact", self.trade_facts),
+            ("execution_fill", self.execution_fills),
+        ):
+            canonical = (
+                collection.find_one({"execution_identity": execution_identity})
+                if execution_identity is not None
+                else None
+            )
+            if canonical is not None:
+                _assert_execution_identity_consistent(canonical, document)
+            legacy = _find_legacy_execution_candidate(
+                collection,
+                document,
+                repository=self,
+            )
+            if canonical is not None and legacy is not None:
+                raise BrokerIdentityConflict(
+                    f"execution replay has duplicate canonical and legacy {label} rows"
+                )
+            states.append(
+                {
+                    "label": label,
+                    "canonical": canonical,
+                    "legacy": legacy,
+                }
+            )
+        _assert_execution_replay_pair_state(states)
 
     def find_order(self, internal_order_id):
         return self.orders.find_one({"internal_order_id": internal_order_id})
@@ -330,8 +480,19 @@ class OrderManagementRepository:
     def find_broker_order_by_broker_order_id(self, broker_order_id):
         return self.broker_orders.find_one({"broker_order_id": str(broker_order_id)})
 
+    def list_broker_orders_by_broker_order_id(self, broker_order_id):
+        if broker_order_id in (None, "", "None"):
+            return []
+        return list(self.broker_orders.find({"broker_order_id": str(broker_order_id)}))
+
     def find_order_by_request_id(self, request_id):
         return self.orders.find_one({"request_id": request_id})
+
+    def find_order_by_broker_correlation_token(self, token):
+        normalized = normalize_identifier(token)
+        if normalized is None:
+            return None
+        return self.orders.find_one({"broker_correlation_token": normalized})
 
     def find_order_by_broker_order_id(self, broker_order_id):
         return self.orders.find_one({"broker_order_id": str(broker_order_id)})
@@ -349,15 +510,67 @@ class OrderManagementRepository:
         return self.find_order(internal_order_id)
 
     def upsert_execution_fill(self, document, unique_keys):
+        self.preflight_execution_replay(document)
         return self._upsert_execution_document(
             collection=self.execution_fills,
             document=document,
             unique_keys=unique_keys,
+            document_id_field="execution_fill_id",
+            legacy_projection_status_resolver=(
+                lambda incoming: _resolve_legacy_execution_projection_status(
+                    self,
+                    incoming,
+                )
+            ),
         )
 
-    def _upsert_execution_document(self, *, collection, document, unique_keys):
+    def _upsert_execution_document(
+        self,
+        *,
+        collection,
+        document,
+        unique_keys,
+        document_id_field,
+        legacy_projection_status=None,
+        legacy_projection_status_resolver=None,
+    ):
+        self._ensure_canonical_indexes()
         query = {key: document[key] for key in unique_keys}
         payload = _without_mongo_id(document)
+        if normalize_identifier(payload.get("execution_identity")) is not None:
+            payload.setdefault(
+                "execution_record_version", _CANONICAL_EXECUTION_RECORD_VERSION
+            )
+        existing = _find_canonical_execution_document(
+            collection,
+            document,
+            query=query,
+        )
+        if existing is not None:
+            _assert_execution_identity_consistent(existing, document)
+            return existing, False
+
+        legacy = _find_legacy_execution_candidate(
+            collection,
+            document,
+            repository=self,
+        )
+        if legacy is not None:
+            resolved_legacy_projection_status = legacy_projection_status
+            if callable(legacy_projection_status_resolver):
+                resolved_legacy_projection_status = legacy_projection_status_resolver(
+                    document
+                )
+            saved = _migrate_legacy_execution_candidate(
+                collection,
+                legacy=legacy,
+                incoming=document,
+                document_id_field=document_id_field,
+                legacy_projection_status=resolved_legacy_projection_status,
+            )
+            _assert_execution_identity_consistent(saved, document)
+            return saved, False
+
         try:
             result = collection.update_one(
                 query,
@@ -384,6 +597,205 @@ class OrderManagementRepository:
             _assert_execution_identity_consistent(saved, document)
         return saved, result.upserted_id is not None
 
+    def prepare_execution_projection(self, execution_identity, projection_plan):
+        normalized_identity = normalize_identifier(execution_identity)
+        if normalized_identity is None:
+            raise BrokerIdentityConflict("execution projection requires identity")
+        group_progress = _initial_projection_group_progress(projection_plan)
+        self.execution_fills.update_one(
+            {
+                "execution_identity": normalized_identity,
+                "projection_status": "PENDING",
+                "projection_plan": None,
+            },
+            {
+                "$set": {
+                    "projection_plan": projection_plan,
+                    "projection_group_progress": group_progress,
+                }
+            },
+        )
+        saved = self.execution_fills.find_one(
+            {"execution_identity": normalized_identity}
+        )
+        if saved is None:
+            raise BrokerIdentityConflict("execution projection fill is missing")
+        status = normalize_identifier(saved.get("projection_status"))
+        if status not in {"PENDING", "APPLIED"}:
+            raise BrokerIdentityConflict(
+                "execution projection state is not recoverable"
+            )
+        return saved
+
+    def get_execution_projection_group_progress(
+        self,
+        execution_identity,
+        operation_id,
+    ):
+        normalized_identity = normalize_identifier(execution_identity)
+        normalized_operation_id = normalize_identifier(operation_id)
+        if normalized_identity is None or normalized_operation_id is None:
+            raise BrokerIdentityConflict(
+                "execution projection group progress requires identity"
+            )
+        saved = self.execution_fills.find_one(
+            {"execution_identity": normalized_identity}
+        )
+        if saved is None:
+            raise BrokerIdentityConflict("execution projection fill is missing")
+        progress_by_operation = saved.get("projection_group_progress")
+        if not isinstance(progress_by_operation, dict):
+            raise BrokerIdentityConflict(
+                "execution projection group progress is missing"
+            )
+        try:
+            return int(progress_by_operation[normalized_operation_id])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise BrokerIdentityConflict(
+                "execution projection group progress is invalid"
+            ) from exc
+
+    def advance_execution_projection_group_progress(
+        self,
+        execution_identity,
+        operation_id,
+        *,
+        expected_step,
+        next_step,
+    ):
+        normalized_identity = normalize_identifier(execution_identity)
+        normalized_operation_id = normalize_identifier(operation_id)
+        if normalized_identity is None or normalized_operation_id is None:
+            raise BrokerIdentityConflict(
+                "execution projection group progress requires identity"
+            )
+        field = f"projection_group_progress.{normalized_operation_id}"
+        result = self.execution_fills.update_one(
+            {
+                "execution_identity": normalized_identity,
+                "projection_status": "PENDING",
+                field: int(expected_step),
+            },
+            {"$set": {field: int(next_step)}},
+            upsert=False,
+        )
+        current = self.get_execution_projection_group_progress(
+            normalized_identity,
+            normalized_operation_id,
+        )
+        if result.matched_count or current == int(next_step):
+            return current
+        raise BrokerIdentityConflict(
+            "execution projection group progress compare-and-set conflict"
+        )
+
+    def mark_execution_projection_applied(self, execution_identity, *, applied_at):
+        normalized_identity = normalize_identifier(execution_identity)
+        if normalized_identity is None:
+            raise BrokerIdentityConflict("execution projection requires identity")
+        self.execution_fills.update_one(
+            {
+                "execution_identity": normalized_identity,
+                "projection_status": "PENDING",
+            },
+            {
+                "$set": {
+                    "projection_status": "APPLIED",
+                    "projection_applied_at": applied_at,
+                }
+            },
+        )
+        saved = self.execution_fills.find_one(
+            {"execution_identity": normalized_identity}
+        )
+        if saved is None or saved.get("projection_status") != "APPLIED":
+            raise BrokerIdentityConflict(
+                "execution projection could not be marked applied"
+            )
+        return saved
+
+    def compare_and_set_projection_document(
+        self,
+        projection_type,
+        *,
+        before,
+        after,
+    ):
+        targets = {
+            "buy_lot": (self.buy_lots, "buy_lot_id"),
+            "lot_slice": (self.lot_slices, "lot_slice_id"),
+            "position_entry": (self.position_entries, "entry_id"),
+            "entry_slice": (self.entry_slices, "entry_slice_id"),
+        }
+        target = targets.get(str(projection_type or ""))
+        if target is None:
+            raise BrokerIdentityConflict("execution projection target is unsupported")
+        collection, identity_field = target
+        before_payload = _without_mongo_id(before) if before is not None else None
+        after_payload = _without_mongo_id(after) if after is not None else None
+        identity = normalize_identifier(
+            (after_payload or before_payload or {}).get(identity_field)
+        )
+        if identity is None:
+            raise BrokerIdentityConflict(
+                f"execution projection requires {identity_field}"
+            )
+        if before_payload is not None:
+            before_payload[identity_field] = identity
+        if after_payload is not None:
+            after_payload[identity_field] = identity
+
+        if before_payload is None:
+            if after_payload is None:
+                return None
+            try:
+                collection.update_one(
+                    {identity_field: identity},
+                    {"$setOnInsert": after_payload},
+                    upsert=True,
+                )
+            except DuplicateKeyError:
+                pass
+            return _assert_projection_cas_result(
+                collection,
+                identity_field=identity_field,
+                identity=identity,
+                expected=after_payload,
+            )
+
+        if after_payload is None:
+            result = collection.delete_one(
+                _exact_projection_selector(
+                    before_payload,
+                    identity_field=identity_field,
+                )
+            )
+            if result.deleted_count:
+                return None
+            current = list(collection.find({identity_field: identity}))
+            if not current:
+                return None
+            raise BrokerIdentityConflict(
+                f"execution projection compare-and-set conflict at {projection_type}:{identity}"
+            )
+
+        result = collection.replace_one(
+            _exact_projection_selector(
+                before_payload,
+                identity_field=identity_field,
+            ),
+            after_payload,
+            upsert=False,
+        )
+        if result.matched_count:
+            return after_payload
+        return _assert_projection_cas_result(
+            collection,
+            identity_field=identity_field,
+            identity=identity,
+            expected=after_payload,
+        )
+
     def find_buy_lot_by_origin_trade_fact_id(self, origin_trade_fact_id):
         return self.buy_lots.find_one({"origin_trade_fact_id": origin_trade_fact_id})
 
@@ -406,6 +818,7 @@ class OrderManagementRepository:
         return self.position_entries.find_one({"entry_id": entry_id})
 
     def replace_position_entry(self, document):
+        self._ensure_canonical_indexes()
         self.position_entries.replace_one(
             {"entry_id": document["entry_id"]},
             document,
@@ -420,12 +833,14 @@ class OrderManagementRepository:
         return slices
 
     def replace_entry_slices_for_entry(self, entry_id, slices):
+        self._ensure_canonical_indexes()
         self.entry_slices.delete_many({"entry_id": entry_id})
         if slices:
             self.entry_slices.insert_many(slices)
         return slices
 
     def upsert_entry_slices(self, slices):
+        self._ensure_canonical_indexes()
         for document in list(slices or []):
             self.entry_slices.replace_one(
                 {"entry_slice_id": document["entry_slice_id"]},
@@ -443,14 +858,18 @@ class OrderManagementRepository:
         return slices
 
     def insert_sell_allocations(self, allocations):
-        if allocations:
-            self.sell_allocations.insert_many(allocations)
-        return allocations
+        self._ensure_canonical_indexes()
+        return _insert_allocations_fail_closed(
+            self.sell_allocations,
+            allocations,
+        )
 
     def insert_exit_allocations(self, allocations):
-        if allocations:
-            self.exit_allocations.insert_many(allocations)
-        return allocations
+        self._ensure_canonical_indexes()
+        return _insert_allocations_fail_closed(
+            self.exit_allocations,
+            allocations,
+        )
 
     def insert_reconciliation_gap(self, document):
         self.reconciliation_gaps.insert_one(document)
@@ -541,6 +960,12 @@ class OrderManagementRepository:
         if execution_fill_ids is not None:
             query["execution_fill_id"] = {"$in": list(execution_fill_ids)}
         return list(self.execution_fills.find(query))
+
+    def list_lot_slices(self, *, buy_lot_ids=None):
+        query = {}
+        if buy_lot_ids is not None:
+            query["buy_lot_id"] = {"$in": list(buy_lot_ids)}
+        return list(self.lot_slices.find(query))
 
     def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
         query = {}
@@ -652,6 +1077,12 @@ class OrderManagementRepository:
             query["entry_id"] = {"$in": list(entry_ids)}
         return list(self.exit_allocations.find(query))
 
+    def list_sell_allocations(self, *, buy_lot_ids=None):
+        query = {}
+        if buy_lot_ids is not None:
+            query["buy_lot_id"] = {"$in": list(buy_lot_ids)}
+        return list(self.sell_allocations.find(query))
+
     def find_exit_allocation_reference_errors(self, *, entry_ids=None):
         allocations = self.list_exit_allocations(entry_ids=entry_ids)
         if entry_ids is None:
@@ -706,6 +1137,88 @@ class OrderManagementRepository:
         return list(self.ingest_rejections.find(query))
 
 
+def _insert_allocations_fail_closed(collection, allocations):
+    documents = [_without_mongo_id(item) for item in list(allocations or [])]
+    allocation_ids = []
+    for document in documents:
+        allocation_id = normalize_identifier(document.get("allocation_id"))
+        if allocation_id is None:
+            raise BrokerIdentityConflict(
+                "execution projection allocation_id is required"
+            )
+        document["allocation_id"] = allocation_id
+        allocation_ids.append(allocation_id)
+    if len(allocation_ids) != len(set(allocation_ids)):
+        raise BrokerIdentityConflict(
+            "execution projection contains duplicate allocation_id"
+        )
+
+    for document in documents:
+        allocation_id = document["allocation_id"]
+        try:
+            collection.update_one(
+                {"allocation_id": allocation_id},
+                {"$setOnInsert": document},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            pass
+        _assert_projection_cas_result(
+            collection,
+            identity_field="allocation_id",
+            identity=allocation_id,
+            expected=document,
+        )
+    return allocations
+
+
+def _initial_projection_group_progress(projection_plan):
+    progress = {}
+    for group_name in ("lot_slice_groups", "entry_slice_groups"):
+        for group in list((projection_plan or {}).get(group_name) or []):
+            operation_id = normalize_identifier(group.get("operation_id"))
+            if operation_id is None:
+                raise BrokerIdentityConflict(
+                    "execution projection group operation_id is required"
+                )
+            if operation_id in progress:
+                raise BrokerIdentityConflict(
+                    "execution projection group operation_id is duplicated"
+                )
+            progress[operation_id] = 0
+    return progress
+
+
+def _exact_projection_selector(document, *, identity_field):
+    payload = _without_mongo_id(document)
+    return {
+        identity_field: payload[identity_field],
+        "$expr": {
+            "$eq": [
+                {"$unsetField": {"field": "_id", "input": "$$ROOT"}},
+                payload,
+            ]
+        },
+    }
+
+
+def _assert_projection_cas_result(
+    collection,
+    *,
+    identity_field,
+    identity,
+    expected,
+):
+    current = list(collection.find({identity_field: identity}))
+    if len(current) == 1 and _without_mongo_id(current[0]) == _without_mongo_id(
+        expected
+    ):
+        return current[0]
+    raise BrokerIdentityConflict(
+        f"execution projection compare-and-set conflict at {identity_field}:{identity}"
+    )
+
+
 def _without_mongo_id(document):
     return {key: value for key, value in dict(document or {}).items() if key != "_id"}
 
@@ -726,6 +1239,417 @@ def _find_canonical_execution_document(collection, document, *, query):
         if canonical is not None:
             return canonical
     return collection.find_one(query)
+
+
+def _assert_execution_replay_pair_state(states):
+    legacy_states = [state for state in states if state.get("legacy") is not None]
+    if legacy_states:
+        for state in states:
+            if state.get("legacy") is not None:
+                continue
+            canonical = state.get("canonical")
+            if canonical is None or not canonical.get("legacy_identity_migrated"):
+                raise BrokerIdentityConflict(
+                    "legacy execution replay requires paired trade_fact and "
+                    "execution_fill rows"
+                )
+        for state in states:
+            canonical = state.get("canonical")
+            if canonical is not None and not canonical.get("legacy_identity_migrated"):
+                raise BrokerIdentityConflict(
+                    "legacy execution replay conflicts with a canonical V2 counterpart"
+                )
+        return
+
+    canonical_states = [state for state in states if state.get("canonical") is not None]
+    if len(canonical_states) in (0, len(states)):
+        return
+    canonical = canonical_states[0]["canonical"]
+    try:
+        record_version = int(canonical.get("execution_record_version") or 0)
+    except (TypeError, ValueError, OverflowError):
+        record_version = 0
+    if record_version >= _CANONICAL_EXECUTION_RECORD_VERSION and not canonical.get(
+        "legacy_identity_migrated"
+    ):
+        return
+    raise BrokerIdentityConflict(
+        "execution replay has an unpaired legacy or unversioned counterpart"
+    )
+
+
+def _find_legacy_execution_candidate(collection, incoming, *, repository):
+    execution_identity = normalize_identifier(incoming.get("execution_identity"))
+    broker_trade_id = normalize_identifier(incoming.get("broker_trade_id"))
+    if execution_identity is None or broker_trade_id is None:
+        return None
+    broker_trade_id_variants = [broker_trade_id]
+    if broker_trade_id.isdigit():
+        broker_trade_id_variants.append(int(broker_trade_id))
+    candidates = [
+        item
+        for item in collection.find(
+            {"broker_trade_id": {"$in": broker_trade_id_variants}}
+        )
+        if normalize_identifier(item.get("execution_identity")) is None
+    ]
+    if not candidates:
+        return None
+    if len(candidates) != 1:
+        raise BrokerIdentityConflict(
+            "legacy execution replay is ambiguous for broker_trade_id"
+        )
+    candidate = candidates[0]
+    _assert_legacy_execution_match(candidate, incoming, repository=repository)
+    return candidate
+
+
+def _migrate_legacy_execution_candidate(
+    collection,
+    *,
+    legacy,
+    incoming,
+    document_id_field,
+    legacy_projection_status,
+):
+    selector = _legacy_execution_selector(
+        legacy,
+        document_id_field=document_id_field,
+    )
+    updates = {
+        "execution_identity": incoming["execution_identity"],
+        "broker_trade_id": incoming["broker_trade_id"],
+        "account_id": incoming["account_id"],
+        "trading_day": incoming["trading_day"],
+        "broker_order_key": incoming.get("broker_order_key"),
+        "internal_order_id": incoming.get("internal_order_id"),
+        "broker_order_id": incoming.get("broker_order_id"),
+        "order_sysid": incoming.get("order_sysid"),
+        "legacy_identity_migrated": True,
+        "execution_record_version": 1,
+        "execution_record_origin": "legacy",
+    }
+    if legacy_projection_status is not None:
+        updates["projection_status"] = legacy_projection_status
+        if legacy_projection_status == "APPLIED":
+            updates["projection_legacy_proven_applied"] = True
+        elif legacy_projection_status == "PENDING":
+            updates["projection_legacy_replay_required"] = True
+    collection.update_one(
+        selector,
+        {"$set": {key: value for key, value in updates.items() if value is not None}},
+        upsert=False,
+    )
+    saved = collection.find_one(selector)
+    if saved is None:
+        raise BrokerIdentityConflict("legacy execution migration lost canonical row")
+    return saved
+
+
+def _legacy_execution_selector(document, *, document_id_field):
+    if document.get("_id") is not None:
+        return {"_id": document["_id"]}
+    document_id = normalize_identifier(document.get(document_id_field))
+    if document_id is not None:
+        return {document_id_field: document_id}
+    return {
+        "broker_trade_id": document.get("broker_trade_id"),
+        "internal_order_id": document.get("internal_order_id"),
+        "trade_time": document.get("trade_time"),
+    }
+
+
+def _assert_legacy_execution_match(existing, incoming, *, repository):
+    required_fields = (
+        "broker_trade_id",
+        "symbol",
+        "side",
+        "quantity",
+        "price",
+        "trade_time",
+    )
+    conflicts = {}
+    for field in required_fields:
+        left = _normalize_execution_field(field, existing.get(field))
+        right = _normalize_execution_field(field, incoming.get(field))
+        if left is None or right is None or left != right:
+            conflicts[field] = (left, right)
+
+    existing_day = _resolve_execution_trading_day(existing)
+    incoming_day = _resolve_execution_trading_day(incoming)
+    if existing_day is None or incoming_day is None or existing_day != incoming_day:
+        conflicts["trading_day"] = (existing_day, incoming_day)
+
+    existing_clock = _normalize_execution_clock(existing.get("time"))
+    incoming_clock = _normalize_execution_clock(incoming.get("time"))
+    if (
+        existing_clock is None
+        or incoming_clock is None
+        or existing_clock != incoming_clock
+    ):
+        conflicts["time"] = (existing_clock, incoming_clock)
+
+    existing_account = _resolve_legacy_execution_account(
+        existing,
+        repository=repository,
+    )
+    incoming_account = normalize_account_id(incoming.get("account_id"))
+    if (
+        existing_account is None
+        or incoming_account is None
+        or existing_account != incoming_account
+    ):
+        conflicts["account_id"] = (existing_account, incoming_account)
+
+    for field in ("internal_order_id", "broker_order_id"):
+        left = normalize_identifier(existing.get(field))
+        right = normalize_identifier(incoming.get(field))
+        if left is not None and right is not None and left != right:
+            conflicts[field] = (left, right)
+
+    if conflicts:
+        raise BrokerIdentityConflict(
+            "legacy execution replay cannot be proven identical: "
+            + ", ".join(sorted(conflicts))
+        )
+
+
+def _resolve_execution_trading_day(document):
+    try:
+        return normalize_trading_day(
+            resolve_trading_day(
+                document,
+                report_time=document.get("trade_time"),
+            )
+        )
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _normalize_execution_clock(value):
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    digits = "".join(character for character in normalized if character.isdigit())
+    if len(digits) == 6:
+        return digits
+    return normalized
+
+
+def _resolve_legacy_execution_account(document, *, repository):
+    candidates = set()
+
+    def add(value):
+        normalized = normalize_account_id(value)
+        if normalized is not None:
+            candidates.add(normalized)
+
+    add(document.get("account_id"))
+    add(_account_from_broker_order_key(document.get("broker_order_key")))
+
+    internal_order_id = normalize_identifier(document.get("internal_order_id"))
+    if internal_order_id is not None:
+        order = repository.find_order(internal_order_id)
+        if order is not None:
+            add(order.get("account_id"))
+            add(_account_from_broker_order_key(order.get("broker_order_key")))
+
+    broker_order_key = normalize_identifier(document.get("broker_order_key"))
+    if broker_order_key is not None:
+        broker_order = repository.find_broker_order(broker_order_key)
+        if broker_order is not None:
+            add(broker_order.get("account_id"))
+            add(_account_from_broker_order_key(broker_order.get("broker_order_key")))
+
+    broker_order_id = normalize_identifier(document.get("broker_order_id"))
+    if broker_order_id is not None:
+        list_orders = getattr(repository, "list_orders_by_broker_order_id", None)
+        if callable(list_orders):
+            orders = list_orders(broker_order_id)
+        else:
+            order = repository.find_order_by_broker_order_id(broker_order_id)
+            orders = [order] if order is not None else []
+        for order in orders:
+            add(order.get("account_id"))
+
+        list_broker_orders = getattr(
+            repository, "list_broker_orders_by_broker_order_id", None
+        )
+        if callable(list_broker_orders):
+            broker_orders = list_broker_orders(broker_order_id)
+        else:
+            broker_order = repository.find_broker_order_by_broker_order_id(
+                broker_order_id
+            )
+            broker_orders = [broker_order] if broker_order is not None else []
+        for broker_order in broker_orders:
+            add(broker_order.get("account_id"))
+
+    if len(candidates) != 1:
+        return None
+    return next(iter(candidates))
+
+
+def _account_from_broker_order_key(value):
+    normalized = normalize_identifier(value)
+    if normalized is None or not normalized.startswith("account:"):
+        return None
+    account_id, separator, _remainder = normalized[len("account:") :].partition(":day:")
+    if not separator:
+        return None
+    return normalize_account_id(account_id)
+
+
+def _resolve_legacy_execution_projection_status(repository, incoming):
+    execution_identity = normalize_identifier(incoming.get("execution_identity"))
+    if execution_identity is None:
+        raise BrokerIdentityConflict("legacy execution projection requires identity")
+    trade_fact = repository.trade_facts.find_one(
+        {"execution_identity": execution_identity}
+    )
+    if trade_fact is None:
+        raise BrokerIdentityConflict(
+            "legacy execution projection requires paired canonical trade_fact"
+        )
+    side = normalize_side(trade_fact.get("side"))
+    if side == "buy":
+        return _resolve_legacy_buy_projection_status(repository, trade_fact)
+    if side == "sell":
+        return _resolve_legacy_sell_projection_status(repository, trade_fact)
+    raise BrokerIdentityConflict("legacy execution projection side is unsupported")
+
+
+def _resolve_legacy_buy_projection_status(repository, trade_fact):
+    from freshquant.order_management.entry_aggregation import (
+        find_entry_for_broker_order,
+        list_aggregation_members,
+    )
+
+    trade_fact_id = normalize_identifier(trade_fact.get("trade_fact_id"))
+    broker_order_key = normalize_identifier(
+        trade_fact.get("broker_order_key") or trade_fact.get("internal_order_id")
+    )
+    buy_lot = (
+        repository.find_buy_lot_by_origin_trade_fact_id(trade_fact_id)
+        if trade_fact_id is not None
+        else None
+    )
+    lot_slices = (
+        repository.list_lot_slices(buy_lot_ids=[buy_lot["buy_lot_id"]])
+        if buy_lot is not None
+        else []
+    )
+    entries = repository.list_position_entries(symbol=trade_fact.get("symbol"))
+    entry = (
+        find_entry_for_broker_order(entries, broker_order_key)
+        if broker_order_key is not None
+        else None
+    )
+    entry_slices = (
+        repository.list_entry_slices(entry_ids=[entry["entry_id"]])
+        if entry is not None
+        else []
+    )
+    evidence_present = bool(buy_lot or lot_slices or entry or entry_slices)
+    if not evidence_present:
+        return "PENDING"
+
+    expected_quantity = int(trade_fact.get("quantity") or 0)
+    expected_price = Decimal(str(trade_fact.get("price") or 0)).normalize()
+    buy_lot_complete = bool(
+        buy_lot is not None
+        and int(buy_lot.get("original_quantity") or 0) == expected_quantity
+        and Decimal(str(buy_lot.get("buy_price_real") or 0)).normalize()
+        == expected_price
+        and sum(int(item.get("original_quantity") or 0) for item in lot_slices)
+        == int(buy_lot.get("original_quantity") or 0)
+    )
+    entry_complete = bool(
+        entry is not None
+        and broker_order_key
+        in {
+            normalize_identifier(item.get("broker_order_key"))
+            for item in list_aggregation_members(entry)
+        }
+        and entry_slices
+        and sum(int(item.get("original_quantity") or 0) for item in entry_slices)
+        == int(entry.get("original_quantity") or 0)
+    )
+    if buy_lot_complete and entry_complete:
+        return "APPLIED"
+    raise BrokerIdentityConflict(
+        "legacy buy execution projection is partial or cannot be proven applied"
+    )
+
+
+def _resolve_legacy_sell_projection_status(repository, trade_fact):
+    trade_fact_id = normalize_identifier(trade_fact.get("trade_fact_id"))
+    if trade_fact_id is None:
+        raise BrokerIdentityConflict(
+            "legacy sell execution projection requires trade_fact_id"
+        )
+    expected_quantity = int(trade_fact.get("quantity") or 0)
+    exit_allocations = [
+        item
+        for item in repository.list_exit_allocations()
+        if normalize_identifier(item.get("exit_trade_fact_id")) == trade_fact_id
+    ]
+    sell_allocations = [
+        item
+        for item in repository.list_sell_allocations()
+        if normalize_identifier(item.get("sell_trade_fact_id")) == trade_fact_id
+    ]
+    entries = repository.list_position_entries(symbol=trade_fact.get("symbol"))
+    buy_lots = repository.list_buy_lots(trade_fact.get("symbol"))
+    entry_history = [
+        allocation
+        for entry in entries
+        for allocation in list(entry.get("sell_history") or [])
+        if normalize_identifier(allocation.get("exit_trade_fact_id")) == trade_fact_id
+    ]
+    lot_history = [
+        allocation
+        for buy_lot in buy_lots
+        for allocation in list(buy_lot.get("sell_history") or [])
+        if normalize_identifier(allocation.get("sell_trade_fact_id")) == trade_fact_id
+    ]
+    evidence_present = bool(
+        exit_allocations or sell_allocations or entry_history or lot_history
+    )
+    if not evidence_present:
+        return "PENDING"
+
+    exit_quantity = sum(
+        int(item.get("allocated_quantity") or 0) for item in exit_allocations
+    )
+    sell_quantity = sum(
+        int(item.get("allocated_quantity") or 0) for item in sell_allocations
+    )
+    entry_history_quantity = sum(
+        int(item.get("allocated_quantity") or 0) for item in entry_history
+    )
+    lot_history_quantity = sum(
+        int(item.get("allocated_quantity") or 0) for item in lot_history
+    )
+    v2_complete = bool(
+        exit_allocations
+        and not sell_allocations
+        and exit_quantity == expected_quantity
+        and entry_history_quantity == expected_quantity
+        and not lot_history
+    )
+    legacy_complete = bool(
+        sell_allocations
+        and not exit_allocations
+        and sell_quantity == expected_quantity
+        and lot_history_quantity == expected_quantity
+        and not entry_history
+    )
+    if v2_complete or legacy_complete:
+        return "APPLIED"
+    raise BrokerIdentityConflict(
+        "legacy sell execution projection is partial or cannot be proven applied"
+    )
 
 
 def _assert_execution_identity_consistent(existing, incoming):

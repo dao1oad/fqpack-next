@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -1048,6 +1049,59 @@ def test_broker_trading_loop_emits_success_heartbeat_after_connect(monkeypatch):
         "payload": {},
         "metrics": {"connected": 1, "retry_count": 0, "retry_delay_s": 0},
     }
+
+
+@pytest.mark.parametrize(("action", "remark_arg_index"), [("buy", 4), ("sell", 5)])
+def test_broker_gateway_passes_correlation_token_as_xt_order_remark(
+    monkeypatch,
+    action,
+    remark_arg_index,
+):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module(f"test_runtime_broker_{action}_remark", BROKER_PATH)
+    captured = {}
+    token = "FQOM0123456789abcdef0123"
+
+    def capture_submit(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return 90009
+
+    broker.puppet.buy = capture_submit
+    broker.puppet.sell = capture_submit
+    broker.connection_manager.connected = True
+    broker.resolve_broker_submit_mode = lambda settings_provider=None: "normal"
+    broker.random.shuffle = lambda _values: None
+    broker.tool_trade_date_seconds_to_start = lambda: 0
+    payload = {
+        "action": action,
+        "symbol": "688772",
+        "price": 14.7,
+        "quantity": 3400,
+        "source": "api",
+        "strategy_name": "takeprofit",
+        "remark": "human readable remark",
+        "broker_order_remark": token,
+        "internal_order_id": f"ord-{action}-remark",
+        "force": True,
+    }
+
+    class OneMessageRedis:
+        def __init__(self):
+            self.calls = 0
+
+        def brpop(self, _queues, _timeout):
+            self.calls += 1
+            if self.calls == 1:
+                return ("QUEUE:ORDER", json.dumps(payload))
+            raise KeyboardInterrupt()
+
+    broker.redis_db = OneMessageRedis()
+
+    broker.trading_main_loop()
+
+    assert captured["args"][remark_arg_index] == token
+    assert captured["args"][remark_arg_index] != payload["remark"]
 
 
 def test_broker_source_no_longer_contains_sync_maintenance_actions():

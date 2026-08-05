@@ -161,6 +161,15 @@ class _FakeDatabase(dict):
 
 def _matches_query(document, query):
     for key, expected in query.items():
+        if key == "$expr":
+            operands = list((expected or {}).get("$eq") or [])
+            expected_document = operands[1] if len(operands) == 2 else None
+            actual_document = {
+                field: value for field, value in document.items() if field != "_id"
+            }
+            if actual_document != expected_document:
+                return False
+            continue
         actual = document.get(key)
         if isinstance(expected, dict):
             if "$in" in expected and actual not in set(expected["$in"]):
@@ -386,8 +395,33 @@ def test_repository_creates_partial_unique_indexes_for_canonical_identities():
     from freshquant.order_management.repository import OrderManagementRepository
 
     database = _FakeDatabase()
-    OrderManagementRepository(database=database)
+    repository = OrderManagementRepository(database=database)
 
+    assert database == {}
+
+    repository._ensure_canonical_indexes()
+    repository._ensure_canonical_indexes()
+
+    assert database["om_orders"].indexes == [
+        (
+            [("internal_order_id", 1)],
+            {
+                "unique": True,
+                "partialFilterExpression": {"internal_order_id": {"$type": "string"}},
+                "name": "uq_om_orders_internal_order_id",
+            },
+        ),
+        (
+            [("broker_correlation_token", 1)],
+            {
+                "unique": True,
+                "partialFilterExpression": {
+                    "broker_correlation_token": {"$type": "string"}
+                },
+                "name": "uq_om_orders_broker_correlation_token",
+            },
+        ),
+    ]
     assert database["om_broker_orders"].indexes == [
         (
             [("broker_order_key", 1)],
@@ -438,6 +472,16 @@ def test_repository_creates_partial_unique_indexes_for_canonical_identities():
             },
         )
     ]
+    assert database["om_sell_allocations"].indexes == [
+        (
+            [("allocation_id", 1)],
+            {
+                "unique": True,
+                "partialFilterExpression": {"allocation_id": {"$type": "string"}},
+                "name": "uq_om_sell_allocations_allocation_id",
+            },
+        )
+    ]
     assert database["om_exit_allocations"].indexes == [
         (
             [("allocation_id", 1)],
@@ -485,6 +529,50 @@ def test_repository_upserts_existing_broker_order_without_setting_mongo_id():
     assert created is False
     assert saved["_id"] == "mongo-id-1"
     assert saved["state"] == "FILLED"
+
+
+def test_insert_order_is_idempotent_during_concurrent_canonical_insert():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    canonical = {
+        "internal_order_id": "ord-broker-only-race",
+        "request_id": None,
+        "account_id": "acct-1",
+        "trading_day": 20260805,
+        "symbol": "688772",
+        "side": "buy",
+        "state": "PARTIAL_FILLED",
+    }
+    database = _FakeDatabase()
+    database["om_orders"] = _DuplicateOnFirstUpsertCollection(canonical)
+    repository = OrderManagementRepository(database=database)
+
+    saved = repository.insert_order(dict(canonical))
+
+    assert saved == canonical
+    assert database["om_orders"].rows == [canonical]
+
+
+def test_insert_order_rejects_concurrent_document_with_different_owner():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    canonical = {
+        "internal_order_id": "ord-broker-only-race",
+        "request_id": "request-existing",
+        "account_id": "acct-1",
+        "trading_day": 20260805,
+        "symbol": "688772",
+        "side": "buy",
+        "state": "PARTIAL_FILLED",
+    }
+    database = _FakeDatabase()
+    database["om_orders"] = _DuplicateOnFirstUpsertCollection(canonical)
+    repository = OrderManagementRepository(database=database)
+
+    with pytest.raises(BrokerIdentityConflict, match="request ownership"):
+        repository.insert_order({**canonical, "request_id": "request-other"})
+
+    assert database["om_orders"].rows == [canonical]
 
 
 def test_move_broker_order_key_merges_existing_placeholder_into_canonical_target():
@@ -575,6 +663,691 @@ def test_duplicate_key_race_is_idempotent_only_for_consistent_execution():
             {**canonical, "execution_fill_id": "fill-conflict", "quantity": 203},
             unique_keys=["execution_identity"],
         )
+
+
+def test_legacy_execution_replay_migrates_fill_and_trade_fact_in_place():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    database["om_orders"].rows.append(
+        {
+            "internal_order_id": "ord-legacy",
+            "account_id": "acct-legacy",
+            "broker_order_id": "broker-order-legacy",
+        }
+    )
+    legacy_common = {
+        "broker_order_key": "ord-legacy",
+        "internal_order_id": "ord-legacy",
+        "broker_order_id": "broker-order-legacy",
+        "broker_trade_id": 362,
+        "symbol": "688772",
+        "side": "sell",
+        "quantity": 164,
+        "price": 14.8,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+        "source": "xt_trade_callback",
+    }
+    database["om_trade_facts"].rows.append(
+        {"trade_fact_id": "trade-fact-legacy", **legacy_common}
+    )
+    database["om_execution_fills"].rows.append(
+        {"execution_fill_id": "fill-legacy", **legacy_common}
+    )
+    canonical_common = {
+        **legacy_common,
+        "broker_order_key": (
+            "account:acct-legacy:day:20260805:symbol:688772:"
+            "side:sell:order:broker-order-legacy"
+        ),
+        "execution_identity": "execution:acct-legacy:20260805:trade-legacy",
+        "broker_trade_id": "362",
+        "account_id": "acct-legacy",
+        "trading_day": 20260805,
+    }
+
+    saved_trade_fact, created_trade_fact = repository.upsert_trade_fact(
+        {"trade_fact_id": "ignored-new-trade-fact", **canonical_common},
+        unique_keys=["execution_identity"],
+    )
+    saved_fill, created_fill = repository.upsert_execution_fill(
+        {
+            "execution_fill_id": "ignored-new-fill",
+            **canonical_common,
+            "projection_status": "PENDING",
+            "projection_plan": None,
+        },
+        unique_keys=["execution_identity"],
+    )
+    replayed_trade_fact, replayed_trade_fact_created = repository.upsert_trade_fact(
+        {"trade_fact_id": "ignored-replay-trade-fact", **canonical_common},
+        unique_keys=["execution_identity"],
+    )
+    replayed_fill, replayed_fill_created = repository.upsert_execution_fill(
+        {
+            "execution_fill_id": "ignored-replay-fill",
+            **canonical_common,
+            "projection_status": "PENDING",
+            "projection_plan": None,
+        },
+        unique_keys=["execution_identity"],
+    )
+
+    assert created_trade_fact is False
+    assert created_fill is False
+    assert len(database["om_trade_facts"].rows) == 1
+    assert len(database["om_execution_fills"].rows) == 1
+    assert saved_trade_fact["trade_fact_id"] == "trade-fact-legacy"
+    assert saved_fill["execution_fill_id"] == "fill-legacy"
+    assert (
+        saved_trade_fact["execution_identity"] == canonical_common["execution_identity"]
+    )
+    assert saved_fill["execution_identity"] == canonical_common["execution_identity"]
+    assert saved_fill["projection_status"] == "PENDING"
+    assert saved_fill["projection_legacy_replay_required"] is True
+    assert saved_fill.get("projection_legacy_proven_applied") is None
+    assert replayed_trade_fact_created is False
+    assert replayed_fill_created is False
+    assert replayed_trade_fact["trade_fact_id"] == "trade-fact-legacy"
+    assert replayed_fill["execution_fill_id"] == "fill-legacy"
+
+
+def test_legacy_buy_execution_with_complete_projection_evidence_is_applied():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    canonical_broker_order_key = (
+        "account:acct-legacy:day:20260805:symbol:688772:"
+        "side:buy:order:broker-order-legacy-buy"
+    )
+    database["om_orders"].rows.append(
+        {
+            "internal_order_id": "ord-legacy-buy",
+            "account_id": "acct-legacy",
+            "broker_order_id": "broker-order-legacy-buy",
+        }
+    )
+    legacy_common = {
+        "broker_order_key": "ord-legacy-buy",
+        "internal_order_id": "ord-legacy-buy",
+        "broker_order_id": "broker-order-legacy-buy",
+        "broker_trade_id": 501,
+        "symbol": "688772",
+        "side": "buy",
+        "quantity": 10000,
+        "price": 14.0,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+        "source": "xt_trade_callback",
+    }
+    database["om_trade_facts"].rows.append(
+        {"trade_fact_id": "trade-fact-legacy-buy", **legacy_common}
+    )
+    database["om_execution_fills"].rows.append(
+        {"execution_fill_id": "fill-legacy-buy", **legacy_common}
+    )
+    database["om_buy_lots"].rows.append(
+        {
+            "buy_lot_id": "lot-legacy-buy",
+            "origin_trade_fact_id": "trade-fact-legacy-buy",
+            "symbol": "688772",
+            "original_quantity": 10000,
+            "remaining_quantity": 10000,
+            "buy_price_real": 14.0,
+        }
+    )
+    database["om_lot_slices"].rows.extend(
+        [
+            {
+                "lot_slice_id": "lot-slice-legacy-buy-1",
+                "buy_lot_id": "lot-legacy-buy",
+                "original_quantity": 3400,
+            },
+            {
+                "lot_slice_id": "lot-slice-legacy-buy-2",
+                "buy_lot_id": "lot-legacy-buy",
+                "original_quantity": 6600,
+            },
+        ]
+    )
+    database["om_position_entries"].rows.append(
+        {
+            "entry_id": "entry-legacy-buy",
+            "symbol": "688772",
+            "source_ref_type": "broker_order",
+            "source_ref_id": canonical_broker_order_key,
+            "original_quantity": 10000,
+            "remaining_quantity": 10000,
+            "entry_price": 14.0,
+        }
+    )
+    database["om_entry_slices"].rows.extend(
+        [
+            {
+                "entry_slice_id": "entry-slice-legacy-buy-1",
+                "entry_id": "entry-legacy-buy",
+                "original_quantity": 3400,
+            },
+            {
+                "entry_slice_id": "entry-slice-legacy-buy-2",
+                "entry_id": "entry-legacy-buy",
+                "original_quantity": 6600,
+            },
+        ]
+    )
+    canonical_common = {
+        **legacy_common,
+        "broker_order_key": canonical_broker_order_key,
+        "execution_identity": "execution:acct-legacy:20260805:legacy-buy",
+        "broker_trade_id": "501",
+        "account_id": "acct-legacy",
+        "trading_day": 20260805,
+    }
+
+    repository.upsert_trade_fact(
+        {"trade_fact_id": "ignored-new-buy-fact", **canonical_common},
+        unique_keys=["execution_identity"],
+    )
+    saved_fill, created = repository.upsert_execution_fill(
+        {
+            "execution_fill_id": "ignored-new-buy-fill",
+            **canonical_common,
+            "projection_status": "PENDING",
+            "projection_plan": None,
+        },
+        unique_keys=["execution_identity"],
+    )
+
+    assert created is False
+    assert saved_fill["execution_fill_id"] == "fill-legacy-buy"
+    assert saved_fill["projection_status"] == "APPLIED"
+    assert saved_fill["projection_legacy_proven_applied"] is True
+
+
+def test_legacy_sell_execution_with_complete_projection_evidence_is_applied():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    database["om_orders"].rows.append(
+        {
+            "internal_order_id": "ord-legacy-sell",
+            "account_id": "acct-legacy",
+            "broker_order_id": "broker-order-legacy-sell",
+        }
+    )
+    legacy_common = {
+        "broker_order_key": "ord-legacy-sell",
+        "internal_order_id": "ord-legacy-sell",
+        "broker_order_id": "broker-order-legacy-sell",
+        "broker_trade_id": 502,
+        "symbol": "688772",
+        "side": "sell",
+        "quantity": 164,
+        "price": 14.8,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+        "source": "xt_trade_callback",
+    }
+    database["om_trade_facts"].rows.append(
+        {"trade_fact_id": "trade-fact-legacy-sell", **legacy_common}
+    )
+    database["om_execution_fills"].rows.append(
+        {"execution_fill_id": "fill-legacy-sell", **legacy_common}
+    )
+    database["om_exit_allocations"].rows.append(
+        {
+            "allocation_id": "exit-allocation-legacy-sell",
+            "entry_id": "entry-legacy-sell",
+            "entry_slice_id": "entry-slice-legacy-sell",
+            "exit_trade_fact_id": "trade-fact-legacy-sell",
+            "allocated_quantity": 164,
+        }
+    )
+    database["om_position_entries"].rows.append(
+        {
+            "entry_id": "entry-legacy-sell",
+            "symbol": "688772",
+            "sell_history": [
+                {
+                    "exit_trade_fact_id": "trade-fact-legacy-sell",
+                    "allocated_quantity": 164,
+                }
+            ],
+        }
+    )
+    canonical_common = {
+        **legacy_common,
+        "broker_order_key": (
+            "account:acct-legacy:day:20260805:symbol:688772:"
+            "side:sell:order:broker-order-legacy-sell"
+        ),
+        "execution_identity": "execution:acct-legacy:20260805:legacy-sell",
+        "broker_trade_id": "502",
+        "account_id": "acct-legacy",
+        "trading_day": 20260805,
+    }
+
+    repository.upsert_trade_fact(
+        {"trade_fact_id": "ignored-new-sell-fact", **canonical_common},
+        unique_keys=["execution_identity"],
+    )
+    saved_fill, created = repository.upsert_execution_fill(
+        {
+            "execution_fill_id": "ignored-new-sell-fill",
+            **canonical_common,
+            "projection_status": "PENDING",
+            "projection_plan": None,
+        },
+        unique_keys=["execution_identity"],
+    )
+
+    assert created is False
+    assert saved_fill["execution_fill_id"] == "fill-legacy-sell"
+    assert saved_fill["projection_status"] == "APPLIED"
+    assert saved_fill["projection_legacy_proven_applied"] is True
+
+
+def test_legacy_buy_execution_with_partial_projection_evidence_fails_closed():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    database["om_orders"].rows.append(
+        {
+            "internal_order_id": "ord-legacy-partial",
+            "account_id": "acct-legacy",
+            "broker_order_id": "broker-order-legacy-partial",
+        }
+    )
+    legacy_common = {
+        "broker_order_key": "ord-legacy-partial",
+        "internal_order_id": "ord-legacy-partial",
+        "broker_order_id": "broker-order-legacy-partial",
+        "broker_trade_id": 503,
+        "symbol": "688772",
+        "side": "buy",
+        "quantity": 10000,
+        "price": 14.0,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+    }
+    database["om_trade_facts"].rows.append(
+        {"trade_fact_id": "trade-fact-legacy-partial", **legacy_common}
+    )
+    database["om_execution_fills"].rows.append(
+        {"execution_fill_id": "fill-legacy-partial", **legacy_common}
+    )
+    database["om_buy_lots"].rows.append(
+        {
+            "buy_lot_id": "lot-legacy-partial",
+            "origin_trade_fact_id": "trade-fact-legacy-partial",
+            "symbol": "688772",
+            "original_quantity": 10000,
+            "remaining_quantity": 10000,
+            "buy_price_real": 14.0,
+        }
+    )
+    database["om_lot_slices"].rows.append(
+        {
+            "lot_slice_id": "lot-slice-legacy-partial",
+            "buy_lot_id": "lot-legacy-partial",
+            "original_quantity": 10000,
+        }
+    )
+    canonical_common = {
+        **legacy_common,
+        "broker_order_key": (
+            "account:acct-legacy:day:20260805:symbol:688772:"
+            "side:buy:order:broker-order-legacy-partial"
+        ),
+        "execution_identity": "execution:acct-legacy:20260805:legacy-partial",
+        "broker_trade_id": "503",
+        "account_id": "acct-legacy",
+        "trading_day": 20260805,
+    }
+
+    repository.upsert_trade_fact(
+        {"trade_fact_id": "ignored-new-partial-fact", **canonical_common},
+        unique_keys=["execution_identity"],
+    )
+    with pytest.raises(BrokerIdentityConflict, match="partial"):
+        repository.upsert_execution_fill(
+            {
+                "execution_fill_id": "ignored-new-partial-fill",
+                **canonical_common,
+                "projection_status": "PENDING",
+                "projection_plan": None,
+            },
+            unique_keys=["execution_identity"],
+        )
+
+    assert database["om_execution_fills"].rows[0].get("execution_identity") is None
+
+
+def test_legacy_execution_replay_with_ambiguous_trade_id_fails_closed():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    database["om_orders"].rows.append(
+        {
+            "internal_order_id": "ord-legacy",
+            "account_id": "acct-legacy",
+        }
+    )
+    for execution_fill_id in ("fill-legacy-1", "fill-legacy-2"):
+        database["om_execution_fills"].rows.append(
+            {
+                "execution_fill_id": execution_fill_id,
+                "broker_order_key": "ord-legacy",
+                "internal_order_id": "ord-legacy",
+                "broker_trade_id": "trade-ambiguous",
+                "symbol": "688772",
+                "side": "sell",
+                "quantity": 164,
+                "price": 14.8,
+                "trade_time": 1785895200,
+                "date": 20260805,
+                "time": "10:00:00",
+            }
+        )
+
+    with pytest.raises(BrokerIdentityConflict, match="ambiguous"):
+        repository.upsert_execution_fill(
+            {
+                "execution_fill_id": "fill-new",
+                "broker_order_key": "ord-legacy",
+                "internal_order_id": "ord-legacy",
+                "broker_trade_id": "trade-ambiguous",
+                "execution_identity": "execution:ambiguous",
+                "account_id": "acct-legacy",
+                "trading_day": 20260805,
+                "symbol": "688772",
+                "side": "sell",
+                "quantity": 164,
+                "price": 14.8,
+                "trade_time": 1785895200,
+                "date": 20260805,
+                "time": "10:00:00",
+                "projection_status": "PENDING",
+                "projection_plan": None,
+            },
+            unique_keys=["execution_identity"],
+        )
+
+    assert len(database["om_execution_fills"].rows) == 2
+    assert all(
+        item.get("execution_identity") is None
+        for item in database["om_execution_fills"].rows
+    )
+
+
+def test_legacy_execution_replay_without_provable_account_fails_closed():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    legacy_common = {
+        "broker_order_key": "unknown-order",
+        "internal_order_id": "unknown-order",
+        "broker_trade_id": "trade-unowned",
+        "symbol": "688772",
+        "side": "sell",
+        "quantity": 164,
+        "price": 14.8,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+    }
+    database["om_trade_facts"].rows.append(
+        {"trade_fact_id": "fact-unowned", **legacy_common}
+    )
+    database["om_execution_fills"].rows.append(
+        {"execution_fill_id": "fill-unowned", **legacy_common}
+    )
+
+    with pytest.raises(BrokerIdentityConflict, match="account_id"):
+        repository.upsert_execution_fill(
+            {
+                "execution_fill_id": "fill-new",
+                "broker_order_key": "unknown-order",
+                "internal_order_id": "unknown-order",
+                "broker_trade_id": "trade-unowned",
+                "execution_identity": "execution:unowned",
+                "account_id": "acct-legacy",
+                "trading_day": 20260805,
+                "symbol": "688772",
+                "side": "sell",
+                "quantity": 164,
+                "price": 14.8,
+                "trade_time": 1785895200,
+                "date": 20260805,
+                "time": "10:00:00",
+                "projection_status": "PENDING",
+                "projection_plan": None,
+            },
+            unique_keys=["execution_identity"],
+        )
+
+    assert len(database["om_execution_fills"].rows) == 1
+    assert database["om_execution_fills"].rows[0].get("execution_identity") is None
+
+
+@pytest.mark.parametrize("legacy_collection", ["om_trade_facts", "om_execution_fills"])
+def test_legacy_execution_replay_requires_paired_fact_and_fill(legacy_collection):
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    database["om_orders"].rows.append(
+        {
+            "internal_order_id": "ord-legacy-pair",
+            "account_id": "acct-legacy",
+        }
+    )
+    legacy = {
+        "broker_order_key": "ord-legacy-pair",
+        "internal_order_id": "ord-legacy-pair",
+        "broker_trade_id": "trade-legacy-pair",
+        "symbol": "688772",
+        "side": "sell",
+        "quantity": 164,
+        "price": 14.8,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+    }
+    identity_field = (
+        "trade_fact_id"
+        if legacy_collection == "om_trade_facts"
+        else "execution_fill_id"
+    )
+    database[legacy_collection].rows.append(
+        {identity_field: f"legacy-{identity_field}", **legacy}
+    )
+    incoming = {
+        **legacy,
+        "execution_identity": "execution:acct-legacy:20260805:trade-legacy-pair",
+        "account_id": "acct-legacy",
+        "trading_day": 20260805,
+        "broker_order_key": (
+            "account:acct-legacy:day:20260805:symbol:688772:"
+            "side:sell:order:ord-legacy-pair"
+        ),
+    }
+
+    with pytest.raises(BrokerIdentityConflict, match="requires paired"):
+        repository.preflight_execution_replay(incoming)
+
+    assert len(database[legacy_collection].rows) == 1
+    assert database[legacy_collection].rows[0].get("execution_identity") is None
+    other_collection = (
+        "om_execution_fills"
+        if legacy_collection == "om_trade_facts"
+        else "om_trade_facts"
+    )
+    assert database[other_collection].rows == []
+
+
+def test_legacy_account_proof_enumerates_all_broker_order_candidates():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    for account_id in ("acct-a", "acct-b"):
+        database["om_orders"].rows.append(
+            {
+                "internal_order_id": f"ord-{account_id}",
+                "broker_order_id": "shared-broker-order",
+                "account_id": account_id,
+            }
+        )
+    legacy_common = {
+        "broker_trade_id": "shared-trade",
+        "broker_order_id": "shared-broker-order",
+        "symbol": "688772",
+        "side": "sell",
+        "quantity": 164,
+        "price": 14.8,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+    }
+    database["om_trade_facts"].rows.append(
+        {"trade_fact_id": "legacy-fact-shared", **legacy_common}
+    )
+    database["om_execution_fills"].rows.append(
+        {"execution_fill_id": "legacy-fill-shared", **legacy_common}
+    )
+
+    with pytest.raises(BrokerIdentityConflict, match="account_id"):
+        repository.preflight_execution_replay(
+            {
+                **legacy_common,
+                "execution_identity": "execution:acct-a:20260805:shared-trade",
+                "account_id": "acct-a",
+                "trading_day": 20260805,
+            }
+        )
+
+
+def test_tracking_legacy_account_proof_uses_preupdate_order_snapshot():
+    from freshquant.order_management.repository import OrderManagementRepository
+    from freshquant.order_management.tracking.service import OrderTrackingService
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    database["om_orders"].rows.append(
+        {
+            "internal_order_id": "ord-unowned",
+            "broker_order_id": "broker-unowned",
+            "symbol": "688772",
+            "side": "sell",
+            "state": "SUBMITTED",
+        }
+    )
+    legacy_common = {
+        "broker_order_key": "ord-unowned",
+        "internal_order_id": "ord-unowned",
+        "broker_order_id": "broker-unowned",
+        "broker_trade_id": "trade-unowned-tracking",
+        "symbol": "688772",
+        "side": "sell",
+        "quantity": 164,
+        "price": 14.8,
+        "trade_time": 1785895200,
+        "date": 20260805,
+        "time": "10:00:00",
+        "source": "xt_trade_callback",
+    }
+    database["om_trade_facts"].rows.append(
+        {"trade_fact_id": "legacy-fact-unowned", **legacy_common}
+    )
+    database["om_execution_fills"].rows.append(
+        {"execution_fill_id": "legacy-fill-unowned", **legacy_common}
+    )
+    service = OrderTrackingService(repository=repository)
+
+    with pytest.raises(BrokerIdentityConflict, match="account_id"):
+        service.ingest_trade_report_with_meta(
+            {
+                **legacy_common,
+                "account_id": "arbitrary-account",
+                "trading_day": 20260805,
+            }
+        )
+
+    assert database["om_orders"].rows[0].get("account_id") is None
+    assert all(
+        item.get("execution_identity") is None
+        for collection in ("om_trade_facts", "om_execution_fills")
+        for item in database[collection].rows
+    )
+
+
+def test_projection_cas_preserves_concurrent_document_change():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    before = {
+        "entry_id": "entry-cas",
+        "remaining_quantity": 100,
+        "status": "OPEN",
+    }
+    database["om_position_entries"].rows.append(dict(before))
+    database["om_position_entries"].rows[0]["remaining_quantity"] = 77
+
+    with pytest.raises(BrokerIdentityConflict, match="compare-and-set conflict"):
+        repository.compare_and_set_projection_document(
+            "position_entry",
+            before=before,
+            after={**before, "remaining_quantity": 0, "status": "CLOSED"},
+        )
+
+    assert database["om_position_entries"].rows == [
+        {**before, "remaining_quantity": 77}
+    ]
+
+
+def test_allocation_inserts_require_unique_id_and_never_overwrite():
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+
+    with pytest.raises(BrokerIdentityConflict, match="allocation_id is required"):
+        repository.insert_sell_allocations([{"allocated_quantity": 100}])
+    with pytest.raises(BrokerIdentityConflict, match="duplicate allocation_id"):
+        repository.insert_sell_allocations(
+            [
+                {"allocation_id": "alloc-1", "allocated_quantity": 100},
+                {"allocation_id": "alloc-1", "allocated_quantity": 100},
+            ]
+        )
+
+    repository.insert_sell_allocations(
+        [{"allocation_id": "alloc-1", "allocated_quantity": 100}]
+    )
+    repository.insert_sell_allocations(
+        [{"allocation_id": "alloc-1", "allocated_quantity": 100}]
+    )
+    with pytest.raises(BrokerIdentityConflict, match="compare-and-set conflict"):
+        repository.insert_sell_allocations(
+            [{"allocation_id": "alloc-1", "allocated_quantity": 200}]
+        )
+
+    assert database["om_sell_allocations"].rows == [
+        {"allocation_id": "alloc-1", "allocated_quantity": 100}
+    ]
 
 
 def test_allocation_integrity_rejects_slice_owned_by_another_entry():

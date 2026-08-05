@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import re
+import uuid
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 
 from bson import json_util
 from pymongo.errors import DuplicateKeyError
@@ -24,6 +25,13 @@ _PROTECTED_COLLECTIONS = {
 }
 _SAFE_QUERY_OPERATORS = {"$and", "$or", "$eq", "$in"}
 _REPAIR_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
+_REPAIR_ATTEMPT_LEASE_SECONDS = 300
+_RESTORABLE_RECEIPT_STATUSES = {
+    "applied",
+    "restoring",
+    "restore_failed",
+    "restored",
+}
 
 _SCOPE_FIELDS: dict[str, tuple[str, ...]] = {
     "account_id": ("account_id",),
@@ -129,18 +137,18 @@ def stage_targeted_repair(
                 f"replace change for {change['store']}.{change['collection']} "
                 "must express one atomic insert, update or delete; split identity moves"
             )
-        staged_changes.append(
-            {
-                "mode": change["mode"],
-                "store": change["store"],
-                "collection": change["collection"],
-                "selector": deepcopy(change["selector"]),
-                "identity_fields": list(change["identity_fields"]),
-                "preimage_documents": preimage_documents,
-                "postimage_documents": postimage_documents,
-                "diff": diff,
-            }
-        )
+        staged_change = {
+            "mode": change["mode"],
+            "store": change["store"],
+            "collection": change["collection"],
+            "selector": deepcopy(change["selector"]),
+            "identity_fields": list(change["identity_fields"]),
+            "preimage_documents": preimage_documents,
+            "postimage_documents": postimage_documents,
+            "diff": diff,
+        }
+        _require_fixed_id_for_insert(staged_change)
+        staged_changes.append(staged_change)
 
     _assert_staged_changes_do_not_overlap(staged_changes)
     if not any(_diff_count(item["diff"]) for item in staged_changes):
@@ -197,10 +205,15 @@ def execute_targeted_repair(
         label="preimage",
     )
     persisted_manifest_path = _persist_manifest(manifest, manifest_path)
+    apply_attempt_id = _new_attempt_id("apply", repair_id)
+    apply_lease_expires_at = _new_attempt_lease_expiry()
     receipt = {
         "repair_id": repair_id,
         "schema_version": TARGETED_REPAIR_SCHEMA_VERSION,
+        "receipt_version": 1,
         "status": "applying",
+        "apply_attempt_id": apply_attempt_id,
+        "apply_lease_expires_at": apply_lease_expires_at,
         "reason": normalized_plan["reason"],
         "scope": deepcopy(normalized_plan["scope"]),
         "plan_hash": manifest["plan_hash"],
@@ -229,6 +242,8 @@ def execute_targeted_repair(
         databases=databases,
         journal=journal,
         resumed=False,
+        attempt_id=apply_attempt_id,
+        receipt_version=1,
     )
 
 
@@ -239,16 +254,24 @@ def preview_targeted_restore(
 ) -> dict[str, Any]:
     normalized_manifest = _validate_manifest(manifest)
     _validate_manifest_databases(normalized_manifest, databases)
+    receipt = _require_restore_receipt(
+        manifest=normalized_manifest,
+        databases=databases,
+    )
     current_hash = _current_snapshot_hash(normalized_manifest, databases)
     change_states = _manifest_change_states(normalized_manifest, databases)
+    receipt_status = str(receipt.get("status") or "")
     return {
         "repair_id": normalized_manifest["repair_id"],
+        "receipt_status": receipt_status,
         "execute": False,
         "current_hash": current_hash,
         "expected_postimage_hash": normalized_manifest["postimage_hash"],
         "target_preimage_hash": normalized_manifest["preimage_hash"],
-        "restorable": not any(item["state"] == "diverged" for item in change_states)
-        and any(item["state"] == "postimage" for item in change_states),
+        "restorable": _restore_state_is_executable(
+            receipt_status=receipt_status,
+            change_states=change_states,
+        ),
         "change_states": change_states,
         "changes": [
             {
@@ -280,17 +303,23 @@ def restore_targeted_repair(
         raise InvalidRepairPlan("restore_id must not be empty")
     journal = databases["order"][TARGETED_REPAIR_JOURNAL_COLLECTION]
     _ensure_journal_index(journal)
-    receipt = journal.find_one({"repair_id": repair_id})
-    if receipt is not None:
-        _assert_receipt_matches_manifest(receipt, normalized_manifest)
+    receipt = _require_restore_receipt(
+        manifest=normalized_manifest,
+        databases=databases,
+    )
+    receipt_status = str(receipt.get("status") or "")
+    prior_restore_id = str(receipt.get("restore_id") or "").strip()
+    if receipt_status in {"restoring", "restore_failed", "restored"} and (
+        prior_restore_id and prior_restore_id != normalized_restore_id
+    ):
+        raise RepairIdConflict(
+            f"repair_id {repair_id!r} is already bound to restore_id "
+            f"{prior_restore_id!r}"
+        )
 
     current_hash = _current_snapshot_hash(normalized_manifest, databases)
     change_states = _manifest_change_states(normalized_manifest, databases)
-    if receipt is not None and receipt.get("status") == "restored":
-        if str(receipt.get("restore_id") or "") != normalized_restore_id:
-            raise RepairIdConflict(
-                f"repair_id {repair_id!r} was restored by another restore_id"
-            )
+    if receipt_status == "restored":
         if not _all_changes_at(change_states, "preimage"):
             raise RestoreStateMismatch(
                 "restored receipt exists but current scoped state no longer matches preimage"
@@ -311,7 +340,6 @@ def restore_targeted_repair(
         raise RestoreStateMismatch(
             "restore is blocked because one or more changes match neither preimage nor postimage"
         )
-    receipt_status = str((receipt or {}).get("status") or "")
     if not _all_changes_at(change_states, "postimage") and receipt_status not in {
         "restoring",
         "restore_failed",
@@ -320,32 +348,44 @@ def restore_targeted_repair(
             "partial restore state is resumable only from a restoring receipt"
         )
 
-    journal.update_one(
-        {"repair_id": repair_id},
-        {
-            "$set": {
-                "status": "restoring",
-                "restore_id": normalized_restore_id,
-                "restore_started_at": _utc_now(),
-            },
-            "$setOnInsert": {
-                "repair_id": repair_id,
-                "schema_version": TARGETED_REPAIR_SCHEMA_VERSION,
-                "reason": normalized_manifest.get("reason"),
-                "scope": deepcopy(normalized_manifest.get("scope") or {}),
-                "plan_hash": normalized_manifest["plan_hash"],
-                "manifest_hash": normalized_manifest["manifest_hash"],
-                "preimage_hash": normalized_manifest["preimage_hash"],
-                "postimage_hash": normalized_manifest["postimage_hash"],
-            },
-        },
-        upsert=True,
+    attempt_id, receipt_version = _claim_attempt(
+        journal,
+        receipt=receipt,
+        operation="restore",
+        allowed_statuses={"applied", "restoring", "restore_failed"},
+        restore_id=normalized_restore_id,
     )
 
     try:
+        _renew_owned_attempt_lease(
+            journal,
+            repair_id=repair_id,
+            operation="restore",
+            attempt_id=attempt_id,
+            receipt_version=receipt_version,
+        )
+        current_hash = _current_snapshot_hash(normalized_manifest, databases)
+        _assert_expected_hash(
+            expected=expected_current_hash,
+            actual=current_hash,
+            label="restore current state",
+        )
+        change_states = _manifest_change_states(normalized_manifest, databases)
+        if any(item["state"] == "diverged" for item in change_states):
+            raise RestoreStateMismatch(
+                "restore is blocked because one or more changes match neither "
+                "preimage nor postimage"
+            )
         for index in range(len(normalized_manifest["changes"]) - 1, -1, -1):
             if change_states[index]["state"] != "postimage":
                 continue
+            _renew_owned_attempt_lease(
+                journal,
+                repair_id=repair_id,
+                operation="restore",
+                attempt_id=attempt_id,
+                receipt_version=receipt_version,
+            )
             _write_change_documents(
                 normalized_manifest["changes"][index],
                 databases=databases,
@@ -356,42 +396,39 @@ def restore_targeted_repair(
             raise RestoreStateMismatch(
                 "restore write completed but scoped state does not match preimage hash"
             )
+    except RepairIdConflict:
+        raise
     except Exception as exc:
-        journal.update_one(
-            {"repair_id": repair_id},
-            {
-                "$set": {
-                    "status": "restore_failed",
+        try:
+            _finish_owned_attempt(
+                journal,
+                repair_id=repair_id,
+                operation="restore",
+                attempt_id=attempt_id,
+                receipt_version=receipt_version,
+                status="restore_failed",
+                values={
                     "restore_id": normalized_restore_id,
                     "restore_failed_at": _utc_now(),
                     "restore_error": f"{type(exc).__name__}: {exc}",
-                }
-            },
-        )
+                },
+            )
+        except RepairIdConflict as receipt_exc:
+            raise receipt_exc from exc
         raise
 
-    receipt_update = {
-        "$set": {
-            "status": "restored",
+    _finish_owned_attempt(
+        journal,
+        repair_id=repair_id,
+        operation="restore",
+        attempt_id=attempt_id,
+        receipt_version=receipt_version,
+        status="restored",
+        values={
             "restore_id": normalized_restore_id,
             "restored_at": _utc_now(),
             "restored_hash": normalized_manifest["preimage_hash"],
         },
-        "$setOnInsert": {
-            "repair_id": repair_id,
-            "schema_version": TARGETED_REPAIR_SCHEMA_VERSION,
-            "reason": normalized_manifest.get("reason"),
-            "scope": deepcopy(normalized_manifest.get("scope") or {}),
-            "plan_hash": normalized_manifest["plan_hash"],
-            "manifest_hash": normalized_manifest["manifest_hash"],
-            "preimage_hash": normalized_manifest["preimage_hash"],
-            "postimage_hash": normalized_manifest["postimage_hash"],
-        },
-    }
-    journal.update_one(
-        {"repair_id": repair_id},
-        receipt_update,
-        upsert=True,
     )
     return _repair_summary(
         normalized_manifest,
@@ -416,95 +453,112 @@ def _apply_manifest(
     databases: Mapping[str, Any],
     journal,
     resumed: bool,
+    attempt_id: str,
+    receipt_version: int,
 ) -> dict[str, Any]:
     repair_id = str(manifest["repair_id"])
-    journal.update_one(
-        {"repair_id": repair_id},
-        {"$set": {"status": "applying", "last_attempt_at": _utc_now()}},
-    )
+    already_applied = False
+    observed_postimage_hash = ""
+
     try:
+        _renew_owned_attempt_lease(
+            journal,
+            repair_id=repair_id,
+            operation="apply",
+            attempt_id=attempt_id,
+            receipt_version=receipt_version,
+        )
         change_states = _manifest_change_states(manifest, databases)
         if any(item["state"] == "diverged" for item in change_states):
             raise PreimageHashMismatch(
                 "one or more scoped changes match neither preimage nor postimage"
             )
         if _all_changes_at(change_states, "postimage"):
-            current_hash = _current_snapshot_hash(manifest, databases)
-            if current_hash == manifest["postimage_hash"]:
-                journal.update_one(
-                    {"repair_id": repair_id},
-                    {
-                        "$set": {
-                            "status": "applied",
-                            "applied_at": _utc_now(),
-                            "observed_postimage_hash": current_hash,
-                        }
-                    },
+            observed_postimage_hash = _current_snapshot_hash(manifest, databases)
+            already_applied = observed_postimage_hash == manifest["postimage_hash"]
+        if not already_applied:
+            for index, change in enumerate(manifest["changes"]):
+                if change_states[index]["state"] != "preimage":
+                    continue
+                _renew_owned_attempt_lease(
+                    journal,
+                    repair_id=repair_id,
+                    operation="apply",
+                    attempt_id=attempt_id,
+                    receipt_version=receipt_version,
                 )
-                return _repair_summary(
-                    manifest,
-                    execute=True,
-                    status="already_applied",
-                    idempotent=True,
+                _write_change_documents(
+                    change,
+                    databases=databases,
+                    document_field="postimage_documents",
                 )
-        for index, change in enumerate(manifest["changes"]):
-            if change_states[index]["state"] != "preimage":
-                continue
-            _write_change_documents(
-                change,
-                databases=databases,
-                document_field="postimage_documents",
-            )
-        observed_postimage_hash = _current_snapshot_hash(manifest, databases)
-        if observed_postimage_hash != manifest["postimage_hash"]:
-            raise TargetedRepairError(
-                "repair write completed but scoped state does not match postimage hash"
-            )
+            observed_postimage_hash = _current_snapshot_hash(manifest, databases)
+            if observed_postimage_hash != manifest["postimage_hash"]:
+                raise TargetedRepairError(
+                    "repair write completed but scoped state does not match postimage hash"
+                )
+    except RepairIdConflict:
+        # Ownership has already moved to another attempt. Never rollback data that
+        # the new owner may currently be reconciling.
+        raise
     except Exception as exc:
         rollback_succeeded = False
         rollback_error = None
         try:
-            _replace_manifest_documents(
+            _rollback_manifest_postimages(
                 manifest,
                 databases=databases,
-                document_field="preimage_documents",
-                reverse=True,
+                before_write=lambda: _renew_owned_attempt_lease(
+                    journal,
+                    repair_id=repair_id,
+                    operation="apply",
+                    attempt_id=attempt_id,
+                    receipt_version=receipt_version,
+                ),
             )
-            rollback_succeeded = (
-                _current_snapshot_hash(manifest, databases) == manifest["preimage_hash"]
+            rollback_succeeded = _all_changes_at(
+                _manifest_change_states(manifest, databases),
+                "preimage",
             )
         except Exception as rollback_exc:  # pragma: no cover - runtime safeguard
             rollback_error = f"{type(rollback_exc).__name__}: {rollback_exc}"
-        journal.update_one(
-            {"repair_id": repair_id},
-            {
-                "$set": {
-                    "status": "failed",
+        try:
+            _finish_owned_attempt(
+                journal,
+                repair_id=repair_id,
+                operation="apply",
+                attempt_id=attempt_id,
+                receipt_version=receipt_version,
+                status="failed",
+                values={
                     "failed_at": _utc_now(),
                     "error": f"{type(exc).__name__}: {exc}",
                     "rollback_succeeded": rollback_succeeded,
                     "rollback_error": rollback_error,
-                }
-            },
-        )
+                },
+            )
+        except RepairIdConflict as receipt_exc:
+            raise receipt_exc from exc
         raise
 
-    journal.update_one(
-        {"repair_id": repair_id},
-        {
-            "$set": {
-                "status": "applied",
-                "applied_at": _utc_now(),
-                "observed_postimage_hash": observed_postimage_hash,
-                "resumed": bool(resumed),
-            }
+    _finish_owned_attempt(
+        journal,
+        repair_id=repair_id,
+        operation="apply",
+        attempt_id=attempt_id,
+        receipt_version=receipt_version,
+        status="applied",
+        values={
+            "applied_at": _utc_now(),
+            "observed_postimage_hash": observed_postimage_hash,
+            "resumed": bool(resumed),
         },
     )
     return _repair_summary(
         manifest,
         execute=True,
-        status="applied",
-        idempotent=False,
+        status="already_applied" if already_applied else "applied",
+        idempotent=already_applied,
     )
 
 
@@ -533,24 +587,17 @@ def _resume_or_report_existing_repair(
         actual=manifest["preimage_hash"],
         label="preimage",
     )
-    current_hash = _current_snapshot_hash(manifest, databases)
-    change_states = _manifest_change_states(manifest, databases)
     status = str(existing.get("status") or "")
-    if status == "restored":
+    if status in {"restoring", "restore_failed", "restored"}:
         raise RepairIdConflict(
-            f"repair_id {repair_id!r} has been restored and cannot be reused"
+            f"repair_id {repair_id!r} is in restore lifecycle state {status!r} "
+            "and cannot be applied"
         )
-    if current_hash == manifest["postimage_hash"]:
-        if status != "applied":
-            journal.update_one(
-                {"repair_id": repair_id},
-                {
-                    "$set": {
-                        "status": "applied",
-                        "applied_at": _utc_now(),
-                        "observed_postimage_hash": current_hash,
-                    }
-                },
+    if status == "applied":
+        current_hash = _current_snapshot_hash(manifest, databases)
+        if current_hash != manifest["postimage_hash"]:
+            raise RepairIdConflict(
+                f"repair_id {repair_id!r} is marked applied but its postimage drifted"
             )
         return _repair_summary(
             manifest,
@@ -558,35 +605,43 @@ def _resume_or_report_existing_repair(
             status="already_applied",
             idempotent=True,
         )
-    if status in {"applying", "failed"} and not any(
-        item["state"] == "diverged" for item in change_states
-    ):
-        return _apply_manifest(
-            manifest=manifest,
-            databases=databases,
-            journal=journal,
-            resumed=True,
+    if status not in {"applying", "failed"}:
+        raise RepairIdConflict(
+            f"repair_id {repair_id!r} has unsupported apply state {status!r}"
         )
-    raise RepairIdConflict(
-        f"repair_id {repair_id!r} exists but scoped state matches neither preimage nor postimage"
+    attempt_id, receipt_version = _claim_attempt(
+        journal,
+        receipt=existing,
+        operation="apply",
+        allowed_statuses={"applying", "failed"},
+    )
+    return _apply_manifest(
+        manifest=manifest,
+        databases=databases,
+        journal=journal,
+        resumed=True,
+        attempt_id=attempt_id,
+        receipt_version=receipt_version,
     )
 
 
-def _replace_manifest_documents(
+def _rollback_manifest_postimages(
     manifest: Mapping[str, Any],
     *,
     databases: Mapping[str, Any],
-    document_field: str,
-    reverse: bool = False,
+    before_write: Callable[[], None] | None = None,
 ) -> None:
     changes = list(manifest["changes"])
-    if reverse:
-        changes.reverse()
-    for change in changes:
+    for index in range(len(changes) - 1, -1, -1):
+        current_state = _manifest_change_states(manifest, databases)[index]["state"]
+        if current_state != "postimage":
+            continue
+        if before_write is not None:
+            before_write()
         _write_change_documents(
-            change,
+            changes[index],
             databases=databases,
-            document_field=document_field,
+            document_field="preimage_documents",
         )
 
 
@@ -599,17 +654,129 @@ def _write_change_documents(
     if change.get("mode", "replace") != "replace":
         return
     collection = databases[change["store"]][change["collection"]]
-    documents = deepcopy(list(change[document_field]))
-    if len(documents) > 1:
+    target_documents = deepcopy(list(change[document_field]))
+    expected_field = (
+        "preimage_documents"
+        if document_field == "postimage_documents"
+        else "postimage_documents"
+    )
+    expected_documents = deepcopy(list(change[expected_field]))
+    if len(target_documents) > 1 or len(expected_documents) > 1:
         raise InvalidRepairPlan("atomic replace change contains multiple documents")
-    if documents:
-        collection.replace_one(
-            deepcopy(change["selector"]),
-            documents[0],
-            upsert=True,
+
+    selector = deepcopy(change["selector"])
+    current_documents = list(collection.find(selector))
+    current_sorted = _sorted_documents(
+        current_documents,
+        identity_fields=change["identity_fields"],
+    )
+    expected_sorted = _sorted_documents(
+        expected_documents,
+        identity_fields=change["identity_fields"],
+    )
+    if _single_change_hash(change, current_sorted) != _single_change_hash(
+        change,
+        expected_sorted,
+    ):
+        raise TargetedRepairError(
+            "repair compare-and-swap failed because current documents no longer "
+            f"match {expected_field} for {change['store']}.{change['collection']}"
         )
-    else:
-        collection.delete_one(deepcopy(change["selector"]))
+
+    if target_documents and not expected_documents:
+        target_id = _require_fixed_id_for_insert(change)
+        try:
+            collection.insert_one(target_documents[0])
+        except DuplicateKeyError as exc:
+            current_by_id = _sorted_documents(
+                list(collection.find({"_id": deepcopy(target_id)})),
+                identity_fields=change["identity_fields"],
+            )
+            if _single_change_hash(change, current_by_id) == _single_change_hash(
+                change,
+                target_documents,
+            ):
+                return
+            raise TargetedRepairError(
+                "repair compare-and-swap insert failed because the fixed _id "
+                f"already contains a different document for "
+                f"{change['store']}.{change['collection']}"
+            ) from exc
+        return
+
+    if not expected_documents:
+        return
+
+    exact_selector = _exact_document_cas_selector(
+        selector,
+        current_document=current_documents[0],
+    )
+    if target_documents:
+        result = collection.replace_one(
+            exact_selector,
+            target_documents[0],
+            upsert=False,
+        )
+        matched_count = int(getattr(result, "matched_count", 0) or 0)
+        if matched_count != 1:
+            raise TargetedRepairError(
+                "repair compare-and-swap replace failed because the source document "
+                f"changed concurrently for {change['store']}.{change['collection']}"
+            )
+        return
+
+    result = collection.delete_one(exact_selector)
+    deleted_count = int(getattr(result, "deleted_count", 0) or 0)
+    if deleted_count != 1:
+        raise TargetedRepairError(
+            "repair compare-and-swap delete failed because the source document "
+            f"changed concurrently for {change['store']}.{change['collection']}"
+        )
+
+
+def _exact_document_cas_selector(
+    selector: Mapping[str, Any],
+    *,
+    current_document: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "$and": [
+            deepcopy(dict(selector)),
+            {
+                "$expr": {
+                    "$eq": [
+                        "$$ROOT",
+                        {"$literal": deepcopy(dict(current_document))},
+                    ]
+                }
+            },
+        ]
+    }
+
+
+def _require_fixed_id_for_insert(change: Mapping[str, Any]) -> Any | None:
+    if change.get("mode", "replace") != "replace":
+        return None
+    preimage_documents = list(change.get("preimage_documents") or [])
+    postimage_documents = list(change.get("postimage_documents") or [])
+    if preimage_documents or not postimage_documents:
+        return None
+    if len(postimage_documents) != 1:
+        raise InvalidRepairPlan("atomic insert must contain exactly one postimage")
+    target_document = postimage_documents[0]
+    if "_id" not in target_document or target_document.get("_id") in (None, ""):
+        raise InvalidRepairPlan("repair manifest insert requires a fixed non-empty _id")
+    target_id = deepcopy(target_document["_id"])
+    branches = _selector_branches(cast(Mapping[str, Any], change["selector"]))
+    if not branches or any(
+        len(branch.get("_id") or []) != 1
+        or not _values_equal(branch["_id"][0], target_id)
+        for branch in branches
+    ):
+        raise InvalidRepairPlan(
+            "repair manifest insert selector must require the same fixed _id"
+        )
+    return target_id
 
 
 def _current_snapshot_hash(
@@ -677,6 +844,21 @@ def _manifest_change_states(
 def _all_changes_at(states, target):
     accepted = {target, "unchanged"}
     return all(item["state"] in accepted for item in states)
+
+
+def _restore_state_is_executable(*, receipt_status, change_states):
+    if any(item["state"] == "diverged" for item in change_states):
+        return False
+    if receipt_status == "applied":
+        return _all_changes_at(change_states, "postimage")
+    if receipt_status in {"restoring", "restore_failed"}:
+        return all(
+            item["state"] in {"preimage", "postimage", "unchanged"}
+            for item in change_states
+        )
+    if receipt_status == "restored":
+        return _all_changes_at(change_states, "preimage")
+    return False
 
 
 def _single_change_hash(change, documents):
@@ -1353,6 +1535,8 @@ def _validate_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise InvalidRepairPlan("unsupported repair manifest schema_version")
     required = {
         "repair_id",
+        "reason",
+        "scope",
         "plan_hash",
         "preimage_hash",
         "postimage_hash",
@@ -1364,26 +1548,122 @@ def _validate_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise InvalidRepairPlan(f"repair manifest is missing fields: {missing}")
     if _manifest_hash(normalized) != str(normalized["manifest_hash"]):
         raise InvalidRepairPlan("repair manifest hash verification failed")
-    for change in normalized["changes"]:
-        mode = str(change.get("mode") or "replace")
+
+    repair_id = str(normalized.get("repair_id") or "").strip()
+    if not _REPAIR_ID_PATTERN.fullmatch(repair_id):
+        raise InvalidRepairPlan("repair manifest contains an invalid repair_id")
+    reason = str(normalized.get("reason") or "").strip()
+    if not reason:
+        raise InvalidRepairPlan("repair manifest reason must not be empty")
+    scope = _normalize_scope(normalized.get("scope"))
+    raw_changes = normalized.get("changes")
+    if not isinstance(raw_changes, Sequence) or isinstance(raw_changes, (str, bytes)):
+        raise InvalidRepairPlan("repair manifest changes must be a non-empty array")
+    if not raw_changes:
+        raise InvalidRepairPlan("repair manifest changes must be a non-empty array")
+
+    normalized_changes = []
+    for raw_change in raw_changes:
+        if not isinstance(raw_change, Mapping):
+            raise InvalidRepairPlan("repair manifest contains a non-object change")
+        change = deepcopy(dict(raw_change))
+        mode = str(change.get("mode") or "replace").strip().lower()
         if mode not in {"replace", "snapshot"}:
             raise InvalidRepairPlan(
                 "repair manifest contains an unsupported change mode"
             )
         change["mode"] = mode
-        if change.get("store") not in _SUPPORTED_STORES:
+        store = str(change.get("store") or "").strip()
+        collection = str(change.get("collection") or "").strip()
+        if store not in _SUPPORTED_STORES:
             raise InvalidRepairPlan("repair manifest contains an unsupported store")
-        if change.get("collection") in _PROTECTED_COLLECTIONS:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{1,127}", collection):
+            raise InvalidRepairPlan("repair manifest contains an invalid collection")
+        if collection in _PROTECTED_COLLECTIONS:
             raise InvalidRepairPlan("repair manifest targets a protected collection")
-        _validate_selector(change.get("selector"))
-        identity_fields = list(change.get("identity_fields") or [])
-        if not identity_fields:
+        change["store"] = store
+        change["collection"] = collection
+
+        selector_value = deepcopy(change.get("selector"))
+        _validate_selector(selector_value)
+        selector = cast(Mapping[str, Any], selector_value)
+        _validate_selector_scope(
+            selector,
+            scope=scope,
+            label=f"{store}.{collection}",
+        )
+        change["selector"] = selector
+
+        identity_fields = [
+            str(item or "").strip()
+            for item in list(change.get("identity_fields") or [])
+        ]
+        if not identity_fields or any(not item for item in identity_fields):
             raise InvalidRepairPlan("repair manifest change has no identity_fields")
+        if len(identity_fields) != len(set(identity_fields)):
+            raise InvalidRepairPlan(
+                "repair manifest change contains duplicate identity_fields"
+            )
+        change["identity_fields"] = identity_fields
+
         for field in ("preimage_documents", "postimage_documents"):
-            _sorted_documents(
-                list(change.get(field) or []),
+            documents_value = change.get(field)
+            if not isinstance(documents_value, list) or any(
+                not isinstance(item, Mapping) for item in documents_value
+            ):
+                raise InvalidRepairPlan(
+                    f"repair manifest {field} must be an array of objects"
+                )
+            documents = _sorted_documents(
+                [dict(cast(Mapping[str, Any], item)) for item in documents_value],
                 identity_fields=identity_fields,
             )
+            if mode == "replace" and len(documents) > 1:
+                raise InvalidRepairPlan(
+                    "repair manifest atomic replace contains multiple documents"
+                )
+            for document in documents:
+                if not _document_matches(document, selector):
+                    raise InvalidRepairPlan(
+                        f"repair manifest {field} for {store}.{collection} "
+                        "escapes its stable selector"
+                    )
+            _assert_documents_within_scope(
+                documents,
+                scope=scope,
+                label=f"{store}.{collection} {field}",
+            )
+            change[field] = documents
+
+        if mode == "snapshot" and _single_change_hash(
+            change,
+            change["preimage_documents"],
+        ) != _single_change_hash(change, change["postimage_documents"]):
+            raise InvalidRepairPlan(
+                "repair manifest snapshot change must preserve its preimage"
+            )
+        _require_fixed_id_for_insert(change)
+        if (
+            mode == "replace"
+            and _diff_count(
+                _build_document_diff(
+                    change["preimage_documents"],
+                    change["postimage_documents"],
+                    identity_fields=identity_fields,
+                )
+            )
+            > 1
+        ):
+            raise InvalidRepairPlan(
+                "repair manifest replace change is not one atomic mutation"
+            )
+        normalized_changes.append(change)
+
+    normalized["repair_id"] = repair_id
+    normalized["reason"] = reason
+    normalized["scope"] = scope
+    normalized["changes"] = normalized_changes
+    _assert_staged_changes_do_not_overlap(normalized_changes)
     if _snapshot_hash(normalized["changes"], "preimage_documents") != str(
         normalized["preimage_hash"]
     ):
@@ -1425,6 +1705,221 @@ def _persist_manifest(manifest: Mapping[str, Any], path: str | Path) -> Path:
         return target
 
 
+def _new_attempt_id(operation: str, repair_id: str) -> str:
+    return f"{operation}:{repair_id}:{uuid.uuid4().hex}"
+
+
+def _new_attempt_lease_expiry() -> str:
+    return (
+        datetime.now(timezone.utc) + timedelta(seconds=_REPAIR_ATTEMPT_LEASE_SECONDS)
+    ).isoformat()
+
+
+def _lease_is_active(value: Any) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        # A malformed non-empty lease must fail closed rather than authorizing a
+        # competing repair attempt.
+        return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc) > datetime.now(timezone.utc)
+
+
+def _receipt_version(receipt: Mapping[str, Any]) -> int:
+    try:
+        return int(receipt.get("receipt_version") or 0)
+    except (TypeError, ValueError) as exc:
+        raise RepairIdConflict("repair receipt has an invalid receipt_version") from exc
+
+
+def _add_existing_receipt_field(
+    selector: dict[str, Any],
+    receipt: Mapping[str, Any],
+    field: str,
+) -> None:
+    if field in receipt:
+        selector[field] = deepcopy(receipt.get(field))
+    else:
+        selector[field] = {"$exists": False}
+
+
+def _claim_attempt(
+    journal,
+    *,
+    receipt: Mapping[str, Any],
+    operation: str,
+    allowed_statuses: set[str],
+    restore_id: str | None = None,
+) -> tuple[str, int]:
+    repair_id = str(receipt.get("repair_id") or "")
+    status = str(receipt.get("status") or "")
+    if operation not in {"apply", "restore"}:
+        raise ValueError(f"unsupported repair operation: {operation}")
+    if status not in allowed_statuses:
+        raise RepairIdConflict(
+            f"repair_id {repair_id!r} cannot start {operation} from status {status!r}"
+        )
+
+    active_status = "applying" if operation == "apply" else "restoring"
+    attempt_field = f"{operation}_attempt_id"
+    lease_field = f"{operation}_lease_expires_at"
+    if status == active_status and _lease_is_active(receipt.get(lease_field)):
+        raise RepairIdConflict(
+            f"repair_id {repair_id!r} already has an active {operation} attempt"
+        )
+
+    normalized_restore_id = None
+    if operation == "restore":
+        normalized_restore_id = str(restore_id or "").strip()
+        if not normalized_restore_id:
+            raise InvalidRepairPlan("restore_id must not be empty")
+        prior_restore_id = str(receipt.get("restore_id") or "").strip()
+        if status in {"restoring", "restore_failed"} and (
+            prior_restore_id and prior_restore_id != normalized_restore_id
+        ):
+            raise RepairIdConflict(
+                f"repair_id {repair_id!r} is already bound to restore_id "
+                f"{prior_restore_id!r}"
+            )
+
+    previous_version = _receipt_version(receipt)
+    next_version = previous_version + 1
+    attempt_id = _new_attempt_id(operation, repair_id)
+    selector: dict[str, Any] = {
+        "repair_id": repair_id,
+        "status": status,
+    }
+    _add_existing_receipt_field(selector, receipt, "receipt_version")
+    _add_existing_receipt_field(selector, receipt, attempt_field)
+    _add_existing_receipt_field(selector, receipt, lease_field)
+    if operation == "restore":
+        _add_existing_receipt_field(selector, receipt, "restore_id")
+
+    now = _utc_now()
+    values: dict[str, Any] = {
+        "status": active_status,
+        "receipt_version": next_version,
+        attempt_field: attempt_id,
+        lease_field: _new_attempt_lease_expiry(),
+        f"{operation}_last_attempt_at": now,
+    }
+    if operation == "apply":
+        values["last_attempt_at"] = now
+    else:
+        values["restore_id"] = normalized_restore_id
+        values["restore_started_at"] = now
+
+    _checked_receipt_update(
+        journal,
+        selector=selector,
+        update={"$set": values},
+        message=(
+            f"repair_id {repair_id!r} {operation} receipt changed while claiming "
+            "attempt ownership"
+        ),
+    )
+    return attempt_id, next_version
+
+
+def _renew_owned_attempt_lease(
+    journal,
+    *,
+    repair_id: str,
+    operation: str,
+    attempt_id: str,
+    receipt_version: int,
+) -> None:
+    status = "applying" if operation == "apply" else "restoring"
+    attempt_field = f"{operation}_attempt_id"
+    lease_field = f"{operation}_lease_expires_at"
+    _checked_receipt_update(
+        journal,
+        selector={
+            "repair_id": repair_id,
+            "status": status,
+            "receipt_version": int(receipt_version),
+            attempt_field: attempt_id,
+        },
+        update={
+            "$set": {
+                lease_field: _new_attempt_lease_expiry(),
+                f"{operation}_last_attempt_at": _utc_now(),
+            }
+        },
+        message=(
+            f"repair_id {repair_id!r} lost {operation} attempt ownership while "
+            "renewing its lease"
+        ),
+    )
+
+
+def _finish_owned_attempt(
+    journal,
+    *,
+    repair_id: str,
+    operation: str,
+    attempt_id: str,
+    receipt_version: int,
+    status: str,
+    values: Mapping[str, Any],
+) -> None:
+    active_status = "applying" if operation == "apply" else "restoring"
+    allowed_terminal_statuses = (
+        {"applied", "failed"}
+        if operation == "apply"
+        else {"restored", "restore_failed"}
+    )
+    if status not in allowed_terminal_statuses:
+        raise ValueError(
+            f"unsupported terminal status {status!r} for repair operation {operation!r}"
+        )
+    attempt_field = f"{operation}_attempt_id"
+    lease_field = f"{operation}_lease_expires_at"
+    update_values = deepcopy(dict(values))
+    update_values.update(
+        {
+            "status": status,
+            "receipt_version": int(receipt_version) + 1,
+            lease_field: None,
+        }
+    )
+    _checked_receipt_update(
+        journal,
+        selector={
+            "repair_id": repair_id,
+            "status": active_status,
+            "receipt_version": int(receipt_version),
+            attempt_field: attempt_id,
+        },
+        update={"$set": update_values},
+        message=(
+            f"repair_id {repair_id!r} lost {operation} attempt ownership before "
+            f"transitioning to {status!r}"
+        ),
+    )
+
+
+def _checked_receipt_update(
+    journal,
+    *,
+    selector: Mapping[str, Any],
+    update: Mapping[str, Any],
+    message: str,
+) -> None:
+    result = journal.update_one(
+        deepcopy(dict(selector)),
+        deepcopy(dict(update)),
+        upsert=False,
+    )
+    if int(getattr(result, "matched_count", 0) or 0) != 1:
+        raise RepairIdConflict(message)
+
+
 def _assert_receipt_matches_manifest(
     receipt: Mapping[str, Any],
     manifest: Mapping[str, Any],
@@ -1438,6 +1933,27 @@ def _assert_receipt_matches_manifest(
     ):
         if str(receipt.get(key) or "") != str(manifest.get(key) or ""):
             raise RepairIdConflict(f"repair journal and manifest disagree on {key}")
+
+
+def _require_restore_receipt(
+    *,
+    manifest: Mapping[str, Any],
+    databases: Mapping[str, Any],
+) -> dict[str, Any]:
+    repair_id = str(manifest.get("repair_id") or "")
+    journal = databases["order"][TARGETED_REPAIR_JOURNAL_COLLECTION]
+    receipt = journal.find_one({"repair_id": repair_id})
+    if receipt is None:
+        raise RepairIdConflict(
+            f"repair_id {repair_id!r} has no matching applied repair receipt"
+        )
+    _assert_receipt_matches_manifest(receipt, manifest)
+    status = str(receipt.get("status") or "")
+    if status not in _RESTORABLE_RECEIPT_STATUSES:
+        raise RestoreStateMismatch(
+            f"repair_id {repair_id!r} receipt status {status!r} is not restorable"
+        )
+    return dict(receipt)
 
 
 def _assert_expected_hash(*, expected: str, actual: str, label: str) -> None:
