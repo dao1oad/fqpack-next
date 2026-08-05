@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+import threading
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from uuid import uuid4
 
 CLX_TDX_GROUP_DISPLAY_NAME = "clx_18"
 CLX_TDX_BLOCK_KEY = "CLX_18"
 CLX_TDX_BLK_FILENAME = f"{CLX_TDX_BLOCK_KEY}.blk"
+
+CLX_15_30_TDX_GROUP_DISPLAY_NAME = "clx_15_30"
+CLX_15_30_TDX_BLOCK_KEY = "CLX_15_30"
+CLX_15_30_TDX_BLK_FILENAME = f"{CLX_15_30_TDX_BLOCK_KEY}.blk"
+
+# consumer 的 fullcalc 回调来自线程池，读-合并-重写必须串行化
+_TDX_BLK_WRITE_LOCK = threading.Lock()
 
 
 def encode_tdx_blk_code(value: object) -> str:
@@ -94,6 +102,80 @@ def write_clx_tdx_group(
 
     root = Path(tdx_home) if tdx_home is not None else _require_tdx_home()
     target = root / "T0002" / "blocknew" / CLX_TDX_BLK_FILENAME
+    with _TDX_BLK_WRITE_LOCK:
+        _atomic_write_blk(lines, target)
+
+    return {
+        "group_name": CLX_TDX_GROUP_DISPLAY_NAME,
+        "file_name": CLX_TDX_BLK_FILENAME,
+        "written_count": len(lines),
+    }
+
+
+def read_tdx_blk_lines(
+    tdx_home: str | Path | None = None,
+    filename: str = CLX_15_30_TDX_BLK_FILENAME,
+) -> list[str]:
+    """Read an existing TDX .blk group as normalized 7-char lines (order preserved, dedup)."""
+    root = Path(tdx_home) if tdx_home is not None else _require_tdx_home()
+    target = root / "T0002" / "blocknew" / filename
+    if not target.exists():
+        return []
+
+    text = target.read_bytes().decode("gbk", errors="ignore")
+    lines = []
+    seen = set()
+    for raw in text.splitlines():
+        line = str(raw).strip().upper()
+        if not line or line in seen:
+            continue
+        seen.add(line)
+        lines.append(line)
+    return lines
+
+
+def append_tdx_group_members(
+    symbols: Sequence[object],
+    *,
+    tdx_home: str | Path | None = None,
+    block_key: str = CLX_15_30_TDX_BLOCK_KEY,
+    display_name: str = CLX_15_30_TDX_GROUP_DISPLAY_NAME,
+) -> dict[str, object]:
+    """去重追加成员到通达信分组，复用编码与原子写实现。
+
+    - 以编码后的 7 字符行直接去重（不解码回 6 位，避免 LOF 等裸 6 位歧义）。
+    - 无新增成员时为 no-op，不抛错、不触碰旧文件。
+    """
+    filename = f"{block_key}.blk"
+    lines = list(read_tdx_blk_lines(tdx_home=tdx_home, filename=filename))
+    seen = set(lines)
+
+    appended_count = 0
+    for symbol in symbols or []:
+        line = encode_tdx_blk_code(symbol)
+        if line in seen:
+            continue
+        seen.add(line)
+        lines.append(line)
+        appended_count += 1
+
+    result = {
+        "group_name": display_name,
+        "file_name": filename,
+        "appended_count": appended_count,
+        "written_count": len(lines),
+    }
+    if appended_count == 0:
+        return result
+
+    root = Path(tdx_home) if tdx_home is not None else _require_tdx_home()
+    target = root / "T0002" / "blocknew" / filename
+    with _TDX_BLK_WRITE_LOCK:
+        _atomic_write_blk(lines, target)
+    return result
+
+
+def _atomic_write_blk(lines: list[str], target: Path) -> None:
     temp_path = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -105,12 +187,6 @@ def write_clx_tdx_group(
     except Exception as exc:
         temp_path.unlink(missing_ok=True)
         raise RuntimeError(f"导入通达信失败，旧分组已保留：{exc}") from exc
-
-    return {
-        "group_name": CLX_TDX_GROUP_DISPLAY_NAME,
-        "file_name": CLX_TDX_BLK_FILENAME,
-        "written_count": len(lines),
-    }
 
 
 def _require_tdx_home() -> Path:
