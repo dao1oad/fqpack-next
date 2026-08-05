@@ -36,7 +36,7 @@ from freshquant.market_data.xtdata.schema import BarCloseEvent, normalize_prefix
 from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.runtime_singleton import ProcessSingleton, SingletonAlreadyRunning
-from freshquant.system_settings import system_settings
+from freshquant.system_settings import strict_settings_env_enabled, system_settings
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.period import (
     PUBSUB_CHANNEL,
@@ -1376,9 +1376,9 @@ class StrategyConsumer:
 def main(max_bars: int, workers: int | None, max_inflight: int | None, prewarm: bool):
     try:
         with ProcessSingleton("xtdata-strategy-consumer"):
-            # Reload strictly at worker startup so a transient Mongo outage
-            # terminates this process instead of selecting guardian_1m.
-            system_settings.reload(strict=True)
+            # 生产在 envs.conf 设 FQ_SYSTEM_SETTINGS_STRICT=1 时严格 reload：
+            # Mongo 不可用则终止进程而不是回退 guardian_1m；CI/测试默认宽松。
+            system_settings.reload(strict=strict_settings_env_enabled())
             consumer = StrategyConsumer(
                 max_bars=max_bars,
                 fullcalc_workers=workers,

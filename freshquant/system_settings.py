@@ -13,7 +13,7 @@ from pydash import get
 from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
 
 
-def _strict_settings_env_enabled() -> bool:
+def strict_settings_env_enabled() -> bool:
     value = str(os.environ.get("FQ_SYSTEM_SETTINGS_STRICT", "") or "").strip().lower()
     return value in {"1", "true", "yes", "on"}
 
@@ -154,7 +154,7 @@ class SystemSettings:
         # Production enables the strict switch via FQ_SYSTEM_SETTINGS_STRICT=1
         # (see D:/fqpack/config/envs.conf); CI/test environments keep the
         # permissive default so module import does not require MongoDB.
-        self.reload(strict=_strict_settings_env_enabled())
+        self.reload(strict=strict_settings_env_enabled())
 
     def reload(
         self,
