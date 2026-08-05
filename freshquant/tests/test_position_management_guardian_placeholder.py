@@ -135,6 +135,7 @@ def test_submit_service_carries_guardian_placeholder_meta_to_queue():
         queue_client=queue_client,
         position_management_service=PlaceholderPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
     )
 
     result = service.submit_order(
@@ -174,6 +175,7 @@ def test_submit_service_marks_placeholder_for_guardian_strategy_identifier(
         queue_client=FakeQueueClient(),
         position_management_service=position_service,
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
     )
     monkeypatch.setattr(
         "freshquant.position_management.service._resolve_guardian_strategy_identifier",

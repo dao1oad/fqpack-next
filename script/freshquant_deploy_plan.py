@@ -108,6 +108,13 @@ FRESHQUANT_MESSAGE_SURFACES = ("market_data", "guardian")
 FRESHQUANT_TRADING_SURFACES = ("api", "dagster", "market_data", "guardian")
 FRESHQUANT_LEGACY_CONFIG_SURFACES = ("dagster", "market_data", "guardian")
 FQXTRADE_RUNTIME_SURFACES = ("order_management",)
+ORDER_LEDGER_SHARED_CONSUMER_SURFACES = (
+    "api",
+    "guardian",
+    "position_management",
+    "tpsl",
+    "order_management",
+)
 DOCKER_PARALLEL_ALL_SURFACES = ("api", "web", "dagster", "qa")
 DOCKER_PARALLEL_ALL_SERVICES = (
     "fq_mongodb",
@@ -229,6 +236,22 @@ PATH_RULES: tuple[PathRule, ...] = (
         surfaces=FRESHQUANT_LEGACY_CONFIG_SURFACES,
         notes=(
             "旧 `freshquant.yaml` 虽已降级，但当前仍随 `freshquant.config` 被部分宿主机链路读取。",
+        ),
+    ),
+    ExactRule(
+        label="order-ledger-shared-repository",
+        exact_path="freshquant/order_management/repository.py",
+        surfaces=ORDER_LEDGER_SHARED_CONSUMER_SURFACES,
+        notes=(
+            "订单账本 repository 被 Guardian、仓位同步、TPSL 与订单运行面共同加载，必须同步重启全部消费者。",
+        ),
+    ),
+    ExactRule(
+        label="order-ledger-shared-entry-adapter",
+        exact_path="freshquant/order_management/entry_adapter.py",
+        surfaces=ORDER_LEDGER_SHARED_CONSUMER_SURFACES,
+        notes=(
+            "entry adapter 是 Guardian、Position Management 与 TPSL 的共享 V2/compat 读取边界，必须同步重启全部消费者。",
         ),
     ),
     PrefixRule(

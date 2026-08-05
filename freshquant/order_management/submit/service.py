@@ -4,10 +4,15 @@ import json
 from datetime import datetime, timezone
 
 from freshquant.carnation.config import STOCK_ORDER_QUEUE
+from freshquant.order_management.broker_identity import (
+    normalize_account_id,
+    resolve_trading_day,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.credit_order_resolver import (
     build_credit_subject_lookup,
     build_credit_subjects_available,
+    get_configured_account_id,
     get_configured_account_type,
     resolve_submit_credit_order,
 )
@@ -30,6 +35,7 @@ class OrderSubmitService:
         queue_client=None,
         position_management_service=None,
         account_type_loader=None,
+        account_id_loader=None,
         credit_subject_lookup=None,
         credit_subjects_available=None,
         credit_order_resolver=None,
@@ -45,6 +51,7 @@ class OrderSubmitService:
             or _load_position_management_service(runtime_logger=runtime_logger)
         )
         self.account_type_loader = account_type_loader or get_configured_account_type
+        self.account_id_loader = account_id_loader or get_configured_account_id
         self.credit_subject_lookup = (
             credit_subject_lookup or _default_credit_subject_lookup
         )
@@ -73,6 +80,17 @@ class OrderSubmitService:
             account_type = _normalize_account_type(
                 payload.get("account_type") or self.account_type_loader()
             )
+            account_id = normalize_account_id(
+                payload.get("account_id") or self.account_id_loader()
+            )
+            if account_id is None:
+                raise ValueError("account_id is required")
+            trading_day = resolve_trading_day(
+                payload,
+                report_time=datetime.now(timezone.utc),
+            )
+            if trading_day is None:  # pragma: no cover - current time is always valid
+                raise ValueError("trading_day is required")
             credit_trade_mode = _normalize_mode(payload.get("credit_trade_mode"))
             price_mode = _normalize_mode(payload.get("price_mode"))
             self._emit_runtime(
@@ -156,6 +174,8 @@ class OrderSubmitService:
                     "price": price,
                     "quantity": quantity,
                     "account_type": account_type,
+                    "account_id": account_id,
+                    "trading_day": trading_day,
                     "credit_trade_mode": credit_trade_mode,
                     "price_mode": price_mode,
                     **credit_resolution,
@@ -197,12 +217,15 @@ class OrderSubmitService:
                 "scope_ref_id": payload.get("scope_ref_id"),
                 "strategy_context": payload.get("strategy_context"),
                 "account_type": account_type,
+                "account_id": account_id,
+                "trading_day": trading_day,
                 "credit_trade_mode": credit_trade_mode,
                 "price_mode": price_mode,
                 "credit_trade_mode_resolved": credit_resolution[
                     "credit_trade_mode_resolved"
                 ],
                 "broker_order_type": credit_resolution["broker_order_type"],
+                "broker_correlation_token": order["broker_correlation_token"],
             }
             if position_decision is not None:
                 queue_payload["position_management_state"] = position_decision.state
@@ -225,7 +248,9 @@ class OrderSubmitService:
                 symbol=symbol,
                 request_id=request_id,
                 internal_order_id=order["internal_order_id"],
-                extra_payload={"queue_payload": queue_payload},
+                extra_payload={
+                    "queue_payload": _build_runtime_queue_payload(queue_payload)
+                },
             )
             self.queue_client.lpush(
                 STOCK_ORDER_QUEUE,
@@ -385,6 +410,12 @@ class OrderSubmitService:
 def _normalize_symbol(symbol):
     normalized = normalize_to_base_code(symbol)
     return normalized or symbol
+
+
+def _build_runtime_queue_payload(queue_payload):
+    runtime_payload = dict(queue_payload or {})
+    runtime_payload.pop("account_id", None)
+    return runtime_payload
 
 
 def _load_queue_client():

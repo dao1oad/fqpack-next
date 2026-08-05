@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -619,6 +620,9 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
             "intent_id": "intent-broker-1",
             "request_id": "req-broker-1",
             "internal_order_id": "ord-broker-1",
+            "account_id": "acct-1",
+            "trading_day": 20260805,
+            "broker_order_id": "90001",
             "symbol": "600000",
             "side": "buy",
         }
@@ -630,6 +634,9 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
             order_id="90001",
             traded_id="T-90001",
             stock_code="600000.SH",
+            account_id="acct-1",
+            trading_day=20260805,
+            order_type=23,
         )
     )
 
@@ -659,6 +666,9 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
                     "intent_id": "int_old",
                     "request_id": "req_old",
                     "internal_order_id": "ord_old_buy",
+                    "account_id": "acct-1",
+                    "trading_day": 20260413,
+                    "broker_order_id": "1477443585",
                     "symbol": "002262",
                     "side": "buy",
                     "broker_order_type": 27,
@@ -670,6 +680,9 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
                     "intent_id": "int_new",
                     "request_id": "req_new",
                     "internal_order_id": "ord_new_sell",
+                    "account_id": "acct-1",
+                    "trading_day": 20260429,
+                    "broker_order_id": "1477443585",
                     "symbol": "002262",
                     "side": "sell",
                     "broker_order_type": 24,
@@ -688,6 +701,8 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
             stock_code="002262.SZ",
             order_type=24,
             traded_time=1777428846,
+            account_id="acct-1",
+            trading_day=20260429,
         )
     )
 
@@ -1034,6 +1049,59 @@ def test_broker_trading_loop_emits_success_heartbeat_after_connect(monkeypatch):
         "payload": {},
         "metrics": {"connected": 1, "retry_count": 0, "retry_delay_s": 0},
     }
+
+
+@pytest.mark.parametrize(("action", "remark_arg_index"), [("buy", 4), ("sell", 5)])
+def test_broker_gateway_passes_correlation_token_as_xt_order_remark(
+    monkeypatch,
+    action,
+    remark_arg_index,
+):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module(f"test_runtime_broker_{action}_remark", BROKER_PATH)
+    captured = {}
+    token = "FQOM0123456789abcdef0123"
+
+    def capture_submit(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return 90009
+
+    broker.puppet.buy = capture_submit
+    broker.puppet.sell = capture_submit
+    broker.connection_manager.connected = True
+    broker.resolve_broker_submit_mode = lambda settings_provider=None: "normal"
+    broker.random.shuffle = lambda _values: None
+    broker.tool_trade_date_seconds_to_start = lambda: 0
+    payload = {
+        "action": action,
+        "symbol": "688772",
+        "price": 14.7,
+        "quantity": 3400,
+        "source": "api",
+        "strategy_name": "takeprofit",
+        "remark": "human readable remark",
+        "broker_order_remark": token,
+        "internal_order_id": f"ord-{action}-remark",
+        "force": True,
+    }
+
+    class OneMessageRedis:
+        def __init__(self):
+            self.calls = 0
+
+        def brpop(self, _queues, _timeout):
+            self.calls += 1
+            if self.calls == 1:
+                return ("QUEUE:ORDER", json.dumps(payload))
+            raise KeyboardInterrupt()
+
+    broker.redis_db = OneMessageRedis()
+
+    broker.trading_main_loop()
+
+    assert captured["args"][remark_arg_index] == token
+    assert captured["args"][remark_arg_index] != payload["remark"]
 
 
 def test_broker_source_no_longer_contains_sync_maintenance_actions():

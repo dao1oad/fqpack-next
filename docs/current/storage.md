@@ -44,6 +44,8 @@
 - `om_takeprofit_states`
 - `om_exit_trigger_events`
 - `om_credit_subjects`
+- `om_targeted_repair_runs`
+  - 定向修账审计收据；`repair_id` 唯一，保存 plan/manifest/preimage/postimage hash、状态与 restore 结果
 - `om_execution_history_archive`
   - 持仓复盘的规范化成交档案；`execution_key` 使用
     `broker_trade_id + symbol + side + trade_time + quantity + price`
@@ -59,6 +61,21 @@
   - 使用 `evidence_type + account_partition + 稳定业务身份` 幂等写入
   - 顶层、候选快照和 payload 均不持久化原始 `account_id`；只保留不可逆
     `account_partition`
+
+订单与成交身份当前固定为：
+
+- broker order 首选：`account_id + trading_day + order_sysid`
+- broker order fallback：`account_id + trading_day + symbol + side + broker_order_id`
+- execution fill：`account_id + trading_day + symbol + side + broker_trade_id`
+
+裸 `broker_order_id / order_sysid / broker_trade_id` 都不是跨账户、跨交易日的全局
+唯一键。`om_broker_orders / om_execution_fills / om_trade_facts` 持久化已知身份维度，
+聚合与幂等写入必须使用规范复合身份。
+
+Mongo 当前使用 partial unique index 约束字符串形态的 `broker_order_key`、两类
+`execution_identity`、`entry_id`、`entry_slice_id` 与 `allocation_id`。历史
+execution 文档在补齐 `execution_identity` 前不进入该唯一索引，避免上线索引时把
+缺失字段的旧记录误判为重复。
 
 当前仍保留的 legacy 集合：
 
@@ -129,6 +146,7 @@
 - 当前执行事实真值
   - `om_broker_orders`
   - `om_execution_fills`
+  - 订单聚合从同一规范 broker identity 下已接受的 canonical fills 确定性重算
 - 当前持仓解释真值
   - `om_position_entries`
   - `om_entry_slices`
@@ -143,6 +161,11 @@
     提供不随 positions-only initialize 或 destructive rebuild 消失的历史只读证据
   - 历史档案不参与当前仓位重建，也不反向改写 `xt_positions`
   - `account_partition` 是账户号的不可逆摘要；API 不返回原始账户号
+  - 两个历史档案不包含完整可写账本闭包，不能作为 repair/rebuild rollback backup
+- 定向修账恢复真值
+  - 写前完整 BSON preimage manifest
+  - `om_targeted_repair_runs` 中与 manifest 一致的 hash/status 收据
+  - manifest 同时覆盖 `mode=replace` 写集合和 `mode=snapshot` 只读闭包；restore 只在当前完整闭包仍等于 postimage hash 时允许
 - CLX partition 计算真值
   - `freshquant_clx_daily_selection.partitions`
   - `memberships / snapshots / model_stats` 只通过 `partition_id` 归属不可变输出
@@ -185,6 +208,7 @@
   - 写 `om_position_entries / om_entry_slices / om_exit_allocations`
   - 写 `om_ingest_rejections`
   - 同步 legacy `buy_lot` 链与 `stock_fills_compat`
+  - XT execution fragment 只要求正整数数量；订单聚合从 accepted fills 重算
 - `ExternalOrderReconcileService`
   - 写 `om_reconciliation_gaps / om_reconciliation_resolutions`
   - 必要时自动写 `position_entries / exit_allocations`
@@ -194,6 +218,12 @@
 - initialize / order-ledger rebuild
   - 替换 `xt_trades` 或 purge OM 账本前，先幂等写入两个持仓复盘档案
   - 归档失败时中止清理；两个档案集合不在 order-ledger purge 边界内
+- targeted order-ledger repair
+  - 从 `business/order` 两个 store 读取计划声明的账户、标的、broker identity 与引用闭包
+  - `snapshot` 项只进入一致性 hash；每个 `replace` 项只做一个原子文档 insert/update/delete，并由精确 allowed diff 限制身份
+  - selector 每个逻辑分支要求账户锚点（或计划内精确 `_id`）与稳定闭包键，禁止 symbol-only 批量 selector；同集合 change 不得重叠
+  - 逻辑 diff/preimage/postimage hash 在 `_id` 不是业务 identity field 时忽略 Mongo 自动 `_id`，但 manifest 保留原始 preimage `_id` 用于精确 restore
+  - 写前落完整 preimage manifest，写后记录 `om_targeted_repair_runs`；restore 从 manifest 恢复，不从历史 archive 反推
 - `PositionReviewRepository`
   - 合并当前 `xt_trades / om_*` 与两个历史档案
   - 同一账户内按成交六元身份去重，不同已知账户分区保留为不同成交
@@ -219,7 +249,7 @@
 - 查当前仓位先看 `xt_positions`
 - 查账本解释先看 `om_position_entries`
 - 查执行事实先看 `om_broker_orders / om_execution_fills`
-- 查 odd-lot 或拒绝写入先看 `om_ingest_rejections`
+- 查 XT execution fragment 是否完整先看 `om_execution_fills` 与 broker aggregate；外部已成交 odd-lot 不应再出现 `non_board_lot_quantity` rejection
 - 查 legacy 镜像问题最后再看 `stock_fills_compat / om_buy_lots`
 - 查全历史持仓复盘缺失先看
   `om_execution_history_archive / position_review_evidence_archive`

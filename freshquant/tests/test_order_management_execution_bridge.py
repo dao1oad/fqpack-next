@@ -84,6 +84,44 @@ def test_prepare_submit_execution_skips_canceled_order_before_submit():
     assert repository.find_order("ord_skip_1")["state"] == "CANCELED"
 
 
+def test_prepare_submit_execution_pins_xt_order_remark_to_internal_order():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "strategy",
+            "remark": "human readable remark",
+            "internal_order_id": "ord_correlation_1",
+        }
+    )
+
+    result = prepare_submit_execution(
+        {
+            "internal_order_id": "ord_correlation_1",
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "remark": "human readable remark",
+        },
+        repository=repository,
+        tracking_service=tracking_service,
+        continuous_auction_provider=lambda: False,
+    )
+
+    order = repository.find_order("ord_correlation_1")
+    token = order["broker_correlation_token"]
+    assert result["status"] == "execute"
+    assert result["order_message"]["broker_correlation_token"] == token
+    assert result["order_message"]["broker_order_remark"] == token
+    assert result["order_message"]["remark"] == "human readable remark"
+    assert len(token) == 24
+
+
 def test_finalize_submit_execution_marks_order_submitted_with_broker_order_id():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)

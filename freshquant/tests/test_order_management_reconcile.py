@@ -320,6 +320,13 @@ class InMemoryRepository:
         self.entry_slices.extend(dict(item) for item in slices)
         return slices
 
+    def upsert_entry_slices(self, slices):
+        by_id = {item["entry_slice_id"]: item for item in self.entry_slices}
+        for item in slices:
+            by_id[item["entry_slice_id"]] = dict(item)
+        self.entry_slices = list(by_id.values())
+        return slices
+
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         rows = [
             item
@@ -418,6 +425,20 @@ def _build_service(
         ),
     )
     return repository, service
+
+
+def test_reconcile_service_constructor_defers_default_tpsl_service(monkeypatch):
+    constructed = []
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: constructed.append(True),
+    )
+
+    _repository, service = _build_service()
+
+    assert constructed == []
+    assert service.ingest_service.tpsl_service is not None
 
 
 def test_detect_external_candidates_from_position_delta():
@@ -764,6 +785,7 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypat
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90001,
                 "traded_id": "T90001",
                 "stock_code": "000001.SZ",
@@ -796,6 +818,8 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 19700101,
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -812,14 +836,19 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
             "broker_order_id": None,
         }
     )
+    correlation_token = repository.find_order("ord_internal_1")[
+        "broker_correlation_token"
+    ]
 
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90002,
                 "traded_id": "T90002",
                 "stock_code": "000001.SZ",
                 "order_type": 23,
+                "order_remark": correlation_token,
                 "traded_volume": 200,
                 "traded_price": 10.5,
                 "traded_time": 1_030,
@@ -843,6 +872,8 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 19700101,
             "symbol": "000001",
             "price": 10.5,
             "quantity": 600,
@@ -859,14 +890,19 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
             "broker_order_id": None,
         }
     )
+    correlation_token = repository.find_order("ord_internal_partial_1")[
+        "broker_correlation_token"
+    ]
 
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90003,
                 "traded_id": "T90003",
                 "stock_code": "000001.SZ",
                 "order_type": 23,
+                "order_remark": correlation_token,
                 "traded_volume": 300,
                 "traded_price": 10.5,
                 "traded_time": 1_030,
@@ -883,6 +919,209 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
     assert repository.trade_facts[0]["internal_order_id"] == "ord_internal_partial_1"
     assert repository.trade_facts[0]["quantity"] == 300
     assert repository.order_requests[0]["quantity"] == 600
+
+
+def test_inflight_match_rejects_single_candidate_from_different_account():
+    repository, service = _build_service()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-other",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_wrong_account",
+        }
+    )
+
+    status, matched_order = service._match_inflight_internal_order(
+        {
+            "account_id": "acct-target",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 10.5,
+        }
+    )
+
+    assert status == "missing"
+    assert matched_order is None
+
+
+def test_inflight_match_selects_only_candidate_from_trade_account():
+    repository, service = _build_service()
+    tracking_service = OrderTrackingService(repository=repository)
+    for account_id, internal_order_id in (
+        ("acct-target", "ord_target_account"),
+        ("acct-other", "ord_other_account"),
+    ):
+        tracking_service.submit_order(
+            {
+                "action": "buy",
+                "account_id": account_id,
+                "trading_day": 20260805,
+                "symbol": "000001",
+                "price": 10.5,
+                "quantity": 200,
+                "source": "strategy",
+                "internal_order_id": internal_order_id,
+            }
+        )
+
+    status, matched_order = service._match_inflight_internal_order(
+        {
+            "account_id": "acct-target",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 10.5,
+        }
+    )
+
+    assert status == "matched"
+    assert matched_order["internal_order_id"] == "ord_target_account"
+
+
+def test_inflight_match_rejects_candidate_from_different_trading_day():
+    repository, service = _build_service()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-target",
+            "trading_day": 20260804,
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_previous_day",
+        }
+    )
+
+    status, matched_order = service._match_inflight_internal_order(
+        {
+            "account_id": "acct-target",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 10.5,
+        }
+    )
+
+    assert status == "missing"
+    assert matched_order is None
+
+
+def test_inflight_match_rejects_candidate_missing_critical_identity():
+    repository, service = _build_service()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-target",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_missing_day",
+        }
+    )
+
+    status, matched_order = service._match_inflight_internal_order(
+        {
+            "account_id": "acct-target",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 10.5,
+        }
+    )
+
+    assert status == "missing"
+    assert matched_order is None
+
+
+@pytest.mark.parametrize(
+    ("field", "conflicting_value"),
+    [
+        ("account_id", "acct-other"),
+        ("trading_day", 20260804),
+        ("symbol", "000002"),
+        ("action", "sell"),
+    ],
+)
+def test_inflight_match_rejects_known_request_identity_conflict(
+    field,
+    conflicting_value,
+):
+    repository, service = _build_service()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-target",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_request_conflict",
+        }
+    )
+    repository.order_requests[0][field] = conflicting_value
+
+    status, matched_order = service._match_inflight_internal_order(
+        {
+            "account_id": "acct-target",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 10.5,
+        }
+    )
+
+    assert status == "missing"
+    assert matched_order is None
+
+
+@pytest.mark.parametrize("missing_field", ["account_id", "trading_day"])
+def test_inflight_match_requires_trade_account_and_trading_day(missing_field):
+    repository, service = _build_service()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-target",
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_complete_identity",
+        }
+    )
+    normalized_trade = {
+        "account_id": "acct-target",
+        "trading_day": 20260805,
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 200,
+        "price": 10.5,
+    }
+    normalized_trade.pop(missing_field)
+
+    status, matched_order = service._match_inflight_internal_order(normalized_trade)
+
+    assert status == "missing"
+    assert matched_order is None
 
 
 def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
@@ -908,6 +1147,8 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "sell",
+            "account_id": "acct-test",
+            "trading_day": 19700101,
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -922,6 +1163,7 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
 
     outcome = service.reconcile_trade_report(
         {
+            "account_id": "acct-test",
             "order_id": 90011,
             "traded_id": "T90011",
             "stock_code": "000001.SZ",
@@ -975,6 +1217,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 21.0,
             "quantity": 2300,
@@ -997,6 +1240,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
     tracking_service.submit_order(
         {
             "action": "sell",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 22.41,
             "quantity": 2300,
@@ -1019,6 +1263,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
 
     outcome = service.reconcile_trade_report(
         {
+            "account_id": "acct-test",
             "order_id": 1477443585,
             "traded_id": "0103000030649603",
             "stock_code": "002262.SZ",
@@ -1038,7 +1283,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
     assert outcome.result["trade_fact"]["side"] == "sell"
     assert repository.trade_facts[0]["internal_order_id"] == "ord_new_sell_duplicate"
     assert repository.execution_fills[0]["broker_order_key"] == (
-        "ord_new_sell_duplicate"
+        "account:acct-test:day:20260429:symbol:002262:" "side:sell:order:1477443585"
     )
 
 
@@ -1227,6 +1472,42 @@ def test_build_auto_open_entry_uses_beijing_date_time():
     assert entry["time"] == "00:00:00"
 
 
+def test_auto_reconciled_688772_uses_canonical_four_slice_arrangement(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    positions = [
+        {
+            "stock_code": "688772.SH",
+            "volume": 10000,
+            "avg_price": 14.70,
+            "last_price": 14.70,
+        }
+    ]
+    for detected_at in (1_000, 1_015, 1_030):
+        service.detect_external_candidates(
+            positions=positions,
+            detected_at=detected_at,
+        )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    slices = sorted(repository.entry_slices, key=lambda item: item["slice_seq"])
+    assert [
+        (
+            item["guardian_price"],
+            item["original_quantity"],
+            item["remaining_quantity"],
+        )
+        for item in slices
+    ] == [
+        (14.70, 3400, 3400),
+        (15.14, 3300, 3300),
+        (15.59, 3200, 3200),
+        (16.06, 100, 100),
+    ]
+    assert sum(item["original_quantity"] for item in slices) == 10000
+
+
 def test_load_previous_close_from_realtime_uses_beijing_midnight_when_local_fromtimestamp_differs(
     monkeypatch,
 ):
@@ -1368,6 +1649,127 @@ def test_sell_side_non_board_lot_gap_is_rejected_without_reducing_holdings(monke
     )
 
 
+def test_closed_v2_entry_keeps_symbol_authoritative_over_legacy_buy_lot(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_closed_v2",
+            "symbol": "000001",
+            "original_quantity": 100,
+            "remaining_quantity": 0,
+            "status": "CLOSED",
+        }
+    )
+    repository.insert_buy_lot(
+        {
+            "buy_lot_id": "legacy_open_lot",
+            "origin_trade_fact_id": "legacy_trade",
+            "symbol": "000001",
+            "remaining_quantity": 100,
+        }
+    )
+
+    gaps = service.detect_external_candidates(positions=[], detected_at=1_000)
+
+    assert gaps == []
+    assert repository.reconciliation_gaps == []
+
+
+def test_close_gap_does_not_fall_back_to_legacy_when_v2_entry_exists(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_closed_v2",
+            "symbol": "000001",
+            "original_quantity": 100,
+            "remaining_quantity": 0,
+            "status": "CLOSED",
+        }
+    )
+    repository.insert_buy_lot(
+        {
+            "buy_lot_id": "legacy_open_lot",
+            "origin_trade_fact_id": "legacy_trade",
+            "symbol": "000001",
+            "remaining_quantity": 100,
+            "sell_history": [],
+        }
+    )
+    gap = {
+        "gap_id": "gap_closed_v2",
+        "symbol": "000001",
+        "side": "sell",
+        "quantity_delta": 100,
+        "price_estimate": 10.0,
+        "state": "OPEN",
+    }
+    repository.insert_reconciliation_gap(gap)
+
+    confirmed = service._confirm_close_gap(gap, now=1_030)
+
+    assert confirmed["state"] == "REJECTED"
+    assert confirmed["resolution_type"] == "v2_inventory_insufficient"
+    assert repository.buy_lots[0]["remaining_quantity"] == 100
+    assert repository.sell_allocations == []
+
+
+def test_close_gap_updates_open_slice_by_id_without_deleting_closed_slice(monkeypatch):
+    repository, _service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_mixed_slices",
+            "symbol": "000001",
+            "original_quantity": 200,
+            "remaining_quantity": 100,
+            "status": "PARTIALLY_EXITED",
+        }
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_mixed_slices",
+        [
+            {
+                "entry_slice_id": "slice_closed",
+                "entry_id": "entry_mixed_slices",
+                "symbol": "000001",
+                "guardian_price": 10.0,
+                "original_quantity": 100,
+                "remaining_quantity": 0,
+                "remaining_amount": 0.0,
+                "sort_key": 10.0,
+                "slice_seq": 0,
+                "status": "CLOSED",
+            },
+            {
+                "entry_slice_id": "slice_open",
+                "entry_id": "entry_mixed_slices",
+                "symbol": "000001",
+                "guardian_price": 10.3,
+                "original_quantity": 100,
+                "remaining_quantity": 100,
+                "remaining_amount": 1030.0,
+                "sort_key": 10.3,
+                "slice_seq": 1,
+                "status": "OPEN",
+            },
+        ],
+    )
+
+    remaining, allocations = reconcile_service_module._allocate_gap_to_entry_slices(
+        repository=repository,
+        symbol="000001",
+        quantity=100,
+        resolution_id="resolution_mixed_slices",
+    )
+
+    assert remaining == 0
+    assert len(allocations) == 1
+    slices_by_id = {item["entry_slice_id"]: item for item in repository.entry_slices}
+    assert set(slices_by_id) == {"slice_closed", "slice_open"}
+    assert slices_by_id["slice_closed"]["status"] == "CLOSED"
+    assert slices_by_id["slice_open"]["status"] == "CLOSED"
+    assert allocations[0]["entry_slice_id"] in slices_by_id
+
+
 def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     repository, service = _build_service(monkeypatch)
     buy_lot = build_buy_lot_from_trade_fact(
@@ -1399,6 +1801,7 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90003,
                 "traded_id": "T90003",
                 "stock_code": "000001.SZ",
@@ -1935,7 +2338,7 @@ def test_confirm_expired_candidates_keeps_entry_truth_when_arrangement_materiali
     )
     monkeypatch.setattr(
         reconcile_service_module,
-        "_arrange_entry_slices",
+        "arrange_entry",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("arrange boom")),
         raising=False,
     )

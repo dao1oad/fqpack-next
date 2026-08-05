@@ -1,8 +1,12 @@
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import freshquant.order_management.submit.service as submit_service_module
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.position_management.models import PositionDecision
+
+TEST_ACCOUNT_ID = "acct-configured"
 
 
 class FakeQueueClient:
@@ -12,6 +16,14 @@ class FakeQueueClient:
     def lpush(self, queue_name, payload):
         self.messages.append((queue_name, payload))
         return len(self.messages)
+
+
+class CapturingRuntimeLogger:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, event):
+        self.events.append(event)
 
 
 class InMemoryRepository:
@@ -85,6 +97,7 @@ def test_submit_service_enqueues_buy_and_marks_order_queued():
         queue_client=queue_client,
         position_management_service=AllowingPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: TEST_ACCOUNT_ID,
     )
 
     result = service.submit_order(
@@ -116,6 +129,7 @@ def test_submit_service_enqueues_cancel_and_preserves_cancel_requested_state():
         repository=repository,
         queue_client=queue_client,
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: TEST_ACCOUNT_ID,
     )
     create_result = service.submit_order(
         {
@@ -154,6 +168,7 @@ def test_credit_buy_persists_resolved_credit_metadata_and_queue_payload():
         queue_client=queue_client,
         position_management_service=AllowingPositionService(),
         account_type_loader=lambda: "CREDIT",
+        account_id_loader=lambda: TEST_ACCOUNT_ID,
         credit_subject_lookup=lambda _symbol: {"fin_status": 48},
         credit_subjects_available=lambda: True,
     )
@@ -188,6 +203,7 @@ def test_submit_service_default_runtime_logger_uses_isolated_test_runtime_root()
         queue_client=queue_client,
         position_management_service=AllowingPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: TEST_ACCOUNT_ID,
     )
 
     service.submit_order(
@@ -210,3 +226,83 @@ def test_submit_service_default_runtime_logger_uses_isolated_test_runtime_root()
 
     assert snapshot["written"] >= 1
     assert not emitted_path.is_relative_to(formal_root)
+
+
+def test_submit_service_pins_configured_account_and_beijing_trading_day(monkeypatch):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 8, 5, 1, 30, tzinfo=timezone.utc)
+            return value if tz is not None else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(submit_service_module, "datetime", FixedDateTime)
+    repository = InMemoryRepository()
+    queue_client = FakeQueueClient()
+    runtime_logger = CapturingRuntimeLogger()
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=queue_client,
+        position_management_service=AllowingPositionService(),
+        account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: TEST_ACCOUNT_ID,
+        runtime_logger=runtime_logger,
+    )
+
+    result = service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.12,
+            "quantity": 500,
+            "source": "api",
+        }
+    )
+
+    assert repository.order_requests[0]["account_id"] == TEST_ACCOUNT_ID
+    assert repository.order_requests[0]["trading_day"] == 20260805
+    assert repository.orders[0]["account_id"] == TEST_ACCOUNT_ID
+    assert repository.orders[0]["trading_day"] == 20260805
+    queued = json.loads(queue_client.messages[0][1])
+    assert queued["account_id"] == TEST_ACCOUNT_ID
+    assert queued["trading_day"] == 20260805
+    assert result["queue_payload"]["account_id"] == TEST_ACCOUNT_ID
+
+    queue_events = [
+        event
+        for event in runtime_logger.events
+        if event.get("node") == "queue_payload_build"
+    ]
+    assert len(queue_events) == 1
+    assert "account_id" not in queue_events[0]["payload"]["queue_payload"]
+
+
+def test_submit_service_fails_closed_without_configured_account():
+    repository = InMemoryRepository()
+    queue_client = FakeQueueClient()
+    service = OrderSubmitService(
+        repository=repository,
+        queue_client=queue_client,
+        position_management_service=AllowingPositionService(),
+        account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: None,
+        runtime_logger=CapturingRuntimeLogger(),
+    )
+
+    try:
+        service.submit_order(
+            {
+                "action": "buy",
+                "symbol": "000001",
+                "price": 10.12,
+                "quantity": 500,
+                "source": "api",
+            }
+        )
+    except ValueError as error:
+        assert str(error) == "account_id is required"
+    else:
+        raise AssertionError("Expected missing account_id to fail closed")
+
+    assert repository.order_requests == []
+    assert repository.orders == []
+    assert queue_client.messages == []

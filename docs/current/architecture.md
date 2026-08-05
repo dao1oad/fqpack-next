@@ -10,10 +10,9 @@
 - Guardian 新买单提交前复用订单管理撤单链处理同标的内部活动买单；存在
   等待态、外部单或撤单请求时，本 Tick 不提交新单。
 - 当前 Guardian 与 `om_broker_orders` 运行面按单一已配置 XT 账户部署；
-  `om_broker_orders` 只有 `account_type`、没有可用于撤单隔离的 `account_id`，
-  因此活动买单查询在该单账户边界内按标的过滤。若未来同一运行实例承载多个
-  券商账户，必须先把 `account_id` 持久化到订单读模型并加入查询条件，不能直接
-  复用当前撤单编排。
+  `om_broker_orders` 已持久化 `account_id / trading_day / order_sysid / broker_order_key`。
+  活动买单查询仍在当前单账户运行边界内按标的过滤；若未来同一运行实例承载多个
+  券商账户，撤单编排必须显式加入 `account_id` 条件，不能依赖单账户部署假设。
 - 三档止盈按触发时券商总仓位分别计算 1/3、1/2、全部，并受 open ledger
   与 `can_use_volume` 截断；来源分配先使用达价 Slice，不足部分从剩余数量
   最大的 Slice 补足。
@@ -168,7 +167,9 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
   - 定义内部订单执行事实，并用于交叉核对 `xt_trades`
 - `om_broker_orders`
   - 定义券商订单聚合视图，不单独作为历史成交数量真值
-  - XT 回报进入订单账本时，`broker_order_id` 只作为候选检索键；重复券商订单号需要结合 `symbol`、`side/order_type` 与回报时间确定内部订单
+  - 规范身份首选 `account_id + trading_day + order_sysid`，缺少 `order_sysid` 时回退到
+    `account_id + trading_day + symbol + side + broker_order_id`
+  - `broker_order_id / order_sysid` 只可用于候选检索，不能单独作为全局唯一键；身份不完整、冲突或歧义时 fail closed，不按回报时间或唯一候选猜测归属
 - `om_position_entries`
   - 定义系统可消费的持仓入口
 - `om_reconciliation_*`

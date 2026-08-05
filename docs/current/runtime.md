@@ -31,7 +31,9 @@
 
 - `ExternalOrderReconcileService` 对 buy gap 会同时记录 `initial/latest/chosen` 三组价格快照；运行面和排障口径里若看到 `chosen_price_policy=freeze_initial`，表示最终确认价按首次发现快照冻结，而不是跟随长时间观测漂移。
 - Guardian 遇到“持仓 entry 已确认但 arranged fills 不可用”的场景时，当前会显式区分 `arrangement_degraded` 与 `entry_without_slices`；这两种情况默认保守跳过，不再误记成“无持仓”。
-- XT 委托/成交回报匹配内部订单时，`broker_order_id` 不视为全局唯一键；同一 `broker_order_id` 命中多条 `om_orders` 时，会继续按 `symbol`、`side/order_type` 与回报时间选择候选。
+- XT 委托/成交回报匹配内部订单时，`broker_order_id / order_sysid` 都不视为全局唯一键；只接受完整的
+  `account_id + trading_day + order_sysid` 主身份，或
+  `account_id + trading_day + symbol + side + broker_order_id` fallback。身份不完整、冲突或歧义时 fail closed，不按回报时间或唯一候选猜测归属。
 
 ### Docker 并行环境承担
 

@@ -6,6 +6,10 @@ import types
 import pendulum
 import pytest
 
+from freshquant.order_management.guardian.arranger import arrange_entry
+from freshquant.order_management.guardian.read_model import (
+    build_arranged_fill_read_model,
+)
 from freshquant.position_management.errors import PositionManagementRejectedError
 
 
@@ -1127,3 +1131,105 @@ def test_guardian_sell_carries_selected_source_entries_in_strategy_context(
             {"entry_id": "entry_old", "quantity": 100},
         ],
     }
+
+
+def test_guardian_688772_event_sells_only_first_canonical_slice_without_tpsl_profile(
+    monkeypatch,
+):
+    captured = {}
+    fake_redis = FakeRedis()
+    signal = _make_signal(code="688772", position="SELL_SHORT", price=14.81)
+    fire_time = signal["fire_time"]
+    entry = {
+        "entry_id": "entry_688772",
+        "symbol": "688772",
+        "entry_price": 14.70,
+        "original_quantity": 10000,
+        "remaining_quantity": 10000,
+        "date": int(fire_time.subtract(days=1).format("YYYYMMDD")),
+        "time": fire_time.subtract(days=1).format("HH:mm:ss"),
+        "trade_time": int(fire_time.subtract(days=1).timestamp()),
+    }
+    canonical_slices = arrange_entry(
+        entry,
+        lot_amount=50000,
+        grid_interval=1.03,
+    )
+    arranged_fills = build_arranged_fill_read_model(canonical_slices)
+
+    assert [
+        (int(item["quantity"]), float(item["price"]))
+        for item in reversed(arranged_fills)
+    ] == [
+        (3400, 14.70),
+        (3300, 15.14),
+        (3200, 15.59),
+        (100, 16.06),
+    ]
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
+        lambda _code: arranged_fills,
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["688772"],
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.eval_stock_threshold_price",
+        lambda _code, _price: {
+            "bot_river_price": 14.70,
+            "top_river_price": 14.81,
+        },
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian._get_position_reader",
+        lambda: types.SimpleNamespace(get_can_use_volume=lambda _code: 10000),
+    )
+    monkeypatch.setattr("freshquant.strategy.guardian.redis_db", fake_redis)
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        FakeOrderAlert(),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    def fake_submit(action, symbol, price, quantity, **kwargs):
+        captured.update(
+            {
+                "action": action,
+                "symbol": symbol,
+                "price": price,
+                "quantity": quantity,
+                "kwargs": kwargs,
+            }
+        )
+        return {
+            "request_id": "req_688772_sell",
+            "internal_order_id": "ord_688772_sell",
+            "queue_payload": {},
+        }
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.submit_guardian_order",
+        fake_submit,
+    )
+
+    StrategyGuardian().on_signal(signal)
+
+    assert captured["action"] == "sell"
+    assert captured["symbol"] == "688772"
+    assert captured["price"] == 14.81
+    assert captured["quantity"] == 3400
+    assert signal["quantity"] == 3400
+    sell_sources = captured["kwargs"]["strategy_context"]["guardian_sell_sources"]
+    assert sell_sources == {
+        "profitable_fill_count": 1,
+        "requested_quantity": 3400,
+        "submit_quantity": 3400,
+        "entries": [{"entry_id": "entry_688772", "quantity": 3400}],
+    }
+    assert sum(item["quantity"] for item in sell_sources["entries"]) == 3400

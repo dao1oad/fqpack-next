@@ -80,7 +80,7 @@ def build_credit_subject_lookup(
     settings_provider=None,
 ):
     repository = repository or CreditSubjectRepository()
-    configured_account_id = account_id or _get_configured_account_id(
+    configured_account_id = account_id or get_configured_account_id(
         query_param=query_param,
         settings_provider=settings_provider,
     )
@@ -98,7 +98,7 @@ def build_credit_subjects_available(
     settings_provider=None,
 ):
     repository = repository or CreditSubjectRepository()
-    configured_account_id = account_id or _get_configured_account_id(
+    configured_account_id = account_id or get_configured_account_id(
         query_param=query_param,
         settings_provider=settings_provider,
     )
@@ -109,7 +109,7 @@ def build_credit_subjects_available(
     return _available
 
 
-def _get_configured_account_id(query_param=None, settings_provider=None):
+def get_configured_account_id(query_param=None, settings_provider=None):
     if settings_provider is not None:
         raw_value = getattr(settings_provider.xtquant, "account", "")
     elif query_param is not None:

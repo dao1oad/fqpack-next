@@ -112,6 +112,7 @@ def test_submit_order_emits_runtime_trace_steps():
         queue_client=FakeQueueClient(),
         position_management_service=AllowingPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
         runtime_logger=runtime_logger,
     )
 
@@ -151,6 +152,7 @@ def test_submit_order_emits_runtime_error_when_queue_push_fails():
         queue_client=ExplodingQueueClient(),
         position_management_service=AllowingPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
         runtime_logger=runtime_logger,
     )
 
@@ -186,6 +188,7 @@ def test_submit_order_emits_failed_runtime_event_for_position_management_rejecti
         queue_client=FakeQueueClient(),
         position_management_service=RejectingPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
         runtime_logger=runtime_logger,
     )
 
@@ -245,6 +248,7 @@ def test_cancel_order_emits_runtime_trace_steps():
         queue_client=FakeQueueClient(),
         position_management_service=AllowingPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
         runtime_logger=runtime_logger,
     )
 
@@ -292,6 +296,7 @@ def test_cancel_order_emits_runtime_error_when_queue_push_fails():
         queue_client=ExplodingQueueClient(),
         position_management_service=AllowingPositionService(),
         account_type_loader=lambda: "STOCK",
+        account_id_loader=lambda: "acct-test",
         runtime_logger=runtime_logger,
     )
 

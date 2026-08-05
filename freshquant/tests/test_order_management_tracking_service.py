@@ -1,8 +1,13 @@
+import pytest
+
+from freshquant.order_management.broker_identity import BrokerIdentityError
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.order_management.tracking.state_machine import (
     InvalidOrderTransition,
     OrderStateMachine,
 )
+
+TEST_ACCOUNT_ID = "acct-test"
 
 
 class InMemoryRepository:
@@ -50,6 +55,13 @@ class InMemoryRepository:
         self.execution_fills.append(saved)
         return saved, True
 
+    def list_execution_fills(self, *, broker_order_keys=None, **_kwargs):
+        rows = list(self.execution_fills)
+        if broker_order_keys is not None:
+            allowed = set(broker_order_keys)
+            rows = [item for item in rows if item.get("broker_order_key") in allowed]
+        return rows
+
     def find_order(self, internal_order_id):
         for order in self.orders:
             if order["internal_order_id"] == internal_order_id:
@@ -61,6 +73,21 @@ class InMemoryRepository:
             if order["broker_order_key"] == broker_order_key:
                 return order
         return None
+
+    def update_broker_order_fields(self, broker_order_key, updates):
+        order = self.find_broker_order(broker_order_key)
+        if order is None:
+            return None
+        order.update(updates)
+        return order
+
+    def compare_and_set_broker_order(self, *, before, after):
+        current = self.find_broker_order(before["broker_order_key"])
+        if current != before:
+            return None
+        current.clear()
+        current.update(after)
+        return current
 
     def update_order(self, internal_order_id, updates):
         order = self.find_order(internal_order_id)
@@ -140,6 +167,7 @@ def test_ingest_trade_report_is_idempotent_by_broker_trade_id():
     internal_order_id = repository.orders[0]["internal_order_id"]
     report = {
         "internal_order_id": internal_order_id,
+        "account_id": TEST_ACCOUNT_ID,
         "broker_trade_id": "T-001",
         "symbol": "000001",
         "side": "buy",
@@ -171,6 +199,7 @@ def test_ingest_trade_report_preserves_date_and_time_fields():
     internal_order_id = repository.orders[0]["internal_order_id"]
     report = {
         "internal_order_id": internal_order_id,
+        "account_id": TEST_ACCOUNT_ID,
         "broker_trade_id": "T-002",
         "symbol": "000001",
         "side": "buy",
@@ -203,6 +232,7 @@ def test_ingest_trade_report_with_meta_returns_created_flag():
     internal_order_id = repository.orders[0]["internal_order_id"]
     report = {
         "internal_order_id": internal_order_id,
+        "account_id": TEST_ACCOUNT_ID,
         "broker_trade_id": "T-003",
         "symbol": "000001",
         "side": "buy",
@@ -231,11 +261,13 @@ def test_ingest_trade_report_aggregates_execution_fills_into_one_broker_order():
             "quantity": 200,
             "source": "strategy",
             "internal_order_id": "ord_exec_agg_1",
+            "account_id": TEST_ACCOUNT_ID,
         }
     )
     service.ingest_order_report(
         {
             "internal_order_id": "ord_exec_agg_1",
+            "account_id": TEST_ACCOUNT_ID,
             "broker_order_id": "B-EXEC-1",
             "state": "QUEUED",
             "event_type": "xt_order_reported",
@@ -245,6 +277,7 @@ def test_ingest_trade_report_aggregates_execution_fills_into_one_broker_order():
     first = service.ingest_trade_report_with_meta(
         {
             "internal_order_id": "ord_exec_agg_1",
+            "account_id": TEST_ACCOUNT_ID,
             "broker_order_id": "B-EXEC-1",
             "broker_trade_id": "T-EXEC-1",
             "symbol": "000001",
@@ -258,6 +291,7 @@ def test_ingest_trade_report_aggregates_execution_fills_into_one_broker_order():
     second = service.ingest_trade_report_with_meta(
         {
             "internal_order_id": "ord_exec_agg_1",
+            "account_id": TEST_ACCOUNT_ID,
             "broker_order_id": "B-EXEC-1",
             "broker_trade_id": "T-EXEC-2",
             "symbol": "000001",
@@ -272,7 +306,10 @@ def test_ingest_trade_report_aggregates_execution_fills_into_one_broker_order():
     assert first["created"] is True
     assert second["created"] is True
     assert len(repository.execution_fills) == 2
-    aggregate = repository.find_broker_order("ord_exec_agg_1")
+    broker_order_key = (
+        "account:acct-test:day:20240310:symbol:000001:" "side:buy:order:B-EXEC-1"
+    )
+    aggregate = repository.find_broker_order(broker_order_key)
     assert aggregate["broker_order_id"] == "B-EXEC-1"
     assert aggregate["filled_quantity"] == 200
     assert aggregate["fill_count"] == 2
@@ -295,12 +332,14 @@ def test_ingest_trade_report_duplicate_trade_does_not_double_count_broker_order(
             "quantity": 100,
             "source": "strategy",
             "internal_order_id": "ord_exec_dup_1",
+            "account_id": TEST_ACCOUNT_ID,
         }
     )
 
     first = service.ingest_trade_report_with_meta(
         {
             "internal_order_id": "ord_exec_dup_1",
+            "account_id": TEST_ACCOUNT_ID,
             "broker_trade_id": "T-DUP-1",
             "symbol": "000001",
             "side": "buy",
@@ -313,6 +352,7 @@ def test_ingest_trade_report_duplicate_trade_does_not_double_count_broker_order(
     second = service.ingest_trade_report_with_meta(
         {
             "internal_order_id": "ord_exec_dup_1",
+            "account_id": TEST_ACCOUNT_ID,
             "broker_trade_id": "T-DUP-1",
             "symbol": "000001",
             "side": "buy",
@@ -331,7 +371,7 @@ def test_ingest_trade_report_duplicate_trade_does_not_double_count_broker_order(
     assert aggregate["fill_count"] == 1
 
 
-def test_ingest_trade_report_keeps_known_orders_on_internal_broker_order_key():
+def test_ingest_trade_report_migrates_known_order_to_canonical_broker_order_key():
     repository = InMemoryRepository()
     service = OrderTrackingService(repository=repository)
     service.submit_order(
@@ -342,12 +382,14 @@ def test_ingest_trade_report_keeps_known_orders_on_internal_broker_order_key():
             "quantity": 100,
             "source": "strategy",
             "internal_order_id": "ord_exec_alias_1",
+            "account_id": TEST_ACCOUNT_ID,
         }
     )
 
     service.ingest_trade_report_with_meta(
         {
             "internal_order_id": "ord_exec_alias_1",
+            "account_id": TEST_ACCOUNT_ID,
             "broker_order_key": "border_exec_alias_1",
             "broker_order_id": "B-EXEC-ALIAS-1",
             "broker_trade_id": "T-EXEC-ALIAS-1",
@@ -360,11 +402,15 @@ def test_ingest_trade_report_keeps_known_orders_on_internal_broker_order_key():
         }
     )
 
-    aggregate = repository.find_broker_order("ord_exec_alias_1")
+    broker_order_key = (
+        "account:acct-test:day:20240310:symbol:000001:" "side:buy:order:B-EXEC-ALIAS-1"
+    )
+    aggregate = repository.find_broker_order(broker_order_key)
     assert aggregate["internal_order_id"] == "ord_exec_alias_1"
     assert aggregate["broker_order_id"] == "B-EXEC-ALIAS-1"
     assert aggregate["state"] == "FILLED"
-    assert repository.execution_fills[0]["broker_order_key"] == "ord_exec_alias_1"
+    assert repository.execution_fills[0]["broker_order_key"] == broker_order_key
+    assert repository.find_broker_order("ord_exec_alias_1") is None
 
 
 def test_ingest_order_report_is_idempotent_when_state_is_unchanged():
@@ -529,3 +575,227 @@ def test_cancel_order_allows_transition_from_broker_bypassed():
     )
 
     assert repository.find_order("ord_bypass_cancel_1")["state"] == "CANCEL_REQUESTED"
+
+
+def test_execution_identity_does_not_deduplicate_same_trade_id_across_accounts():
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    for account_id, internal_order_id in (
+        ("acct-a", "ord-account-a"),
+        ("acct-b", "ord-account-b"),
+    ):
+        service.submit_order(
+            {
+                "action": "buy",
+                "account_id": account_id,
+                "symbol": "000001",
+                "price": 12.34,
+                "quantity": 100,
+                "source": "strategy",
+                "internal_order_id": internal_order_id,
+            }
+        )
+        service.ingest_trade_report_with_meta(
+            {
+                "internal_order_id": internal_order_id,
+                "account_id": account_id,
+                "broker_trade_id": "shared-trade-id",
+                "symbol": "000001",
+                "side": "buy",
+                "quantity": 100,
+                "price": 12.30,
+                "trade_time": 1710000000,
+                "source": "xt_trade_callback",
+            }
+        )
+
+    assert len(repository.trade_facts) == 2
+    assert len(repository.execution_fills) == 2
+    assert len({item["execution_identity"] for item in repository.execution_fills}) == 2
+
+
+def test_execution_report_without_account_fails_closed():
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "account_id": TEST_ACCOUNT_ID,
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord-missing-account",
+        }
+    )
+
+    with pytest.raises(BrokerIdentityError, match="account_id"):
+        service.ingest_trade_report_with_meta(
+            {
+                "internal_order_id": "ord-missing-account",
+                "broker_trade_id": "trade-missing-account",
+                "symbol": "000001",
+                "side": "buy",
+                "quantity": 100,
+                "price": 12.30,
+                "trade_time": 1710000000,
+                "source": "xt_trade_callback",
+            }
+        )
+
+    assert repository.trade_facts == []
+    assert repository.execution_fills == []
+
+
+def test_broker_fill_aggregate_retries_after_interleaved_order_report_update():
+    class InterleavingRepository(InMemoryRepository):
+        def __init__(self):
+            super().__init__()
+            self.inject_report_update = False
+
+        def compare_and_set_broker_order(self, *, before, after):
+            if self.inject_report_update:
+                self.inject_report_update = False
+                self.update_broker_order_fields(
+                    before["broker_order_key"],
+                    {
+                        "submitted_at": "2026-08-05T01:31:00+00:00",
+                        "report_marker": "interleaved",
+                    },
+                )
+                return None
+            return super().compare_and_set_broker_order(before=before, after=after)
+
+    repository = InterleavingRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord-interleaved-report",
+        }
+    )
+    service.ingest_order_report(
+        {
+            "internal_order_id": "ord-interleaved-report",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20260805,
+            "broker_order_id": "B-INTERLEAVED",
+            "symbol": "000001",
+            "side": "buy",
+            "state": "QUEUED",
+            "event_type": "xt_order_reported",
+        }
+    )
+    repository.inject_report_update = True
+
+    service.ingest_trade_report_with_meta(
+        {
+            "internal_order_id": "ord-interleaved-report",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20260805,
+            "broker_order_id": "B-INTERLEAVED",
+            "broker_trade_id": "T-INTERLEAVED",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 12.30,
+            "trade_time": 1785893460,
+            "source": "xt_trade_callback",
+        }
+    )
+
+    key = "account:acct-test:day:20260805:symbol:000001:" "side:buy:order:B-INTERLEAVED"
+    aggregate = repository.find_broker_order(key)
+    assert aggregate["filled_quantity"] == 100
+    assert aggregate["fill_count"] == 1
+    assert aggregate["state"] == "FILLED"
+    assert aggregate["submitted_at"] == "2026-08-05T01:31:00+00:00"
+    assert aggregate["report_marker"] == "interleaved"
+
+
+def test_broker_fill_aggregate_rechecks_fill_fingerprint_after_cas():
+    class LateFillRepository(InMemoryRepository):
+        def __init__(self):
+            super().__init__()
+            self.inject_late_fill = False
+
+        def compare_and_set_broker_order(self, *, before, after):
+            saved = super().compare_and_set_broker_order(before=before, after=after)
+            if saved is not None and self.inject_late_fill:
+                self.inject_late_fill = False
+                self.execution_fills.append(
+                    {
+                        "execution_fill_id": "fill-late",
+                        "execution_identity": "acct-test|20260805|000001|buy|T-LATE",
+                        "broker_order_key": after["broker_order_key"],
+                        "internal_order_id": "ord-late-fill",
+                        "account_id": TEST_ACCOUNT_ID,
+                        "trading_day": 20260805,
+                        "broker_order_id": "B-LATE-FILL",
+                        "broker_trade_id": "T-LATE",
+                        "symbol": "000001",
+                        "side": "buy",
+                        "quantity": 100,
+                        "price": 12.50,
+                        "trade_time": 1785893465,
+                    }
+                )
+            return saved
+
+    repository = LateFillRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20260805,
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord-late-fill",
+        }
+    )
+    service.ingest_order_report(
+        {
+            "internal_order_id": "ord-late-fill",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20260805,
+            "broker_order_id": "B-LATE-FILL",
+            "symbol": "000001",
+            "side": "buy",
+            "state": "QUEUED",
+            "event_type": "xt_order_reported",
+        }
+    )
+    repository.inject_late_fill = True
+
+    service.ingest_trade_report_with_meta(
+        {
+            "internal_order_id": "ord-late-fill",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20260805,
+            "broker_order_id": "B-LATE-FILL",
+            "broker_trade_id": "T-FIRST",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 12.30,
+            "trade_time": 1785893460,
+            "source": "xt_trade_callback",
+        }
+    )
+
+    key = "account:acct-test:day:20260805:symbol:000001:" "side:buy:order:B-LATE-FILL"
+    aggregate = repository.find_broker_order(key)
+    assert aggregate["filled_quantity"] == 200
+    assert aggregate["fill_count"] == 2
+    assert aggregate["avg_filled_price"] == 12.4
+    assert aggregate["state"] == "FILLED"
+    assert aggregate["aggregate_revision"] >= 2

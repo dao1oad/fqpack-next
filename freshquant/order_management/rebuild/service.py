@@ -1,7 +1,20 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
+from freshquant.order_management.allocation_integrity import (
+    find_exit_allocation_integrity_errors,
+)
+from freshquant.order_management.broker_identity import (
+    BrokerIdentityConflict,
+    BrokerIdentityError,
+    build_broker_order_key,
+    build_execution_identity,
+    identity_conflicts,
+    normalize_account_id,
+    resolve_trading_day,
+)
 from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
     build_reconciliation_resolution_member_key,
@@ -19,6 +32,7 @@ from freshquant.order_management.guardian.arranger import (
     build_position_entry_from_trade_fact,
 )
 from freshquant.order_management.ids import (
+    new_execution_fill_id,
     new_reconciliation_gap_id,
     new_reconciliation_resolution_id,
     new_trade_fact_id,
@@ -63,74 +77,74 @@ class OrderLedgerV2RebuildService:
 
         broker_orders_by_key = {}
         broker_order_keys = []
-        order_match_to_broker_order_key = {}
-        cross_day_reused_order_ids = _collect_cross_day_reused_order_ids(
-            xt_orders=xt_orders,
-        )
-        cross_day_reused_trade_only_ids = _collect_cross_day_reused_order_ids(
-            xt_orders=xt_trades,
-        )
-        cross_day_reused_trade_match_ids = (
-            cross_day_reused_order_ids | cross_day_reused_trade_only_ids
-        )
+        order_alias_to_broker_order_keys = {}
 
         for raw_order in xt_orders:
-            order_identity = _build_broker_order_identity(raw_order)
             trading_day = _resolve_rebuild_trading_day(raw_order)
+            symbol = _normalize_symbol(raw_order)
+            side = _normalize_side(raw_order.get("order_type") or raw_order.get("side"))
+            broker_order_key = _build_canonical_broker_order_key(
+                raw_order,
+                trading_day=trading_day,
+                symbol=symbol,
+                side=side,
+            )
             broker_order = _normalize_broker_order(
                 raw_order,
-                disambiguate_order_id=order_identity in cross_day_reused_order_ids,
+                broker_order_key=broker_order_key,
                 trading_day=trading_day,
             )
-            broker_order_key = broker_order["broker_order_key"]
             if broker_order_key not in broker_orders_by_key:
                 broker_order_keys.append(broker_order_key)
             broker_orders_by_key[broker_order_key] = broker_order
-            match_key = _build_broker_order_match_key(
-                symbol=broker_order.get("symbol"),
-                side=broker_order.get("side"),
-                order_id=raw_order.get("order_id"),
-                trading_day=(
-                    trading_day
-                    if order_identity in cross_day_reused_order_ids
-                    else None
-                ),
+            fallback_key = _build_fallback_broker_order_key(
+                raw_order,
+                trading_day=trading_day,
+                symbol=symbol,
+                side=side,
             )
-            if match_key:
-                order_match_to_broker_order_key[match_key] = broker_order_key
+            for alias in {broker_order_key, fallback_key} - {None}:
+                order_alias_to_broker_order_keys.setdefault(alias, set()).add(
+                    broker_order_key
+                )
 
         execution_fill_documents = []
+        execution_fills_by_identity = {}
         for raw_trade in xt_trades:
-            order_id = _normalize_identifier(raw_trade.get("order_id"))
             trade_symbol = _normalize_symbol(raw_trade)
             trade_side = _normalize_side(
                 raw_trade.get("order_type") or raw_trade.get("side")
             )
-            trade_identity = _build_broker_order_identity(raw_trade)
             trading_day = _resolve_rebuild_trading_day(raw_trade)
-            match_key = _build_broker_order_match_key(
+            trade_broker_order_key = _build_canonical_broker_order_key(
+                raw_trade,
+                trading_day=trading_day,
                 symbol=trade_symbol,
                 side=trade_side,
-                order_id=order_id,
-                trading_day=(
-                    trading_day
-                    if trade_identity in cross_day_reused_trade_match_ids
-                    else None
-                ),
             )
-            broker_order_key = order_match_to_broker_order_key.get(match_key)
-            if not broker_order_key:
-                broker_order_key = _build_trade_only_broker_order_key(
+            broker_order_key = (
+                trade_broker_order_key
+                if trade_broker_order_key in broker_orders_by_key
+                else None
+            )
+            if broker_order_key is None and not _normalize_identifier(
+                raw_trade.get("order_sysid")
+            ):
+                fallback_key = _build_fallback_broker_order_key(
+                    raw_trade,
+                    trading_day=trading_day,
                     symbol=trade_symbol,
                     side=trade_side,
-                    order_id=order_id,
-                    traded_id=raw_trade.get("traded_id"),
-                    trading_day=(
-                        trading_day
-                        if trade_identity in cross_day_reused_trade_only_ids
-                        else None
-                    ),
                 )
+                candidates = order_alias_to_broker_order_keys.get(fallback_key, set())
+                if len(candidates) > 1:
+                    raise BrokerIdentityError(
+                        f"ambiguous broker order fallback identity: {fallback_key}"
+                    )
+                if candidates:
+                    broker_order_key = next(iter(candidates))
+            if broker_order_key is None:
+                broker_order_key = trade_broker_order_key
 
             broker_order = broker_orders_by_key.get(broker_order_key)
             if broker_order is None:
@@ -139,12 +153,36 @@ class OrderLedgerV2RebuildService:
                 )
                 broker_orders_by_key[broker_order_key] = broker_order
                 broker_order_keys.append(broker_order_key)
-                if match_key:
-                    order_match_to_broker_order_key[match_key] = broker_order_key
+            else:
+                _assert_rebuild_join_compatible(
+                    broker_order,
+                    raw_trade,
+                    trading_day=trading_day,
+                    symbol=trade_symbol,
+                    side=trade_side,
+                )
 
             execution_fill = _normalize_execution_fill(raw_trade, broker_order)
+            execution_identity = execution_fill["execution_identity"]
+            existing_fill = execution_fills_by_identity.get(execution_identity)
+            if existing_fill is not None:
+                _assert_execution_replay_consistent(existing_fill, execution_fill)
+                continue
+            execution_fills_by_identity[execution_identity] = execution_fill
             execution_fill_documents.append(execution_fill)
-            _apply_execution_fill_to_broker_order(broker_order, execution_fill)
+
+        fills_by_broker_order_key = {}
+        for execution_fill in execution_fill_documents:
+            if not _is_positive_execution_quantity(execution_fill.get("quantity")):
+                continue
+            fills_by_broker_order_key.setdefault(
+                execution_fill["broker_order_key"], []
+            ).append(execution_fill)
+        for broker_order_key in broker_order_keys:
+            _recompute_broker_order_from_fills(
+                broker_orders_by_key[broker_order_key],
+                fills_by_broker_order_key.get(broker_order_key, []),
+            )
 
         broker_order_documents = [
             broker_orders_by_key[broker_order_key]
@@ -180,6 +218,19 @@ class OrderLedgerV2RebuildService:
             allow_empty_xt_positions_flatten=allow_empty_xt_positions_flatten,
         )
         ingest_rejection_documents.extend(reconciliation_ingest_rejections)
+        allocation_reference_errors = _find_exit_allocation_reference_errors(
+            position_entry_documents=position_entry_documents,
+            entry_slice_documents=entry_slice_documents,
+            exit_allocation_documents=exit_allocation_documents,
+        )
+        if allocation_reference_errors:
+            raise ValueError(
+                "exit allocation reference integrity failed: "
+                + "; ".join(
+                    json.dumps(item, ensure_ascii=False, sort_keys=True)
+                    for item in allocation_reference_errors
+                )
+            )
         return {
             "broker_orders": len(broker_order_documents),
             "execution_fills": len(execution_fill_documents),
@@ -201,6 +252,7 @@ class OrderLedgerV2RebuildService:
             "ingest_rejection_documents": ingest_rejection_documents,
             "unmatched_sell_trade_facts": unmatched_sell_trade_facts,
             "replay_warnings": replay_warnings,
+            "allocation_reference_errors": allocation_reference_errors,
             "clustered_entries": count_clustered_entries(position_entry_documents),
             "mergeable_entry_gap": summarize_mergeable_gap(position_entry_documents),
             "non_default_lot_slices": _count_non_default_lot_slices_with_lookup(
@@ -238,7 +290,7 @@ def _rebuild_position_entries(
         broker_order_key = broker_order.get("broker_order_key")
         accepted_buy_fills = []
         for execution_fill in fills_by_broker_order_key.get(broker_order_key) or []:
-            if not _is_board_lot_quantity(execution_fill.get("quantity")):
+            if not _is_positive_execution_quantity(execution_fill.get("quantity")):
                 ingest_rejection_documents.append(
                     _build_ingest_rejection_from_execution_fill(execution_fill)
                 )
@@ -269,7 +321,7 @@ def _rebuild_position_entries(
     for execution_fill in execution_fills:
         if execution_fill.get("side") != "sell":
             continue
-        if not _is_board_lot_quantity(execution_fill.get("quantity")):
+        if not _is_positive_execution_quantity(execution_fill.get("quantity")):
             ingest_rejection_documents.append(
                 _build_ingest_rejection_from_execution_fill(execution_fill)
             )
@@ -413,7 +465,7 @@ def _rebuild_position_entries(
 def _normalize_broker_order(
     raw_order,
     *,
-    disambiguate_order_id=False,
+    broker_order_key,
     trading_day=None,
 ):
     broker_order_id = _normalize_identifier(raw_order.get("order_id"))
@@ -421,14 +473,11 @@ def _normalize_broker_order(
         raw_order.get("order_volume") or raw_order.get("quantity")
     )
     return {
-        "broker_order_key": _build_rebuild_broker_order_key(
-            symbol=_normalize_symbol(raw_order),
-            side=_normalize_side(raw_order.get("order_type") or raw_order.get("side")),
-            order_id=broker_order_id,
-            trading_day=trading_day,
-            disambiguate=disambiguate_order_id,
-        ),
+        "broker_order_key": broker_order_key,
         "broker_order_id": broker_order_id,
+        "order_sysid": _normalize_identifier(raw_order.get("order_sysid")),
+        "account_id": normalize_account_id(raw_order.get("account_id")),
+        "trading_day": trading_day,
         "broker_order_type": raw_order.get("order_type"),
         "symbol": _normalize_symbol(raw_order),
         "side": _normalize_side(raw_order.get("order_type") or raw_order.get("side")),
@@ -450,6 +499,9 @@ def _build_trade_only_broker_order(raw_trade, broker_order_key):
     return {
         "broker_order_key": broker_order_key,
         "broker_order_id": broker_order_id,
+        "order_sysid": _normalize_identifier(raw_trade.get("order_sysid")),
+        "account_id": normalize_account_id(raw_trade.get("account_id")),
+        "trading_day": _resolve_rebuild_trading_day(raw_trade),
         "broker_order_type": raw_trade.get("order_type"),
         "symbol": _normalize_symbol(raw_trade),
         "side": _normalize_side(raw_trade.get("order_type") or raw_trade.get("side")),
@@ -481,9 +533,7 @@ def _build_grouped_trade_fact(*, broker_order, fills):
         trade_time,
     )
     return {
-        "trade_fact_id": first_fill.get("execution_fill_id")
-        or first_fill.get("broker_trade_id")
-        or f"rebuild-buy:{broker_order.get('broker_order_key')}",
+        "trade_fact_id": new_trade_fact_id(),
         "symbol": broker_order.get("symbol") or first_fill.get("symbol"),
         "side": "buy",
         "quantity": quantity or 0,
@@ -504,14 +554,23 @@ def _normalize_execution_fill(raw_trade, broker_order):
         raw_trade.get("time"),
         trade_time,
     )
-    return {
-        "execution_fill_id": _normalize_identifier(raw_trade.get("traded_id")),
+    symbol = _normalize_symbol(raw_trade) or broker_order.get("symbol")
+    side = _normalize_side(
+        raw_trade.get("order_type") or raw_trade.get("side")
+    ) or broker_order.get("side")
+    account_id = normalize_account_id(raw_trade.get("account_id")) or broker_order.get(
+        "account_id"
+    )
+    trading_day = _resolve_rebuild_trading_day(raw_trade)
+    document = {
         "broker_trade_id": _normalize_identifier(raw_trade.get("traded_id")),
         "broker_order_key": broker_order["broker_order_key"],
-        "broker_order_id": broker_order.get("broker_order_id"),
-        "symbol": broker_order.get("symbol") or _normalize_symbol(raw_trade),
-        "side": broker_order.get("side")
-        or _normalize_side(raw_trade.get("order_type") or raw_trade.get("side")),
+        "broker_order_id": _normalize_identifier(raw_trade.get("order_id")),
+        "order_sysid": _normalize_identifier(raw_trade.get("order_sysid")),
+        "account_id": account_id,
+        "trading_day": trading_day,
+        "symbol": symbol,
+        "side": side,
         "quantity": _coerce_int(
             raw_trade.get("traded_volume") or raw_trade.get("quantity")
         ),
@@ -521,6 +580,9 @@ def _normalize_execution_fill(raw_trade, broker_order):
         "time": time_value,
         "source": "broker_rebuild",
     }
+    document["execution_fill_id"] = new_execution_fill_id()
+    document["execution_identity"] = build_execution_identity(document)
+    return document
 
 
 def _build_trade_fact_from_execution_fill(execution_fill):
@@ -531,9 +593,7 @@ def _build_trade_fact_from_execution_fill(execution_fill):
         trade_time,
     )
     return {
-        "trade_fact_id": execution_fill.get("execution_fill_id")
-        or execution_fill.get("broker_trade_id")
-        or execution_fill.get("broker_order_key"),
+        "trade_fact_id": new_trade_fact_id(),
         "symbol": execution_fill.get("symbol"),
         "side": execution_fill.get("side"),
         "quantity": _coerce_int(execution_fill.get("quantity")) or 0,
@@ -545,38 +605,40 @@ def _build_trade_fact_from_execution_fill(execution_fill):
     }
 
 
-def _apply_execution_fill_to_broker_order(broker_order, execution_fill):
-    previous_quantity = _coerce_int(broker_order.get("filled_quantity")) or 0
-    previous_fill_count = _coerce_int(broker_order.get("fill_count")) or 0
-    previous_avg_price = _coerce_float(broker_order.get("avg_filled_price")) or 0.0
-    fill_quantity = _coerce_int(execution_fill.get("quantity")) or 0
-    fill_price = _coerce_float(execution_fill.get("price")) or 0.0
-
-    next_quantity = previous_quantity + fill_quantity
-    next_fill_count = previous_fill_count + 1
-    previous_notional = previous_quantity * previous_avg_price
-    next_avg_price = None
-    if next_quantity > 0:
-        next_avg_price = round(
-            (previous_notional + fill_quantity * fill_price) / next_quantity,
-            6,
-        )
-
-    broker_order["filled_quantity"] = next_quantity
-    broker_order["avg_filled_price"] = next_avg_price
-    broker_order["fill_count"] = next_fill_count
-    broker_order["first_fill_time"] = _pick_first_time(
-        broker_order.get("first_fill_time"),
-        execution_fill.get("trade_time"),
+def _recompute_broker_order_from_fills(broker_order, execution_fills):
+    fills = list(execution_fills or [])
+    if not fills:
+        broker_order["filled_quantity"] = 0
+        broker_order["avg_filled_price"] = None
+        broker_order["fill_count"] = 0
+        broker_order["first_fill_time"] = None
+        broker_order["last_fill_time"] = None
+        return broker_order
+    filled_quantity = sum(_coerce_int(item.get("quantity")) or 0 for item in fills)
+    broker_order["filled_quantity"] = filled_quantity
+    broker_order["avg_filled_price"] = _weighted_average_fill_price(fills)
+    broker_order["fill_count"] = len(fills)
+    broker_order["first_fill_time"] = min(
+        (
+            _coerce_int(item.get("trade_time"))
+            for item in fills
+            if _coerce_int(item.get("trade_time")) is not None
+        ),
+        default=None,
     )
-    broker_order["last_fill_time"] = _pick_last_time(
-        broker_order.get("last_fill_time"),
-        execution_fill.get("trade_time"),
+    broker_order["last_fill_time"] = max(
+        (
+            _coerce_int(item.get("trade_time"))
+            for item in fills
+            if _coerce_int(item.get("trade_time")) is not None
+        ),
+        default=None,
     )
     broker_order["state"] = _resolve_fill_state(
         requested_quantity=broker_order.get("requested_quantity"),
-        filled_quantity=next_quantity,
+        filled_quantity=filled_quantity,
     )
+    return broker_order
 
 
 def _normalize_symbol(payload):
@@ -597,105 +659,77 @@ def _normalize_side(order_type):
     return str(order_type or "").strip().lower() or None
 
 
-def _build_rebuild_broker_order_key(
-    *,
-    symbol,
-    side,
-    order_id,
-    trading_day=None,
-    disambiguate=False,
-):
-    normalized_order_id = _normalize_identifier(order_id)
-    if not normalized_order_id:
-        return None
-    if not disambiguate:
-        return normalized_order_id
-    normalized_symbol = str(symbol or "").strip()
-    normalized_side = str(side or "").strip().lower()
-    normalized_trading_day = _coerce_int(trading_day)
-    if normalized_symbol and normalized_side and normalized_trading_day:
-        return (
-            f"{normalized_symbol}:{normalized_side}:"
-            f"{normalized_order_id}:{normalized_trading_day}"
-        )
-    return normalized_order_id
-
-
-def _build_broker_order_match_key(*, symbol, side, order_id, trading_day=None):
-    normalized_symbol = str(symbol or "").strip()
-    normalized_side = str(side or "").strip().lower()
-    normalized_order_id = _normalize_identifier(order_id)
-    if not normalized_symbol or not normalized_side or not normalized_order_id:
-        return None
-    normalized_trading_day = _coerce_int(trading_day)
-    if normalized_trading_day:
-        return (
-            f"{normalized_symbol}:{normalized_side}:"
-            f"{normalized_order_id}:{normalized_trading_day}"
-        )
-    return f"{normalized_symbol}:{normalized_side}:{normalized_order_id}"
-
-
-def _build_trade_only_broker_order_key(
-    *,
-    symbol,
-    side,
-    order_id,
-    traded_id,
-    trading_day=None,
-):
-    match_key = _build_broker_order_match_key(
+def _build_canonical_broker_order_key(payload, *, trading_day, symbol, side):
+    return build_broker_order_key(
+        account_id=payload.get("account_id"),
+        order_sysid=payload.get("order_sysid"),
+        trading_day=trading_day,
         symbol=symbol,
         side=side,
-        order_id=order_id,
-        trading_day=trading_day,
+        broker_order_id=payload.get("broker_order_id") or payload.get("order_id"),
     )
-    if match_key:
-        return f"trade_only:{match_key}"
-    normalized_traded_id = _normalize_identifier(traded_id)
-    if normalized_traded_id:
-        return f"trade_only:{normalized_traded_id}"
-    return "trade_only:unknown"
 
 
-def _build_broker_order_identity(payload):
-    normalized_symbol = _normalize_symbol(payload)
-    normalized_side = _normalize_side(payload.get("order_type") or payload.get("side"))
-    normalized_order_id = _normalize_identifier(payload.get("order_id"))
-    if not normalized_symbol or not normalized_side or not normalized_order_id:
-        return None
-    return normalized_symbol, normalized_side, normalized_order_id
+def _build_fallback_broker_order_key(payload, *, trading_day, symbol, side):
+    return build_broker_order_key(
+        account_id=payload.get("account_id"),
+        trading_day=trading_day,
+        symbol=symbol,
+        side=side,
+        broker_order_id=payload.get("broker_order_id") or payload.get("order_id"),
+        strict=False,
+    )
+
+
+def _assert_rebuild_join_compatible(
+    broker_order,
+    raw_trade,
+    *,
+    trading_day,
+    symbol,
+    side,
+):
+    trade_identity = {
+        "account_id": normalize_account_id(raw_trade.get("account_id")),
+        "order_sysid": _normalize_identifier(raw_trade.get("order_sysid")),
+        "trading_day": trading_day,
+        "symbol": symbol,
+        "side": side,
+        "broker_order_id": _normalize_identifier(
+            raw_trade.get("broker_order_id") or raw_trade.get("order_id")
+        ),
+    }
+    conflicts = identity_conflicts(broker_order, trade_identity)
+    if conflicts:
+        raise BrokerIdentityError(
+            "broker order/trade identity conflict during rebuild: "
+            + ", ".join(sorted(conflicts))
+        )
+
+
+def _assert_execution_replay_consistent(existing, incoming):
+    conflicts = identity_conflicts(existing, incoming)
+    for field in (
+        "execution_identity",
+        "broker_trade_id",
+        "broker_order_key",
+        "quantity",
+        "price",
+        "trade_time",
+    ):
+        left = existing.get(field)
+        right = incoming.get(field)
+        if left is not None and right is not None and left != right:
+            conflicts[field] = (left, right)
+    if conflicts:
+        raise BrokerIdentityConflict(
+            "execution replay conflicts with canonical rebuild fill: "
+            + ", ".join(sorted(conflicts))
+        )
 
 
 def _resolve_rebuild_trading_day(payload):
-    date_value = _coerce_int(payload.get("date"))
-    if date_value:
-        return date_value
-    timestamp = _coerce_int(
-        payload.get("order_time")
-        or payload.get("traded_time")
-        or payload.get("trade_time")
-    )
-    if not timestamp:
-        return None
-    return int(
-        datetime.fromtimestamp(timestamp, tz=_BEIJING_TIMEZONE).strftime("%Y%m%d")
-    )
-
-
-def _collect_cross_day_reused_order_ids(*, xt_orders):
-    trading_days_by_identity = {}
-    for payload in list(xt_orders or []):
-        identity = _build_broker_order_identity(payload)
-        trading_day = _resolve_rebuild_trading_day(payload)
-        if identity is None or trading_day is None:
-            continue
-        trading_days_by_identity.setdefault(identity, set()).add(trading_day)
-    return {
-        identity
-        for identity, trading_days in trading_days_by_identity.items()
-        if len(trading_days) > 1
-    }
+    return resolve_trading_day(payload)
 
 
 def _normalize_broker_order_state(order_status):
@@ -814,6 +848,10 @@ def _is_board_lot_quantity(quantity):
     return normalized > 0 and normalized % 100 == 0
 
 
+def _is_positive_execution_quantity(quantity):
+    return (_coerce_int(quantity) or 0) > 0
+
+
 def _build_entry_broker_order(*, broker_order, fills):
     filled_quantity = sum(_coerce_int(item.get("quantity")) or 0 for item in fills)
     return {
@@ -845,7 +883,7 @@ def _build_ingest_rejection_from_execution_fill(execution_fill):
         "symbol": execution_fill.get("symbol"),
         "broker_trade_id": execution_fill.get("broker_trade_id"),
         "internal_order_id": None,
-        "reason_code": "non_board_lot_quantity",
+        "reason_code": "non_positive_quantity",
         "quantity": _coerce_int(execution_fill.get("quantity")) or 0,
         "trade_time": execution_fill.get("trade_time"),
         "date": execution_fill.get("date"),
@@ -869,6 +907,16 @@ def _build_ingest_rejection_from_gap(gap):
         "source": "rebuild_reconciliation",
         "created_at": datetime.now(tz=timezone.utc).isoformat(),
     }
+
+
+def _find_exit_allocation_reference_errors(
+    *, position_entry_documents, entry_slice_documents, exit_allocation_documents
+):
+    return find_exit_allocation_integrity_errors(
+        position_entries=position_entry_documents,
+        entry_slices=entry_slice_documents,
+        exit_allocations=exit_allocation_documents,
+    )
 
 
 def _normalize_xt_positions(xt_positions):

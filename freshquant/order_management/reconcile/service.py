@@ -5,6 +5,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from freshquant.order_management.broker_identity import (
+    normalize_account_id,
+    normalize_side,
+    normalize_symbol,
+    normalize_trading_day,
+)
 from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
@@ -14,6 +20,7 @@ from freshquant.order_management.entry_aggregation import (
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_slices,
 )
+from freshquant.order_management.guardian.arranger import arrange_entry
 from freshquant.order_management.guardian.sell_semantics import (
     normalize_preferred_entry_quantities as normalize_guardian_preferred_entry_quantities,
 )
@@ -22,7 +29,6 @@ from freshquant.order_management.guardian.sell_semantics import (
 )
 from freshquant.order_management.ids import (
     new_allocation_id,
-    new_entry_slice_id,
     new_event_id,
     new_internal_order_id,
     new_position_entry_id,
@@ -63,6 +69,46 @@ class TradeReportReconcileOutcome:
     result: dict | None = None
     normalized: dict | None = None
     ingested: bool = False
+
+
+def _normalize_inflight_trade_identity(normalized_trade):
+    identity = {
+        "account_id": normalize_account_id(normalized_trade.get("account_id")),
+        "trading_day": normalize_trading_day(normalized_trade.get("trading_day")),
+        "symbol": normalize_symbol(normalized_trade.get("symbol")),
+        "side": normalize_side(normalized_trade.get("side")),
+    }
+    if any(value is None for value in identity.values()):
+        return None
+    return identity
+
+
+def _inflight_candidate_identity_matches(*, order, request, trade_identity):
+    order_identity = {
+        "account_id": normalize_account_id(order.get("account_id")),
+        "trading_day": normalize_trading_day(order.get("trading_day")),
+        "symbol": normalize_symbol(order.get("symbol")),
+        "side": normalize_side(order.get("side")),
+    }
+    if any(value is None for value in order_identity.values()):
+        return False
+    if any(order_identity[field] != trade_identity[field] for field in order_identity):
+        return False
+
+    known_request_identity = (
+        (normalize_account_id(request.get("account_id")), trade_identity["account_id"]),
+        (
+            normalize_trading_day(request.get("trading_day")),
+            trade_identity["trading_day"],
+        ),
+        (normalize_symbol(request.get("symbol")), trade_identity["symbol"]),
+        (normalize_side(request.get("side")), trade_identity["side"]),
+        (normalize_side(request.get("action")), trade_identity["side"]),
+    )
+    return all(
+        candidate_value is None or candidate_value == trade_value
+        for candidate_value, trade_value in known_request_identity
+    )
 
 
 class ExternalOrderReconcileService:
@@ -397,6 +443,10 @@ class ExternalOrderReconcileService:
                 source_type="external_reported",
                 state="FILLED",
                 broker_order_id=normalized.get("broker_order_id"),
+                broker_order_key=normalized.get("broker_order_key"),
+                account_id=normalized.get("account_id"),
+                order_sysid=normalized.get("order_sysid"),
+                trading_day=normalized.get("trading_day"),
             )
             ids = {
                 "request_id": order["request_id"],
@@ -465,19 +515,27 @@ class ExternalOrderReconcileService:
             raise
 
     def _match_inflight_internal_order(self, normalized_trade):
+        trade_identity = _normalize_inflight_trade_identity(normalized_trade)
+        if trade_identity is None:
+            return "missing", None
+
         exact_candidates = []
         partial_candidates = []
         for order in self.repository.list_orders(
-            symbol=normalized_trade["symbol"],
+            symbol=trade_identity["symbol"],
             states={"ACCEPTED", "QUEUED", "SUBMITTING"},
             missing_broker_only=True,
         ):
-            if order.get("side") != normalized_trade["side"]:
-                continue
             if order.get("source_type") in {"external_reported", "external_inferred"}:
                 continue
             request = self.repository.find_order_request(order["request_id"])
             if request is None:
+                continue
+            if not _inflight_candidate_identity_matches(
+                order=order,
+                request=request,
+                trade_identity=trade_identity,
+            ):
                 continue
             request_quantity = int(request.get("quantity") or 0)
             trade_quantity = int(normalized_trade["quantity"] or 0)
@@ -641,7 +699,7 @@ class ExternalOrderReconcileService:
             )
         entry_slices = []
         try:
-            entry_slices = _arrange_entry_slices(
+            entry_slices = arrange_entry(
                 entry,
                 lot_amount=arrange_runtime["lot_amount"],
                 grid_interval=arrange_runtime["grid_interval"],
@@ -703,6 +761,10 @@ class ExternalOrderReconcileService:
                     "resolution_type": resolution["resolution_type"],
                 },
             )
+        v2_authoritative = _symbol_has_v2_entries(
+            self.repository,
+            gap["symbol"],
+        )
         entry_allocations = []
         if remaining > 0:
             remaining, entry_allocations = _allocate_gap_to_entry_slices(
@@ -714,7 +776,7 @@ class ExternalOrderReconcileService:
             )
 
         legacy_allocations = []
-        if remaining > 0:
+        if remaining > 0 and not v2_authoritative:
             legacy_allocations = _allocate_gap_to_legacy_buy_lots(
                 repository=self.repository,
                 symbol=gap["symbol"],
@@ -724,6 +786,34 @@ class ExternalOrderReconcileService:
                 trade_time=int(now),
             )
             remaining = 0
+
+        if remaining > 0:
+            resolution = {
+                "resolution_id": resolution_id,
+                "gap_id": gap["gap_id"],
+                "resolution_type": "v2_inventory_insufficient",
+                "resolved_quantity": int(gap.get("quantity_delta") or 0) - remaining,
+                "unresolved_quantity": remaining,
+                "resolved_price": float(gap.get("price_estimate") or 0.0),
+                "resolved_at": int(now),
+                "source_ref_type": "reconciliation_gap",
+                "source_ref_id": gap["gap_id"],
+                "entry_allocation_ids": [
+                    item["allocation_id"] for item in entry_allocations
+                ],
+                "legacy_allocation_ids": [],
+            }
+            self.repository.insert_reconciliation_resolution(resolution)
+            return self.repository.update_reconciliation_gap(
+                gap["gap_id"],
+                {
+                    "state": "REJECTED",
+                    "confirmed_at": int(now),
+                    "resolution_id": resolution_id,
+                    "resolution_type": resolution["resolution_type"],
+                    "unresolved_quantity": remaining,
+                },
+            )
 
         resolution = {
             "resolution_id": resolution_id,
@@ -764,6 +854,10 @@ class ExternalOrderReconcileService:
         source_type,
         state,
         broker_order_id,
+        broker_order_key,
+        account_id,
+        order_sysid,
+        trading_day,
     ):
         request_id = new_request_id()
         internal_order_id = new_internal_order_id()
@@ -773,6 +867,7 @@ class ExternalOrderReconcileService:
                 "request_id": request_id,
                 "action": side,
                 "source": source_type,
+                "account_id": account_id,
                 "symbol": symbol,
                 "price": price,
                 "quantity": quantity,
@@ -791,6 +886,10 @@ class ExternalOrderReconcileService:
             "broker_order_id": (
                 str(broker_order_id) if broker_order_id is not None else None
             ),
+            "broker_order_key": broker_order_key,
+            "account_id": account_id,
+            "order_sysid": order_sysid,
+            "trading_day": trading_day,
             "symbol": symbol,
             "side": side,
             "state": state,
@@ -843,23 +942,30 @@ def _build_positions_by_symbol(positions):
 
 def _build_internal_remaining_by_symbol(repository):
     result = {}
-    symbols_with_open_v2_entries = set()
+    symbols_with_v2_entries = set()
     position_entries = []
     if hasattr(repository, "list_position_entries"):
         position_entries = list(repository.list_position_entries() or [])
     for item in position_entries:
+        symbol = item["symbol"]
+        symbols_with_v2_entries.add(symbol)
+        result.setdefault(symbol, 0)
         remaining_quantity = int(item.get("remaining_quantity", 0) or 0)
         if remaining_quantity <= 0:
             continue
-        symbol = item["symbol"]
-        symbols_with_open_v2_entries.add(symbol)
         result[symbol] = result.get(symbol, 0) + remaining_quantity
     for item in repository.list_buy_lots():
         symbol = item["symbol"]
-        if symbol in symbols_with_open_v2_entries:
+        if symbol in symbols_with_v2_entries:
             continue
         result[symbol] = result.get(symbol, 0) + int(item.get("remaining_quantity", 0))
     return result
+
+
+def _symbol_has_v2_entries(repository, symbol):
+    if not hasattr(repository, "list_position_entries"):
+        return False
+    return bool(repository.list_position_entries(symbol=symbol))
 
 
 def _detect_sell_gap_blast(
@@ -1716,81 +1822,6 @@ _ORIGINAL_SAFE_RESOLVE_LOT_AMOUNT = _safe_resolve_lot_amount
 _ORIGINAL_SAFE_GRID_INTERVAL_LOOKUP = _safe_grid_interval_lookup
 
 
-def _arrange_entry_slices(entry, *, lot_amount, grid_interval):
-    slices = []
-    _arrange_entry_remaining(
-        slices=slices,
-        entry=entry,
-        remaining_quantity=int(entry["original_quantity"]),
-        remaining_amount=float(entry["original_quantity"])
-        * float(entry["entry_price"]),
-        current_price=float(entry["entry_price"]),
-        lot_amount=lot_amount,
-        grid_interval=grid_interval,
-        slice_seq=0,
-    )
-    return slices
-
-
-def _arrange_entry_remaining(
-    *,
-    slices,
-    entry,
-    remaining_quantity,
-    remaining_amount,
-    current_price,
-    lot_amount,
-    grid_interval,
-    slice_seq,
-):
-    if remaining_quantity <= 0:
-        return
-
-    if remaining_amount > lot_amount:
-        quantity = int(lot_amount / current_price / 100) * 100
-        if quantity == 0:
-            quantity = 100
-        quantity = min(quantity, remaining_quantity)
-    else:
-        quantity = remaining_quantity
-
-    rounded_price = float(f"{current_price:.2f}")
-    slices.append(
-        {
-            "entry_slice_id": new_entry_slice_id(),
-            "entry_id": entry["entry_id"],
-            "slice_seq": slice_seq,
-            "guardian_price": rounded_price,
-            "original_quantity": quantity,
-            "remaining_quantity": quantity,
-            "remaining_amount": round(rounded_price * quantity, 2),
-            "sort_key": rounded_price,
-            "date": entry.get("date"),
-            "time": entry.get("time"),
-            "trade_time": entry.get("trade_time"),
-            "symbol": entry["symbol"],
-            "status": "OPEN",
-        }
-    )
-
-    next_quantity = remaining_quantity - quantity
-    if next_quantity <= 0:
-        return
-
-    next_amount = remaining_amount - quantity * rounded_price
-    next_price = float(f"{(current_price * grid_interval):.2f}")
-    _arrange_entry_remaining(
-        slices=slices,
-        entry=entry,
-        remaining_quantity=next_quantity,
-        remaining_amount=next_amount,
-        current_price=next_price,
-        lot_amount=lot_amount,
-        grid_interval=grid_interval,
-        slice_seq=slice_seq + 1,
-    )
-
-
 def _allocate_gap_to_entry_slices(
     *,
     repository,
@@ -1860,9 +1891,7 @@ def _allocate_gap_to_entry_slices(
 
     for entry_id in touched_entry_ids:
         repository.replace_position_entry(entries[entry_id])
-        repository.replace_entry_slices_for_entry(
-            entry_id, slices_by_entry.get(entry_id, [])
-        )
+        repository.upsert_entry_slices(slices_by_entry.get(entry_id, []))
     if allocations:
         repository.insert_exit_allocations(allocations)
     return remaining, allocations
