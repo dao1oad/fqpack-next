@@ -96,7 +96,7 @@
   - 服务未部署或返回 `404` 时，复盘层显示明确的不可用状态，不会退回旧请求级 `reviews` 并伪装为订单级复盘
 - `stock_pools` 左栏
   - 列表来自 `/api/get_stock_pools_list`，前端会按 6 位代码过滤掉已在“持仓股”分组展示的标的；点击任一标的后使用同一 K 线加载链路，因此 `15min / 30min` 兼容别名与实时缓存 QFQ 未就绪回退对所有左侧列表标的生效
-  - `同步自选股` 调用 `POST /api/sync_stock_pools_from_tdx_self_select?days=30`，只把非持仓且未存在的新增标的写入 `stock_pools`，不写 `must_pool`，不触发下单；同步完成后刷新 `stock_pools` 列表并提示新增/已存在/持仓去重数量
+  - `同步自选股` 调用 `POST /api/sync_stock_pools_from_tdx_self_select?days=30`，以后端读取的 TDX `ZXG.blk` 有效标的减去当前持仓作为唯一集合，覆盖 `stock_pools`；旧集合外记录会删除，同步完成后刷新列表并提示同步、移除旧标的和持仓去重数量
 - `CLX 信号工作台`
   - 按当前 symbol、asset type、日线 endDate（缺省时由服务端解析最新交易日）、barCount、模型/条件请求 `/api/clx-daily-selection/history/signals`
   - 只在 `profile=production_v1`、`switch_opt=1` 且 `future_function_guard.passed=true` 时把 marker 交给 chart renderer

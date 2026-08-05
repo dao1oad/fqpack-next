@@ -40,4 +40,24 @@ test('daily-screening CLX mappings normalize stock-control raw model ids', () =>
   assert.equal(breakPullback.modelKey, 'S0012')
   assert.equal(breakPullback.groupLabel, '突破回调')
   assert.equal(breakPullback.modelLabel, 'V反')
+
+  const afterFirstBuySecondBuy = resolveDailyScreeningClsModelPresentation('CLX10013')
+  assert.equal(afterFirstBuySecondBuy.modelKey, 'S0013')
+  assert.equal(afterFirstBuySecondBuy.modelLabel, '一买后的二买')
+
+  const afterFirstBuyThirdBuy = resolveDailyScreeningClsModelPresentation('CLX10014')
+  assert.equal(afterFirstBuyThirdBuy.modelKey, 'S0014')
+  assert.equal(afterFirstBuyThirdBuy.modelLabel, '一买后的三买')
+
+  const aboveYearLine = resolveDailyScreeningClsModelPresentation('CLX10015')
+  assert.equal(aboveYearLine.modelKey, 'S0015')
+  assert.equal(aboveYearLine.modelLabel, '站上年线')
+
+  const segmentConsolidation = resolveDailyScreeningClsModelPresentation('CLX10016')
+  assert.equal(segmentConsolidation.modelKey, 'S0016')
+  assert.equal(segmentConsolidation.modelLabel, '线段盘整分型区间')
+
+  const strokeConsolidation = resolveDailyScreeningClsModelPresentation('CLX10017')
+  assert.equal(strokeConsolidation.modelKey, 'S0017')
+  assert.equal(strokeConsolidation.modelLabel, '笔盘分型区间')
 })

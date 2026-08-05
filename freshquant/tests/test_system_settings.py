@@ -285,6 +285,29 @@ def test_system_settings_marks_initial_load_unready_when_database_unavailable():
     assert database.calls >= 2
 
 
+def test_system_settings_fails_startup_when_strict_env_enabled(monkeypatch):
+    # 先加载模块（默认非 strict，避免模块级单例在 import 时因 strict 失败）
+    import freshquant.system_settings as system_settings_module
+
+    monkeypatch.setenv("FQ_SYSTEM_SETTINGS_STRICT", "1")
+    SystemSettings = system_settings_module.SystemSettings
+
+    database = BrokenDatabase()
+    try:
+        SystemSettings(
+            database=database,
+            reload_retry_attempts=2,
+            reload_retry_delay_seconds=0,
+            sleep_fn=lambda _: None,
+        )
+    except RuntimeError as exc:
+        assert "database unavailable" in str(exc)
+    else:
+        raise AssertionError("unavailable configuration must fail startup when strict")
+
+    assert database.calls >= 2
+
+
 def test_system_settings_reload_retries_until_database_recovers():
     from freshquant.system_settings import SystemSettings
 

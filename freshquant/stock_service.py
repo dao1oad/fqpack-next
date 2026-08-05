@@ -66,6 +66,16 @@ def get_current_stock_holding_codes():
     return codes
 
 
+def _resolve_instrument_name(code):
+    try:
+        from freshquant.instrument.general import query_instrument_info
+
+        info = query_instrument_info(fq_util_code_append_market_code(code)) or {}
+        return str(info.get("name") or "").strip()
+    except Exception:
+        return ""
+
+
 def _require_tdx_home(tdx_home=None):
     value = str(
         tdx_home or bootstrap_config.tdx.home or os.environ.get("TDX_HOME") or ""
@@ -157,16 +167,17 @@ def sync_stock_pools_from_tdx_self_select(
     category=TDX_SELF_SELECT_CATEGORY,
     source=TDX_SELF_SELECT_SOURCE,
 ):
-    """Append TDX self-select symbols into freshquant.stock_pools without duplicates."""
+    """Make freshquant.stock_pools match the current TDX self-select pool."""
     codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
     now = pendulum.now()
     expire_at = now.add(days=int(days or 30))
-    appended_codes = []
+    synced_codes = []
+    removed_codes = []
     skipped_holding_codes = []
-    skipped_existing_codes = []
     skipped_invalid_codes = []
     holding_codes = get_current_stock_holding_codes()
 
+    target_codes = []
     for code in codes:
         if not _is_supported_tdx_stock_pool_code(code):
             skipped_invalid_codes.append(code)
@@ -174,38 +185,58 @@ def sync_stock_pools_from_tdx_self_select(
         if code in holding_codes:
             skipped_holding_codes.append(code)
             continue
+        target_codes.append(code)
 
-        existing = DBfreshquant["stock_pools"].find_one({"code": code})
-        if existing is not None:
-            skipped_existing_codes.append(code)
-            continue
+    target_code_set = set(target_codes)
+    existing_docs = list(DBfreshquant["stock_pools"].find({}, {"code": 1}))
+    for existing in existing_docs:
+        existing_code = _normalize_stock_code6(existing.get("code"))
+        if existing_code and existing_code not in target_code_set:
+            DBfreshquant["stock_pools"].delete_one({"code": existing_code})
+            removed_codes.append(existing_code)
 
-        save_a_stock_pools(
-            code=code,
-            category=category,
-            dt=now,
-            stop_loss_price=None,
-            expire_at=expire_at,
-            sources=[source],
-            categories=[category],
-            memberships=[
-                {
-                    "source": source,
-                    "category": category,
-                    "added_at": now,
-                    "expire_at": expire_at,
-                    "extra": {
-                        "entrypoint": "tdx_self_select",
-                        "file_name": filename,
-                    },
-                }
-            ],
-            remark="tdx_self_select",
+    for code in target_codes:
+        existing = DBfreshquant["stock_pools"].find_one({"code": code}) or {}
+
+        membership = {
+            "source": source,
+            "category": category,
+            "added_at": now,
+            "expire_at": expire_at,
+            "extra": {
+                "entrypoint": "tdx_self_select",
+                "file_name": filename,
+            },
+        }
+        update = {
+            "$set": {
+                "code": code,
+                "category": category,
+                "name": existing.get("name") or code,
+                "expire_at": expire_at,
+                "datetime": now,
+                "sources": [source],
+                "categories": [category],
+                "memberships": [membership],
+                "remark": "tdx_self_select",
+                "extra": {
+                    "entrypoint": "tdx_self_select",
+                    "file_name": filename,
+                },
+            },
+            "$setOnInsert": {
+                "stop_loss_price": None,
+            },
+        }
+        DBfreshquant["stock_pools"].update_one(
+            {"code": code},
+            update,
+            upsert=True,
         )
         if DBfreshquant["stock_pools"].find_one({"code": code}) is None:
             skipped_invalid_codes.append(code)
             continue
-        appended_codes.append(code)
+        synced_codes.append(code)
 
     return {
         "file_name": filename,
@@ -214,13 +245,17 @@ def sync_stock_pools_from_tdx_self_select(
         "source": source,
         "read_count": len(codes),
         "unique_count": len(codes),
-        "appended_count": len(appended_codes),
+        "appended_count": len(synced_codes),
+        "synced_count": len(synced_codes),
+        "removed_count": len(removed_codes),
         "skipped_holding_count": len(skipped_holding_codes),
-        "skipped_existing_count": len(skipped_existing_codes),
+        "skipped_existing_count": 0,
         "skipped_invalid_count": len(skipped_invalid_codes),
-        "appended_codes": appended_codes,
+        "appended_codes": synced_codes,
+        "synced_codes": synced_codes,
+        "removed_codes": removed_codes,
         "skipped_holding_codes": skipped_holding_codes,
-        "skipped_existing_codes": skipped_existing_codes,
+        "skipped_existing_codes": [],
         "skipped_invalid_codes": skipped_invalid_codes,
     }
 
@@ -277,13 +312,23 @@ def get_stock_signal_list(page=1, size=1000, category="candidates"):
 def get_stock_model_signal_list(page=1, size=1000):
     page, size = _normalize_page_size(page, size)
     start = (page - 1) * size
-    data = list(
+    try:
+        holding_codes = get_current_stock_holding_codes()
+    except Exception:
+        holding_codes = set()
+    cursor = (
         DBfreshquant["realtime_screen_multi_period"]
         .find({})
         .sort([("datetime", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)])
-        .skip(start)
-        .limit(size)
     )
+    if not holding_codes:
+        data = list(cursor.skip(start).limit(size))
+    else:
+        data = [
+            doc
+            for doc in cursor
+            if _normalize_stock_code6(doc.get("code")) not in holding_codes
+        ][start : start + size]
     out = []
     for doc in data:
         out.append(
@@ -293,7 +338,7 @@ def get_stock_model_signal_list(page=1, size=1000):
                     doc.get("created_at"), "%Y-%m-%d %H:%M:%S"
                 ),
                 "code": doc.get("code") or "",
-                "name": doc.get("name") or "",
+                "name": doc.get("name") or _resolve_instrument_name(doc.get("code")),
                 "period": doc.get("period") or "",
                 "model": doc.get("model") or "",
                 "close": doc.get("close"),
@@ -313,10 +358,16 @@ def get_stock_pools_list(page=1):
         .limit(1000)
     )
     if len(data) > 0:
-        df = pd.DataFrame(data)
-        df = df.drop(columns=["_id"])
-        df["symbol"] = df["code"].apply(lambda x: fq_util_code_append_market_code(x))
-        return df_helper.to_dict(df)
+        out = []
+        for doc in data:
+            item = dict(doc)
+            item.pop("_id", None)
+            code = item.get("code") or ""
+            if not str(item.get("name") or "").strip():
+                item["name"] = _resolve_instrument_name(code)
+            item["symbol"] = fq_util_code_append_market_code(code)
+            out.append(item)
+        return out
     else:
         return []
 

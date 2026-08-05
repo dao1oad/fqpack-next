@@ -21,9 +21,18 @@ class FakeRealtimeCollection:
         self.inserted.extend(list(docs))
 
 
+class FakeEmptyCollection:
+    def find(self, query=None, projection=None):
+        return []
+
+
 class FakeDB:
     def __init__(self, realtime_collection):
-        self._collections = {"realtime_screen_multi_period": realtime_collection}
+        self._collections = {
+            "realtime_screen_multi_period": realtime_collection,
+            # 合并后 consumer 会先排除当前持仓，测试环境持仓为空
+            "xt_positions": FakeEmptyCollection(),
+        }
 
     def __getitem__(self, name):
         return self._collections[name]

@@ -32,10 +32,11 @@ from freshquant.market_data.xtdata.pools import (
     xtdata_mode_enables_clx,
 )
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
-from freshquant.market_data.xtdata.schema import BarCloseEvent
+from freshquant.market_data.xtdata.schema import BarCloseEvent, normalize_prefixed_code
 from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
-from freshquant.system_settings import system_settings
+from freshquant.runtime_singleton import ProcessSingleton, SingletonAlreadyRunning
+from freshquant.system_settings import strict_settings_env_enabled, system_settings
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.period import (
     PUBSUB_CHANNEL,
@@ -728,6 +729,21 @@ class StrategyConsumer:
 
         code = meta.get("code") or ""
         period = meta.get("period") or ""
+        holding_codes = {
+            normalize_prefixed_code(str(doc.get(field) or "")).lower()
+            for doc in DBfreshquant["xt_positions"].find(
+                {}, {"stock_code": 1, "code": 1, "symbol": 1}
+            )
+            for field in ("stock_code", "code", "symbol")
+            if doc.get(field)
+        }
+        if str(code).strip().lower() in holding_codes:
+            logger.info(
+                "[Consumer] drop CLX signal for current holding code=%s period=%s",
+                code,
+                period,
+            )
+            return
         ts = int(meta.get("bar_time") or 0)
         if ts <= 0:
             return
@@ -1358,14 +1374,22 @@ class StrategyConsumer:
     "--prewarm/--no-prewarm", default=True, help="启动时预热历史窗口并推送结构"
 )
 def main(max_bars: int, workers: int | None, max_inflight: int | None, prewarm: bool):
-    consumer = StrategyConsumer(
-        max_bars=max_bars,
-        fullcalc_workers=workers,
-        fullcalc_max_inflight=max_inflight,
-    )
-    if prewarm:
-        consumer.prewarm()
-    consumer.run_forever()
+    try:
+        with ProcessSingleton("xtdata-strategy-consumer"):
+            # 生产在 envs.conf 设 FQ_SYSTEM_SETTINGS_STRICT=1 时严格 reload：
+            # Mongo 不可用则终止进程而不是回退 guardian_1m；CI/测试默认宽松。
+            system_settings.reload(strict=strict_settings_env_enabled())
+            consumer = StrategyConsumer(
+                max_bars=max_bars,
+                fullcalc_workers=workers,
+                fullcalc_max_inflight=max_inflight,
+            )
+            if prewarm:
+                consumer.prewarm()
+            consumer.run_forever()
+    except SingletonAlreadyRunning as exc:
+        logger.error(str(exc))
+        raise click.ClickException(str(exc)) from exc
 
 
 _runtime_logger = None

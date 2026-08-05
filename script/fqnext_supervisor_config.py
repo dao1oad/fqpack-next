@@ -100,7 +100,12 @@ stdout_logfile=D:/fqdata/log/fqnext_realtime_xtdata_consumer.log
 stderr_logfile=D:/fqdata/log/fqnext_realtime_xtdata_consumer_err.log
 autostart=true
 autorestart=true
+; Strict settings failure is a deliberate startup failure. Keep retrying until
+; MongoDB/configuration is available instead of exhausting a short retry budget.
 startsecs=5
+startretries=1000000
+stopasgroup=true
+killasgroup=true
 
 [program:fqnext_guardian_event]
 command={python_executable} -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event

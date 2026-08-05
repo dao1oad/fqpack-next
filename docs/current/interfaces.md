@@ -174,10 +174,10 @@ python -m freshquant.rear.api_server --port 5000
   - `/api/stock_data?realtimeCache=1` 优先读取实时 K 线缓存；若仅实时 QFQ 当日覆盖未就绪，则记录 warning 并回退历史 K 线读取，避免行情图表左侧列表标的出现主图空白
   - 非实时历史读取或结构读取遇到 QFQ 未就绪时仍返回 `QFQ_DATA_NOT_READY` 对应 HTTP 状态
 - `POST /api/sync_stock_pools_from_tdx_self_select`
-  - 从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 读取通达信自选股，解码为 6 位标的代码后去重追加到 `freshquant.stock_pools`
-  - 当前持仓股会按 `xt_positions` 的 6 位代码跳过，不再通过同步写入 `stock_pools`
+  - 从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 读取通达信自选股，解码为 6 位标的代码，排除当前 `xt_positions` 持仓后，以结果覆盖 `freshquant.stock_pools`
+  - 不在当前 TDX 标的池中的旧 `stock_pools` 记录会被删除；当前 TDX 标的按 `tdx_self_select` 来源 upsert
   - 查询参数 `days` 控制新增记录有效期，默认 `30`
-  - 返回 `appended_count / skipped_holding_count / skipped_existing_count / skipped_invalid_count` 与对应代码列表；只写 `stock_pools`，不写 `must_pool`，不触发交易动作
+  - 返回 `synced_count / removed_count / skipped_holding_count / skipped_invalid_count` 及对应代码列表；兼容保留 `appended_count / skipped_existing_count` 字段；只写 `stock_pools`，不写 `must_pool`，不触发交易动作
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`

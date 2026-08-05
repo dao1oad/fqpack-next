@@ -104,6 +104,9 @@ consumer 还会把本批命中标的（带前缀代码，如 `sh600000`）去重
 
 ## 配置
 
+- `FQ_SYSTEM_SETTINGS_STRICT`
+  - 生产配置缺失时快速失败开关；`1/true/yes/on` 时数据库配置不可用直接抛错，worker 由 Supervisor 按重试策略拉起，不回退默认配置。
+  - 生产通过 `D:/fqpack/config/envs.conf` 设 `FQ_SYSTEM_SETTINGS_STRICT=1`；CI 与本地测试默认不设置，避免模块导入依赖 MongoDB。
 - `monitor.xtdata.mode`
   - 决定订阅池来源和 consumer 行为。
   - `guardian_1m` 只服务 Guardian 1 分钟事件链。
