@@ -51,7 +51,7 @@ test('KlineSlim medium breakpoint keeps the CLX workbench in its own grid column
     true
   )
   assert.equal(
-    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 468px'),
+    mediumLayoutBlock.includes('.kline-slim-price-panel\n    width 680px'),
     true
   )
   assert.equal(mediumLayoutBlock.includes('.kline-slim-subject-panel\n    width 392px'), false)

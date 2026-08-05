@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  DEFAULT_GUARDIAN_POSITION_CAPS,
   buildInitialKlineSlimPricePanelState,
+  cloneGuardianDraft,
   createKlineSlimPricePanelActions,
   loadSubjectPriceDetail,
   saveGuardianGuideEnabledState,
@@ -11,6 +13,7 @@ import {
   saveTakeprofitPriceGuides,
   saveTakeprofitGuideEnabledState,
   shouldReloadSubjectPriceDetail,
+  validateGuardianPriceGuideDraft,
 } from './kline-slim-price-panel.mjs'
 
 const makeDetail = (symbol = '600000', overrides = {}) => ({
@@ -64,6 +67,39 @@ test('loadSubjectPriceDetail hydrates state and price guide version', async () =
   assert.equal(state.takeprofitDrafts.length, 3)
   assert.equal(state.priceGuideVersion.includes('guardian-buy_1'), true)
   assert.equal(state.lastSubjectDetailSymbol, '600000')
+})
+
+test('missing or invalid Guardian CAPs use fixed frontend draft defaults without overwriting valid saved values', () => {
+  assert.deepEqual(DEFAULT_GUARDIAN_POSITION_CAPS, [200000, 350000, 500000])
+  assert.deepEqual(
+    cloneGuardianDraft({ max_position_amounts: [] }).max_position_amounts,
+    DEFAULT_GUARDIAN_POSITION_CAPS,
+  )
+  assert.deepEqual(
+    cloneGuardianDraft({ max_position_amounts: [200000, 0, 500000] }).max_position_amounts,
+    DEFAULT_GUARDIAN_POSITION_CAPS,
+  )
+  assert.deepEqual(
+    cloneGuardianDraft({ max_position_amounts: [180000, 320000, 480000] }).max_position_amounts,
+    [180000, 320000, 480000],
+  )
+})
+
+test('Guardian validation rejects CAPs above the effective total position limit', () => {
+  const validation = validateGuardianPriceGuideDraft(
+    {
+      buy_enabled: [true, true, true],
+      buy_1: 10.2,
+      buy_2: 9.9,
+      buy_3: 9.5,
+      max_position_amounts: [200000, 350000, 500000],
+    },
+    { effectivePositionLimit: 400000 },
+  )
+
+  assert.equal(validation.valid, false)
+  assert.match(validation.message, /CAP-3/)
+  assert.match(validation.message, /总仓位上限/)
 })
 
 test('shouldReloadSubjectPriceDetail only reloads when symbol changes or force is true', () => {

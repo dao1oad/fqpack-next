@@ -230,7 +230,6 @@
                   {{ subjectPanelState.subjectPanelDetail.name || subjectPanelState.subjectPanelDetail.symbol }}
                 </span>
                 <span v-if="subjectDetailLoading" class="price-panel-chip">同步中</span>
-                <span v-if="subjectPanelState.subjectDetailLoading" class="price-panel-chip">止损同步中</span>
               </div>
             </div>
             <div class="price-panel-actions">
@@ -241,7 +240,7 @@
                 :disabled="priceGuideEditLocked || !subjectPriceDetail"
                 @click="handleSavePriceGuides"
               >
-                保存
+                保存价格设置
               </el-button>
               <el-button size="small" @click="closePriceGuidePanel">关闭</el-button>
             </div>
@@ -340,218 +339,140 @@
                 </div>
               </section>
 
-              <section v-if="subjectPriceDetail" class="price-panel-section">
+              <section v-if="subjectPriceDetail" class="price-panel-section guardian-cap-section">
                 <div class="price-panel-section-header">
                   <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">Guardian 买入价格与仓位上限</span>
+                    <span class="price-panel-section-title">Guardian 分级补仓</span>
+                    <span class="price-panel-section-note">
+                      价格下跌进入对应区间后，每次按基础买入量补仓；阶段 CAP 限制该区间可达到的最大仓位，总仓位上限是最终硬门禁。
+                    </span>
                   </div>
-                  <div class="price-panel-section-actions">
-                    <div class="price-panel-action-buttons">
+                </div>
+
+                <div v-if="subjectPanelState.subjectPanelDetail" class="position-limit-card">
+                  <div class="position-limit-card__summary">
+                    <div>
+                      <span class="position-limit-card__label">当前仓位市值</span>
+                      <strong>{{ formatAmountValue(positionLimitSummary.market_value) }} 元</strong>
+                      <span>约合 {{ formatWanAmountValue(positionLimitSummary.market_value) }}</span>
+                    </div>
+                    <div>
+                      <span class="position-limit-card__label">当前使用率</span>
+                      <strong>{{ positionLimitUsageLabel }}</strong>
+                      <span>来源：{{ positionLimitSourceLabel }}</span>
+                    </div>
+                  </div>
+                  <div class="position-limit-card__editor">
+                    <label>
+                      <span>单标的总仓位上限（元）</span>
+                      <el-input-number
+                        v-model="subjectPanelState.positionLimitDraft.limit"
+                        :min="1"
+                        :step="10000"
+                        :precision="0"
+                        :disabled="!positionLimitAvailable || subjectPanelState.savingSubjectConfigBundle"
+                        controls-position="right"
+                      />
+                      <small>约合 {{ formatWanAmountValue(subjectPanelState.positionLimitDraft.limit) }}</small>
+                    </label>
+                    <div class="position-limit-card__actions">
                       <el-button
                         size="small"
-                        :loading="savingGuardianPriceGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleGuardianGuideEnabledAll(true)"
+                        type="primary"
+                        :loading="subjectPanelState.savingSubjectConfigBundle"
+                        :disabled="!positionLimitAvailable"
+                        @click="handleSaveSubjectPositionLimit"
                       >
-                        全部开启
+                        保存总上限
                       </el-button>
                       <el-button
+                        v-if="positionLimitSummary.using_override"
                         size="small"
-                        :loading="savingGuardianPriceGuides"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        @click="handleGuardianGuideEnabledAll(false)"
+                        :loading="subjectPanelState.savingSubjectConfigBundle"
+                        :disabled="!positionLimitAvailable"
+                        @click="handleRestoreSubjectPositionLimitDefault"
                       >
-                        全部关闭
+                        恢复系统默认
                       </el-button>
                     </div>
                   </div>
+                  <div v-if="!positionLimitAvailable" class="guardian-cap-warning">
+                    {{ positionLimitUnavailableReason }}
+                  </div>
                 </div>
 
-                <div class="price-panel-summary">
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    已开启 {{ guardianGuideRows.filter((row) => row.manual_enabled).length }}/3
-                  </StatusChip>
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    最近命中 {{ guardianLastHitLabel }}
-                  </StatusChip>
-                  <StatusChip v-if="guardianState.last_hit_price !== null" class="price-panel-summary-status-chip" variant="muted">
-                    最近命中价 {{ formatPriceGuideValue(guardianState.last_hit_price) }}
-                  </StatusChip>
+                <div class="guardian-rule-note">
+                  BUY-1 &gt; BUY-2 &gt; BUY-3；CAP-1 ≤ CAP-2 ≤ CAP-3；最终执行不超过总仓位上限。
+                </div>
+                <div v-if="guardianCapExceedsPositionLimit" class="guardian-cap-warning">
+                  部分阶段 CAP 高于总仓位上限，实际执行将按总上限裁剪，请调整后再保存买入设置。
                 </div>
 
-                <div class="price-panel-grid">
+                <div class="guardian-tier-table">
+                  <div class="guardian-tier-table__head">
+                    <span>补仓等级</span>
+                    <span>触发价格（元）</span>
+                    <span>阶段最大仓位（元）</span>
+                    <span>启用状态</span>
+                  </div>
                   <div
                     v-for="row in guardianGuideRows"
                     :key="row.key"
-                    class="price-panel-row"
+                    class="guardian-tier-row"
                   >
-                    <span
-                      class="price-guide-badge"
-                      :class="['price-guide-badge--guardian', `price-guide-badge--${row.tone}`]"
+                    <div class="guardian-tier-row__level">
+                      <span class="price-guide-badge" :class="['price-guide-badge--guardian', `price-guide-badge--${row.tone}`]">
+                        {{ row.label }}
+                      </span>
+                      <strong>{{ row.capLabel }}</strong>
+                      <small>{{ row.tierLabel }} · {{ row.lineLabel }}</small>
+                    </div>
+                    <el-input-number
+                      v-model="guardianDraft[row.key]"
+                      :min="0"
+                      :step="0.001"
+                      :precision="3"
+                      :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                      controls-position="right"
+                    />
+                    <div
+                      class="guardian-tier-row__cap"
+                      :class="{ 'is-over-limit': effectivePositionLimit && Number(guardianDraft.max_position_amounts[row.index]) > effectivePositionLimit }"
                     >
-                      {{ row.lineLabel }}
-                    </span>
-                    <div class="price-panel-row-editor price-panel-row-editor--multi">
-                      <el-input-number
-                        v-model="guardianDraft[row.key]"
-                        size="small"
-                        :min="0"
-                        :step="0.001"
-                        :precision="3"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        controls-position="right"
-                      />
                       <el-input-number
                         v-model="guardianDraft.max_position_amounts[row.index]"
-                        size="small"
                         :min="1"
                         :step="10000"
                         :precision="0"
                         :disabled="priceGuideEditLocked || !subjectPriceDetail"
                         controls-position="right"
-                        placeholder="仓位上限"
                       />
-                      <el-switch
-                        :model-value="guardianDraft.buy_enabled[row.index]"
-                        size="small"
-                        :disabled="priceGuideEditLocked || !subjectPriceDetail"
-                        inline-prompt
-                        active-text="开"
-                        inactive-text="关"
-                        @change="handleGuardianGuideEnabledChange(row.index, $event)"
-                      />
+                      <small>
+                        {{ formatAmountValue(guardianDraft.max_position_amounts[row.index]) }} 元 ·
+                        约合 {{ formatWanAmountValue(guardianDraft.max_position_amounts[row.index]) }}
+                      </small>
                     </div>
+                    <el-switch
+                      :model-value="guardianDraft.buy_enabled[row.index]"
+                      :disabled="priceGuideEditLocked || !subjectPriceDetail"
+                      inline-prompt
+                      active-text="开"
+                      inactive-text="关"
+                      @change="handleGuardianGuideEnabledChange(row.index, $event)"
+                    />
                   </div>
                 </div>
-              </section>
 
-              <section v-if="subjectPanelState.subjectPanelDetail" class="price-panel-section">
-                <div class="price-panel-section-header">
-                  <div class="price-panel-section-title-wrap">
-                    <span class="price-panel-section-title">单笔止损</span>
-                    <span class="price-panel-section-note">按持仓入口止损，只对 open entry 生效，按行保存</span>
-                  </div>
-                  <StatusChip class="price-panel-summary-status-chip" variant="muted">
-                    {{ (subjectPanelState.subjectPanelDetail.entries || []).length }} 条
-                  </StatusChip>
-                </div>
-
-                <div v-if="!(subjectPanelState.subjectPanelDetail.entries || []).length" class="subject-panel-empty">
-                  暂无 open entry
-                </div>
-                <div v-else class="subject-panel-stoploss-list">
-                  <el-popover
-                    v-for="row in subjectPanelState.subjectPanelDetail.entries"
-                    :key="row.entry_id"
-                    placement="right-start"
-                    :width="388"
-                    popper-class="subject-panel-slice-popper"
-                    trigger="hover"
-                  >
-                    <template #reference>
-                      <div class="subject-panel-stoploss-row">
-                        <div class="subject-panel-stoploss-head">
-                          <div class="subject-panel-stoploss-title-wrap">
-                            <span class="subject-panel-stoploss-title">{{ row.entryDisplayLabel }}</span>
-                            <span class="subject-panel-stoploss-id" :title="row.entry_id">{{ row.entryIdLabel }}</span>
-                          </div>
-                          <span class="price-panel-state-chip" :class="{ active: subjectPanelState.stoplossDrafts[row.entry_id].enabled }">
-                            {{ subjectPanelState.stoplossDrafts[row.entry_id].enabled ? '生效中' : '未启用' }}
-                          </span>
-                        </div>
-
-                        <div class="subject-panel-stoploss-meta">
-                          <span class="subject-panel-stoploss-meta-line">
-                            <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
-                              <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryPriceLabel }}</span>
-                            </span>
-                            <span class="subject-panel-stoploss-meta-separator">；</span>
-                            <span class="subject-panel-stoploss-meta-item">
-                              <span class="subject-panel-stoploss-meta-label">买入</span>
-                              <span class="subject-panel-stoploss-meta-value">{{ formatWanQuantityValue(row.original_quantity) }}</span>
-                            </span>
-                            <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
-                              <span class="subject-panel-stoploss-meta-label">剩</span>
-                              <span class="subject-panel-stoploss-meta-value">{{ formatWanQuantityValue(row.remaining_quantity) }}</span>
-                              <span
-                                v-if="row.entrySummaryDisplay.remainingPercentLabel && row.entrySummaryDisplay.remainingPercentLabel !== '-'"
-                                class="subject-panel-stoploss-meta-value"
-                              >
-                                / {{ row.entrySummaryDisplay.remainingPercentLabel }}
-                              </span>
-                            </span>
-                          </span>
-                          <span class="subject-panel-stoploss-meta-line">
-                            <span class="subject-panel-stoploss-meta-item">
-                              <span class="subject-panel-stoploss-meta-label">买入时间：</span>
-                              <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.entryDateTimeLabel }}</span>
-                            </span>
-                            <span class="subject-panel-stoploss-meta-separator">；</span>
-                            <span class="subject-panel-stoploss-meta-item subject-panel-stoploss-meta-item--accent">
-                              <span class="subject-panel-stoploss-meta-label">剩余市值：</span>
-                              <span class="subject-panel-stoploss-meta-value">{{ row.entrySummaryDisplay.remainingMarketValueLabel }}</span>
-                            </span>
-                          </span>
-                        </div>
-
-                        <div class="subject-panel-stoploss-editor">
-                          <el-input-number
-                            v-model="subjectPanelState.stoplossDrafts[row.entry_id].stop_price"
-                            size="small"
-                            :min="0"
-                            :step="0.01"
-                            controls-position="right"
-                          />
-                          <el-switch
-                            v-model="subjectPanelState.stoplossDrafts[row.entry_id].enabled"
-                            size="small"
-                            inline-prompt
-                            active-text="开"
-                            inactive-text="关"
-                          />
-                          <el-button
-                            size="small"
-                            type="primary"
-                            text
-                            :loading="subjectPanelState.savingStoploss[row.entry_id]"
-                            @click="handleSaveSubjectStoploss(row.entry_id)"
-                          >
-                            保存
-                          </el-button>
-                        </div>
-                      </div>
-                    </template>
-
-                    <div class="subject-panel-slice-popover">
-                      <div class="subject-panel-slice-popover__header">
-                        <span>切片明细</span>
-                        <span>{{ (row.entry_slices || []).length }} 条</span>
-                      </div>
-                      <div v-if="!(row.entry_slices || []).length" class="subject-panel-slice-popover__empty">
-                        当前入口没有 open 切片
-                      </div>
-                      <div v-else class="subject-panel-slice-popover__table">
-                        <div class="subject-panel-slice-popover__head">
-                          <span>序号</span>
-                          <span>守护价</span>
-                          <span>原始数量</span>
-                          <span>剩余数量</span>
-                          <span>剩余市值</span>
-                        </div>
-                        <div
-                          v-for="slice in row.entry_slices"
-                          :key="slice.entry_slice_id"
-                          class="subject-panel-slice-popover__row"
-                        >
-                          <span>{{ formatIntegerValue(slice.slice_seq) }}</span>
-                          <span>{{ formatPriceGuideValue(slice.guardian_price) }}</span>
-                          <span>{{ formatIntegerValue(slice.original_quantity) }}</span>
-                          <span>{{ formatIntegerValue(slice.remaining_quantity) }}</span>
-                          <span>{{ formatWanAmountValue(slice.remaining_amount) }}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </el-popover>
+                <div class="guardian-tier-actions">
+                  <el-button size="small" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked" @click="handleGuardianGuideEnabledAll(true)">
+                    全部开启
+                  </el-button>
+                  <el-button size="small" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked" @click="handleGuardianGuideEnabledAll(false)">
+                    全部关闭
+                  </el-button>
+                  <el-button size="small" type="primary" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked" @click="handleSaveGuardianPriceGuides">
+                    保存买入设置
+                  </el-button>
                 </div>
               </section>
 
@@ -1114,7 +1035,7 @@ export default {
   box-shadow 0 24px 48px rgba(2, 6, 23, 0.4)
 
 .kline-slim-price-panel
-  width 520px
+  width 760px
   max-width calc(100% - 24px)
   max-height calc(100% - 24px)
   display flex
@@ -1339,6 +1260,125 @@ export default {
   color #dbeafe
   border-color rgba(96, 165, 250, 0.35)
   background rgba(30, 64, 175, 0.24)
+
+.position-limit-card
+  display flex
+  flex-direction column
+  gap 12px
+  padding 14px
+  border 1px solid rgba(96, 165, 250, 0.25)
+  border-radius 14px
+  background rgba(30, 64, 175, 0.1)
+
+.position-limit-card__summary
+  display grid
+  grid-template-columns repeat(2, minmax(0, 1fr))
+  gap 12px
+
+.position-limit-card__summary > div
+  display flex
+  flex-direction column
+  gap 4px
+  color #94a3b8
+  font-size 12px
+
+.position-limit-card__summary strong
+  color #f8fafc
+  font-size 16px
+
+.position-limit-card__label
+  color #bfdbfe
+
+.position-limit-card__editor
+  display flex
+  align-items flex-end
+  justify-content space-between
+  gap 12px
+
+.position-limit-card__editor label
+  display flex
+  flex-direction column
+  gap 6px
+  color #cbd5e1
+  font-size 12px
+
+.position-limit-card__editor :deep(.el-input-number)
+  width 220px
+
+.position-limit-card__editor small,
+.guardian-tier-row small
+  color #94a3b8
+  font-size 11px
+
+.position-limit-card__actions,
+.guardian-tier-actions
+  display flex
+  align-items center
+  justify-content flex-end
+  flex-wrap wrap
+  gap 8px
+
+.guardian-rule-note
+  padding 10px 12px
+  border-radius 10px
+  background rgba(30, 41, 59, 0.58)
+  color #cbd5e1
+  font-size 12px
+  line-height 1.55
+
+.guardian-cap-warning
+  padding 10px 12px
+  border 1px solid rgba(251, 191, 36, 0.3)
+  border-radius 10px
+  background rgba(120, 53, 15, 0.2)
+  color #fde68a
+  font-size 12px
+  line-height 1.5
+
+.guardian-tier-table
+  overflow hidden
+  border 1px solid rgba(148, 163, 184, 0.16)
+  border-radius 14px
+
+.guardian-tier-table__head,
+.guardian-tier-row
+  display grid
+  grid-template-columns 132px minmax(140px, 1fr) minmax(210px, 1.25fr) 72px
+  gap 12px
+  align-items center
+
+.guardian-tier-table__head
+  padding 10px 12px
+  background rgba(30, 41, 59, 0.72)
+  color #94a3b8
+  font-size 11px
+  font-weight 600
+
+.guardian-tier-row
+  padding 12px
+  border-top 1px solid rgba(148, 163, 184, 0.12)
+  background rgba(15, 23, 42, 0.38)
+
+.guardian-tier-row__level,
+.guardian-tier-row__cap
+  display flex
+  flex-direction column
+  align-items flex-start
+  gap 5px
+  min-width 0
+
+.guardian-tier-row__level strong
+  color #e2e8f0
+  font-size 12px
+
+.guardian-tier-row :deep(.el-input-number)
+  width 100%
+
+.guardian-tier-row__cap.is-over-limit :deep(.el-input__wrapper)
+  box-shadow 0 0 0 1px rgba(251, 191, 36, 0.75) inset
+
+.guardian-tier-row__cap.is-over-limit small
+  color #fde68a
 
 .subject-panel-empty
   padding 10px 12px
@@ -1949,7 +1989,7 @@ export default {
     justify-content flex-start
 
   .kline-slim-price-panel
-    width 468px
+    width 680px
 
   .price-panel-row
     grid-template-columns max-content minmax(0, 1fr)
@@ -2018,6 +2058,41 @@ export default {
 
   .price-panel-row-editor
     justify-content flex-start
+
+  .position-limit-card__summary
+    grid-template-columns 1fr
+
+  .position-limit-card__editor
+    align-items stretch
+    flex-direction column
+
+  .position-limit-card__editor :deep(.el-input-number)
+    width 100%
+
+  .position-limit-card__actions
+    justify-content flex-start
+
+  .guardian-tier-table
+    overflow visible
+    border none
+
+  .guardian-tier-table__head
+    display none
+
+  .guardian-tier-row
+    grid-template-columns 1fr
+    gap 10px
+    margin-bottom 10px
+    border 1px solid rgba(148, 163, 184, 0.16)
+    border-radius 12px
+
+  .guardian-tier-row__level
+    display grid
+    grid-template-columns auto auto 1fr
+    align-items center
+
+  .guardian-tier-row__level small
+    text-align right
 
   .subject-panel-stoploss-editor
     grid-template-columns minmax(0, 1fr) auto

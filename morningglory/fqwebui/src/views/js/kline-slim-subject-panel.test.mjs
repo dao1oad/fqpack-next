@@ -5,6 +5,7 @@ import {
   buildInitialKlineSlimSubjectPanelState,
   createKlineSlimSubjectPanelActions,
   normalizeKlineSlimSubjectPanelDetail,
+  restoreKlineSlimPositionLimitDefault,
 } from './kline-slim-subject-panel.mjs'
 
 test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and stoploss data together', () => {
@@ -12,6 +13,7 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
     subject: { symbol: '600000', name: '浦发银行' },
     must_pool: { category: '银行', stop_loss_price: 9.2, lot_amount: 50000 },
     position_limit_summary: {
+      available: true,
       default_limit: 800000,
       override_limit: 500000,
       effective_limit: 500000,
@@ -51,6 +53,7 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.symbol, '600000')
   assert.equal(detail.positionLimit.limit, 500000)
   assert.equal(detail.positionLimit.using_override, true)
+  assert.equal(detail.positionLimit.available, true)
   assert.equal(detail.runtimeSummary.avg_price, 10.023)
   assert.equal(detail.entries[0].stoploss.enabled, true)
   assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
@@ -77,6 +80,93 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.entries[0].entry_slices.length, 2)
   assert.equal(Object.hasOwn(detail.mustPool, 'forever'), false)
   assert.equal(Object.hasOwn(detail.positionLimit, 'use_default'), false)
+})
+
+test('position limit unavailable state keeps the server reason', () => {
+  const detail = normalizeKlineSlimSubjectPanelDetail({
+    subject: { symbol: '600000', name: '浦发银行' },
+    position_limit_summary: {
+      available: false,
+      error: '该标的不在仓位管理跟踪范围',
+    },
+  })
+
+  assert.equal(detail.positionLimit.available, false)
+  assert.equal(detail.positionLimit.error, '该标的不在仓位管理跟踪范围')
+})
+
+test('restoreKlineSlimPositionLimitDefault refreshes latest default before POST and refreshes again', async () => {
+  const calls = []
+  const state = buildInitialKlineSlimSubjectPanelState()
+  state.subjectPanelDetail = {
+    symbol: '600000',
+    positionLimit: {
+      available: true,
+      default_limit: 600000,
+      effective_limit: 500000,
+      using_override: true,
+    },
+  }
+  const actions = {
+    async savePositionLimit(symbol, payload) {
+      calls.push(['savePositionLimit', symbol, payload.limit])
+    },
+  }
+  let refreshCount = 0
+
+  await restoreKlineSlimPositionLimitDefault(state, {
+    actions,
+    symbol: '600000',
+    async refresh() {
+      refreshCount += 1
+      calls.push(['refresh', refreshCount])
+      state.subjectPanelDetail.positionLimit = {
+        available: true,
+        default_limit: 800000,
+        effective_limit: refreshCount === 1 ? 500000 : 800000,
+        using_override: refreshCount === 1,
+      }
+      return true
+    },
+  })
+
+  assert.deepEqual(calls, [
+    ['refresh', 1],
+    ['savePositionLimit', '600000', 800000],
+    ['refresh', 2],
+  ])
+})
+
+test('restoreKlineSlimPositionLimitDefault does not POST when the required first refresh fails', async () => {
+  const calls = []
+  const state = buildInitialKlineSlimSubjectPanelState()
+  state.subjectPanelDetail = {
+    symbol: '600000',
+    positionLimit: {
+      available: true,
+      default_limit: 600000,
+      effective_limit: 500000,
+      using_override: true,
+    },
+  }
+
+  await assert.rejects(
+    restoreKlineSlimPositionLimitDefault(state, {
+      actions: {
+        async savePositionLimit(symbol, payload) {
+          calls.push(['savePositionLimit', symbol, payload.limit])
+        },
+      },
+      symbol: '600000',
+      async refresh() {
+        calls.push(['refresh'])
+        return false
+      },
+    }),
+    /刷新最新系统默认仓位上限失败/,
+  )
+
+  assert.deepEqual(calls, [['refresh']])
 })
 
 test('normalizeKlineSlimSubjectPanelDetail ignores zero latest-price market values and falls back to avg-price labels', () => {
