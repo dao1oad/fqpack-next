@@ -47,6 +47,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 canonical repo root repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
 - `script/fqnext_host_runtime_ctl.ps1` 或 `script/fqnext_supervisor_config.py` 自身发生变更时，`script/freshquant_deploy_plan.py` 现在会强制命中全部宿主机 deployment surface（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`）；这类 host-runtime infra 变更不允许再被判成 no-op deploy。
+- `freshquant/order_management/repository.py` 或 `entry_adapter.py` 是 Guardian、Position Management、TPSL 与 Order Management 共享账本边界；部署计划会在 API 之外强制命中这四个宿主机 surface，不能只重启 broker/ingest。
 - `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root、local main sync root 与本机 canonical repo root 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
 - 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
 - 若 runner Python 3.12 缺少 `uv` 模块，入口脚本会先执行 `python -m pip install uv --break-system-packages` 再继续部署。
@@ -106,7 +107,7 @@ powershell -ExecutionPolicy Bypass -File script/ci/run_production_deploy.ps1 -Ca
 ```powershell
 $preview = .venv\Scripts\python.exe script/maintenance/backfill_position_review_history.py |
     ConvertFrom-Json
-if ($preview.executions.discovered -lt 366) {
+if ($preview.executions.discovered -lt 596) {
     throw "position-review execution preview is below the verified floor"
 }
 
@@ -125,11 +126,15 @@ $enhua.data_quality.account_partitions
 - 已验证环境中，恩华药业 `002262` 的
   `data_quality.canonical_trade_count` 必须为 `55`；2026-04-29 两次卖出复盘仍应分别为
   `2300 / 2300 / PASS` 与 `4500 / 0 / FAIL`。
-- 当前正式数据 preview 的 canonical execution 下限是 `366`；若
+- 2026-08-05 已验证正式 archive 基线为 `596` 条 canonical execution、`2766`
+  条 position-review evidence；标的 `688772` 对应 `10` 条 execution、`47` 条
+  evidence。后续 backfill preview 不能低于该基线。
+- 若
   `conflicting_evidence` 非零，表示 OM 与 XT 在五元成交身份一致但方向冲突，
   这些记录只作质量告警，不能增加 canonical execution 数。
 - `account_partition` 只能是不可逆摘要或 `unknown`；接口和部署日志不得输出原始账户号。
 - positions-only initialize 与正式 order-ledger rebuild 都会在清理前自动归档，并在归档失败时中止清理；人工 backfill 是既有数据上线前的安全补齐，不替代自动钩子。
+- archive 只保存 append-only 复盘证据，不包含可恢复的完整可写账本闭包，不能替代 repair/rebuild 的 preimage backup 或 restore manifest。
 
 ### 正式部署最佳实践
 
@@ -198,6 +203,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/rear/**` | API Server | 重建 `fq_apiserver` 容器或重启 API 进程 |
 | `freshquant/runtime_observability/**` | Runtime Observability API / ClickHouse / indexer | 重建 `fq_apiserver`，并确认 `fq_runtime_clickhouse`、`fq_runtime_indexer` 已恢复 |
 | `freshquant/order_management/**` | 订单管理、API、broker/ingest、XT 自动还款相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
+| `freshquant/order_management/repository.py` / `freshquant/order_management/entry_adapter.py` | API 与共享订单账本消费者 | 重建 API；同时重启 `guardian`、`position_management`、`tpsl`、`order_management` 四个宿主机 surface |
 | `freshquant/position_management/**` | 仓位管理（宿主机实际由统一 `xt_account_sync.worker` 承担） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
 | `freshquant/xt_account_sync/**` | XT 主动查询统一 worker（仓位管理 + 订单管理） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/xt_auto_repay/**` | XT 自动还款 worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
@@ -294,7 +300,50 @@ strict-reader health 通过后停止旧 Stock / ETF factor writers，但保留 `
 
 - destructive rebuild 前必须先备份目标订单账本数据库
 - 若重建后验证失败，先停写入面，再清理新 `om_*` 集合，并用备份库整库恢复
-- 不做局部回滚；当前正式口径只接受整库恢复
+- destructive rebuild 不做局部回滚；当前正式口径只接受整库恢复
+
+## 定向 Order Ledger Repair / Restore 执行口径
+
+单账户、单标的或同一 broker identity 闭包的数据污染不使用全库 rebuild。正式顺序固定为：
+
+1. 最新代码先经 PR 合并到远程 `main`，完成 API 与命中的宿主机 surface formal deploy
+2. 停止相关 API order-write、Guardian、Position Management、TPSL 与 Order Management 写入面
+3. 先执行持仓复盘 archive backfill，保全 append-only 证据；archive 不作为 rollback backup
+4. repair plan 显式声明 `account_id`、全部受影响 `symbols`、`broker_order_ids/order_sysids` 与 request/order/fill/entry/slice/allocation/gap/resolution/rejection 引用闭包
+5. 不修改但必须进入并发门槛的 XT/OM 文档使用 `mode=snapshot`；真实改写拆成单文档原子 `mode=replace` change，并列出精确 `allowed_diff`；每个 selector 分支必须包含账户锚点（或计划内精确 `_id`）与稳定闭包键
+6. 先 dry-run，人工核对所有 selector、diff 和 `preimage_hash`
+7. execute 必须提交相同 `preimage_hash`，并在数据库写入前落完整 BSON preimage manifest
+8. 核对 `om_targeted_repair_runs`、postimage hash、成交/分摊守恒、allocation 引用完整性、gap/resolution 和 compat 视图
+9. 验收通过后恢复写入面并执行 runtime health/ops verify
+
+```powershell
+$preview = .venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --plan-path <repair-plan.json> --dry-run | ConvertFrom-Json
+
+.venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --plan-path <repair-plan.json> `
+  --execute `
+  --expected-preimage-hash $preview.preimage_hash `
+  --manifest-path <immutable-preimage-manifest.json>
+```
+
+正式 restore 只使用上述 manifest：
+
+```powershell
+$restore = .venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --restore-manifest <immutable-preimage-manifest.json> --dry-run | ConvertFrom-Json
+
+.venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --restore-manifest <immutable-preimage-manifest.json> `
+  --execute `
+  --expected-current-hash $restore.current_hash
+```
+
+- restore 只有在当前完整闭包仍等于 repair postimage hash 时才允许；出现后续业务写入后不得强制覆盖
+- 多集合之间中断时，每个原子 change 必须仍精确处于 preimage/postimage/unchanged；满足该条件可幂等续跑，任何 change 漂移到第三种状态都 fail closed
+- 同一 `repair_id` 永久绑定同一 plan；修复范围或期望文档改变时使用新 `repair_id`
+- repair/restore 期间禁止运行 `python -m freshquant.initialize` 和 `rebuild_order_ledger_v2.py --execute`
+- manifest 含原始可恢复业务文档，必须保存在受控 artifact 目录，不写入 Git，不在日志或 PR 中公开账户号
 
 ## 健康检查
 

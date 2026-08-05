@@ -1,9 +1,17 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-_BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+def _resolve_beijing_timezone() -> tzinfo:
+    try:
+        return ZoneInfo("Asia/Shanghai")
+    except ZoneInfoNotFoundError:
+        return timezone(timedelta(hours=8))
+
+
+_BEIJING_TIMEZONE = _resolve_beijing_timezone()
 
 
 def beijing_datetime_from_epoch(timestamp):

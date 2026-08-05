@@ -29,6 +29,56 @@ def test_order_management_paths_expand_to_api_and_host_runtime() -> None:
     assert "fqnext_xt_auto_repay_worker" in plan["host_programs"]
 
 
+def test_shared_order_ledger_repository_restarts_all_runtime_consumers() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/order_management/repository.py"]
+    )
+
+    assert plan["deployment_surfaces"] == [
+        "api",
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert plan["host_surfaces"] == [
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert "fqnext_guardian_event" in plan["host_programs"]
+    assert "fqnext_xt_account_sync_worker" in plan["host_programs"]
+    assert "fqnext_tpsl_worker" in plan["host_programs"]
+    assert "fqnext_xtquant_broker" in plan["host_programs"]
+    assert any("共同加载" in note for note in plan["notes"])
+
+
+def test_shared_entry_adapter_restarts_all_runtime_consumers() -> None:
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/order_management/entry_adapter.py"]
+    )
+
+    assert plan["deployment_surfaces"] == [
+        "api",
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert plan["host_surfaces"] == [
+        "guardian",
+        "position_management",
+        "tpsl",
+        "order_management",
+    ]
+    assert any("共享 V2/compat" in note for note in plan["notes"])
+
+
 def test_xt_auto_repay_paths_expand_to_order_management_host_runtime() -> None:
     module = load_module()
 

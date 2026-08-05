@@ -29,6 +29,8 @@
   - `python -m freshquant.cli stock.fill rebuild --code <symbol>`
   - `python -m freshquant.cli stock.fill rebuild --all`
   - `python -m freshquant.cli stock.fill compare --code <symbol>`
+  - `py -3.12 script/maintenance/targeted_order_ledger_repair.py --plan-path <plan.json>`
+  - `py -3.12 script/maintenance/targeted_order_ledger_repair.py --restore-manifest <manifest.json>`
 - 核心服务
   - `freshquant.order_management.submit.service.OrderSubmitService`
   - `freshquant.order_management.read_service.OrderManagementReadService`
@@ -48,12 +50,25 @@
 - `xt_account_sync.worker` 遇到 quarantine 的 `positions` 快照会显式打 warning，便于运行面第一时间发现真值冻结
 - 当前委托/成交回报真值只认 XT callback 与 `xt_account_sync.worker` 增量刷新
 
+### 券商订单与成交身份
+
+- 券商订单规范主键首选
+  `account_id + trading_day + order_sysid`
+- XT 未提供 `order_sysid` 时，回退主键固定为
+  `account_id + trading_day + symbol + side + broker_order_id`
+- `broker_order_id` 和 `order_sysid` 都不能脱离账户、交易日单独作为全局唯一键；历史数据中已确认存在 `6` 组 `order_sysid` 跨日复用
+- 回报已知的 `account_id / trading_day / symbol / side / broker_order_id / order_sysid` 都是硬约束；唯一候选也必须逐维校验，冲突或歧义时 fail closed，不按时间最近或“只有一条候选”猜测归属
+- XT 原始 `side` 是 canonical 执行方向；内部订单方向不能覆盖与其冲突的回报，未知方向不再默认成 `sell`
+- 无法关联到内部请求但身份完整的 XT 回报使用规范 broker identity 派生稳定 broker-only `internal_order_id`，不再把裸 `broker_order_id` 冒充内部订单 ID
+- execution fill 的幂等身份固定包含
+  `account_id + trading_day + symbol + side + broker_trade_id`，避免不同账户、交易日或标的复用成交号时互相覆盖
+
 ### 破坏性 rebuild 治理
 
 - 破坏性 `order-ledger rebuild` 只能由 broker truth 驱动，primary truth 只允许 `xt_orders`、`xt_trades`、`xt_positions`
 - `om_*`、`stock_fills`、`stock_fills_compat` 只能作为迁移期兼容投影或排障线索，不能作为 rebuild 主输入
 - rebuild 默认拒绝用空 `xt_positions` 快照去 flatten 非空账本；只有显式允许空快照 flatten 时，才会把空 `xt_positions` 视为券商已清仓
-- 初始化向导的 runtime bootstrap 当前走 `xt_positions`-only destructive rebuild 变体：先 purge order-ledger rebuild 边界内的旧账本集合，再按券商当前持仓快照重建 V2 账本，并刷新 `stock_fills_compat`
+- 初始化向导的 runtime bootstrap 当前走 `xt_positions`-only destructive rebuild 变体：先归档将被替换的执行与持仓解释证据，归档成功后才 purge order-ledger rebuild 边界内的旧账本集合，再按券商当前持仓快照重建 V2 账本，并刷新 `stock_fills_compat`
 - 这类破坏性 rebuild 在编码前必须先建立 GitHub Issue，写清影响面、验收标准与部署影响
 
 ### OM 主账本
@@ -63,9 +78,9 @@
 - `om_orders`
   - 兼容期内部订单壳
 - `om_broker_orders`
-  - 券商订单聚合，维护 `requested_quantity / filled_quantity / avg_filled_price / fill_count`
+  - 券商订单聚合，保存 `account_id / trading_day / order_sysid / broker_order_key`，并维护 `requested_quantity / filled_quantity / avg_filled_price / fill_count`
 - `om_execution_fills`
-  - 真实券商成交 fill，`broker_trade_id` 去重
+  - 真实券商成交 fill，按规范 execution identity 去重
 - `om_trade_facts`
   - 兼容期成交事实镜像，仍保留给旧读链和部分排障
 - `om_position_entries`
@@ -82,6 +97,8 @@
   - entry 级止损绑定
 - `om_ingest_rejections`
   - 进入 XT ingest 但不允许进入主账本的拒绝记录
+- `om_targeted_repair_runs`
+  - 定向修账的 `repair_id / plan_hash / preimage_hash / postimage_hash / manifest_hash / status` 审计收据
 
 ### legacy / 兼容集合
 
@@ -136,7 +153,10 @@ Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起�
 
 当前写链规则：
 
-- 若 `broker_order_id` 已在 submit 成功阶段绑定到内部订单，trade callback 当前仍会继续进入 `ingest_trade_report()`；`ExternalOrderReconcileService` 只负责补齐 trace/request/internal order 上下文与 reconcile 侧 runtime event，不再把这类回报提前短路
+- XT order/trade callback 进入 tracking 前先建立账户、交易日、标的、方向和券商订单身份；已绑定内部订单仍要做同一套硬校验
+- 若规范身份冲突、候选歧义或聚合成员出现 mixed-account / mixed-symbol / mixed-side，回报不进入该订单聚合和持仓账本
+- 若券商订单已在 submit 成功阶段绑定到内部订单，trade callback 当前仍会继续进入 `ingest_trade_report()`；`ExternalOrderReconcileService` 只负责补齐 trace/request/internal order 上下文与 reconcile 侧 runtime event，不再把这类回报提前短路
+- `om_broker_orders` 的 `filled_quantity / avg_filled_price / fill_count` 从该规范 broker identity 下已接受的 canonical fills 确定性重算，不在旧聚合数值上盲目累加
 - buy fill 先按 `broker_order_key` 收口成 buy execution group，再按保守规则归并进 `buy_cluster` entry
 - `buy_cluster` 归并规则当前固定为：
   - 同一 `symbol`
@@ -147,6 +167,9 @@ Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起�
   - 已发生卖出扣减的 entry 不再接受新的 buy order 合并
 - 同一 broker order 的多笔 fill 会更新同一个聚合成员，而不是继续生成多条 entry
 - sell fill 先尝试按 `om_order_requests.strategy_context.guardian_sell_sources.entries` 对齐来源入口，再回退默认 `entry_slice` 顺序扣减，最后写 `exit_allocations`
+- XT 成交碎片只要求 `quantity` 为正整数；单笔 execution 可以不是 `100` 股整数倍，所有碎片按规范 execution identity 分别入账后再汇总
+- entry slice 以 `entry_slice_id` 做定向更新；运行期和 reconcile 都不得用 open slice 子集覆盖某个 entry 的完整历史切片
+- 每条 `exit_allocation.entry_id / entry_slice_id` 都必须引用现存且归属一致的 V2 entry/slice；entry 与 slice 的已扣减数量必须分别与 allocation 合计守恒
 - legacy `buy_lot / lot_slice / sell_allocation` 仍同步写入，供迁移期兼容链使用
 - 若 sell fill 已成功写入 V2 `om_position_entries / om_entry_slices / om_exit_allocations`，但 legacy `buy_lot / lot_slice` 镜像缺失或数量落后，trade callback 当前会跳过 legacy sell allocation，并依赖后续 `stock_fills_compat` 镜像刷新，不再把整笔成交回报记为失败
 
@@ -186,6 +209,7 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 当前内部仓位累计规则：
 
 - 若某个 symbol 已存在 open `om_position_entries`，对账只以 V2 entry remaining quantity 作为内部仓位真值
+- 某 symbol 只要存在过 V2 position entry，包括全部 entry 已 `CLOSED`，读侧和 reconcile 就不再回退 legacy remaining；CLOSED V2 同样是 authoritative history
 - 同 symbol 的 legacy `om_buy_lots` 仅保留给兼容读链与排障，不再额外叠加进对账 internal remaining，避免 mixed-state 双计数后误生成 `sell gap`
 自动平账在检测到“同一轮快照对账户内多只持仓同时形成大比例 sell-gap、且近期缺少足够卖出成交证据”时，当前会熔断该轮 sell reconcile，不新建 sell gap，也不推进 sell-side gap 自动确认。
 
@@ -285,6 +309,10 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 之前自动写入这两个档案；同一 `execution_key` 下的请求、订单、fill、trade fact
 冲突关联以候选数组保留，不用后到单值覆盖先到证据。
 
+这两个 archive 是 append-only 复盘证据，不是 rollback backup：它们不包含 broker
+order、event、gap、resolution、rejection、compat 与 legacy 全闭包，不能用于恢复一次
+定向修账或 destructive rebuild 的完整 preimage。
+
 重建后的运行期读侧：
 
 - `holding.py` / `/api/stock_fills` 把 OM 主链返回的空列表视为 authoritative，不再因此掉回 compat/raw legacy
@@ -292,14 +320,69 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `SubjectManagement`、`TPSL` 现在可以在没有 legacy `buy_lots` 的情况下直接读取 v2 `position_entries`
 - 当前 rebuild 生成的 buy-side `position_entries` 已切到 `buy_cluster / broker_execution_cluster` 语义
 
+## 定向 Repair / Restore
+
+跨标的、跨账户或跨交易日串单的正式修复入口是：
+
+```powershell
+$preview = .venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --plan-path <repair-plan.json> --dry-run | ConvertFrom-Json
+
+.venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --plan-path <repair-plan.json> `
+  --execute `
+  --expected-preimage-hash $preview.preimage_hash `
+  --manifest-path <immutable-preimage-manifest.json>
+```
+
+repair plan 当前固定包含：
+
+- 唯一且不可复用到其他计划的 `repair_id`
+- `account_id + symbols[] + broker_order_ids[]/order_sysids[]` 目标边界
+- request、internal order、execution、entry、slice、allocation、gap、resolution、rejection 等显式闭包身份
+- 每个逻辑 selector 分支都必须同时具有 `account_id`（账户字段缺失时使用已声明的精确 `_id`）和稳定 order/execution/document 闭包键；symbol-only selector 会被拒绝
+- 每个 `mode=replace` change 只允许一个原子 insert/update/delete；同集合多文档修复拆成多个互不重叠 change，restore 按相反顺序执行
+- `mode=snapshot`：只纳入完整 preimage/postimage hash 门槛，不执行写入
+- `mode=replace`：声明该稳定 selector 下最多一个修复后文档
+- 每个 replace 集合精确到文档身份的 `allowed_diff.inserted / updated / deleted`
+
+dry-run 不连接额外数据源、不写账本，只计算完整闭包的 preimage、postimage、diff
+和 hash。execute 必须提交同一次 dry-run 的 `preimage_hash`，并在任何数据库写入前先把
+完整 BSON preimage manifest 落盘；当前闭包发生漂移、allowed diff 多一条或少一条都会
+fail closed。
+
+`repair_id` 的运行收据写入 `om_targeted_repair_runs`。每个原子 change 会单独判定为
+preimage/postimage/unchanged；进程在多集合之间中断时，只要没有 change 漂移到第三种状态，
+后续相同 repair 可以继续尚未应用的 change，restore 也可按反向顺序继续。同一 plan 和同一已应用状态重复
+执行会返回 `already_applied`；同一 `repair_id` 绑定不同 plan 会拒绝。中断时只有当前闭包
+仍精确等于 preimage 或 postimage 才允许确定性续跑/收口。
+
+restore 使用同一 manifest：
+
+```powershell
+$restore = .venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --restore-manifest <immutable-preimage-manifest.json> --dry-run | ConvertFrom-Json
+
+.venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --restore-manifest <immutable-preimage-manifest.json> `
+  --execute `
+  --expected-current-hash $restore.current_hash
+```
+
+只有当前闭包仍精确等于 repair postimage 时 restore 才会恢复 preimage；后续任何业务写入
+导致 hash 漂移都会阻断回滚。执行定向 repair/restore 前必须停止相关 API order-write、
+Guardian、Position Management、TPSL 与 Order Management 写入面。定向事故修复期间不得
+运行 `python -m freshquant.initialize` 或全库 `rebuild_order_ledger_v2.py --execute`。
+
 ## Board Lot 规则
 
-系统当前把普通 A 股 `100` 股整数倍视为硬约束：
+系统当前把下单意图与外部成交事实分开校验：
 
-- odd-lot XT 回报会写 `om_execution_fills / om_trade_facts` 审计事实
-- odd-lot 不会生成 `position_entry / entry_slice / exit_allocation`
-- odd-lot 会写入 `om_ingest_rejections.reason_code=non_board_lot_quantity`
-- 手工导入与手工 reset 直接拒绝 odd-lot 数量
+- 普通 A 股策略/API 下单意图仍要求 `100` 股整数倍
+- 手工 import/reset 仍要求 `100` 股整数倍
+- XT order/trade callback 是已经发生的外部事实，任何正整数 execution quantity 都必须入账
+- 同一订单由多个非整百 execution fragment 组成时，按 fragment 幂等保存，再从 accepted fills 重算订单聚合与 entry/allocation
+- `om_ingest_rejections.reason_code=non_board_lot_quantity` 不再用于拒绝 XT 已成交碎片；历史这类 rejection 只作为待修复证据
 
 ## 读模型口径
 
@@ -353,10 +436,19 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 
 ## 部署
 
-- 改动 `freshquant/order_management/**` 后：
+- 一般改动 `freshquant/order_management/**` 后：
   - 重建 API Server
+  - 重启 `order_management` surface（broker、`xt_account_sync.worker`、`xt_auto_repay.worker`）
+- 改动共享 `freshquant/order_management/repository.py` 或 `entry_adapter.py` 后：
+  - 重建 API Server
+  - 同时重启 Guardian、Position Management、TPSL、Order Management 四个宿主机 surface
+- 涉及账本修复正式上线后：
+  - 先完成最新远程 `main` formal deploy 与 runtime health check
+  - 再停相关写入面执行定向 repair
+  - repair 验收完成后恢复并验证全部命中 surface
+- 改动 `freshquant/xt_account_sync/**` 后：
   - 重启 `xt_account_sync.worker`
-  - 重启 `xt_auto_repay.worker`
+- 改动 `freshquant/tpsl/**` 后：
   - 重启 `tpsl.tick_listener`
 - 改动 `freshquant/xt_auto_repay/**` 后：
   - 重启 `xt_auto_repay.worker`

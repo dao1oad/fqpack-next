@@ -397,6 +397,10 @@ class ExternalOrderReconcileService:
                 source_type="external_reported",
                 state="FILLED",
                 broker_order_id=normalized.get("broker_order_id"),
+                broker_order_key=normalized.get("broker_order_key"),
+                account_id=normalized.get("account_id"),
+                order_sysid=normalized.get("order_sysid"),
+                trading_day=normalized.get("trading_day"),
             )
             ids = {
                 "request_id": order["request_id"],
@@ -703,6 +707,10 @@ class ExternalOrderReconcileService:
                     "resolution_type": resolution["resolution_type"],
                 },
             )
+        v2_authoritative = _symbol_has_v2_entries(
+            self.repository,
+            gap["symbol"],
+        )
         entry_allocations = []
         if remaining > 0:
             remaining, entry_allocations = _allocate_gap_to_entry_slices(
@@ -714,7 +722,7 @@ class ExternalOrderReconcileService:
             )
 
         legacy_allocations = []
-        if remaining > 0:
+        if remaining > 0 and not v2_authoritative:
             legacy_allocations = _allocate_gap_to_legacy_buy_lots(
                 repository=self.repository,
                 symbol=gap["symbol"],
@@ -724,6 +732,34 @@ class ExternalOrderReconcileService:
                 trade_time=int(now),
             )
             remaining = 0
+
+        if remaining > 0:
+            resolution = {
+                "resolution_id": resolution_id,
+                "gap_id": gap["gap_id"],
+                "resolution_type": "v2_inventory_insufficient",
+                "resolved_quantity": int(gap.get("quantity_delta") or 0) - remaining,
+                "unresolved_quantity": remaining,
+                "resolved_price": float(gap.get("price_estimate") or 0.0),
+                "resolved_at": int(now),
+                "source_ref_type": "reconciliation_gap",
+                "source_ref_id": gap["gap_id"],
+                "entry_allocation_ids": [
+                    item["allocation_id"] for item in entry_allocations
+                ],
+                "legacy_allocation_ids": [],
+            }
+            self.repository.insert_reconciliation_resolution(resolution)
+            return self.repository.update_reconciliation_gap(
+                gap["gap_id"],
+                {
+                    "state": "REJECTED",
+                    "confirmed_at": int(now),
+                    "resolution_id": resolution_id,
+                    "resolution_type": resolution["resolution_type"],
+                    "unresolved_quantity": remaining,
+                },
+            )
 
         resolution = {
             "resolution_id": resolution_id,
@@ -764,6 +800,10 @@ class ExternalOrderReconcileService:
         source_type,
         state,
         broker_order_id,
+        broker_order_key,
+        account_id,
+        order_sysid,
+        trading_day,
     ):
         request_id = new_request_id()
         internal_order_id = new_internal_order_id()
@@ -773,6 +813,7 @@ class ExternalOrderReconcileService:
                 "request_id": request_id,
                 "action": side,
                 "source": source_type,
+                "account_id": account_id,
                 "symbol": symbol,
                 "price": price,
                 "quantity": quantity,
@@ -791,6 +832,10 @@ class ExternalOrderReconcileService:
             "broker_order_id": (
                 str(broker_order_id) if broker_order_id is not None else None
             ),
+            "broker_order_key": broker_order_key,
+            "account_id": account_id,
+            "order_sysid": order_sysid,
+            "trading_day": trading_day,
             "symbol": symbol,
             "side": side,
             "state": state,
@@ -843,23 +888,30 @@ def _build_positions_by_symbol(positions):
 
 def _build_internal_remaining_by_symbol(repository):
     result = {}
-    symbols_with_open_v2_entries = set()
+    symbols_with_v2_entries = set()
     position_entries = []
     if hasattr(repository, "list_position_entries"):
         position_entries = list(repository.list_position_entries() or [])
     for item in position_entries:
+        symbol = item["symbol"]
+        symbols_with_v2_entries.add(symbol)
+        result.setdefault(symbol, 0)
         remaining_quantity = int(item.get("remaining_quantity", 0) or 0)
         if remaining_quantity <= 0:
             continue
-        symbol = item["symbol"]
-        symbols_with_open_v2_entries.add(symbol)
         result[symbol] = result.get(symbol, 0) + remaining_quantity
     for item in repository.list_buy_lots():
         symbol = item["symbol"]
-        if symbol in symbols_with_open_v2_entries:
+        if symbol in symbols_with_v2_entries:
             continue
         result[symbol] = result.get(symbol, 0) + int(item.get("remaining_quantity", 0))
     return result
+
+
+def _symbol_has_v2_entries(repository, symbol):
+    if not hasattr(repository, "list_position_entries"):
+        return False
+    return bool(repository.list_position_entries(symbol=symbol))
 
 
 def _detect_sell_gap_blast(
@@ -1860,9 +1912,7 @@ def _allocate_gap_to_entry_slices(
 
     for entry_id in touched_entry_ids:
         repository.replace_position_entry(entries[entry_id])
-        repository.replace_entry_slices_for_entry(
-            entry_id, slices_by_entry.get(entry_id, [])
-        )
+        repository.upsert_entry_slices(slices_by_entry.get(entry_id, []))
     if allocations:
         repository.insert_exit_allocations(allocations)
     return remaining, allocations

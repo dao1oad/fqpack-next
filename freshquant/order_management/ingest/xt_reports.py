@@ -6,6 +6,17 @@ from uuid import uuid4
 from loguru import logger
 
 from freshquant.carnation import xtconstant
+from freshquant.order_management.broker_identity import (
+    BrokerIdentityConflict,
+    BrokerIdentityError,
+    build_broker_only_internal_order_id,
+    build_broker_order_key,
+    normalize_account_id,
+    normalize_identifier,
+    normalize_side,
+    normalize_symbol,
+    resolve_trading_day,
+)
 from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_adapter import (
     list_open_entry_slices_compat,
@@ -153,143 +164,137 @@ class OrderManagementXtIngestService:
                 }
 
             if trade_fact["side"] == "buy":
-                if not _is_board_lot_quantity(trade_fact.get("quantity")):
-                    _record_ingest_rejection(
-                        self.repository,
-                        trade_fact=trade_fact,
-                        reason_code="non_board_lot_quantity",
+                if hasattr(self.repository, "find_buy_lot_by_origin_trade_fact_id"):
+                    buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
+                        trade_fact["trade_fact_id"]
                     )
-                else:
-                    if hasattr(self.repository, "find_buy_lot_by_origin_trade_fact_id"):
-                        buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
-                            trade_fact["trade_fact_id"]
-                        )
-                    if buy_lot is None and hasattr(self.repository, "insert_buy_lot"):
-                        buy_lot = build_buy_lot_from_trade_fact(trade_fact)
-                        self.repository.insert_buy_lot(buy_lot)
-                        lot_slices = arrange_buy_lot(
-                            buy_lot,
-                            lot_amount=lot_amount,
-                            grid_interval=grid_interval_lookup(symbol, trade_fact),
-                        )
-                        self.repository.replace_lot_slices_for_lot(
-                            buy_lot["buy_lot_id"],
-                            lot_slices,
-                        )
-                    if hasattr(self.repository, "replace_position_entry") and hasattr(
+                if buy_lot is None and hasattr(self.repository, "insert_buy_lot"):
+                    buy_lot = build_buy_lot_from_trade_fact(trade_fact)
+                    self.repository.insert_buy_lot(buy_lot)
+                    lot_slices = arrange_buy_lot(
+                        buy_lot,
+                        lot_amount=lot_amount,
+                        grid_interval=grid_interval_lookup(symbol, trade_fact),
+                    )
+                    self.repository.replace_lot_slices_for_lot(
+                        buy_lot["buy_lot_id"],
+                        lot_slices,
+                    )
+                if hasattr(self.repository, "replace_position_entry"):
+                    (
+                        position_entry,
+                        entry_slices,
+                        rebuilt_entry_slices,
+                    ) = _upsert_broker_position_entry(
+                        repository=self.repository,
+                        trade_fact=trade_fact,
+                        lot_amount=lot_amount,
+                        grid_interval=grid_interval_lookup(symbol, trade_fact),
+                        include_rebuild_status=True,
+                    )
+                    if rebuilt_entry_slices and hasattr(
                         self.repository, "replace_entry_slices_for_entry"
                     ):
-                        position_entry, entry_slices = _upsert_broker_position_entry(
-                            repository=self.repository,
-                            trade_fact=trade_fact,
-                            lot_amount=lot_amount,
-                            grid_interval=grid_interval_lookup(symbol, trade_fact),
-                        )
                         self.repository.replace_entry_slices_for_entry(
-                            position_entry["entry_id"],
-                            entry_slices,
+                            position_entry["entry_id"], entry_slices
                         )
-                    holdings_changed = True
-                    self._notify_new_buy_trade(
-                        symbol=symbol,
-                        price=trade_fact["price"],
-                    )
-                if not holdings_changed and hasattr(
-                    self.repository, "list_open_slices"
-                ):
-                    lot_slices = self.repository.list_open_slices(symbol)
+                    else:
+                        _persist_entry_slices_preserving_history(
+                            self.repository,
+                            entry_id=position_entry["entry_id"],
+                            slices=entry_slices,
+                        )
+                holdings_changed = True
+                self._notify_new_buy_trade(
+                    symbol=symbol,
+                    price=trade_fact["price"],
+                )
             elif trade_fact["side"] == "sell":
-                if not _is_board_lot_quantity(trade_fact.get("quantity")):
-                    _record_ingest_rejection(
-                        self.repository,
-                        trade_fact=trade_fact,
-                        reason_code="non_board_lot_quantity",
+                has_v2_entries = False
+                entries = []
+                if hasattr(self.repository, "list_position_entries"):
+                    entries = self.repository.list_position_entries(symbol=symbol)
+                    has_v2_entries = bool(entries)
+                if entries and hasattr(self.repository, "list_open_entry_slices"):
+                    open_entry_slices = self.repository.list_open_entry_slices(
+                        symbol=symbol
                     )
-                else:
-                    if hasattr(self.repository, "list_position_entries") and hasattr(
-                        self.repository, "list_open_entry_slices"
-                    ):
-                        entries = self.repository.list_position_entries(symbol=symbol)
-                        open_entry_slices = self.repository.list_open_entry_slices(
-                            symbol=symbol
-                        )
-                        if entries and open_entry_slices:
-                            preferred_entry_quantities = (
-                                _resolve_trade_preferred_entry_quantities(
-                                    repository=self.repository,
-                                    report=report,
-                                    execution_fill=execution_fill,
-                                    trade_fact=trade_fact,
-                                )
+                    if open_entry_slices:
+                        preferred_entry_quantities = (
+                            _resolve_trade_preferred_entry_quantities(
+                                repository=self.repository,
+                                report=report,
+                                execution_fill=execution_fill,
+                                trade_fact=trade_fact,
                             )
-                            exit_allocations = allocate_sell_to_entry_slices(
-                                entries=entries,
-                                open_slices=open_entry_slices,
+                        )
+                        exit_allocations = allocate_sell_to_entry_slices(
+                            entries=entries,
+                            open_slices=open_entry_slices,
+                            sell_trade_fact=trade_fact,
+                            preferred_entry_quantities=preferred_entry_quantities,
+                        )
+                        for item in entries:
+                            self.repository.replace_position_entry(item)
+                        touched_entry_ids = {
+                            item.get("entry_id")
+                            for item in open_entry_slices
+                            if item.get("entry_id")
+                        }
+                        for entry_id in touched_entry_ids:
+                            _persist_entry_slices_preserving_history(
+                                self.repository,
+                                entry_id=entry_id,
+                                slices=[
+                                    item
+                                    for item in open_entry_slices
+                                    if item.get("entry_id") == entry_id
+                                ],
+                            )
+                        self.repository.insert_exit_allocations(exit_allocations)
+                        entry_slices = open_entry_slices
+                        holdings_changed = holdings_changed or bool(exit_allocations)
+                if (
+                    not has_v2_entries
+                    and hasattr(self.repository, "list_buy_lots")
+                    and hasattr(self.repository, "list_open_slices")
+                ):
+                    buy_lots = self.repository.list_buy_lots(symbol)
+                    open_slices = self.repository.list_open_slices(symbol)
+                    should_attempt_legacy_allocation = (
+                        bool(buy_lots and open_slices) or not exit_allocations
+                    )
+                    if should_attempt_legacy_allocation:
+                        try:
+                            sell_allocations = allocate_sell_to_slices(
+                                buy_lots=buy_lots,
+                                open_slices=open_slices,
                                 sell_trade_fact=trade_fact,
-                                preferred_entry_quantities=preferred_entry_quantities,
                             )
-                            for item in entries:
-                                self.repository.replace_position_entry(item)
-                            touched_entry_ids = {
-                                item.get("entry_id")
-                                for item in open_entry_slices
-                                if item.get("entry_id")
-                            }
-                            for entry_id in touched_entry_ids:
-                                self.repository.replace_entry_slices_for_entry(
-                                    entry_id,
-                                    [
-                                        item
-                                        for item in open_entry_slices
-                                        if item.get("entry_id") == entry_id
-                                    ],
-                                )
-                            self.repository.insert_exit_allocations(exit_allocations)
-                            entry_slices = open_entry_slices
-                            holdings_changed = holdings_changed or bool(
+                        except ValueError as exc:
+                            if (
                                 exit_allocations
-                            )
-                    if hasattr(self.repository, "list_buy_lots") and hasattr(
-                        self.repository, "list_open_slices"
-                    ):
-                        buy_lots = self.repository.list_buy_lots(symbol)
-                        open_slices = self.repository.list_open_slices(symbol)
-                        should_attempt_legacy_allocation = (
-                            bool(buy_lots and open_slices) or not exit_allocations
-                        )
-                        if should_attempt_legacy_allocation:
-                            try:
-                                sell_allocations = allocate_sell_to_slices(
-                                    buy_lots=buy_lots,
-                                    open_slices=open_slices,
-                                    sell_trade_fact=trade_fact,
+                                and str(exc)
+                                == "sell quantity exceeds open guardian slices"
+                            ):
+                                logger.info(
+                                    "skip legacy sell allocation after authoritative V2 exit allocation: symbol={} internal_order_id={} broker_trade_id={}",
+                                    symbol,
+                                    trade_fact.get("internal_order_id"),
+                                    trade_fact.get("broker_trade_id"),
                                 )
-                            except ValueError as exc:
-                                if (
-                                    exit_allocations
-                                    and str(exc)
-                                    == "sell quantity exceeds open guardian slices"
-                                ):
-                                    logger.info(
-                                        "skip legacy sell allocation after authoritative V2 exit allocation: symbol={} internal_order_id={} broker_trade_id={}",
-                                        symbol,
-                                        trade_fact.get("internal_order_id"),
-                                        trade_fact.get("broker_trade_id"),
-                                    )
-                                else:
-                                    raise
                             else:
-                                for item in buy_lots:
-                                    self.repository.replace_buy_lot(item)
-                                self.repository.replace_open_slices(open_slices)
-                                self.repository.insert_sell_allocations(
-                                    sell_allocations
-                                )
-                                holdings_changed = holdings_changed or bool(
-                                    sell_allocations
-                                )
-                    if holdings_changed:
-                        self._reset_guardian_buy_grid_after_sell(symbol)
+                                raise
+                        else:
+                            for item in buy_lots:
+                                self.repository.replace_buy_lot(item)
+                            self.repository.replace_open_slices(open_slices)
+                            self.repository.insert_sell_allocations(sell_allocations)
+                            holdings_changed = holdings_changed or bool(
+                                sell_allocations
+                            )
+                if holdings_changed:
+                    self._reset_guardian_buy_grid_after_sell(symbol)
 
             projections = _build_entry_projections(symbol, repository=self.repository)
             if holdings_changed:
@@ -421,43 +426,132 @@ class OrderManagementXtIngestService:
 
 
 def normalize_xt_trade_report(report, repository=None):
-    if "side" in report and "broker_trade_id" in report:
-        return report
-
-    traded_time = report["traded_time"]
+    is_normalized = "side" in report and "broker_trade_id" in report
+    traded_time = report.get("trade_time") or report.get("traded_time")
+    if traded_time is None:
+        raise BrokerIdentityError("trade_time is required")
     traded_datetime = _xt_timestamp_to_datetime(traded_time)
     stock_code = report.get("stock_code", "")
-    symbol = report.get("symbol") or stock_code[:6]
-    order_id = report.get("order_id")
-    internal_order_id = report.get("internal_order_id")
+    symbol = normalize_symbol(report.get("symbol") or stock_code)
+    order_id = normalize_identifier(
+        report.get("broker_order_id") or report.get("order_id")
+    )
+    internal_order_id = normalize_identifier(report.get("internal_order_id"))
     order = None
     order_type = report.get("order_type")
-    if internal_order_id is not None and repository is not None:
-        order = repository.find_order(internal_order_id)
-    if internal_order_id is None and repository is not None and order_id is not None:
-        order = find_order_for_broker_report(
-            repository,
-            broker_order_id=order_id,
-            report=report,
-            symbol=symbol,
-            order_type=order_type,
-            report_time=traded_time,
+    side = normalize_side(report.get("side")) or _map_xt_order_type_to_side(order_type)
+    if side is None:
+        _record_identity_quarantine(
+            repository, report=report, reason_code="unknown_order_side"
         )
-        if order is not None:
-            internal_order_id = order["internal_order_id"]
-    if order is not None and order.get("broker_order_type") is not None:
-        order_type = order.get("broker_order_type")
+        raise BrokerIdentityError(
+            "unknown XT order_type; trade side cannot be resolved"
+        )
+    trading_day = resolve_trading_day(report, report_time=traded_time) or int(
+        traded_datetime.strftime("%Y%m%d")
+    )
+    account_id = normalize_account_id(report.get("account_id"))
+    if account_id is None:
+        _record_identity_quarantine(
+            repository, report=report, reason_code="missing_account_id"
+        )
+        raise BrokerIdentityError("XT trade report requires account_id")
+    order_sysid = normalize_identifier(report.get("order_sysid"))
+    try:
+        if repository is not None and internal_order_id is not None:
+            order = find_order_for_broker_report(
+                repository,
+                broker_order_id=order_id,
+                report=report,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                report_time=traded_time,
+                account_id=account_id,
+                order_sysid=order_sysid,
+                trading_day=trading_day,
+                pinned_internal_order_id=internal_order_id,
+            )
+        elif repository is not None:
+            order = find_order_for_broker_report(
+                repository,
+                broker_order_id=order_id,
+                report=report,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                report_time=traded_time,
+                account_id=account_id,
+                order_sysid=order_sysid,
+                trading_day=trading_day,
+            )
+            if order is not None:
+                internal_order_id = order["internal_order_id"]
+    except BrokerIdentityConflict:
+        _record_identity_quarantine(
+            repository, report=report, reason_code="broker_identity_conflict"
+        )
+        raise
+    account_id = account_id or normalize_account_id((order or {}).get("account_id"))
+    order_sysid = order_sysid or normalize_identifier((order or {}).get("order_sysid"))
+    if internal_order_id is None:
+        broker_order_key = build_broker_order_key(
+            account_id=account_id,
+            order_sysid=order_sysid,
+            trading_day=trading_day,
+            symbol=symbol,
+            side=side,
+            broker_order_id=order_id,
+            strict=False,
+        )
+        if broker_order_key is None:
+            _record_identity_quarantine(
+                repository,
+                report=report,
+                reason_code="incomplete_broker_order_identity",
+            )
+            raise BrokerIdentityError(
+                "unmatched XT trade report requires a complete broker order identity"
+            )
+        internal_order_id = build_broker_only_internal_order_id(
+            account_id=account_id,
+            order_sysid=order_sysid,
+            trading_day=trading_day,
+            symbol=symbol,
+            side=side,
+            broker_order_id=order_id,
+        )
+    broker_order_key = build_broker_order_key(
+        account_id=account_id,
+        order_sysid=order_sysid,
+        trading_day=trading_day,
+        symbol=symbol,
+        side=side,
+        broker_order_id=order_id,
+        strict=False,
+    )
     return {
-        "internal_order_id": internal_order_id or str(order_id),
-        "broker_order_id": str(order_id) if order_id is not None else None,
-        "broker_trade_id": str(report["traded_id"]),
+        **report,
+        "internal_order_id": internal_order_id,
+        "broker_order_key": broker_order_key
+        or (order or {}).get("broker_order_key")
+        or internal_order_id,
+        "broker_order_id": order_id,
+        "broker_trade_id": normalize_identifier(
+            report.get("broker_trade_id") or report.get("traded_id")
+        ),
+        "account_id": account_id,
+        "order_sysid": order_sysid,
+        "trading_day": trading_day,
         "symbol": symbol,
-        "side": _map_xt_order_type_to_side(order_type),
-        "quantity": report["traded_volume"],
-        "price": report["traded_price"],
+        "side": side,
+        "quantity": (
+            report.get("quantity") if is_normalized else report.get("traded_volume")
+        ),
+        "price": (report.get("price") if is_normalized else report.get("traded_price")),
         "trade_time": traded_time,
-        "date": int(traded_datetime.strftime("%Y%m%d")),
-        "time": traded_datetime.strftime("%H:%M:%S"),
+        "date": report.get("date") or trading_day,
+        "time": report.get("time") or traded_datetime.strftime("%H:%M:%S"),
         "source": report.get("source", "xt_trade_callback"),
         "strategy_name": report.get("strategy_name"),
         "request_id": report.get("request_id") or (order or {}).get("request_id"),
@@ -467,39 +561,121 @@ def normalize_xt_trade_report(report, repository=None):
 
 
 def normalize_xt_order_report(report, repository=None):
-    if "state" in report and "internal_order_id" in report:
-        return report
-
-    broker_order_id = report.get("broker_order_id") or report.get("order_id")
+    is_normalized = "state" in report and "internal_order_id" in report
+    broker_order_id = normalize_identifier(
+        report.get("broker_order_id") or report.get("order_id")
+    )
     if broker_order_id is None:
         return None
-    internal_order_id = report.get("internal_order_id")
+    internal_order_id = normalize_identifier(report.get("internal_order_id"))
+    symbol = normalize_symbol(report.get("symbol") or report.get("stock_code"))
+    side = normalize_side(report.get("side")) or _map_xt_order_type_to_side(
+        report.get("order_type")
+    )
+    account_id = normalize_account_id(report.get("account_id"))
+    if account_id is None:
+        _record_identity_quarantine(
+            repository, report=report, reason_code="missing_account_id"
+        )
+        raise BrokerIdentityError("XT order report requires account_id")
+    order_sysid = normalize_identifier(report.get("order_sysid"))
+    trading_day = resolve_trading_day(
+        report, report_time=report.get("order_time") or report.get("submitted_at")
+    )
     order = None
-    if internal_order_id is None and repository is not None:
-        order = find_order_for_broker_report(
-            repository,
-            broker_order_id=broker_order_id,
-            report=report,
-            symbol=report.get("symbol") or report.get("stock_code"),
-            order_type=report.get("order_type"),
-            report_time=report.get("order_time"),
+    try:
+        if internal_order_id is not None and repository is not None:
+            order = find_order_for_broker_report(
+                repository,
+                broker_order_id=broker_order_id,
+                report=report,
+                symbol=symbol,
+                side=side,
+                order_type=report.get("order_type"),
+                report_time=report.get("order_time") or report.get("submitted_at"),
+                account_id=account_id,
+                order_sysid=order_sysid,
+                trading_day=trading_day,
+                pinned_internal_order_id=internal_order_id,
+            )
+        elif repository is not None:
+            order = find_order_for_broker_report(
+                repository,
+                broker_order_id=broker_order_id,
+                report=report,
+                symbol=symbol,
+                side=side,
+                order_type=report.get("order_type"),
+                report_time=report.get("order_time"),
+                account_id=account_id,
+                order_sysid=order_sysid,
+                trading_day=trading_day,
+            )
+            if order is not None:
+                internal_order_id = order["internal_order_id"]
+    except BrokerIdentityConflict:
+        _record_identity_quarantine(
+            repository, report=report, reason_code="broker_identity_conflict"
         )
-        if order is not None:
-            internal_order_id = order["internal_order_id"]
-    else:
-        order = (
-            repository.find_order(internal_order_id) if repository is not None else None
-        )
+        raise
+    account_id = account_id or normalize_account_id((order or {}).get("account_id"))
+    order_sysid = order_sysid or normalize_identifier((order or {}).get("order_sysid"))
+    symbol = symbol or normalize_symbol((order or {}).get("symbol"))
+    side = side or normalize_side((order or {}).get("side"))
+    trading_day = trading_day or resolve_trading_day(order or {})
     if internal_order_id is None:
-        if repository is not None:
+        broker_order_key = build_broker_order_key(
+            account_id=account_id,
+            order_sysid=order_sysid,
+            trading_day=trading_day,
+            symbol=symbol,
+            side=side,
+            broker_order_id=broker_order_id,
+            strict=False,
+        )
+        if broker_order_key is None:
+            _record_identity_quarantine(
+                repository,
+                report=report,
+                reason_code="incomplete_broker_order_identity",
+            )
             return None
-        internal_order_id = str(broker_order_id)
-        order = None
+        internal_order_id = build_broker_only_internal_order_id(
+            account_id=account_id,
+            order_sysid=order_sysid,
+            trading_day=trading_day,
+            symbol=symbol,
+            side=side,
+            broker_order_id=broker_order_id,
+        )
+    broker_order_key = build_broker_order_key(
+        account_id=account_id,
+        order_sysid=order_sysid,
+        trading_day=trading_day,
+        symbol=symbol,
+        side=side,
+        broker_order_id=broker_order_id,
+        strict=False,
+    )
 
     return {
+        **report,
         "internal_order_id": internal_order_id,
-        "broker_order_id": str(broker_order_id),
-        "state": _map_xt_order_status_to_state(report.get("order_status")),
+        "broker_order_key": broker_order_key
+        or (order or {}).get("broker_order_key")
+        or internal_order_id,
+        "broker_order_id": broker_order_id,
+        "account_id": account_id,
+        "order_sysid": order_sysid,
+        "trading_day": trading_day,
+        "symbol": symbol,
+        "side": side,
+        "broker_order_type": report.get("order_type"),
+        "state": (
+            report.get("state")
+            if is_normalized
+            else _map_xt_order_status_to_state(report.get("order_status"))
+        ),
         "event_type": "xt_order_reported",
         "request_id": report.get("request_id") or (order or {}).get("request_id"),
         "trace_id": report.get("trace_id") or (order or {}).get("trace_id"),
@@ -596,6 +772,67 @@ def _record_ingest_rejection(repository, *, trade_fact, reason_code):
     return document
 
 
+def _record_identity_quarantine(repository, *, report, reason_code):
+    if repository is None or not hasattr(repository, "insert_ingest_rejection"):
+        return None
+    traded_time = report.get("traded_time") or report.get("trade_time")
+    document = {
+        "rejection_id": f"reject_{uuid4().hex}",
+        "account_id": normalize_account_id(report.get("account_id")),
+        "order_sysid": normalize_identifier(report.get("order_sysid")),
+        "trading_day": resolve_trading_day(report, report_time=traded_time),
+        "symbol": normalize_symbol(report.get("symbol") or report.get("stock_code")),
+        "broker_order_id": normalize_identifier(
+            report.get("broker_order_id") or report.get("order_id")
+        ),
+        "broker_trade_id": normalize_identifier(
+            report.get("broker_trade_id") or report.get("traded_id")
+        ),
+        "internal_order_id": normalize_identifier(report.get("internal_order_id")),
+        "reason_code": reason_code,
+        "quantity": int(report.get("quantity") or report.get("traded_volume") or 0),
+        "trade_time": traded_time,
+        "source": report.get("source") or "xt_report",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    repository.insert_ingest_rejection(document)
+    return document
+
+
+def _persist_entry_slices_preserving_history(repository, *, entry_id, slices):
+    slices = [dict(item) for item in slices]
+    if hasattr(repository, "upsert_entry_slices"):
+        return repository.upsert_entry_slices(slices)
+
+    existing = []
+    if hasattr(repository, "list_entry_slices"):
+        existing = repository.list_entry_slices(entry_ids=[entry_id])
+    else:
+        collection = getattr(repository, "entry_slices", None)
+        if isinstance(collection, list):
+            existing = [item for item in collection if item.get("entry_id") == entry_id]
+        elif hasattr(collection, "find"):
+            existing = list(collection.find({"entry_id": entry_id}))
+
+    by_slice_id = {
+        item.get("entry_slice_id"): dict(item)
+        for item in existing
+        if item.get("entry_slice_id")
+    }
+    for item in slices:
+        slice_id = item.get("entry_slice_id")
+        if not slice_id:
+            raise ValueError("entry_slice_id is required")
+        by_slice_id[slice_id] = item
+
+    if hasattr(repository, "replace_entry_slices_for_entry"):
+        return repository.replace_entry_slices_for_entry(
+            entry_id,
+            list(by_slice_id.values()),
+        )
+    raise RuntimeError("repository cannot safely persist entry slices")
+
+
 def _build_entry_projections(symbol, *, repository):
     if hasattr(repository, "list_trade_facts"):
         trade_facts = repository.list_trade_facts(symbol)
@@ -684,9 +921,12 @@ def _upsert_broker_position_entry(
     trade_fact,
     lot_amount,
     grid_interval,
+    include_rebuild_status=False,
 ):
     symbol = trade_fact["symbol"]
-    broker_order_key = str(trade_fact.get("internal_order_id") or "").strip()
+    broker_order_key = str(
+        trade_fact.get("broker_order_key") or trade_fact.get("internal_order_id") or ""
+    ).strip()
     broker_order = (
         repository.find_broker_order(broker_order_key)
         if hasattr(repository, "find_broker_order")
@@ -730,13 +970,15 @@ def _upsert_broker_position_entry(
             symbol=symbol,
             entry_ids=[entry["entry_id"]],
         )
-        return entry, entry_slices
+        result = (entry, entry_slices, False)
+        return result if include_rebuild_status else result[:2]
     entry_slices = arrange_entry(
         entry,
         lot_amount=lot_amount,
         grid_interval=grid_interval,
     )
-    return entry, entry_slices
+    result = (entry, entry_slices, True)
+    return result if include_rebuild_status else result[:2]
 
 
 def _map_xt_order_status_to_state(order_status):
@@ -773,7 +1015,7 @@ def _map_xt_order_type_to_side(order_type):
         return "buy"
     if order_type in _SELL_ORDER_TYPES:
         return "sell"
-    return "sell"
+    return None
 
 
 def _xt_timestamp_to_datetime(timestamp):

@@ -186,6 +186,8 @@ def test_xt_ingest_buy_trade_calls_tpsl_service_hook(monkeypatch):
             "quantity": 300,
             "source": "xt_trade_callback",
             "internal_order_id": "ord_xt_buy_1",
+            "account_id": "acct-1",
+            "trading_day": 20240102,
         }
     )
     tpsl_service = FakeTpslService()
@@ -206,6 +208,8 @@ def test_xt_ingest_buy_trade_calls_tpsl_service_hook(monkeypatch):
             "trade_time": 1710000000,
             "date": 20240102,
             "time": "09:31:00",
+            "account_id": "acct-1",
+            "trading_day": 20240102,
             "source": "xt_trade_callback",
         },
         lot_amount=3000,

@@ -262,6 +262,8 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
             "request_id": "req_recon_1",
             "trace_id": "trc_recon_1",
             "intent_id": "int_recon_1",
+            "account_id": "acct-1",
+            "trading_day": 20260805,
         }
     )
     tracking_service.mark_order_queued("ord_recon_1")
@@ -290,6 +292,8 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
                 "traded_volume": 200,
                 "traded_price": 10.5,
                 "traded_time": 1030,
+                "account_id": "acct-1",
+                "trading_day": 20260805,
             }
         ]
     )
@@ -340,6 +344,8 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
             "request_id": "req_recon_known_1",
             "trace_id": "trc_recon_known_1",
             "intent_id": "int_recon_known_1",
+            "account_id": "acct-1",
+            "trading_day": 20260805,
         }
     )
     repository.update_order(
@@ -369,6 +375,8 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
             "traded_volume": 200,
             "traded_price": 10.5,
             "traded_time": 1030,
+            "account_id": "acct-1",
+            "trading_day": 20260805,
         }
     )
 
@@ -424,6 +432,8 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
             "quantity": 900,
             "source": "strategy",
             "internal_order_id": "ord_recon_seed_buy_1",
+            "account_id": "acct-1",
+            "trading_day": 20240310,
         }
     )
     repository.update_order(
@@ -447,6 +457,8 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
             "trade_time": 1710000000,
             "date": 20240310,
             "time": "09:31:00",
+            "account_id": "acct-1",
+            "trading_day": 20240310,
             "source": "xt_trade_callback",
         },
         lot_amount=3000,
@@ -466,6 +478,8 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
             "request_id": "req_recon_known_sell_1",
             "trace_id": "trc_recon_known_sell_1",
             "intent_id": "int_recon_known_sell_1",
+            "account_id": "acct-1",
+            "trading_day": 20240310,
         }
     )
     repository.update_order(
@@ -489,6 +503,8 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
             "traded_volume": 500,
             "traded_price": 10.8,
             "traded_time": 1710003600,
+            "account_id": "acct-1",
+            "trading_day": 20240310,
         }
     )
 

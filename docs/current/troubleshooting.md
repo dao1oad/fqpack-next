@@ -138,14 +138,45 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - `@'
 from freshquant.order_management.db import DBOrderManagement
 broker_order_id = "<broker_order_id>"
-print(list(DBOrderManagement["om_orders"].find({"broker_order_id": str(broker_order_id)}, {"_id": 0, "internal_order_id": 1, "trace_id": 1, "symbol": 1, "side": 1, "broker_order_type": 1, "state": 1, "submitted_at": 1})))
+print(list(DBOrderManagement["om_orders"].find({"broker_order_id": str(broker_order_id)}, {"_id": 0, "internal_order_id": 1, "trace_id": 1, "account_id": 1, "trading_day": 1, "order_sysid": 1, "symbol": 1, "side": 1, "broker_order_type": 1, "state": 1, "submitted_at": 1})))
 '@ | py -3.12 -m uv run -`
 
 处理：
 
-- 当前 `broker_order_id` 不能单独当作全局唯一键；如果同号命中多条 `om_orders`，以 `symbol`、`side/order_type` 与回报时间确认真实内部订单。
+- 当前 `broker_order_id` 与 `order_sysid` 都不能单独当作全局唯一键；规范 broker identity 首选 `account_id + trading_day + order_sysid`，fallback 为 `account_id + trading_day + symbol + side + broker_order_id`。
+- 同号命中多条时不要以“唯一旧候选”或时间最近猜测；核对账户、交易日、标的、方向和 XT 原始字段，任一已知维度冲突都应 fail closed。
 - 若重复券商订单号曾把回报挂到旧内部订单，需要同步核对 `om_execution_fills`、`om_trade_facts` 与 `om_position_entries` 是否已有错归属事实；必要时按券商真值 `xt_orders/xt_trades/xt_positions` 做账本修复。
-- 修复代码后需要重新部署 `order_management` host surface，并确认 broker / XT report ingest runtime event 已回到新内部订单对应的 trace。
+- 修复身份代码后需要重新部署 `order_management` host surface；若变更命中共享 `repository.py / entry_adapter.py`，还要同步重启 Guardian、Position Management 与 TPSL，并确认 broker / XT report ingest runtime event 已回到新内部订单对应的 trace。
+
+## 定向 order-ledger repair 被 hash 或 allowed-diff 阻断
+
+现象：
+
+- dry-run 报 `allowed diff mismatch`
+- execute 报 `preimage hash mismatch`
+- restore 返回 `restorable=false` 或报 postimage state mismatch
+- 相同 `repair_id` 报已绑定到另一 plan
+
+先检查：
+
+```powershell
+$preview = .venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --plan-path <repair-plan.json> --dry-run | ConvertFrom-Json
+$preview | ConvertTo-Json -Depth 20
+
+$restore = .venv\Scripts\python.exe script/maintenance/targeted_order_ledger_repair.py `
+  --restore-manifest <manifest.json> --dry-run | ConvertFrom-Json
+$restore | ConvertTo-Json -Depth 20
+```
+
+处理：
+
+- `allowed diff mismatch` 表示 selector 实际命中的 inserted/updated/deleted 身份与计划不完全一致；停止执行，补查账户、标的、broker identity 与 request/order/fill/entry/slice/allocation/gap/resolution/rejection 闭包，不扩大 selector 猜修
+- `preimage hash mismatch` 表示 dry-run 后闭包已变化；保持写入面停止，重新 dry-run 并人工复核新 diff，不能复用旧 hash
+- restore 只在当前闭包仍等于 manifest 的 postimage 时允许；有后续业务写入时先保全新证据并制定新的 repair，不强行覆盖
+- `repair_id` 永久绑定同一 plan；计划内容变化必须换新 `repair_id`
+- `om_execution_history_archive / position_review_evidence_archive` 只用于证据复盘，不是 rollback backup；restore 只能使用本次 execute 写前落盘且 hash 校验通过的完整 preimage manifest
+- repair/restore 期间禁止运行 `python -m freshquant.initialize` 与全库 `rebuild_order_ledger_v2.py --execute`
 
 ## broker_gateway 健康摘要停留在旧 warning
 
@@ -482,17 +513,18 @@ print('resolutions', repo.list_reconciliation_resolutions(symbol=symbol))
 
 处理：
 
-- 先确认当前代码已包含“有 open V2 entry 时不再把 legacy buy_lot 叠加进 internal remaining”的修复
-- 再停止订单写入面，执行 `script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup>`
-- 重建后复查 `xt_positions`、`om_position_entries`、`om_reconciliation_resolutions` 与页面读模是否一致
+- 先确认当前代码已包含“symbol 只要存在过 V2 entry（包括全部 CLOSED）就不再回退 legacy remaining”的修复
+- 停止相关写入面，以 broker truth 和完整引用闭包创建 targeted repair plan；先 dry-run，再用相同 `preimage_hash` execute
+- 修复后复查 `xt_positions`、`om_position_entries`、完整历史 `om_entry_slices`、`om_exit_allocations`、`om_reconciliation_resolutions` 与页面读模是否一致
+- 只有明确需要全库重建且已完成独立治理、备份和验收计划时，才执行 destructive rebuild；单标的串单不使用全库 rebuild
 
-## Order Ledger V2 rebuild 后出现 odd-lot 拒绝
+## XT 成交碎片被标成 `non_board_lot_quantity`
 
 现象：
 
-- 某 symbol 在页面中没有生成 `position_entry`
-- `PositionManagement` 或 `TPSL` 显示对账异常
+- XT 已回报真实成交，但某些 execution fragment 不是 `100` 股整数倍
 - `om_ingest_rejections` 出现 `reason_code=non_board_lot_quantity`
+- broker order aggregate、position entry 或 exit allocation 数量小于 XT 成交合计
 
 先检查：
 
@@ -506,9 +538,10 @@ print(repo.list_reconciliation_resolutions())
 
 处理：
 
-- odd-lot 当前只保留在 `execution_fill / ingest_rejection` 审计层，不会进入 `position_entry / entry_slice`
-- 若券商当前仓位仍存在合法 board-lot 差额，系统会通过 `auto_open_entry / auto_close_allocation` 收敛
-- 若差额本身仍不是 `100` 股整数倍，当前口径是继续保留 `REJECTED gap`，不要手工伪造 entry
+- XT order/trade callback 是外部已发生事实，任何正整数 execution quantity 都必须进入 canonical fill；`100` 股整数倍只在下单意图和手工 import/reset 边界校验
+- 若当前 runtime 仍新增 `non_board_lot_quantity` rejection，先确认 API/order-management 宿主机已运行最新远程 `main`，再查是否有旧进程或旧 ingest 路径
+- 对历史 rejection 使用 targeted repair：完整保留 XT fragment，按规范 execution identity 重建 aggregate，并校验 sell allocations 合计与 accepted fills 守恒
+- 不用 `auto_close_allocation` 或伪造整百成交补齐被错误拒绝的真实 execution fragment
 
 ## Dagster 容器持续重启
 

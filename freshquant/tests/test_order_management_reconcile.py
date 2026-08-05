@@ -320,6 +320,13 @@ class InMemoryRepository:
         self.entry_slices.extend(dict(item) for item in slices)
         return slices
 
+    def upsert_entry_slices(self, slices):
+        by_id = {item["entry_slice_id"]: item for item in self.entry_slices}
+        for item in slices:
+            by_id[item["entry_slice_id"]] = dict(item)
+        self.entry_slices = list(by_id.values())
+        return slices
+
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         rows = [
             item
@@ -764,6 +771,7 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypat
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90001,
                 "traded_id": "T90001",
                 "stock_code": "000001.SZ",
@@ -796,6 +804,8 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 19700101,
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -816,6 +826,7 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90002,
                 "traded_id": "T90002",
                 "stock_code": "000001.SZ",
@@ -843,6 +854,8 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 19700101,
             "symbol": "000001",
             "price": 10.5,
             "quantity": 600,
@@ -863,6 +876,7 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90003,
                 "traded_id": "T90003",
                 "stock_code": "000001.SZ",
@@ -908,6 +922,8 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "sell",
+            "account_id": "acct-test",
+            "trading_day": 19700101,
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -922,6 +938,7 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
 
     outcome = service.reconcile_trade_report(
         {
+            "account_id": "acct-test",
             "order_id": 90011,
             "traded_id": "T90011",
             "stock_code": "000001.SZ",
@@ -975,6 +992,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 21.0,
             "quantity": 2300,
@@ -997,6 +1015,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
     tracking_service.submit_order(
         {
             "action": "sell",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 22.41,
             "quantity": 2300,
@@ -1019,6 +1038,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
 
     outcome = service.reconcile_trade_report(
         {
+            "account_id": "acct-test",
             "order_id": 1477443585,
             "traded_id": "0103000030649603",
             "stock_code": "002262.SZ",
@@ -1038,7 +1058,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
     assert outcome.result["trade_fact"]["side"] == "sell"
     assert repository.trade_facts[0]["internal_order_id"] == "ord_new_sell_duplicate"
     assert repository.execution_fills[0]["broker_order_key"] == (
-        "ord_new_sell_duplicate"
+        "account:acct-test:day:20260429:symbol:002262:" "side:sell:order:1477443585"
     )
 
 
@@ -1368,6 +1388,127 @@ def test_sell_side_non_board_lot_gap_is_rejected_without_reducing_holdings(monke
     )
 
 
+def test_closed_v2_entry_keeps_symbol_authoritative_over_legacy_buy_lot(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_closed_v2",
+            "symbol": "000001",
+            "original_quantity": 100,
+            "remaining_quantity": 0,
+            "status": "CLOSED",
+        }
+    )
+    repository.insert_buy_lot(
+        {
+            "buy_lot_id": "legacy_open_lot",
+            "origin_trade_fact_id": "legacy_trade",
+            "symbol": "000001",
+            "remaining_quantity": 100,
+        }
+    )
+
+    gaps = service.detect_external_candidates(positions=[], detected_at=1_000)
+
+    assert gaps == []
+    assert repository.reconciliation_gaps == []
+
+
+def test_close_gap_does_not_fall_back_to_legacy_when_v2_entry_exists(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_closed_v2",
+            "symbol": "000001",
+            "original_quantity": 100,
+            "remaining_quantity": 0,
+            "status": "CLOSED",
+        }
+    )
+    repository.insert_buy_lot(
+        {
+            "buy_lot_id": "legacy_open_lot",
+            "origin_trade_fact_id": "legacy_trade",
+            "symbol": "000001",
+            "remaining_quantity": 100,
+            "sell_history": [],
+        }
+    )
+    gap = {
+        "gap_id": "gap_closed_v2",
+        "symbol": "000001",
+        "side": "sell",
+        "quantity_delta": 100,
+        "price_estimate": 10.0,
+        "state": "OPEN",
+    }
+    repository.insert_reconciliation_gap(gap)
+
+    confirmed = service._confirm_close_gap(gap, now=1_030)
+
+    assert confirmed["state"] == "REJECTED"
+    assert confirmed["resolution_type"] == "v2_inventory_insufficient"
+    assert repository.buy_lots[0]["remaining_quantity"] == 100
+    assert repository.sell_allocations == []
+
+
+def test_close_gap_updates_open_slice_by_id_without_deleting_closed_slice(monkeypatch):
+    repository, _service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_mixed_slices",
+            "symbol": "000001",
+            "original_quantity": 200,
+            "remaining_quantity": 100,
+            "status": "PARTIALLY_EXITED",
+        }
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_mixed_slices",
+        [
+            {
+                "entry_slice_id": "slice_closed",
+                "entry_id": "entry_mixed_slices",
+                "symbol": "000001",
+                "guardian_price": 10.0,
+                "original_quantity": 100,
+                "remaining_quantity": 0,
+                "remaining_amount": 0.0,
+                "sort_key": 10.0,
+                "slice_seq": 0,
+                "status": "CLOSED",
+            },
+            {
+                "entry_slice_id": "slice_open",
+                "entry_id": "entry_mixed_slices",
+                "symbol": "000001",
+                "guardian_price": 10.3,
+                "original_quantity": 100,
+                "remaining_quantity": 100,
+                "remaining_amount": 1030.0,
+                "sort_key": 10.3,
+                "slice_seq": 1,
+                "status": "OPEN",
+            },
+        ],
+    )
+
+    remaining, allocations = reconcile_service_module._allocate_gap_to_entry_slices(
+        repository=repository,
+        symbol="000001",
+        quantity=100,
+        resolution_id="resolution_mixed_slices",
+    )
+
+    assert remaining == 0
+    assert len(allocations) == 1
+    slices_by_id = {item["entry_slice_id"]: item for item in repository.entry_slices}
+    assert set(slices_by_id) == {"slice_closed", "slice_open"}
+    assert slices_by_id["slice_closed"]["status"] == "CLOSED"
+    assert slices_by_id["slice_open"]["status"] == "CLOSED"
+    assert allocations[0]["entry_slice_id"] in slices_by_id
+
+
 def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     repository, service = _build_service(monkeypatch)
     buy_lot = build_buy_lot_from_trade_fact(
@@ -1399,6 +1540,7 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-test",
                 "order_id": 90003,
                 "traded_id": "T90003",
                 "stock_code": "000001.SZ",

@@ -619,6 +619,9 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
             "intent_id": "intent-broker-1",
             "request_id": "req-broker-1",
             "internal_order_id": "ord-broker-1",
+            "account_id": "acct-1",
+            "trading_day": 20260805,
+            "broker_order_id": "90001",
             "symbol": "600000",
             "side": "buy",
         }
@@ -630,6 +633,9 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
             order_id="90001",
             traded_id="T-90001",
             stock_code="600000.SH",
+            account_id="acct-1",
+            trading_day=20260805,
+            order_type=23,
         )
     )
 
@@ -659,6 +665,9 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
                     "intent_id": "int_old",
                     "request_id": "req_old",
                     "internal_order_id": "ord_old_buy",
+                    "account_id": "acct-1",
+                    "trading_day": 20260413,
+                    "broker_order_id": "1477443585",
                     "symbol": "002262",
                     "side": "buy",
                     "broker_order_type": 27,
@@ -670,6 +679,9 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
                     "intent_id": "int_new",
                     "request_id": "req_new",
                     "internal_order_id": "ord_new_sell",
+                    "account_id": "acct-1",
+                    "trading_day": 20260429,
+                    "broker_order_id": "1477443585",
                     "symbol": "002262",
                     "side": "sell",
                     "broker_order_type": 24,
@@ -688,6 +700,8 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
             stock_code="002262.SZ",
             order_type=24,
             traded_time=1777428846,
+            account_id="acct-1",
+            trading_day=20260429,
         )
     )
 

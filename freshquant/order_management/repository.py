@@ -1,11 +1,85 @@
 # -*- coding: utf-8 -*-
 
+from decimal import Decimal, InvalidOperation
+
+from pymongo.errors import DuplicateKeyError
+
+from freshquant.order_management.allocation_integrity import (
+    find_exit_allocation_integrity_errors,
+)
+from freshquant.order_management.broker_identity import (
+    BrokerIdentityConflict,
+    identity_conflicts,
+    normalize_account_id,
+    normalize_identifier,
+    normalize_side,
+    normalize_symbol,
+    normalize_trading_day,
+)
 from freshquant.order_management.db import DBOrderManagement
+
+_EXECUTION_IMMUTABLE_FIELDS = (
+    "execution_identity",
+    "broker_trade_id",
+    "broker_order_key",
+    "internal_order_id",
+    "account_id",
+    "trading_day",
+    "symbol",
+    "side",
+    "quantity",
+    "price",
+    "trade_time",
+)
 
 
 class OrderManagementRepository:
     def __init__(self, database=None):
         self.database = database if database is not None else DBOrderManagement
+        self._ensure_canonical_indexes()
+
+    def _ensure_canonical_indexes(self):
+        for collection, field, name in (
+            (
+                self.broker_orders,
+                "broker_order_key",
+                "uq_om_broker_orders_broker_order_key",
+            ),
+            (
+                self.trade_facts,
+                "execution_identity",
+                "uq_om_trade_facts_execution_identity",
+            ),
+            (
+                self.execution_fills,
+                "execution_identity",
+                "uq_om_execution_fills_execution_identity",
+            ),
+            (
+                self.position_entries,
+                "entry_id",
+                "uq_om_position_entries_entry_id",
+            ),
+            (
+                self.entry_slices,
+                "entry_slice_id",
+                "uq_om_entry_slices_entry_slice_id",
+            ),
+            (
+                self.exit_allocations,
+                "allocation_id",
+                "uq_om_exit_allocations_allocation_id",
+            ),
+        ):
+            create_index = getattr(collection, "create_index", None)
+            if not callable(create_index):
+                continue
+            create_index(
+                [(field, 1)],
+                unique=True,
+                partialFilterExpression={field: {"$type": "string"}},
+                name=name,
+            )
 
     @property
     def order_requests(self):
@@ -138,24 +212,114 @@ class OrderManagementRepository:
 
     def upsert_broker_order(self, document, unique_keys):
         query = {key: document[key] for key in unique_keys}
-        existing = self.broker_orders.find_one(query)
+        payload = _without_mongo_id(document)
+        existing = self._find_canonical_broker_order(document, query=query)
         if existing is not None:
-            self.broker_orders.update_one(query, {"$set": document})
-            return self.broker_orders.find_one(query), False
-        self.broker_orders.insert_one(document)
-        return document, True
+            _assert_broker_order_identity_consistent(existing, document)
+        try:
+            result = self.broker_orders.update_one(
+                query,
+                {"$set": payload},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            existing = self._find_canonical_broker_order(document, query=query)
+            if existing is None:
+                raise
+            _assert_broker_order_identity_consistent(existing, document)
+            self.broker_orders.update_one(
+                {"broker_order_key": existing["broker_order_key"]},
+                {"$set": payload},
+                upsert=False,
+            )
+            return self.find_broker_order(existing["broker_order_key"]), False
+        saved = self._find_canonical_broker_order(document, query=query)
+        return saved, result.upserted_id is not None
+
+    def move_broker_order_key(self, old_key, new_key, document):
+        old_key = normalize_identifier(old_key)
+        new_key = normalize_identifier(new_key)
+        if new_key is None:
+            raise ValueError("new broker_order_key is required")
+        payload = _without_mongo_id({**document, "broker_order_key": new_key})
+        if old_key is None or old_key == new_key:
+            saved, _created = self.upsert_broker_order(
+                payload,
+                unique_keys=["broker_order_key"],
+            )
+            return saved
+
+        target = self.find_broker_order(new_key)
+        if target is not None:
+            return self._merge_broker_order_target(
+                old_key=old_key,
+                new_key=new_key,
+                target=target,
+                document=payload,
+            )
+
+        try:
+            result = self.broker_orders.update_one(
+                {"broker_order_key": old_key},
+                {"$set": payload},
+                upsert=False,
+            )
+        except DuplicateKeyError:
+            target = self.find_broker_order(new_key)
+            if target is None:
+                raise
+            return self._merge_broker_order_target(
+                old_key=old_key,
+                new_key=new_key,
+                target=target,
+                document=payload,
+            )
+        if result.matched_count:
+            return self.find_broker_order(new_key)
+
+        saved, _created = self.upsert_broker_order(
+            payload,
+            unique_keys=["broker_order_key"],
+        )
+        return saved
+
+    def _find_canonical_broker_order(self, document, *, query):
+        broker_order_key = normalize_identifier(document.get("broker_order_key"))
+        if broker_order_key is not None:
+            canonical = self.find_broker_order(broker_order_key)
+            if canonical is not None:
+                return canonical
+        return self.broker_orders.find_one(query)
+
+    def _merge_broker_order_target(self, *, old_key, new_key, target, document):
+        placeholder = self.find_broker_order(old_key)
+        if placeholder is not None:
+            _assert_broker_order_identity_consistent(target, placeholder)
+        _assert_broker_order_identity_consistent(target, document)
+        merged = {
+            **_without_mongo_id(placeholder or {}),
+            **_without_mongo_id(target),
+            **_without_mongo_id(document),
+            "broker_order_key": new_key,
+        }
+        self.broker_orders.update_one(
+            {"broker_order_key": new_key},
+            {"$set": merged},
+            upsert=False,
+        )
+        self.broker_orders.delete_one({"broker_order_key": old_key})
+        return self.find_broker_order(new_key)
 
     def insert_order_event(self, document):
         self.order_events.insert_one(document)
         return document
 
     def upsert_trade_fact(self, document, unique_keys):
-        query = {key: document[key] for key in unique_keys}
-        existing = self.trade_facts.find_one(query)
-        if existing is not None:
-            return existing, False
-        self.trade_facts.insert_one(document)
-        return document, True
+        return self._upsert_execution_document(
+            collection=self.trade_facts,
+            document=document,
+            unique_keys=unique_keys,
+        )
 
     def find_order(self, internal_order_id):
         return self.orders.find_one({"internal_order_id": internal_order_id})
@@ -185,12 +349,40 @@ class OrderManagementRepository:
         return self.find_order(internal_order_id)
 
     def upsert_execution_fill(self, document, unique_keys):
+        return self._upsert_execution_document(
+            collection=self.execution_fills,
+            document=document,
+            unique_keys=unique_keys,
+        )
+
+    def _upsert_execution_document(self, *, collection, document, unique_keys):
         query = {key: document[key] for key in unique_keys}
-        existing = self.execution_fills.find_one(query)
-        if existing is not None:
+        payload = _without_mongo_id(document)
+        try:
+            result = collection.update_one(
+                query,
+                {"$setOnInsert": payload},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            existing = _find_canonical_execution_document(
+                collection,
+                document,
+                query=query,
+            )
+            if existing is None:
+                raise
+            _assert_execution_identity_consistent(existing, document)
             return existing, False
-        self.execution_fills.insert_one(document)
-        return document, True
+
+        saved = _find_canonical_execution_document(
+            collection,
+            document,
+            query=query,
+        )
+        if result.upserted_id is None and saved is not None:
+            _assert_execution_identity_consistent(saved, document)
+        return saved, result.upserted_id is not None
 
     def find_buy_lot_by_origin_trade_fact_id(self, origin_trade_fact_id):
         return self.buy_lots.find_one({"origin_trade_fact_id": origin_trade_fact_id})
@@ -231,6 +423,15 @@ class OrderManagementRepository:
         self.entry_slices.delete_many({"entry_id": entry_id})
         if slices:
             self.entry_slices.insert_many(slices)
+        return slices
+
+    def upsert_entry_slices(self, slices):
+        for document in list(slices or []):
+            self.entry_slices.replace_one(
+                {"entry_slice_id": document["entry_slice_id"]},
+                document,
+                upsert=True,
+            )
         return slices
 
     def replace_open_slices(self, slices):
@@ -367,6 +568,22 @@ class OrderManagementRepository:
             query["entry_id"] = {"$in": list(entry_ids)}
         return list(self.entry_slices.find(query))
 
+    def list_entry_slices(
+        self,
+        *,
+        symbol=None,
+        entry_ids=None,
+        entry_slice_ids=None,
+    ):
+        query = {}
+        if symbol is not None:
+            query["symbol"] = symbol
+        if entry_ids is not None:
+            query["entry_id"] = {"$in": list(entry_ids)}
+        if entry_slice_ids is not None:
+            query["entry_slice_id"] = {"$in": list(entry_slice_ids)}
+        return list(self.entry_slices.find(query))
+
     def insert_external_candidate(self, document):
         self.external_candidates.insert_one(document)
         return document
@@ -435,6 +652,37 @@ class OrderManagementRepository:
             query["entry_id"] = {"$in": list(entry_ids)}
         return list(self.exit_allocations.find(query))
 
+    def find_exit_allocation_reference_errors(self, *, entry_ids=None):
+        allocations = self.list_exit_allocations(entry_ids=entry_ids)
+        if entry_ids is None:
+            entries = self.list_position_entries()
+            slices = self.list_entry_slices()
+        else:
+            scope_entry_ids = {
+                normalize_identifier(item) for item in list(entry_ids or [])
+            } - {None}
+            scope_entry_ids.update(
+                normalize_identifier(item.get("entry_id")) for item in allocations
+            )
+            scope_entry_ids.discard(None)
+            entries = self.list_position_entries(entry_ids=scope_entry_ids)
+            referenced_slice_ids = {
+                normalize_identifier(item.get("entry_slice_id")) for item in allocations
+            } - {None}
+            scoped_slices = self.list_entry_slices(entry_ids=scope_entry_ids)
+            referenced_slices = self.list_entry_slices(
+                entry_slice_ids=referenced_slice_ids
+            )
+            slices = _deduplicate_documents(
+                [*scoped_slices, *referenced_slices],
+                identity_field="entry_slice_id",
+            )
+        return find_exit_allocation_integrity_errors(
+            position_entries=entries,
+            entry_slices=slices,
+            exit_allocations=allocations,
+        )
+
     def list_reconciliation_gaps(self, *, symbol=None, state=None):
         query = {}
         if symbol is not None:
@@ -456,3 +704,82 @@ class OrderManagementRepository:
         if reason_code is not None:
             query["reason_code"] = reason_code
         return list(self.ingest_rejections.find(query))
+
+
+def _without_mongo_id(document):
+    return {key: value for key, value in dict(document or {}).items() if key != "_id"}
+
+
+def _assert_broker_order_identity_consistent(existing, incoming):
+    conflicts = identity_conflicts(existing, incoming)
+    if conflicts:
+        raise BrokerIdentityConflict(
+            "broker order conflicts with canonical identity: "
+            + ", ".join(sorted(conflicts))
+        )
+
+
+def _find_canonical_execution_document(collection, document, *, query):
+    execution_identity = normalize_identifier(document.get("execution_identity"))
+    if execution_identity is not None:
+        canonical = collection.find_one({"execution_identity": execution_identity})
+        if canonical is not None:
+            return canonical
+    return collection.find_one(query)
+
+
+def _assert_execution_identity_consistent(existing, incoming):
+    conflicts = {}
+    for field in _EXECUTION_IMMUTABLE_FIELDS:
+        left = _normalize_execution_field(field, existing.get(field))
+        right = _normalize_execution_field(field, incoming.get(field))
+        if left is not None and right is not None and left != right:
+            conflicts[field] = (left, right)
+    if conflicts:
+        raise BrokerIdentityConflict(
+            "execution replay conflicts with canonical identity: "
+            + ", ".join(sorted(conflicts))
+        )
+
+
+def _normalize_execution_field(field, value):
+    if field == "account_id":
+        return normalize_account_id(value)
+    if field == "trading_day":
+        return normalize_trading_day(value)
+    if field == "symbol":
+        return normalize_symbol(value)
+    if field == "side":
+        return normalize_side(value)
+    if field == "quantity":
+        try:
+            normalized = int(value)
+            return normalized if normalized == float(value) else value
+        except (TypeError, ValueError, OverflowError):
+            return value
+    if field == "price":
+        if value is None:
+            return None
+        try:
+            return Decimal(str(value)).normalize()
+        except (InvalidOperation, ValueError):
+            return value
+    if field == "trade_time":
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return normalize_identifier(value)
+    return normalize_identifier(value)
+
+
+def _deduplicate_documents(documents, *, identity_field):
+    result = []
+    seen = set()
+    for document in documents:
+        identity = normalize_identifier(document.get(identity_field))
+        marker = identity if identity is not None else id(document)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append(document)
+    return result

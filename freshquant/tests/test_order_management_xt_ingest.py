@@ -1,4 +1,12 @@
+import pytest
+
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
+from freshquant.order_management.broker_identity import (
+    BrokerIdentityConflict,
+    BrokerIdentityError,
+    build_broker_only_internal_order_id,
+    build_broker_order_key,
+)
 from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
     normalize_xt_order_report,
@@ -62,6 +70,13 @@ class InMemoryRepository:
         self.execution_fills.append(saved)
         return saved, True
 
+    def list_execution_fills(self, *, broker_order_keys=None, **_kwargs):
+        rows = list(self.execution_fills)
+        if broker_order_keys is not None:
+            allowed = set(broker_order_keys)
+            rows = [item for item in rows if item.get("broker_order_key") in allowed]
+        return rows
+
     def find_order(self, internal_order_id):
         for order in self.orders:
             if order["internal_order_id"] == internal_order_id:
@@ -92,6 +107,9 @@ class InMemoryRepository:
             for order in self.orders
             if str(order.get("broker_order_id")) == str(broker_order_id)
         ]
+
+    def list_orders(self):
+        return list(self.orders)
 
     def update_order(self, internal_order_id, updates):
         order = self.find_order(internal_order_id)
@@ -171,6 +189,23 @@ class InMemoryRepository:
         self.entry_slices.extend(dict(item) for item in slices)
         return slices
 
+    def upsert_entry_slices(self, slices):
+        for document in slices:
+            for index, current in enumerate(self.entry_slices):
+                if current["entry_slice_id"] == document["entry_slice_id"]:
+                    self.entry_slices[index] = dict(document)
+                    break
+            else:
+                self.entry_slices.append(dict(document))
+        return slices
+
+    def list_entry_slices(self, *, entry_ids=None):
+        rows = list(self.entry_slices)
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        return [dict(item) for item in rows]
+
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         rows = [
             item
@@ -199,11 +234,25 @@ def _bootstrap_service():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 20240102,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 900,
             "source": "xt_trade_callback",
             "internal_order_id": "ord_test_1",
+        }
+    )
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "account_id": "acct-test",
+            "trading_day": 20240103,
+            "symbol": "000001",
+            "price": 10.8,
+            "quantity": 500,
+            "source": "xt_trade_callback",
+            "internal_order_id": "ord_test_sell_1",
         }
     )
     ingest_service = OrderManagementXtIngestService(
@@ -249,6 +298,7 @@ def _noop_sync_stock_fills_compat(symbol, repository=None):
 def _buy_report(broker_trade_id="T-100", **overrides):
     payload = {
         "internal_order_id": "ord_test_1",
+        "account_id": "acct-test",
         "broker_trade_id": broker_trade_id,
         "symbol": "000001",
         "side": "buy",
@@ -265,7 +315,8 @@ def _buy_report(broker_trade_id="T-100", **overrides):
 
 def _sell_report(broker_trade_id="T-101", **overrides):
     payload = {
-        "internal_order_id": "ord_test_1",
+        "internal_order_id": "ord_test_sell_1",
+        "account_id": "acct-test",
         "broker_trade_id": broker_trade_id,
         "symbol": "000001",
         "side": "sell",
@@ -284,6 +335,7 @@ def test_normalize_xt_trade_report_extracts_side_symbol_and_timestamp():
     normalized = normalize_xt_trade_report(
         {
             "order_id": "O-100",
+            "account_id": "acct-test",
             "traded_id": "T-100",
             "stock_code": "000001.SZ",
             "order_type": 23,
@@ -294,7 +346,7 @@ def test_normalize_xt_trade_report_extracts_side_symbol_and_timestamp():
         }
     )
 
-    assert normalized["internal_order_id"] == "O-100"
+    assert normalized["internal_order_id"].startswith("ord_broker_")
     assert normalized["broker_trade_id"] == "T-100"
     assert normalized["symbol"] == "000001"
     assert normalized["side"] == "buy"
@@ -305,6 +357,7 @@ def test_normalize_xt_trade_report_treats_credit_fin_buy_as_buy():
     normalized = normalize_xt_trade_report(
         {
             "order_id": "O-200",
+            "account_id": "acct-test",
             "traded_id": "T-200",
             "stock_code": "600000.SH",
             "order_type": 27,
@@ -321,6 +374,7 @@ def test_normalize_xt_trade_report_treats_sell_repay_as_sell():
     normalized = normalize_xt_trade_report(
         {
             "order_id": "O-201",
+            "account_id": "acct-test",
             "traded_id": "T-201",
             "stock_code": "600000.SH",
             "order_type": 31,
@@ -333,7 +387,7 @@ def test_normalize_xt_trade_report_treats_sell_repay_as_sell():
     assert normalized["side"] == "sell"
 
 
-def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
+def test_normalize_xt_trade_report_does_not_attach_side_conflict_candidate():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
     tracking_service.submit_order(
@@ -358,6 +412,7 @@ def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
 
     normalized = normalize_xt_trade_report(
         {
+            "account_id": "acct-test",
             "order_id": "92001",
             "traded_id": "T-202",
             "stock_code": "600000.SH",
@@ -369,8 +424,9 @@ def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
         repository=repository,
     )
 
-    assert normalized["internal_order_id"] == "ord_credit_ingest_1"
-    assert normalized["side"] == "buy"
+    assert normalized["internal_order_id"].startswith("ord_broker_")
+    assert normalized["internal_order_id"] != "ord_credit_ingest_1"
+    assert normalized["side"] == "sell"
 
 
 def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
@@ -379,6 +435,7 @@ def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 21.0,
             "quantity": 2300,
@@ -401,6 +458,7 @@ def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 22.41,
             "quantity": 2300,
@@ -424,6 +482,7 @@ def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
     normalized = normalize_xt_trade_report(
         {
             "order_id": "1477443585",
+            "account_id": "acct-test",
             "traded_id": "0103000030649603",
             "stock_code": "002262.SZ",
             "order_type": 24,
@@ -446,6 +505,7 @@ def test_normalize_xt_order_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 21.0,
             "quantity": 2300,
@@ -468,6 +528,7 @@ def test_normalize_xt_order_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "account_id": "acct-test",
             "symbol": "002262",
             "price": 22.41,
             "quantity": 2300,
@@ -491,6 +552,7 @@ def test_normalize_xt_order_report_disambiguates_reused_broker_order_id():
     normalized = normalize_xt_order_report(
         {
             "order_id": 1477443585,
+            "account_id": "acct-test",
             "stock_code": "002262.SZ",
             "order_type": 24,
             "order_time": 1777428846,
@@ -558,6 +620,8 @@ def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 20240310,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 900,
@@ -573,7 +637,9 @@ def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
     normalized = normalize_xt_order_report(
         {
             "order_id": 81001,
+            "account_id": "acct-test",
             "stock_code": "000001.SZ",
+            "order_type": 23,
             "order_time": 1710000000,
             "order_status": 54,
         },
@@ -585,27 +651,75 @@ def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
     assert normalized["state"] == "CANCELED"
 
 
-def test_normalize_xt_order_report_returns_none_for_unknown_broker_order():
+def test_normalize_xt_order_report_creates_deterministic_broker_only_identity():
     repository = InMemoryRepository()
 
     normalized = normalize_xt_order_report(
         {
             "order_id": 89991,
+            "account_id": "acct-test",
             "stock_code": "000001.SZ",
+            "order_type": 23,
             "order_time": 1710000000,
             "order_status": 54,
         },
         repository=repository,
     )
 
+    assert normalized["internal_order_id"].startswith("ord_broker_")
+    assert normalized["internal_order_id"] != "89991"
+
+
+def test_broker_only_internal_order_id_requires_complete_identity():
+    with pytest.raises(BrokerIdentityError, match="broker order identity requires"):
+        build_broker_only_internal_order_id(
+            account_id="acct-test",
+            broker_order_id="89992",
+        )
+
+
+def test_order_report_does_not_guess_unique_incomplete_candidate():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-test",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 900,
+            "source": "strategy",
+            "internal_order_id": "ord_incomplete_identity",
+        }
+    )
+    repository.update_order(
+        "ord_incomplete_identity",
+        {"state": "SUBMITTED", "broker_order_id": "89992"},
+    )
+
+    normalized = normalize_xt_order_report(
+        {
+            "account_id": "acct-test",
+            "order_id": 89992,
+            "stock_code": "000001.SZ",
+            "order_status": 54,
+        },
+        repository=repository,
+    )
+
     assert normalized is None
+    assert repository.ingest_rejections[-1]["reason_code"] == (
+        "incomplete_broker_order_identity"
+    )
 
 
 def test_normalize_xt_order_report_keeps_cancel_requested_state_for_pending_cancel():
     normalized = normalize_xt_order_report(
         {
             "order_id": 81002,
+            "account_id": "acct-test",
             "stock_code": "000001.SZ",
+            "order_type": 23,
             "order_time": 1710000000,
             "order_status": 51,
         }
@@ -678,16 +792,13 @@ def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
 
-    arranged_fills = build_arranged_fills_view(repository.list_open_slices("000001"))
-
-    assert len(result["sell_allocations"]) == 2
+    assert result["sell_allocations"] == []
     assert len(result["exit_allocations"]) == 2
+    assert repository.sell_allocations == []
+    assert repository.buy_lots[0]["remaining_quantity"] == 900
+    assert sum(item["remaining_quantity"] for item in repository.lot_slices) == 900
     assert repository.position_entries[0]["remaining_quantity"] == 400
     assert repository.position_entries[0]["status"] == "PARTIALLY_EXITED"
-    assert [(item["price"], item["quantity"]) for item in arranged_fills] == [
-        (10.93, 200),
-        (10.61, 200),
-    ]
 
 
 def test_sell_trade_report_prefers_guardian_source_entries_when_allocating_entry_slices():
@@ -857,7 +968,7 @@ def test_repeated_callback_does_not_duplicate_trade_fact_or_projection():
     assert len(repository.list_open_slices("000001")) == 4
 
 
-def test_non_board_lot_trade_report_is_rejected_from_entry_ledger():
+def test_execution_fragment_quantity_is_accepted_into_entry_ledger():
     repository, ingest_service = _bootstrap_service()
 
     result = ingest_service.ingest_trade_report(
@@ -872,13 +983,11 @@ def test_non_board_lot_trade_report_is_rejected_from_entry_ledger():
 
     assert len(repository.trade_facts) == 1
     assert len(repository.execution_fills) == 1
-    assert repository.position_entries == []
-    assert repository.entry_slices == []
-    assert repository.buy_lots == []
-    assert len(repository.ingest_rejections) == 1
-    assert repository.ingest_rejections[0]["reason_code"] == "non_board_lot_quantity"
-    assert result["position_entry"] is None
-    assert result["projections"]["open_buy_fills"] == []
+    assert repository.position_entries[0]["original_quantity"] == 18
+    assert sum(int(item["original_quantity"]) for item in repository.entry_slices) == 18
+    assert repository.buy_lots[0]["original_quantity"] == 18
+    assert repository.ingest_rejections == []
+    assert result["position_entry"]["original_quantity"] == 18
 
 
 def test_multiple_buy_trade_reports_for_same_order_update_one_position_entry():
@@ -890,6 +999,8 @@ def test_multiple_buy_trade_reports_for_same_order_update_one_position_entry():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 20240102,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 1800,
@@ -1143,15 +1254,13 @@ def test_repeated_sell_callback_does_not_duplicate_sell_allocations(monkeypatch)
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
 
-    arranged_fills = build_arranged_fills_view(repository.list_open_slices("000001"))
-
-    assert len(first["sell_allocations"]) == 2
+    assert first["sell_allocations"] == []
+    assert len(first["exit_allocations"]) == 2
     assert second["sell_allocations"] == []
-    assert len(repository.sell_allocations) == 2
-    assert [(item["price"], item["quantity"]) for item in arranged_fills] == [
-        (10.93, 200),
-        (10.61, 200),
-    ]
+    assert second["exit_allocations"] == []
+    assert repository.sell_allocations == []
+    assert len(repository.exit_allocations) == 2
+    assert repository.buy_lots[0]["remaining_quantity"] == 900
 
 
 def test_sell_trade_skips_legacy_allocation_when_v2_entries_are_authoritative(
@@ -1207,12 +1316,45 @@ def test_sell_trade_skips_legacy_allocation_when_v2_entries_are_authoritative(
     assert sync_calls == [("000001", repository)]
 
 
+def test_sell_trade_does_not_fall_back_to_stale_legacy_when_v2_entry_is_closed(
+    monkeypatch,
+):
+    _stub_ingest_side_effects(monkeypatch)
+    repository, ingest_service = _bootstrap_service()
+    ingest_service.ingest_trade_report(
+        _buy_report(),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    for entry in repository.position_entries:
+        entry["remaining_quantity"] = 0
+        entry["status"] = "CLOSED"
+    for entry_slice in repository.entry_slices:
+        entry_slice["remaining_quantity"] = 0
+        entry_slice["status"] = "CLOSED"
+
+    result = ingest_service.ingest_trade_report(
+        _sell_report(),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert result["exit_allocations"] == []
+    assert result["sell_allocations"] == []
+    assert repository.exit_allocations == []
+    assert repository.sell_allocations == []
+    assert repository.buy_lots[0]["remaining_quantity"] == 900
+    assert sum(item["remaining_quantity"] for item in repository.lot_slices) == 900
+
+
 def test_order_report_updates_existing_order_state():
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": "acct-test",
+            "trading_day": 20240310,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -1232,10 +1374,270 @@ def test_order_report_updates_existing_order_state():
     ingest_service.ingest_order_report(
         {
             "order_id": 90088,
+            "account_id": "acct-test",
             "stock_code": "000001.SZ",
+            "order_type": 23,
             "order_time": 1710000000,
             "order_status": 54,
         }
     )
 
     assert repository.find_order("ord_order_state_1")["state"] == "CANCELED"
+
+
+def test_broker_order_key_primary_identity_includes_trading_day():
+    first = build_broker_order_key(
+        account_id="acct-test",
+        trading_day=20260526,
+        order_sysid="1263",
+    )
+    second = build_broker_order_key(
+        account_id="acct-test",
+        trading_day=20260804,
+        order_sysid="1263",
+    )
+
+    assert first == "account:acct-test:day:20260526:sysid:1263"
+    assert second == "account:acct-test:day:20260804:sysid:1263"
+    assert first != second
+
+
+def test_unique_600917_candidate_cannot_match_688772_trade():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-test",
+            "symbol": "600917",
+            "price": 5.16,
+            "quantity": 38700,
+            "source": "manual",
+            "internal_order_id": "ord-600917-history",
+        }
+    )
+    repository.update_order(
+        "ord-600917-history",
+        {
+            "broker_order_id": "1209008130",
+            "trading_day": 20260804,
+            "state": "FILLED",
+        },
+    )
+
+    normalized = normalize_xt_trade_report(
+        {
+            "account_id": "acct-test",
+            "order_id": "1209008130",
+            "order_sysid": "1263",
+            "traded_id": "trade-688772-buy",
+            "stock_code": "688772.SH",
+            "order_type": 23,
+            "traded_volume": 10000,
+            "traded_price": 14.70,
+            "traded_time": 1785808800,
+        },
+        repository=repository,
+    )
+
+    assert normalized["internal_order_id"].startswith("ord_broker_")
+    assert normalized["internal_order_id"] != "ord-600917-history"
+    assert normalized["symbol"] == "688772"
+    assert normalized["trading_day"] == 20260804
+
+
+def test_pinned_internal_order_symbol_conflict_is_quarantined():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-test",
+            "symbol": "600917",
+            "price": 5.16,
+            "quantity": 38700,
+            "source": "manual",
+            "internal_order_id": "ord-pinned-600917",
+        }
+    )
+
+    with pytest.raises(BrokerIdentityConflict, match="symbol"):
+        normalize_xt_trade_report(
+            {
+                "internal_order_id": "ord-pinned-600917",
+                "account_id": "acct-test",
+                "order_id": "1209008130",
+                "traded_id": "trade-pinned-mismatch",
+                "stock_code": "688772.SH",
+                "order_type": 23,
+                "traded_volume": 10000,
+                "traded_price": 14.70,
+                "traded_time": 1785808800,
+            },
+            repository=repository,
+        )
+
+    assert repository.ingest_rejections[-1]["reason_code"] == "broker_identity_conflict"
+    assert repository.trade_facts == []
+
+
+def test_unknown_xt_order_type_is_quarantined_instead_of_defaulting_to_sell():
+    repository = InMemoryRepository()
+
+    with pytest.raises(BrokerIdentityError, match="side"):
+        normalize_xt_trade_report(
+            {
+                "account_id": "acct-test",
+                "order_id": "unknown-side-order",
+                "traded_id": "unknown-side-trade",
+                "stock_code": "688772.SH",
+                "order_type": 999,
+                "traded_volume": 164,
+                "traded_price": 14.80,
+                "traded_time": 1785895200,
+            },
+            repository=repository,
+        )
+
+    assert repository.ingest_rejections[-1]["reason_code"] == "unknown_order_side"
+
+
+def test_164_share_sell_execution_is_allocated_directly():
+    repository, ingest_service = _bootstrap_service()
+    ingest_service.ingest_trade_report(
+        _buy_report(quantity=900),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    result = ingest_service.ingest_trade_report(
+        _sell_report("T-SELL-164", quantity=164),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert (
+        sum(int(item["allocated_quantity"]) for item in result["exit_allocations"])
+        == 164
+    )
+    assert repository.position_entries[0]["remaining_quantity"] == 736
+    assert repository.ingest_rejections == []
+
+
+def test_nine_sell_fragments_conserve_quantity_and_replay_idempotently():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "account_id": "acct-test",
+            "symbol": "688772",
+            "price": 14.70,
+            "quantity": 10000,
+            "source": "manual",
+            "internal_order_id": "ord-688772-buy",
+        }
+    )
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "account_id": "acct-test",
+            "symbol": "688772",
+            "price": 14.80,
+            "quantity": 10000,
+            "source": "guardian",
+            "internal_order_id": "ord-688772-sell",
+        }
+    )
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        tpsl_service=type(
+            "FakeTpslService",
+            (),
+            {"on_new_buy_trade": lambda self, symbol, buy_price: None},
+        )(),
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+    ingest_service.ingest_trade_report(
+        _buy_report(
+            "T-688772-BUY",
+            internal_order_id="ord-688772-buy",
+            symbol="688772",
+            quantity=10000,
+            price=14.70,
+            trade_time=1785808800,
+            date=20260804,
+            time="10:00:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    fragments = (164, 203, 340, 358, 200, 2653, 3000, 1000, 2082)
+    reports = []
+    for index, quantity in enumerate(fragments, start=1):
+        report = _sell_report(
+            f"T-688772-SELL-{index}",
+            internal_order_id="ord-688772-sell",
+            symbol="688772",
+            quantity=quantity,
+            price=14.80,
+            trade_time=1785895200 + index,
+            date=20260805,
+            time=f"10:00:{index:02d}",
+        )
+        reports.append(report)
+        ingest_service.ingest_trade_report(
+            report,
+            lot_amount=50000,
+            grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+        )
+
+    replay = ingest_service.ingest_trade_report(
+        reports[-1],
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    entry = repository.list_position_entries(symbol="688772")[0]
+    entry_slice_ids = {
+        item["entry_slice_id"]
+        for item in repository.entry_slices
+        if item["symbol"] == "688772"
+    }
+    allocations = list(repository.exit_allocations)
+    sell_fills = [
+        item
+        for item in repository.execution_fills
+        if item["symbol"] == "688772" and item["side"] == "sell"
+    ]
+
+    assert fragments == (164, 203, 340, 358, 200, 2653, 3000, 1000, 2082)
+    assert sum(fragments) == 10000
+    assert len(sell_fills) == 9
+    assert sum(int(item["quantity"]) for item in sell_fills) == 10000
+    assert sum(int(item["allocated_quantity"]) for item in allocations) == 10000
+    assert entry["remaining_quantity"] == 0
+    assert len(entry_slice_ids) == 4
+    assert sorted(
+        (
+            float(item["guardian_price"]),
+            int(item["original_quantity"]),
+        )
+        for item in repository.entry_slices
+        if item["symbol"] == "688772"
+    ) == [
+        (14.70, 3400),
+        (15.14, 3300),
+        (15.59, 3200),
+        (16.06, 100),
+    ]
+    assert all(
+        int(item["remaining_quantity"]) == 0
+        for item in repository.entry_slices
+        if item["symbol"] == "688772"
+    )
+    assert all(item["entry_slice_id"] in entry_slice_ids for item in allocations)
+    assert replay["created"] is False
+    assert replay["exit_allocations"] == []
+    assert repository.ingest_rejections == []

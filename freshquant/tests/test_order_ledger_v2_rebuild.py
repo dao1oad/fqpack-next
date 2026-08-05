@@ -37,12 +37,13 @@ def _get_rebuild_service_class():
 
 def _sample_xt_order(**overrides):
     payload = {
+        "account_id": "acct-1",
         "order_id": 70001,
         "stock_code": "600000.SH",
         "order_type": "buy",
         "order_volume": 100,
         "price": 12.34,
-        "order_time": 1709947800,
+        "order_time": 1710000000,
         "order_status": "filled",
     }
     payload.update(overrides)
@@ -51,13 +52,14 @@ def _sample_xt_order(**overrides):
 
 def _sample_xt_trade(**overrides):
     payload = {
+        "account_id": "acct-1",
         "traded_id": "T-70001",
         "order_id": 70001,
         "stock_code": "600000.SH",
         "order_type": "buy",
         "traded_volume": 100,
         "traded_price": 12.30,
-        "traded_time": 1709947865,
+        "traded_time": 1710000065,
     }
     payload.update(overrides)
     return payload
@@ -65,6 +67,7 @@ def _sample_xt_trade(**overrides):
 
 def _sample_xt_sell_order(**overrides):
     payload = {
+        "account_id": "acct-1",
         "order_id": 70002,
         "stock_code": "000001.SZ",
         "order_type": "sell",
@@ -79,6 +82,7 @@ def _sample_xt_sell_order(**overrides):
 
 def _sample_xt_sell_trade(**overrides):
     payload = {
+        "account_id": "acct-1",
         "traded_id": "T-SELL-1",
         "order_id": 70002,
         "stock_code": "000001.SZ",
@@ -99,6 +103,22 @@ def _sample_xt_position(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _expected_broker_key(payload):
+    from freshquant.order_management.broker_identity import (
+        build_broker_order_key,
+        resolve_trading_day,
+    )
+
+    return build_broker_order_key(
+        account_id=payload.get("account_id"),
+        order_sysid=payload.get("order_sysid"),
+        trading_day=resolve_trading_day(payload),
+        symbol=payload.get("symbol") or payload.get("stock_code"),
+        side=payload.get("side") or payload.get("order_type"),
+        broker_order_id=payload.get("broker_order_id") or payload.get("order_id"),
+    )
 
 
 def test_rebuild_plan_requires_broker_truth_only():
@@ -142,9 +162,10 @@ def test_rebuild_default_lot_amount_lookup_falls_back_to_50000():
 
 def test_rebuild_service_builds_broker_orders_and_execution_fills():
     service = _get_rebuild_service_class()()
+    xt_order = _sample_xt_order()
 
     result = service.build_from_truth(
-        xt_orders=[_sample_xt_order()],
+        xt_orders=[xt_order],
         xt_trades=[_sample_xt_trade()],
         xt_positions=None,
         now_ts=1775000000,
@@ -159,15 +180,21 @@ def test_rebuild_service_builds_broker_orders_and_execution_fills():
     execution_fill = result["execution_fill_documents"][0]
 
     assert broker_order["broker_order_id"] == "70001"
-    assert broker_order["broker_order_key"] == "70001"
+    assert broker_order["broker_order_key"] == _expected_broker_key(xt_order)
+    assert broker_order["account_id"] == "acct-1"
+    assert broker_order["trading_day"] == 20240310
     assert broker_order["symbol"] == "600000"
     assert broker_order["requested_quantity"] == 100
     assert broker_order["filled_quantity"] == 100
     assert broker_order["fill_count"] == 1
     assert execution_fill["broker_trade_id"] == "T-70001"
     assert execution_fill["broker_order_key"] == broker_order["broker_order_key"]
-    assert execution_fill["date"] == 20240309
-    assert execution_fill["time"] == "09:31:05"
+    assert execution_fill["account_id"] == "acct-1"
+    assert execution_fill["execution_fill_id"].startswith("fill_")
+    assert execution_fill["execution_identity"].startswith("execution:")
+    assert execution_fill["execution_fill_id"] != execution_fill["execution_identity"]
+    assert execution_fill["date"] == 20240310
+    assert execution_fill["time"] == "00:01:05"
 
 
 def test_rebuild_service_creates_trade_only_broker_order_fallback():
@@ -234,20 +261,18 @@ def test_rebuild_service_matches_orders_by_symbol_and_side_not_raw_order_id_only
     assert result["broker_orders"] == 2
     assert result["execution_fills"] == 1
 
-    broker_orders = {
-        item["broker_order_key"]: item for item in result["broker_order_documents"]
-    }
+    broker_orders = result["broker_order_documents"]
     execution_fill = result["execution_fill_documents"][0]
 
-    assert broker_orders["940572674"]["symbol"] == "300760"
-    assert broker_orders["940572674"]["side"] == "sell"
-    assert broker_orders["940572674"]["filled_quantity"] == 0
+    unmatched_order = next(item for item in broker_orders if item["symbol"] == "300760")
+    assert unmatched_order["side"] == "sell"
+    assert unmatched_order["filled_quantity"] == 0
     assert any(
         item["source_type"] == "trade_only"
         and item["symbol"] == "002475"
         and item["side"] == "buy"
         and item["filled_quantity"] == 200
-        for item in broker_orders.values()
+        for item in broker_orders
     )
     assert execution_fill["symbol"] == "002475"
     assert execution_fill["side"] == "buy"
@@ -374,6 +399,178 @@ def test_rebuild_service_splits_trade_only_reused_order_ids_across_trade_days():
     assert broker_orders[0]["broker_order_key"] != broker_orders[1]["broker_order_key"]
 
 
+def test_rebuild_service_scopes_reused_order_sysid_by_account_and_trading_day():
+    service = _get_rebuild_service_class()()
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                account_id="acct-1",
+                order_id=901,
+                order_sysid="1263",
+                stock_code="600917.SH",
+                order_time=1779775200,
+            ),
+            _sample_xt_order(
+                account_id="acct-1",
+                order_id=901,
+                order_sysid="1263",
+                stock_code="688772.SH",
+                order_time=1785810600,
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                account_id="acct-1",
+                order_id=901,
+                order_sysid="1263",
+                traded_id="T-SYSID-OLD",
+                stock_code="600917.SH",
+                traded_volume=300,
+                traded_price=5.16,
+                traded_time=1779775260,
+            ),
+            _sample_xt_trade(
+                account_id="acct-1",
+                order_id=901,
+                order_sysid="1263",
+                traded_id="T-SYSID-NEW",
+                stock_code="688772.SH",
+                traded_volume=10000,
+                traded_price=14.70,
+                traded_time=1785810660,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1785810700,
+    )
+
+    assert result["broker_orders"] == 2
+    assert result["execution_fills"] == 2
+    assert {item["symbol"] for item in result["broker_order_documents"]} == {
+        "600917",
+        "688772",
+    }
+    assert (
+        len({item["broker_order_key"] for item in result["broker_order_documents"]})
+        == 2
+    )
+    assert {
+        (item["symbol"], item["quantity"], item["account_id"], item["side"])
+        for item in result["execution_fill_documents"]
+    } == {
+        ("600917", 300, "acct-1", "buy"),
+        ("688772", 10000, "acct-1", "buy"),
+    }
+
+
+def test_rebuild_service_deduplicates_execution_replay_by_execution_identity():
+    service = _get_rebuild_service_class()()
+    trade = _sample_xt_trade(traded_id="T-REPLAY-1")
+
+    result = service.build_from_truth(
+        xt_orders=[_sample_xt_order()],
+        xt_trades=[trade, dict(trade)],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    assert result["execution_fills"] == 1
+    assert result["broker_order_documents"][0]["filled_quantity"] == 100
+    assert result["broker_order_documents"][0]["fill_count"] == 1
+
+
+def test_rebuild_service_rejects_conflicting_execution_replay():
+    from freshquant.order_management.broker_identity import BrokerIdentityConflict
+
+    service = _get_rebuild_service_class()()
+    first = _sample_xt_trade(traded_id="T-REPLAY-CONFLICT")
+    conflicting = {**first, "traded_volume": 200}
+
+    with pytest.raises(BrokerIdentityConflict, match="quantity"):
+        service.build_from_truth(
+            xt_orders=[_sample_xt_order()],
+            xt_trades=[first, conflicting],
+            xt_positions=None,
+            now_ts=1775000000,
+        )
+
+
+def test_rebuild_service_scopes_shared_trade_id_across_accounts_and_days():
+    service = _get_rebuild_service_class()()
+
+    result = service.build_from_truth(
+        xt_orders=[],
+        xt_trades=[
+            _sample_xt_trade(
+                account_id="acct-1",
+                traded_id="T-SHARED",
+                order_id=99001,
+                stock_code="000001.SZ",
+                order_type="sell",
+                traded_time=1710000000,
+            ),
+            _sample_xt_trade(
+                account_id="acct-2",
+                traded_id="T-SHARED",
+                order_id=99001,
+                stock_code="000001.SZ",
+                order_type="sell",
+                traded_time=1710000000,
+            ),
+            _sample_xt_trade(
+                account_id="acct-1",
+                traded_id="T-SHARED",
+                order_id=99001,
+                stock_code="000001.SZ",
+                order_type="sell",
+                traded_time=1710086400,
+            ),
+        ],
+        xt_positions=None,
+        now_ts=1775000000,
+    )
+
+    fills = result["execution_fill_documents"]
+    trade_facts = result["unmatched_sell_trade_facts"]
+    assert len(fills) == 3
+    assert len({item["execution_identity"] for item in fills}) == 3
+    assert len({item["execution_fill_id"] for item in fills}) == 3
+    assert len({item["trade_fact_id"] for item in trade_facts}) == 3
+    assert all(item["trade_fact_id"] != "T-SHARED" for item in trade_facts)
+
+
+def test_rebuild_primary_join_rejects_known_symbol_conflict():
+    from freshquant.order_management.broker_identity import BrokerIdentityError
+
+    service = _get_rebuild_service_class()()
+
+    with pytest.raises(BrokerIdentityError, match="symbol"):
+        service.build_from_truth(
+            xt_orders=[
+                _sample_xt_order(
+                    account_id="acct-1",
+                    order_id=901,
+                    order_sysid="1263",
+                    stock_code="600917.SH",
+                    date=20260804,
+                )
+            ],
+            xt_trades=[
+                _sample_xt_trade(
+                    account_id="acct-1",
+                    order_id=901,
+                    order_sysid="1263",
+                    traded_id="T-PRIMARY-CONFLICT",
+                    stock_code="688772.SH",
+                    date=20260804,
+                )
+            ],
+            xt_positions=None,
+            now_ts=1785810700,
+        )
+
+
 def test_rebuild_service_aggregates_buy_fills_into_single_broker_order_entry():
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
@@ -430,7 +627,9 @@ def test_rebuild_service_aggregates_buy_fills_into_single_broker_order_entry():
     assert position_entry["entry_price"] == pytest.approx(10.333333, abs=1e-6)
     assert [
         item["broker_order_key"] for item in position_entry["aggregation_members"]
-    ] == ["81001"]
+    ] == [
+        _expected_broker_key(_sample_xt_order(order_id=81001, stock_code="000001.SZ"))
+    ]
     assert position_entry["aggregation_window"]["member_count"] == 1
 
 
@@ -490,8 +689,20 @@ def test_rebuild_service_conservatively_clusters_close_buy_orders():
     assert [
         item["broker_order_key"] for item in position_entry["aggregation_members"]
     ] == [
-        "81101",
-        "81102",
+        _expected_broker_key(
+            _sample_xt_order(
+                order_id=81101,
+                stock_code="000001.SZ",
+                order_time=1710000000,
+            )
+        ),
+        _expected_broker_key(
+            _sample_xt_order(
+                order_id=81102,
+                stock_code="000001.SZ",
+                order_time=1710000240,
+            )
+        ),
     ]
     assert position_entry["aggregation_window"]["member_count"] == 2
 
@@ -837,19 +1048,22 @@ def test_rebuild_service_keeps_sell_before_future_buy_as_unmatched():
 
     assert result["position_entries"] == 1
     assert result["exit_allocations"] == 0
-    assert result["unmatched_sell_trade_facts"] == [
-        {
-            "trade_fact_id": "T-SELL-85001",
-            "symbol": "002475",
-            "side": "sell",
-            "quantity": 1600,
-            "price": 49.02,
-            "trade_time": 1710000000,
-            "date": 20240310,
-            "time": "00:00:00",
-            "source": "broker_rebuild",
-        }
-    ]
+    assert len(result["unmatched_sell_trade_facts"]) == 1
+    unmatched = result["unmatched_sell_trade_facts"][0]
+    assert unmatched["trade_fact_id"].startswith("trade_")
+    assert unmatched["trade_fact_id"] != "T-SELL-85001"
+    assert {
+        key: value for key, value in unmatched.items() if key != "trade_fact_id"
+    } == {
+        "symbol": "002475",
+        "side": "sell",
+        "quantity": 1600,
+        "price": 49.02,
+        "trade_time": 1710000000,
+        "date": 20240310,
+        "time": "00:00:00",
+        "source": "broker_rebuild",
+    }
     assert result["position_entry_documents"][0]["remaining_quantity"] == 1000
 
 
@@ -923,29 +1137,36 @@ def test_rebuild_service_partially_allocates_known_inventory_before_marking_unma
     assert result["exit_allocations"] == 1
     assert result["position_entry_documents"][0]["remaining_quantity"] == 0
     assert result["position_entry_documents"][1]["remaining_quantity"] == 200
-    assert result["unmatched_sell_trade_facts"] == [
-        {
-            "trade_fact_id": "T-SELL-86002:unmatched",
-            "symbol": "300760",
-            "side": "sell",
-            "quantity": 100,
-            "price": 166.7,
-            "trade_time": 1710000600,
-            "date": 20240310,
-            "time": "00:10:00",
-            "source": "broker_rebuild",
-        }
-    ]
-    assert result["replay_warnings"] == [
-        {
-            "code": "sell_exceeds_known_inventory",
-            "broker_order_key": "86002",
-            "execution_fill_id": "T-SELL-86002",
-            "symbol": "300760",
-            "allocated_quantity": 100,
-            "unmatched_quantity": 100,
-        }
-    ]
+    assert len(result["unmatched_sell_trade_facts"]) == 1
+    unmatched = result["unmatched_sell_trade_facts"][0]
+    assert unmatched["trade_fact_id"].startswith("trade_")
+    assert unmatched["trade_fact_id"].endswith(":unmatched")
+    assert {
+        key: value for key, value in unmatched.items() if key != "trade_fact_id"
+    } == {
+        "symbol": "300760",
+        "side": "sell",
+        "quantity": 100,
+        "price": 166.7,
+        "trade_time": 1710000600,
+        "date": 20240310,
+        "time": "00:10:00",
+        "source": "broker_rebuild",
+    }
+    warning = result["replay_warnings"][0]
+    sell_fill = next(
+        item
+        for item in result["execution_fill_documents"]
+        if item["broker_trade_id"] == "T-SELL-86002"
+    )
+    assert warning == {
+        "code": "sell_exceeds_known_inventory",
+        "broker_order_key": sell_fill["broker_order_key"],
+        "execution_fill_id": sell_fill["execution_fill_id"],
+        "symbol": "300760",
+        "allocated_quantity": 100,
+        "unmatched_quantity": 100,
+    }
 
 
 def test_rebuild_service_keeps_unmatched_sell_evidence_when_no_entry_can_be_replayed():
@@ -974,13 +1195,15 @@ def test_rebuild_service_keeps_unmatched_sell_evidence_when_no_entry_can_be_repl
     assert result["entry_slices"] == 0
     assert result["exit_allocations"] == 0
     assert len(result["unmatched_sell_trade_facts"]) == 1
-    assert result["unmatched_sell_trade_facts"][0]["trade_fact_id"] == "T-SELL-82001"
+    assert result["unmatched_sell_trade_facts"][0]["trade_fact_id"].startswith("trade_")
+    assert result["unmatched_sell_trade_facts"][0]["trade_fact_id"] != ("T-SELL-82001")
     assert result["unmatched_sell_trade_facts"][0]["quantity"] == 300
+    sell_fill = result["execution_fill_documents"][0]
     assert result["replay_warnings"] == [
         {
             "code": "unmatched_sell",
-            "broker_order_key": "82001",
-            "execution_fill_id": "T-SELL-82001",
+            "broker_order_key": sell_fill["broker_order_key"],
+            "execution_fill_id": sell_fill["execution_fill_id"],
             "symbol": "000001",
             "quantity": 300,
         }
@@ -1037,16 +1260,21 @@ def test_rebuild_service_records_shortfall_when_sell_exceeds_open_entries():
     assert result["position_entries"] == 1
     assert result["exit_allocations"] > 0
     assert len(result["unmatched_sell_trade_facts"]) == 1
-    assert (
-        result["unmatched_sell_trade_facts"][0]["trade_fact_id"]
-        == "T-SELL-83012:unmatched"
+    assert result["unmatched_sell_trade_facts"][0]["trade_fact_id"].startswith("trade_")
+    assert result["unmatched_sell_trade_facts"][0]["trade_fact_id"].endswith(
+        ":unmatched"
     )
     assert result["unmatched_sell_trade_facts"][0]["quantity"] == 600
+    sell_fill = next(
+        item
+        for item in result["execution_fill_documents"]
+        if item["broker_trade_id"] == "T-SELL-83012"
+    )
     assert result["replay_warnings"] == [
         {
             "code": "sell_exceeds_known_inventory",
-            "broker_order_key": "83012",
-            "execution_fill_id": "T-SELL-83012",
+            "broker_order_key": sell_fill["broker_order_key"],
+            "execution_fill_id": sell_fill["execution_fill_id"],
             "symbol": "000001",
             "allocated_quantity": 1000,
             "unmatched_quantity": 600,
@@ -1161,7 +1389,15 @@ def test_rebuild_service_merges_auto_open_gap_into_nearby_clustered_entry():
     assert position_entry["trade_time"] == 1710000000
     assert position_entry["entry_price"] == pytest.approx(10.01, abs=1e-6)
     assert position_entry["aggregation_window"]["member_count"] == 2
-    assert position_entry["aggregation_members"][0]["broker_order_key"] == "81301"
+    assert position_entry["aggregation_members"][0][
+        "broker_order_key"
+    ] == _expected_broker_key(
+        _sample_xt_order(
+            order_id=81301,
+            stock_code="000001.SZ",
+            order_time=1710000000,
+        )
+    )
     assert position_entry["aggregation_members"][1]["trade_time"] == 1710000240
 
 
@@ -1208,7 +1444,7 @@ def test_rebuild_service_rejects_non_board_lot_xt_positions_delta():
     assert rejection["reason_code"] == "non_board_lot_quantity"
 
 
-def test_rebuild_service_keeps_odd_lot_execution_fill_only_as_ingest_rejection():
+def test_rebuild_service_accepts_positive_odd_lot_execution_fill():
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
@@ -1241,19 +1477,114 @@ def test_rebuild_service_keeps_odd_lot_execution_fill_only_as_ingest_rejection()
 
     assert result["broker_orders"] == 1
     assert result["execution_fills"] == 1
-    assert result["position_entries"] == 0
-    assert result["entry_slices"] == 0
+    assert result["position_entries"] == 1
+    assert result["entry_slices"] > 0
     assert result["exit_allocations"] == 0
-    assert result["ingest_rejections"] == 1
+    assert result["ingest_rejections"] == 0
 
     execution_fill = result["execution_fill_documents"][0]
-    rejection = result["ingest_rejection_documents"][0]
+    position_entry = result["position_entry_documents"][0]
 
     assert execution_fill["broker_trade_id"] == "T-ODD-83001"
-    assert rejection["broker_trade_id"] == "T-ODD-83001"
-    assert rejection["symbol"] == "000001"
-    assert rejection["quantity"] == 150
-    assert rejection["reason_code"] == "non_board_lot_quantity"
+    assert execution_fill["quantity"] == 150
+    assert position_entry["original_quantity"] == 150
+    assert position_entry["remaining_quantity"] == 150
+
+
+def test_rebuild_service_accepts_fragmented_sell_executions_and_conserves_quantity():
+    service = _get_rebuild_service_class()(
+        lot_amount_lookup=lambda _symbol: 50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    buy_time = 1785778200
+    sell_time = 1785864600
+    fragments = [164, 203, 340, 358, 200, 2653, 3000, 1000, 2082]
+
+    result = service.build_from_truth(
+        xt_orders=[
+            _sample_xt_order(
+                order_id=1209008130,
+                stock_code="688772.SH",
+                order_volume=10000,
+                price=14.70,
+                order_time=buy_time,
+            ),
+            _sample_xt_sell_order(
+                order_id=1477443586,
+                stock_code="688772.SH",
+                order_volume=10000,
+                price=14.80,
+                order_time=sell_time,
+            ),
+        ],
+        xt_trades=[
+            _sample_xt_trade(
+                traded_id="T-688772-BUY",
+                order_id=1209008130,
+                stock_code="688772.SH",
+                traded_volume=10000,
+                traded_price=14.70,
+                traded_time=buy_time + 5,
+            ),
+            *[
+                _sample_xt_sell_trade(
+                    traded_id=f"T-688772-SELL-{index}",
+                    order_id=1477443586,
+                    stock_code="688772.SH",
+                    traded_volume=quantity,
+                    traded_price=14.80,
+                    traded_time=sell_time + index,
+                )
+                for index, quantity in enumerate(fragments, start=1)
+            ],
+        ],
+        xt_positions=None,
+        now_ts=sell_time + 20,
+    )
+
+    assert result["execution_fills"] == 10
+    assert result["ingest_rejections"] == 0
+    assert (
+        sum(
+            item["quantity"]
+            for item in result["execution_fill_documents"]
+            if item["side"] == "sell"
+        )
+        == 10000
+    )
+    assert (
+        sum(item["allocated_quantity"] for item in result["exit_allocation_documents"])
+        == 10000
+    )
+    assert len(result["exit_allocation_documents"]) == 12
+    assert result["position_entry_documents"][0]["remaining_quantity"] == 0
+    assert result["position_entry_documents"][0]["status"] == "CLOSED"
+    assert sorted(
+        (
+            float(item["guardian_price"]),
+            int(item["original_quantity"]),
+        )
+        for item in result["entry_slice_documents"]
+        if item["symbol"] == "688772"
+    ) == [
+        (14.70, 3400),
+        (15.14, 3300),
+        (15.59, 3200),
+        (16.06, 100),
+    ]
+    allocated_by_slice = {}
+    for allocation in result["exit_allocation_documents"]:
+        allocated_by_slice.setdefault(allocation["entry_slice_id"], 0)
+        allocated_by_slice[allocation["entry_slice_id"]] += int(
+            allocation["allocated_quantity"]
+        )
+    assert sorted(allocated_by_slice.values()) == [100, 3200, 3300, 3400]
+    assert all(
+        int(item["remaining_quantity"]) == 0
+        for item in result["entry_slice_documents"]
+        if item["symbol"] == "688772"
+    )
+    assert result["allocation_reference_errors"] == []
 
 
 def test_rebuild_service_auto_closes_entries_when_xt_positions_are_smaller_than_ledger():

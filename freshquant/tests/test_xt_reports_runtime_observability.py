@@ -4,6 +4,8 @@ from freshquant.order_management.ingest.xt_reports import (
 )
 from freshquant.order_management.tracking.service import OrderTrackingService
 
+TEST_ACCOUNT_ID = "acct-test"
+
 
 class FakeRuntimeLogger:
     def __init__(self):
@@ -151,6 +153,8 @@ def test_ingest_trade_report_emits_runtime_events(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20240102,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -174,6 +178,7 @@ def test_ingest_trade_report_emits_runtime_events(monkeypatch):
     service.ingest_trade_report(
         {
             "internal_order_id": "ord_xt_1",
+            "account_id": TEST_ACCOUNT_ID,
             "broker_order_id": "90001",
             "broker_trade_id": "T-90001",
             "symbol": "000001",
@@ -208,6 +213,8 @@ def test_duplicate_trade_report_is_silent_in_runtime_observability(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20240102,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -229,6 +236,7 @@ def test_duplicate_trade_report_is_silent_in_runtime_observability(monkeypatch):
     )
     report = {
         "internal_order_id": "ord_xt_dup_1",
+        "account_id": TEST_ACCOUNT_ID,
         "broker_order_id": "90003",
         "broker_trade_id": "T-90003",
         "symbol": "000001",
@@ -267,6 +275,8 @@ def test_ingest_order_report_emits_runtime_events():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20240310,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -289,8 +299,10 @@ def test_ingest_order_report_emits_runtime_events():
 
     service.ingest_order_report(
         {
+            "account_id": TEST_ACCOUNT_ID,
             "order_id": 90002,
             "stock_code": "000001.SZ",
+            "order_type": 23,
             "order_time": 1710000000,
             "order_status": 54,
         }
@@ -311,6 +323,8 @@ def test_duplicate_order_snapshot_is_silent_in_runtime_observability():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "account_id": TEST_ACCOUNT_ID,
+            "trading_day": 20240310,
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -331,8 +345,10 @@ def test_duplicate_order_snapshot_is_silent_in_runtime_observability():
         runtime_logger=runtime_logger,
     )
     report = {
+        "account_id": TEST_ACCOUNT_ID,
         "order_id": 90012,
         "stock_code": "000001.SZ",
+        "order_type": 23,
         "order_time": 1710000000,
         "order_status": 54,
     }
@@ -356,6 +372,7 @@ def test_unknown_order_snapshot_is_ignored_in_runtime_observability():
 
     result = service.ingest_order_report(
         {
+            "account_id": TEST_ACCOUNT_ID,
             "order_id": 99901,
             "stock_code": "000001.SZ",
             "order_time": 1710000000,
