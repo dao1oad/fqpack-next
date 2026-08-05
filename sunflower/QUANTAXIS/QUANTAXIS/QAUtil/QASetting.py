@@ -35,6 +35,17 @@ from QUANTAXIS.QAUtil.QASql import (
     QA_util_sql_mongo_setting,
 )
 
+
+def _atomic_write_json(path, obj):
+    """原子写 JSON：先写同目录临时文件再 replace，避免并发 reader 读到半写文件。"""
+    temp_path = "{}.{}.tmp".format(path, os.getpid())
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump(obj, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, path)
+
+
 # quantaxis有一个配置目录存放在 ~/.quantaxis
 # 如果配置目录不存在就创建，主要配置都保存在config.json里面
 # 貌似yutian已经进行了，文件的创建步骤，他还会创建一个setting的dir
@@ -278,8 +289,7 @@ else:
         {"ip": "113.105.142.162", "port": 7721},
         {"ip": "23.129.245.199", "port": 7721},
     ]
-    with open(INFO_IP_FILE_PATH, "w") as f:
-        json.dump(info_ip_list, f)
+    _atomic_write_json(INFO_IP_FILE_PATH, info_ip_list)
 
 # 仓库内人工维护的 IP 池优先(freshquant/gateway/tdx_ip_pool.json),
 # 避免 ~/.quantaxis 的陈旧缓存把失效服务器带回选点流程
@@ -368,8 +378,7 @@ else:
         {"ip": "113.105.142.162", "port": 7721},
         {"ip": "23.129.245.199", "port": 7721},
     ]
-    with open(STOCK_IP_FILE_PATH, "w") as f:
-        json.dump(stock_ip_list, f)
+    _atomic_write_json(STOCK_IP_FILE_PATH, stock_ip_list)
 
 _pool_future_ip_list = load_tdx_ip_pool("future")
 if _pool_future_ip_list:
@@ -401,8 +410,7 @@ else:
         {"ip": "119.147.86.171", "port": 7721, "name": "扩展市场深圳主站"},
         {"ip": "47.107.75.159", "port": 7727, "name": "扩展市场深圳双线3"},
     ]
-    with open(FUTURE_IP_FILE_PATH, "w") as f:
-        json.dump(future_ip_list, f)
+    _atomic_write_json(FUTURE_IP_FILE_PATH, future_ip_list)
 
 """
 ["121.14.110.210", "119.147.212.76", "113.105.73.86", "119.147.171.211", "119.147.164.57", "119.147.164.58", "61.49.50.180", "61.49.50.181",
