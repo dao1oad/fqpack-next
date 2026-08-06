@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$TradeDate = (Get-Date -Format "yyyy-MM-dd"),
     [string]$RunDir = "",
     [switch]$SkipPhaseA,
