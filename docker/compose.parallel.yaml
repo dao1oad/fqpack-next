@@ -262,6 +262,12 @@ services:
     image: ${FQNEXT_WEBUI_IMAGE:-fqnext_webui:2026.2.23}
     ports:
       - "18080:80"
+    volumes:
+      # CLX 市场上下文评价数据（每日 publish 产物）出 git，由宿主外部目录挂载提供，
+      # 前端 /data/clx-evaluator/** 直接命中该目录，无需每次 rebuild 镜像。
+      - type: bind
+        source: ${CLX_EVAL_DATA_DIR:-D:/fqpack/runtime/artifacts/clx-evaluator}
+        target: /usr/share/nginx/html/data/clx-evaluator
     depends_on:
       fq_apiserver:
         condition: service_started

@@ -199,6 +199,21 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 
 `/clx-evaluation` 继续只读取 `/data/clx-evaluator/latest.json` 与其指向的 `clx-eval.v1.json` 静态快照，不改变 JSON schema 或新增后端接口。当前页面采用 master-detail 工作台：顶部展示标题、trade date/run badges 与 KPI strip；左侧为分组导航卡片，展示 rank、分组名、market lane、fit grade、theme、CLX 数、shortlist、金额、代表标的、fit reason 和导入通达信按钮；右侧为 sticky 筛选条、选中分组摘要和组内成员表。点击左侧分组会过滤右侧 members；清除组筛选恢复全量。运行合同、统计分布和映射审计保留在原生 `details` 折叠区，小屏下工作台降为单列。导入通达信仍复用 `importGroupToTdx(group)` 的现有 batch API 与本地 adapter fallback 行为。
 
+静态评价数据（`/data/clx-evaluator/**`）**出 git**，由宿主外部目录
+`D:/fqpack/runtime/artifacts/clx-evaluator/` 通过 `fq_webui` compose bind mount
+挂载到容器 `/usr/share/nginx/html/data/clx-evaluator` 提供（compose 变量
+`CLX_EVAL_DATA_DIR`，默认即该目录）。每日 publish 产物直接写入该目录，
+前端路径不变、无需 commit、无需 rebuild 镜像；容器重启后数据不丢失。
+每日运行入口脚本为 `script/clx_eval_daily.ps1`：
+
+- Phase 0/Phase A（clean-room，`fork_turns="none"`）仍需独立 Codex 会话执行，
+  脚本负责生成启动器并校验 `market-state.lock.json`；
+- Phase B + build + publish 由脚本调用 skill 的 `clx_run.py` 完成，publish
+  目标固定为外部数据目录（public/web 两份同指向，历史 runs 保留在外部目录）。
+
+历史 runs（07-31/08-03/08-04/08-05）已迁移到该外部目录，仓库内不再跟踪
+`morningglory/fqwebui/{public,web}/data/clx-evaluator/**`。
+
 ### `/daily-screening?tab=clx` CLX 18 模型工作区
 
 `/daily-screening?tab=clx` 是 CLX 日线选股的正式工作区入口；页面只展示批次、筛选、统计、结果列表和详情，不承载主体 K 线。顶部“每日选股”进入 `/daily-screening`，用户可在 `综合交集 / CLX 18 模型` 两个工作区之间切换。

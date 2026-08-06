@@ -1,9 +1,0 @@
-﻿metric,value,detail
-stock_buy_total,143,CLX pure-buy Stock count
-business_primary_group_covered,143,143/143 via CNINFO industry
-remaining_unmapped_after_cascade,0,CNINFO industry coverage complete
-market_theme_id_mapped,11,mapped only to Phase A frozen themes
-fundamental_report_covered,143,fixed 2026Q1 report period
-fundamental_evidence_gap,0,quality grade evidence gaps
-valuation_evidence_gap,0,PE/PB evidence gaps
-source_rank_count:cninfo_industry,143,target-date-safe industry source
