@@ -2823,12 +2823,10 @@ def test_bootstrap_excludes_source_invalid_close_and_publishes_marker():
     target = "2026-01-05"
     db = _DB(
         stock_list=[
-            {"code": code, "name": "Stock"}
-            for code in ("000001", "000004", "000005")
+            {"code": code, "name": "Stock"} for code in ("000001", "000004", "000005")
         ],
         stock_day=[
-            {"code": code, "date": target}
-            for code in ("000001", "000004", "000005")
+            {"code": code, "date": target} for code in ("000001", "000004", "000005")
         ],
     )
 
