@@ -63,6 +63,7 @@ SOURCE_EXCLUSION_REASONS = frozenset(
         "source_empty_bars",
         "source_adjustment_gap_unproven",
         "source_prefix_unavailable",
+        "source_invalid_close",
     }
 )
 
@@ -816,6 +817,8 @@ def _new_bfq_coverage_summary() -> dict[str, Any]:
         "source_adjustment_gap_unproven": [],
         "source_prefix_unavailable_excluded": 0,
         "source_prefix_unavailable": [],
+        "source_invalid_close_excluded": 0,
+        "source_invalid_close": [],
         "skipped_codes": 0,
         "skipped": [],
     }
