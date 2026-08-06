@@ -5,6 +5,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from freshquant.order_management.broker_identity import (
+    BrokerIdentityError,
+    build_broker_only_internal_order_id,
+)
 from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
@@ -23,12 +27,9 @@ from freshquant.order_management.guardian.sell_semantics import (
 from freshquant.order_management.ids import (
     new_allocation_id,
     new_entry_slice_id,
-    new_event_id,
-    new_internal_order_id,
     new_position_entry_id,
     new_reconciliation_gap_id,
     new_reconciliation_resolution_id,
-    new_request_id,
 )
 from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
@@ -63,6 +64,21 @@ class TradeReportReconcileOutcome:
     result: dict | None = None
     normalized: dict | None = None
     ingested: bool = False
+
+
+def _is_deterministic_broker_only_trade(normalized):
+    try:
+        expected_internal_order_id = build_broker_only_internal_order_id(
+            account_id=normalized.get("account_id"),
+            order_sysid=normalized.get("order_sysid"),
+            trading_day=normalized.get("trading_day"),
+            symbol=normalized.get("symbol"),
+            side=normalized.get("side"),
+            broker_order_id=normalized.get("broker_order_id"),
+        )
+    except BrokerIdentityError:
+        return False
+    return normalized.get("internal_order_id") == expected_internal_order_id
 
 
 class ExternalOrderReconcileService:
@@ -329,58 +345,10 @@ class ExternalOrderReconcileService:
                     ingested=True,
                 )
 
-            match_status, matched_order = self._match_inflight_internal_order(
-                normalized
-            )
-            if match_status == "matched":
-                ids.update(
-                    {
-                        "trace_id": matched_order.get("trace_id"),
-                        "intent_id": matched_order.get("intent_id"),
-                        "request_id": matched_order.get("request_id"),
-                        "internal_order_id": matched_order["internal_order_id"],
-                        "symbol": normalized["symbol"],
-                    }
-                )
-                self._emit_runtime(
-                    "internal_match",
-                    ids,
-                    payload={"broker_order_id": normalized.get("broker_order_id")},
-                )
-                normalized["internal_order_id"] = matched_order["internal_order_id"]
-                if normalized.get("broker_order_id") and not matched_order.get(
-                    "broker_order_id"
-                ):
-                    self.repository.update_order(
-                        matched_order["internal_order_id"],
-                        {
-                            "broker_order_id": normalized.get("broker_order_id"),
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                        },
-                    )
-                current_node = "projection_update"
-                result = self.ingest_service.ingest_trade_report(
-                    normalized,
-                    lot_amount=_safe_resolve_lot_amount(normalized["symbol"]),
-                    grid_interval_lookup=_safe_grid_interval_lookup,
-                )
-                self._emit_runtime(
-                    "projection_update",
-                    ids,
-                    payload={"source": "internal_match"},
-                )
-                return TradeReportReconcileOutcome(
-                    handled=True,
-                    action="matched_internal_order",
-                    result=result,
-                    normalized=normalized,
-                    ingested=True,
-                )
-            if match_status == "defer":
-                return TradeReportReconcileOutcome(
-                    handled=True,
-                    action="deferred_ambiguous_internal_match",
-                    normalized=normalized,
+            deterministic_broker_only = _is_deterministic_broker_only_trade(normalized)
+            if not deterministic_broker_only:
+                raise BrokerIdentityError(
+                    "XT trade report lacks canonical broker identity"
                 )
 
             if pending_candidates is None:
@@ -389,33 +357,26 @@ class ExternalOrderReconcileService:
                 )
             candidate = _find_trade_gap(pending_candidates, normalized)
             current_node = "externalize"
-            order = self._create_external_order(
-                symbol=normalized["symbol"],
-                side=normalized["side"],
-                quantity=normalized["quantity"],
-                price=normalized["price"],
-                source_type="external_reported",
-                state="FILLED",
-                broker_order_id=normalized.get("broker_order_id"),
-            )
+            source_type = "broker_only"
             ids = {
-                "request_id": order["request_id"],
-                "internal_order_id": order["internal_order_id"],
+                "request_id": normalized.get("request_id"),
+                "internal_order_id": normalized["internal_order_id"],
                 "symbol": normalized["symbol"],
             }
             self._emit_runtime(
                 "externalize",
                 ids,
-                payload={"source_type": "external_reported"},
+                payload={"source_type": source_type},
             )
-            normalized["internal_order_id"] = order["internal_order_id"]
-            normalized["source"] = "external_reported"
             current_node = "projection_update"
             result = self.ingest_service.ingest_trade_report(
                 normalized,
                 lot_amount=_safe_resolve_lot_amount(normalized["symbol"]),
                 grid_interval_lookup=_safe_grid_interval_lookup,
             )
+            order = self.repository.find_order(normalized["internal_order_id"])
+            if order is None:
+                raise RuntimeError("broker-only order was not persisted")
             if candidate is not None:
                 candidate_updates = _build_gap_trade_updates(
                     candidate,
@@ -444,7 +405,7 @@ class ExternalOrderReconcileService:
             self._emit_runtime(
                 "projection_update",
                 ids,
-                payload={"source": "external_reported"},
+                payload={"source": source_type},
             )
             return TradeReportReconcileOutcome(
                 handled=True,
@@ -463,46 +424,6 @@ class ExternalOrderReconcileService:
             )
             mark_exception_emitted(exc)
             raise
-
-    def _match_inflight_internal_order(self, normalized_trade):
-        exact_candidates = []
-        partial_candidates = []
-        for order in self.repository.list_orders(
-            symbol=normalized_trade["symbol"],
-            states={"ACCEPTED", "QUEUED", "SUBMITTING"},
-            missing_broker_only=True,
-        ):
-            if order.get("side") != normalized_trade["side"]:
-                continue
-            if order.get("source_type") in {"external_reported", "external_inferred"}:
-                continue
-            request = self.repository.find_order_request(order["request_id"])
-            if request is None:
-                continue
-            request_quantity = int(request.get("quantity") or 0)
-            trade_quantity = int(normalized_trade["quantity"] or 0)
-            if request_quantity < trade_quantity:
-                continue
-            request_price = request.get("price")
-            if (
-                request_price is not None
-                and abs(float(request_price) - float(normalized_trade["price"])) > 1e-6
-            ):
-                continue
-            if request_quantity == trade_quantity:
-                exact_candidates.append(order)
-            else:
-                partial_candidates.append(order)
-
-        if len(exact_candidates) == 1:
-            return "matched", exact_candidates[0]
-        if len(exact_candidates) > 1:
-            return "defer", None
-        if len(partial_candidates) == 1:
-            return "matched", partial_candidates[0]
-        if len(partial_candidates) > 1:
-            return "defer", None
-        return "missing", None
 
     def confirm_expired_candidates(self, now):
         confirmed = []
@@ -754,64 +675,6 @@ class ExternalOrderReconcileService:
         )
         _after_holdings_reconciled(gap["symbol"], repository=self.repository)
         return updated_gap
-
-    def _create_external_order(
-        self,
-        symbol,
-        side,
-        quantity,
-        price,
-        source_type,
-        state,
-        broker_order_id,
-    ):
-        request_id = new_request_id()
-        internal_order_id = new_internal_order_id()
-        now_iso = datetime.now(timezone.utc).isoformat()
-        self.repository.insert_order_request(
-            {
-                "request_id": request_id,
-                "action": side,
-                "source": source_type,
-                "symbol": symbol,
-                "price": price,
-                "quantity": quantity,
-                "strategy_name": None,
-                "remark": source_type,
-                "scope_type": None,
-                "scope_ref_id": None,
-                "req_id": request_id,
-                "state": state,
-                "created_at": now_iso,
-            }
-        )
-        order = {
-            "internal_order_id": internal_order_id,
-            "request_id": request_id,
-            "broker_order_id": (
-                str(broker_order_id) if broker_order_id is not None else None
-            ),
-            "symbol": symbol,
-            "side": side,
-            "state": state,
-            "source_type": source_type,
-            "submitted_at": now_iso,
-            "filled_quantity": quantity,
-            "avg_filled_price": price,
-            "updated_at": now_iso,
-        }
-        self.repository.insert_order(order)
-        self.repository.insert_order_event(
-            {
-                "event_id": new_event_id(),
-                "request_id": request_id,
-                "internal_order_id": internal_order_id,
-                "event_type": "external_reconciled",
-                "state": state,
-                "created_at": now_iso,
-            }
-        )
-        return order
 
     def _emit_runtime(self, node, ids, *, status="info", reason_code="", payload=None):
         event = {

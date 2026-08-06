@@ -138,14 +138,44 @@ powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGi
 - `@'
 from freshquant.order_management.db import DBOrderManagement
 broker_order_id = "<broker_order_id>"
-print(list(DBOrderManagement["om_orders"].find({"broker_order_id": str(broker_order_id)}, {"_id": 0, "internal_order_id": 1, "trace_id": 1, "symbol": 1, "side": 1, "broker_order_type": 1, "state": 1, "submitted_at": 1})))
+broker_order_key = "<broker_order_key>"
+print(list(DBOrderManagement["om_orders"].find({"broker_order_id": str(broker_order_id)}, {"_id": 0, "internal_order_id": 1, "request_id": 1, "broker_correlation_token": 1, "account_id": 1, "trading_day": 1, "order_sysid": 1, "trace_id": 1, "symbol": 1, "side": 1, "broker_order_type": 1, "state": 1, "submitted_at": 1})))
+print(list(DBOrderManagement["om_broker_orders"].find({"$or": [{"broker_order_key": broker_order_key}, {"broker_order_id": str(broker_order_id)}]}, {"_id": 0, "broker_order_key": 1, "internal_order_id": 1, "request_id": 1, "broker_correlation_token": 1, "account_id": 1, "trading_day": 1, "order_sysid": 1, "broker_order_id": 1, "symbol": 1, "side": 1, "source_type": 1, "execution_fence": 1, "aggregate_revision": 1, "filled_quantity": 1, "fill_count": 1, "avg_filled_price": 1, "state": 1})))
 '@ | py -3.12 -m uv run -`
 
 处理：
 
-- 当前 `broker_order_id` 不能单独当作全局唯一键；如果同号命中多条 `om_orders`，以 `symbol`、`side/order_type` 与回报时间确认真实内部订单。
-- 若重复券商订单号曾把回报挂到旧内部订单，需要同步核对 `om_execution_fills`、`om_trade_facts` 与 `om_position_entries` 是否已有错归属事实；必要时按券商真值 `xt_orders/xt_trades/xt_positions` 做账本修复。
+- 先核对 XT `order_remark` 是否为严格 24 字符 FQOM token；有效 token 必须唯一
+  命中对应内部订单，且账户、交易日、标的、方向等回报身份不能与订单冲突。
+- 没有 token 时，只能使用完整 canonical identity：
+  `account_id + trading_day + order_sysid`，或
+  `account_id + trading_day + symbol + side + broker_order_id`。
+  `broker_order_id`、价格、数量和回报时间都不能用于猜测真实内部订单。
+- 无法证明归属时，完整外部身份应保留为 deterministic broker-only；身份不完整
+  则 fail closed。若已出现错归属，继续核对 `execution_identity`、
+  `om_broker_orders.execution_fence/aggregate_revision`、`om_execution_fills`、
+  `om_trade_facts` 与 `om_position_entries`，再按券商真值
+  `xt_orders/xt_trades/xt_positions` 做定向账本修复。
 - 修复代码后需要重新部署 `order_management` host surface，并确认 broker / XT report ingest runtime event 已回到新内部订单对应的 trace。
+
+### 外部订单并发与提交失败排查
+
+- stale same-owner claim：对比 `om_broker_orders.aggregate_revision`、
+  `filled_quantity`、`fill_count` 与最近 `om_execution_fills`；existing-owner
+  claim 不应覆盖较新的成交聚合。若聚合已回退，不要从旧订单回报复制聚合字段；
+  应以 canonical fills 重算，并通过 aggregate CAS 做定向修复。
+- broker-only promotion：如果 broker-only 记录已有
+  `execution_fence=true` 或成交，promotion 必须停止并留下 targeted-repair
+  证据。保留 broker-only owner，不得强制 promotion 或静默改成内部订单。
+- broker-order key move：同时查询旧 `broker_order_key` 与新 key；source delete
+  CAS 竞争后最终只能保留一条 target。若仍有双记录，先停止写入面，核对两条
+  记录的 owner、canonical identity、execution fence 与聚合，再做定向修复；
+  在证据未收敛前不要直接删除任一记录。
+- `prepare_submit_execution` 返回 `missing_order`：broker 必须 fail closed，不得调用
+  XT、伪造提交成功或把消息重新入队。
+- XT 委托返回 `None/0/负订单号`：核对 `om_order_events.event_type=submit_failed`
+  和订单状态 `FAILED`。任何人工新发前先通过 XT 当日委托与柜台回报确认原请求是否
+  已实际受理；puppet 不得 sleep、Redis requeue 或自动重复提交相同券商委托。
 
 ## broker_gateway 健康摘要停留在旧 warning
 

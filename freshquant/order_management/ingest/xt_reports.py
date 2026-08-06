@@ -6,6 +6,20 @@ from uuid import uuid4
 from loguru import logger
 
 from freshquant.carnation import xtconstant
+from freshquant.order_management.broker_correlation import (
+    normalize_broker_correlation_token,
+)
+from freshquant.order_management.broker_identity import (
+    BrokerIdentityError,
+    build_broker_only_internal_order_id,
+    build_broker_order_key,
+    build_execution_identity,
+    normalize_account_id,
+    normalize_identifier,
+    normalize_side,
+    normalize_symbol,
+    resolve_trading_day,
+)
 from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_adapter import (
     list_open_entry_slices_compat,
@@ -90,15 +104,7 @@ class OrderManagementXtIngestService:
     def ingest_trade_report(self, report, lot_amount, grid_interval_lookup):
         current_node = "trade_match"
         try:
-            if hasattr(self.tracking_service, "ingest_trade_report_with_meta"):
-                ingest_result = self.tracking_service.ingest_trade_report_with_meta(
-                    report
-                )
-            else:
-                ingest_result = {
-                    "trade_fact": self.tracking_service.ingest_trade_report(report),
-                    "created": True,
-                }
+            ingest_result = self.tracking_service.ingest_trade_report_with_meta(report)
             trade_fact = ingest_result["trade_fact"]
             execution_fill = ingest_result.get("execution_fill")
             created = bool(ingest_result.get("created"))
@@ -358,13 +364,9 @@ class OrderManagementXtIngestService:
             return None
         current_node = "order_match"
         try:
-            if hasattr(self.tracking_service, "ingest_order_report_with_meta"):
-                ingest_result = self.tracking_service.ingest_order_report_with_meta(
-                    normalized_report
-                )
-            else:
-                self.tracking_service.ingest_order_report(normalized_report)
-                ingest_result = {"changed": True, "absorbed": False}
+            ingest_result = self.tracking_service.ingest_order_report_with_meta(
+                normalized_report
+            )
             if not ingest_result.get("changed"):
                 return normalized_report
             self._emit_runtime(
@@ -422,12 +424,12 @@ class OrderManagementXtIngestService:
 
 def normalize_xt_trade_report(report, repository=None):
     if "side" in report and "broker_trade_id" in report:
-        return report
+        return dict(report)
 
     traded_time = report["traded_time"]
     traded_datetime = _xt_timestamp_to_datetime(traded_time)
     stock_code = report.get("stock_code", "")
-    symbol = report.get("symbol") or stock_code[:6]
+    symbol = normalize_symbol(report.get("symbol") or stock_code)
     order_id = report.get("order_id")
     internal_order_id = report.get("internal_order_id")
     order = None
@@ -447,12 +449,42 @@ def normalize_xt_trade_report(report, repository=None):
             internal_order_id = order["internal_order_id"]
     if order is not None and order.get("broker_order_type") is not None:
         order_type = order.get("broker_order_type")
-    return {
-        "internal_order_id": internal_order_id or str(order_id),
-        "broker_order_id": str(order_id) if order_id is not None else None,
+    side = _map_xt_order_type_to_side(order_type)
+    identity = _normalize_xt_callback_identity(
+        report,
+        symbol=symbol,
+        side=side,
+        broker_order_id=order_id,
+        report_time=traded_time,
+    )
+    if internal_order_id is None:
+        if identity["broker_order_key"] is not None:
+            internal_order_id = build_broker_only_internal_order_id(
+                account_id=identity["account_id"],
+                order_sysid=identity["order_sysid"],
+                trading_day=identity["trading_day"],
+                symbol=identity["symbol"],
+                side=identity["side"],
+                broker_order_id=identity["broker_order_id"],
+            )
+        elif repository is not None:
+            raise BrokerIdentityError("XT trade report lacks canonical broker identity")
+        else:
+            internal_order_id = str(order_id)
+    normalized = {
+        "internal_order_id": internal_order_id,
+        "broker_order_key": identity["broker_order_key"]
+        or (order or {}).get("broker_order_key")
+        or internal_order_id,
+        "broker_order_id": identity["broker_order_id"],
         "broker_trade_id": str(report["traded_id"]),
-        "symbol": symbol,
-        "side": _map_xt_order_type_to_side(order_type),
+        "account_type": report.get("account_type") or (order or {}).get("account_type"),
+        "account_id": identity["account_id"],
+        "order_sysid": identity["order_sysid"],
+        "trading_day": identity["trading_day"],
+        "broker_correlation_token": identity["broker_correlation_token"],
+        "symbol": identity["symbol"],
+        "side": identity["side"],
         "quantity": report["traded_volume"],
         "price": report["traded_price"],
         "trade_time": traded_time,
@@ -464,6 +496,9 @@ def normalize_xt_trade_report(report, repository=None):
         "trace_id": report.get("trace_id") or (order or {}).get("trace_id"),
         "intent_id": report.get("intent_id") or (order or {}).get("intent_id"),
     }
+    if identity["broker_order_key"] is not None:
+        normalized["execution_identity"] = build_execution_identity(normalized)
+    return normalized
 
 
 def normalize_xt_order_report(report, repository=None):
@@ -490,15 +525,47 @@ def normalize_xt_order_report(report, repository=None):
         order = (
             repository.find_order(internal_order_id) if repository is not None else None
         )
+    side = _map_xt_order_type_to_side(report.get("order_type"))
+    symbol = normalize_symbol(report.get("symbol") or report.get("stock_code"))
+    identity = _normalize_xt_callback_identity(
+        report,
+        symbol=symbol,
+        side=side,
+        broker_order_id=broker_order_id,
+        report_time=report.get("order_time"),
+    )
     if internal_order_id is None:
-        if repository is not None:
+        if identity["broker_order_key"] is not None:
+            internal_order_id = build_broker_only_internal_order_id(
+                account_id=identity["account_id"],
+                order_sysid=identity["order_sysid"],
+                trading_day=identity["trading_day"],
+                symbol=identity["symbol"],
+                side=identity["side"],
+                broker_order_id=identity["broker_order_id"],
+            )
+        elif repository is not None:
             return None
-        internal_order_id = str(broker_order_id)
+        else:
+            internal_order_id = str(broker_order_id)
         order = None
 
     return {
         "internal_order_id": internal_order_id,
-        "broker_order_id": str(broker_order_id),
+        "broker_order_key": identity["broker_order_key"]
+        or (order or {}).get("broker_order_key")
+        or internal_order_id,
+        "broker_order_id": identity["broker_order_id"],
+        "broker_order_type": report.get("order_type"),
+        "account_type": report.get("account_type") or (order or {}).get("account_type"),
+        "account_id": identity["account_id"],
+        "order_sysid": identity["order_sysid"],
+        "trading_day": identity["trading_day"],
+        "broker_correlation_token": identity["broker_correlation_token"],
+        "symbol": identity["symbol"],
+        "side": identity["side"],
+        "requested_quantity": report.get("order_volume"),
+        "source": report.get("source", "xt_order_callback"),
         "state": _map_xt_order_status_to_state(report.get("order_status")),
         "event_type": "xt_order_reported",
         "request_id": report.get("request_id") or (order or {}).get("request_id"),
@@ -508,6 +575,43 @@ def normalize_xt_order_report(report, repository=None):
             _xt_timestamp_to_datetime(report["order_time"]).isoformat()
             if report.get("order_time") is not None
             else None
+        ),
+    }
+
+
+def _normalize_xt_callback_identity(
+    report,
+    *,
+    symbol,
+    side,
+    broker_order_id,
+    report_time,
+):
+    account_id = normalize_account_id(report.get("account_id"))
+    order_sysid = normalize_identifier(report.get("order_sysid"))
+    trading_day = resolve_trading_day(report, report_time=report_time)
+    symbol = normalize_symbol(symbol)
+    side = normalize_side(side)
+    broker_order_id = normalize_identifier(broker_order_id)
+    broker_order_key = build_broker_order_key(
+        account_id=account_id,
+        order_sysid=order_sysid,
+        trading_day=trading_day,
+        symbol=symbol,
+        side=side,
+        broker_order_id=broker_order_id,
+        strict=False,
+    )
+    return {
+        "account_id": account_id,
+        "order_sysid": order_sysid,
+        "trading_day": trading_day,
+        "symbol": symbol,
+        "side": side,
+        "broker_order_id": broker_order_id,
+        "broker_order_key": broker_order_key,
+        "broker_correlation_token": normalize_broker_correlation_token(
+            report.get("broker_correlation_token") or report.get("order_remark")
         ),
     }
 
@@ -773,7 +877,7 @@ def _map_xt_order_type_to_side(order_type):
         return "buy"
     if order_type in _SELL_ORDER_TYPES:
         return "sell"
-    return "sell"
+    return None
 
 
 def _xt_timestamp_to_datetime(timestamp):

@@ -1,21 +1,20 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from freshquant.order_management.broker_correlation import (
+    looks_like_broker_correlation_token,
+    normalize_broker_correlation_token,
+)
+from freshquant.order_management.broker_identity import (
+    build_broker_order_key,
+    normalize_account_id,
+    normalize_identifier,
+    normalize_side,
+    normalize_symbol,
+    resolve_trading_day,
+)
 
-_BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 _BUY_ORDER_TYPES = {23, 27, 28, "23", "27", "28", "buy", "BUY"}
 _SELL_ORDER_TYPES = {24, 31, 32, "24", "31", "32", "sell", "SELL"}
-_NONTERMINAL_STATES = {
-    "ACCEPTED",
-    "VALIDATED",
-    "QUEUED",
-    "SUBMITTING",
-    "SUBMITTED",
-    "PARTIAL_FILLED",
-    "CANCEL_REQUESTED",
-    "INFERRED_PENDING",
-}
 
 
 def find_order_for_broker_report(
@@ -28,60 +27,136 @@ def find_order_for_broker_report(
     order_type=None,
     report_time=None,
 ):
-    if repository is None or broker_order_id in (None, "", "None"):
+    if repository is None:
         return None
-
-    candidates = _list_order_candidates(repository, broker_order_id)
-    if not candidates:
-        return None
-    if len(candidates) == 1:
-        return candidates[0]
-
     report = report or {}
-    symbol = _normalize_symbol(
+    raw_correlation_token = report.get("broker_correlation_token") or report.get(
+        "order_remark"
+    )
+    correlation_token = normalize_broker_correlation_token(raw_correlation_token)
+    if correlation_token is None and looks_like_broker_correlation_token(
+        raw_correlation_token
+    ):
+        return None
+    if correlation_token is not None:
+        finder = getattr(repository, "find_order_by_broker_correlation_token", None)
+        candidate = finder(correlation_token) if callable(finder) else None
+        if candidate is None:
+            return None
+        return (
+            candidate
+            if _candidate_matches_report(candidate, report, trust_correlation=True)
+            else None
+        )
+
+    symbol = normalize_symbol(
         symbol or report.get("symbol") or report.get("stock_code")
     )
     order_type = order_type if order_type is not None else report.get("order_type")
-    side = _normalize_side(side) or side_from_order_type(order_type)
-    report_time = _coalesce_report_time(report_time, report)
-
-    filtered = candidates
-    if symbol:
-        by_symbol = [
-            item for item in filtered if _normalize_symbol(item.get("symbol")) == symbol
-        ]
-        if by_symbol:
-            filtered = by_symbol
-
-    if side:
-        by_side = [item for item in filtered if _candidate_side(item) in (None, side)]
-        if by_side:
-            filtered = by_side
-
-    if order_type is not None and len(filtered) > 1:
-        report_side = side_from_order_type(order_type)
-        by_order_type = [
-            item
-            for item in filtered
-            if _order_type_equivalent(item.get("broker_order_type"), order_type)
-            or (
-                report_side is not None
-                and side_from_order_type(item.get("broker_order_type")) == report_side
-            )
-        ]
-        if by_order_type:
-            filtered = by_order_type
-
-    scored = sorted(
-        ((_candidate_score(item, report_time), item) for item in filtered),
-        key=lambda pair: pair[0],
-        reverse=True,
+    side = normalize_side(side) or side_from_order_type(order_type)
+    account_id = normalize_account_id(report.get("account_id"))
+    order_sysid = normalize_identifier(report.get("order_sysid"))
+    trading_day = resolve_trading_day(report, report_time=report_time)
+    broker_order_id = normalize_identifier(broker_order_id)
+    broker_order_key = build_broker_order_key(
+        account_id=account_id,
+        order_sysid=order_sysid,
+        trading_day=trading_day,
+        symbol=symbol,
+        side=side,
+        broker_order_id=broker_order_id,
+        strict=False,
     )
-    if not scored:
+    if broker_order_key is not None and hasattr(repository, "find_broker_order"):
+        broker_order = repository.find_broker_order(broker_order_key)
+        if broker_order is not None and _candidate_matches_report(broker_order, report):
+            return repository.find_order(broker_order.get("internal_order_id"))
+
+    if broker_order_id is None:
         return None
-    if len(scored) > 1 and scored[0][0] == scored[1][0]:
-        return None
-    return scored[0][1]
+    candidates = [
+        candidate
+        for candidate in _list_order_candidates(repository, broker_order_id)
+        if _candidate_proves_full_identity(
+            candidate,
+            account_id=account_id,
+            order_sysid=order_sysid,
+            trading_day=trading_day,
+            symbol=symbol,
+            side=side,
+            broker_order_id=broker_order_id,
+        )
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _candidate_matches_report(candidate, report, *, trust_correlation=False):
+    for field, expected, normalizer in (
+        ("account_id", report.get("account_id"), normalize_account_id),
+        ("order_sysid", report.get("order_sysid"), normalize_identifier),
+        (
+            "trading_day",
+            resolve_trading_day(report),
+            lambda value: resolve_trading_day({"trading_day": value}),
+        ),
+        ("symbol", report.get("symbol") or report.get("stock_code"), normalize_symbol),
+        (
+            "side",
+            (
+                None
+                if trust_correlation
+                else report.get("side")
+                or side_from_order_type(report.get("order_type"))
+            ),
+            normalize_side,
+        ),
+        (
+            "broker_order_id",
+            report.get("broker_order_id") or report.get("order_id"),
+            normalize_identifier,
+        ),
+    ):
+        right = normalizer(expected)
+        left = normalizer(candidate.get(field))
+        if right is not None and left is not None and left != right:
+            return False
+    return True
+
+
+def _candidate_proves_full_identity(
+    candidate,
+    *,
+    account_id,
+    order_sysid,
+    trading_day,
+    symbol,
+    side,
+    broker_order_id,
+):
+    if account_id is None or trading_day is None:
+        return False
+    if order_sysid is None and None in (symbol, side, broker_order_id):
+        return False
+    candidate_order_sysid = normalize_identifier(candidate.get("order_sysid"))
+    if order_sysid is not None and candidate_order_sysid is not None:
+        if candidate_order_sysid != order_sysid:
+            return False
+    elif order_sysid is not None and None in (symbol, side, broker_order_id):
+        return False
+    return all(
+        (
+            normalize_account_id(candidate.get("account_id")) == account_id,
+            resolve_trading_day(candidate) == trading_day,
+            (
+                candidate_order_sysid == order_sysid
+                if order_sysid is not None and candidate_order_sysid is not None
+                else normalize_symbol(candidate.get("symbol")) == symbol
+                and normalize_side(candidate.get("side")) == side
+                and normalize_identifier(candidate.get("broker_order_id"))
+                == broker_order_id
+            ),
+        )
+    )
 
 
 def side_from_order_type(order_type):
@@ -106,93 +181,3 @@ def _list_order_candidates(repository, broker_order_id):
 
     order = repository.find_order_by_broker_order_id(broker_order_id)
     return [order] if order is not None else []
-
-
-def _candidate_side(order):
-    return _normalize_side(order.get("side")) or side_from_order_type(
-        order.get("broker_order_type")
-    )
-
-
-def _candidate_score(order, report_time):
-    state_score = 1 if order.get("state") in _NONTERMINAL_STATES else 0
-    submitted_at = _parse_order_datetime(
-        order.get("submitted_at") or order.get("updated_at") or order.get("created_at")
-    )
-    if report_time is None or submitted_at is None:
-        time_score = 0
-        distance_score = 0
-    else:
-        distance = abs((report_time - submitted_at).total_seconds())
-        time_score = 1
-        distance_score = -distance
-    recency = submitted_at.timestamp() if submitted_at is not None else 0
-    return (time_score, state_score, distance_score, recency)
-
-
-def _coalesce_report_time(report_time, report):
-    if report_time is not None:
-        return _parse_report_datetime(report_time)
-    for key in ("traded_time", "trade_time", "order_time"):
-        if report.get(key) is not None:
-            return _parse_report_datetime(report.get(key))
-    return None
-
-
-def _parse_report_datetime(value):
-    if value in (None, ""):
-        return None
-    if isinstance(value, datetime):
-        return _as_aware(value)
-    try:
-        return datetime.fromtimestamp(float(value), tz=timezone.utc)
-    except (TypeError, ValueError, OSError):
-        return _parse_order_datetime(value)
-
-
-def _parse_order_datetime(value):
-    if value in (None, ""):
-        return None
-    if isinstance(value, datetime):
-        return _as_aware(value)
-    text = str(value).strip()
-    if not text:
-        return None
-    if text.endswith("Z"):
-        text = f"{text[:-1]}+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return _as_aware(parsed)
-
-
-def _as_aware(value):
-    if value.tzinfo is None:
-        return value.replace(tzinfo=_BEIJING_TZ).astimezone(timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
-def _normalize_symbol(value):
-    if value in (None, ""):
-        return None
-    text = str(value).strip().upper()
-    return text[:6] if len(text) >= 6 else text
-
-
-def _normalize_side(value):
-    if value in (None, ""):
-        return None
-    text = str(value).strip().lower()
-    if text in {"buy", "sell"}:
-        return text
-    return None
-
-
-def _order_type_equivalent(left, right):
-    if left in (None, "") or right in (None, ""):
-        return False
-    try:
-        return int(left) == int(right)
-    except (TypeError, ValueError):
-        return str(left).strip().lower() == str(right).strip().lower()

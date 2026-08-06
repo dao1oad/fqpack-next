@@ -17,6 +17,7 @@ class InMemoryRepository:
     def __init__(self):
         self.order_requests = []
         self.orders = []
+        self.broker_orders = []
         self.order_events = []
         self.trade_facts = []
 
@@ -57,6 +58,38 @@ class InMemoryRepository:
             return None
         order.update(updates)
         return order
+
+    def claim_broker_order_owner(self, document):
+        broker_order_key = document["broker_order_key"]
+        broker_order = self.find_broker_order(broker_order_key)
+        if broker_order is None:
+            broker_order = dict(document)
+            self.broker_orders.append(broker_order)
+            return broker_order, True
+        broker_order.update(document)
+        return broker_order, False
+
+    def find_broker_order(self, broker_order_key):
+        for broker_order in self.broker_orders:
+            if broker_order["broker_order_key"] == broker_order_key:
+                return broker_order
+        return None
+
+    def update_broker_order_fields(self, broker_order_key, updates):
+        broker_order = self.find_broker_order(broker_order_key)
+        if broker_order is None:
+            return None
+        broker_order.update(updates)
+        return broker_order
+
+    def move_broker_order_key(self, old_key, new_key, document):
+        broker_order = self.find_broker_order(old_key)
+        if broker_order is None:
+            broker_order = dict(document)
+            self.broker_orders.append(broker_order)
+        broker_order.update(document)
+        broker_order["broker_order_key"] = new_key
+        return broker_order
 
 
 def test_prepare_submit_execution_skips_canceled_order_before_submit():
@@ -109,6 +142,35 @@ def test_finalize_submit_execution_marks_order_submitted_with_broker_order_id():
     order = repository.find_order("ord_submit_1")
     assert order["state"] == "SUBMITTED"
     assert order["broker_order_id"] == "123456"
+
+
+@pytest.mark.parametrize("broker_order_id", [None, 0, -7])
+def test_finalize_submit_execution_marks_nonpositive_result_failed(broker_order_id):
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_submit_failed_1",
+        }
+    )
+    repository.update_order("ord_submit_failed_1", {"state": "SUBMITTING"})
+
+    result = finalize_submit_execution(
+        {"internal_order_id": "ord_submit_failed_1"},
+        broker_order_id=broker_order_id,
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+
+    order = repository.find_order("ord_submit_failed_1")
+    assert result == {"status": "failed"}
+    assert order["state"] == "FAILED"
+    assert order["broker_order_id"] is None
 
 
 def test_finalize_submit_execution_marks_order_broker_bypassed_in_observe_only_mode():
@@ -285,6 +347,12 @@ def test_prepare_submit_execution_resolves_credit_sell_order_before_submit():
         == xtconstant.MARKET_SH_CONVERT_5_CANCEL
     )
     assert result["order_message"]["price"] == 9.92
+    correlation_token = result["order_message"]["broker_correlation_token"]
+    assert correlation_token == result["order_message"]["broker_order_remark"]
+    assert correlation_token.startswith("FQOM")
+    assert len(correlation_token) == 24
+    assert set(correlation_token[4:]) <= set("0123456789abcdef")
+    assert order["broker_correlation_token"] == correlation_token
     assert order["broker_order_type"] == xtconstant.CREDIT_SELL_SECU_REPAY
     assert order["broker_price_type"] == xtconstant.MARKET_SH_CONVERT_5_CANCEL
 

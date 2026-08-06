@@ -334,7 +334,11 @@ def trading_main_loop():
                                     resolved_order["price"],
                                     resolved_order["quantity"],
                                     pydash.get(resolved_order, "strategy_name", "N/A"),
-                                    pydash.get(resolved_order, "remark", "N/A"),
+                                    pydash.get(
+                                        resolved_order,
+                                        "broker_order_remark",
+                                        pydash.get(resolved_order, "remark", "N/A"),
+                                    ),
                                     pydash.get(resolved_order, "retry_count", 0),
                                     order_type=pydash.get(
                                         resolved_order, "broker_order_type"
@@ -369,7 +373,11 @@ def trading_main_loop():
                                     resolved_order["price"],
                                     resolved_order["quantity"],
                                     pydash.get(resolved_order, "strategy_name", "N/A"),
-                                    pydash.get(resolved_order, "remark", "N/A"),
+                                    pydash.get(
+                                        resolved_order,
+                                        "broker_order_remark",
+                                        pydash.get(resolved_order, "remark", "N/A"),
+                                    ),
                                     pydash.get(resolved_order, "retry_count", 0),
                                     order_type=pydash.get(
                                         resolved_order, "broker_order_type"
@@ -482,14 +490,14 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
             repository=order_management_repository,
             tracking_service=order_tracking_service,
         )
-        if execution.get("status") == "skipped":
+        if execution.get("status") in {"skipped", "missing_order"}:
             return execution
         resolved_order = execution.get("order_message", order)
 
         broker_order_id = submit_executor(resolved_order)
         logger.info(broker_order_id)
         finalize_result = finalize_submit_execution(
-            order,
+            resolved_order,
             broker_order_id=broker_order_id,
             repository=order_management_repository,
             tracking_service=order_tracking_service,

@@ -18,6 +18,7 @@ class InMemoryRepository:
     def __init__(self):
         self.order_requests = []
         self.orders = []
+        self.broker_orders = []
         self.order_events = []
         self.trade_facts = []
 
@@ -57,6 +58,50 @@ class InMemoryRepository:
             if str(order.get("broker_order_id")) == str(broker_order_id):
                 return order
         return None
+
+    def find_broker_order(self, broker_order_key):
+        for order in self.broker_orders:
+            if order["broker_order_key"] == broker_order_key:
+                return order
+        return None
+
+    def claim_broker_order_owner(self, document):
+        existing = self.find_broker_order(document["broker_order_key"])
+        if existing is None:
+            saved = dict(document)
+            self.broker_orders.append(saved)
+            return saved, True
+        for field in (
+            "internal_order_id",
+            "request_id",
+            "broker_correlation_token",
+            "account_id",
+            "trading_day",
+            "order_sysid",
+            "broker_order_id",
+            "symbol",
+            "side",
+            "source_type",
+        ):
+            if field in document:
+                existing[field] = document.get(field)
+        return existing, False
+
+    def update_broker_order_fields(self, broker_order_key, updates):
+        order = self.find_broker_order(broker_order_key)
+        if order is None:
+            return None
+        order.update(updates)
+        return order
+
+    def move_broker_order_key(self, old_key, new_key, document):
+        order = self.find_broker_order(old_key)
+        if order is None:
+            order = dict(document)
+            self.broker_orders.append(order)
+        order.update(document)
+        order["broker_order_key"] = new_key
+        return order
 
     def update_order(self, internal_order_id, updates):
         order = self.find_order(internal_order_id)
