@@ -5,9 +5,12 @@ import os
 import pytest
 
 from freshquant.clx_daily_selection.tdx_export import (
+    BLOCKNEW_CFG_GROUP_SIZE,
+    BLOCKNEW_CFG_NAME,
     CLX_15_30_TDX_BLK_FILENAME,
     append_tdx_group_members,
     encode_tdx_blk_code,
+    ensure_tdx_group_registered,
     read_tdx_blk_lines,
     write_clx_tdx_group,
 )
@@ -170,3 +173,66 @@ def test_append_tdx_group_members_supports_custom_block_key(tmp_path):
         "appended_count": 1,
         "written_count": 1,
     }
+
+
+def _seed_blocknew_cfg(tmp_path, groups=("clx_18", "CLX_18")):
+    cfg = tmp_path / "T0002" / "blocknew" / BLOCKNEW_CFG_NAME
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    name1, name2 = groups
+    # 真实格式：名称1=50B + 名称2=70B
+    name1_bytes = name1.encode("gbk")
+    name2_bytes = name2.encode("gbk")
+    data = (
+        name1_bytes
+        + b"\x00" * (50 - len(name1_bytes))
+        + name2_bytes
+        + b"\x00" * (BLOCKNEW_CFG_GROUP_SIZE - 50 - len(name2_bytes))
+    )
+    cfg.write_bytes(data)
+    return cfg
+
+
+def test_ensure_tdx_group_registered_adds_standard_120b_group(tmp_path):
+    cfg = _seed_blocknew_cfg(tmp_path)
+
+    changed = ensure_tdx_group_registered("CLX_15_30", "clx_15_30", tdx_home=tmp_path)
+
+    assert changed is True
+    data = cfg.read_bytes()
+    assert len(data) == 2 * BLOCKNEW_CFG_GROUP_SIZE
+    # 第二组：名称1=clx_15_30(50B)，名称2=CLX_15_30(70B)
+    name1 = data[120:170].split(b"\x00", 1)[0].decode("gbk")
+    name2 = data[170:240].split(b"\x00", 1)[0].decode("gbk")
+    assert name1 == "clx_15_30"
+    assert name2 == "CLX_15_30"
+
+
+def test_ensure_tdx_group_registered_is_idempotent(tmp_path):
+    cfg = _seed_blocknew_cfg(tmp_path)
+    assert (
+        ensure_tdx_group_registered("CLX_15_30", "clx_15_30", tdx_home=tmp_path) is True
+    )
+    assert (
+        ensure_tdx_group_registered("CLX_15_30", "clx_15_30", tdx_home=tmp_path)
+        is False
+    )
+    assert len(cfg.read_bytes()) == 2 * BLOCKNEW_CFG_GROUP_SIZE
+
+
+def test_ensure_tdx_group_registered_missing_cfg_is_noop(tmp_path):
+    assert (
+        ensure_tdx_group_registered("CLX_15_30", "clx_15_30", tdx_home=tmp_path)
+        is False
+    )
+
+
+def test_append_tdx_group_members_registers_group_when_cfg_present(tmp_path):
+    cfg = _seed_blocknew_cfg(tmp_path)
+
+    append_tdx_group_members(["sh600000"], tdx_home=tmp_path)
+
+    data = cfg.read_bytes()
+    name1 = data[120:170].split(b"\x00", 1)[0].decode("gbk")
+    name2 = data[170:240].split(b"\x00", 1)[0].decode("gbk")
+    assert name1 == "clx_15_30"
+    assert name2 == "CLX_15_30"

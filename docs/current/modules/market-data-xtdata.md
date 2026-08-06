@@ -101,6 +101,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 实时 CLX 只在 15/30 分钟 bar 上运行，生产模型为 `S0000-S0017`，对应 `model_opt=10000..10017`。
 正信号写库后会复用现有 DingTalk 私聊发送链做聚合通知；webhook 配置入口已存在，只有启用 CLX 实时模式且出现正信号时才发送，不在文档或日志中输出真实 webhook/token。
 consumer 还会把本批命中标的（带前缀代码，如 `sh600000`）去重追加到通达信自选股分组 `clx_15_30`（文件 `T0002/blocknew/CLX_15_30.blk`），复用 `freshquant/clx_daily_selection/tdx_export.py` 的编码与原子写实现；写入为 best-effort，失败只记 warning，不影响信号主链，无新增标的时不触碰旧文件。
+写入 `.blk` 后会幂等确保分组注册到通达信分组注册表 `T0002/blocknew/blocknew.cfg`（每条分组固定 120B = 显示名 50B + 键名 70B）；注册缺失时自动备份并追加，否则通达信界面不显示该分组。注册同样为 best-effort，注册文件缺失或写入失败不阻断信号主链。
 
 ## 配置
 

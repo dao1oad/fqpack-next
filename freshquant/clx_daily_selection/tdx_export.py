@@ -14,6 +14,13 @@ CLX_15_30_TDX_GROUP_DISPLAY_NAME = "clx_15_30"
 CLX_15_30_TDX_BLOCK_KEY = "CLX_15_30"
 CLX_15_30_TDX_BLK_FILENAME = f"{CLX_15_30_TDX_BLOCK_KEY}.blk"
 
+# 通达信自定义分组注册表：T0002/blocknew/blocknew.cfg
+# 每条分组固定 120B = 名称1（50B，界面显示名）+ 名称2（70B，键名/文件名前缀）
+BLOCKNEW_CFG_NAME = "blocknew.cfg"
+BLOCKNEW_CFG_GROUP_SIZE = 120
+BLOCKNEW_CFG_NAME1_SIZE = 50
+BLOCKNEW_CFG_NAME2_SIZE = 70
+
 # consumer 的 fullcalc 回调来自线程池，读-合并-重写必须串行化
 _TDX_BLK_WRITE_LOCK = threading.Lock()
 
@@ -134,6 +141,75 @@ def read_tdx_blk_lines(
     return lines
 
 
+def _parse_blocknew_cfg_groups(data: bytes) -> list[tuple[str, str]]:
+    """解析 blocknew.cfg 为 [(名称1, 名称2), ...]，按固定 120B/组读取。"""
+    groups = []
+    offset = 0
+    while offset + BLOCKNEW_CFG_GROUP_SIZE <= len(data):
+        name1 = (
+            data[offset : offset + BLOCKNEW_CFG_NAME1_SIZE]
+            .split(b"\x00", 1)[0]
+            .decode("gbk", errors="replace")
+        )
+        name2 = (
+            data[offset + BLOCKNEW_CFG_NAME1_SIZE : offset + BLOCKNEW_CFG_GROUP_SIZE]
+            .split(b"\x00", 1)[0]
+            .decode("gbk", errors="replace")
+        )
+        groups.append((name1, name2))
+        offset += BLOCKNEW_CFG_GROUP_SIZE
+    return groups
+
+
+def _encode_blocknew_cfg_group(display_name: str, block_key: str) -> bytes:
+    def _encode(name: str, size: int) -> bytes:
+        raw = name.encode("gbk")
+        if len(raw) > size:
+            raise ValueError(f"通达信分组名过长：{name}")
+        return raw + b"\x00" * (size - len(raw))
+
+    return _encode(display_name, BLOCKNEW_CFG_NAME1_SIZE) + _encode(
+        block_key, BLOCKNEW_CFG_NAME2_SIZE
+    )
+
+
+def ensure_tdx_group_registered(
+    block_key: str,
+    display_name: str,
+    *,
+    tdx_home: str | Path | None = None,
+) -> bool:
+    """确保分组已注册到通达信 blocknew.cfg（120B/组）。
+
+    - 已注册返回 False；本次新增注册返回 True。
+    - best-effort：注册文件缺失、损坏或写入失败时返回 False，不抛错（不阻断信号主链）。
+    """
+    try:
+        root = Path(tdx_home) if tdx_home is not None else _require_tdx_home()
+    except Exception:
+        return False
+    cfg_path = root / "T0002" / "blocknew" / BLOCKNEW_CFG_NAME
+    with _TDX_BLK_WRITE_LOCK:
+        try:
+            if not cfg_path.exists():
+                return False
+            original = cfg_path.read_bytes()
+            for name1, name2 in _parse_blocknew_cfg_groups(original):
+                if (
+                    name1.strip().upper() == display_name.strip().upper()
+                    and name2.strip().upper() == block_key.strip().upper()
+                ):
+                    return False
+            backup = cfg_path.with_name(f"blocknew.cfg.{uuid4().hex}.bak")
+            backup.write_bytes(original)
+            cfg_path.write_bytes(
+                original + _encode_blocknew_cfg_group(display_name, block_key)
+            )
+            return True
+        except Exception:
+            return False
+
+
 def append_tdx_group_members(
     symbols: Sequence[object],
     *,
@@ -172,6 +248,8 @@ def append_tdx_group_members(
     target = root / "T0002" / "blocknew" / filename
     with _TDX_BLK_WRITE_LOCK:
         _atomic_write_blk(lines, target)
+    # 写入 .blk 后确保分组注册到 blocknew.cfg（best-effort，幂等）
+    ensure_tdx_group_registered(block_key, display_name, tdx_home=root)
     return result
 
 
