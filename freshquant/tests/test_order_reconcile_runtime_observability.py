@@ -50,12 +50,71 @@ class InMemoryRepository:
         return document
 
     def upsert_broker_order(self, document, unique_keys):
-        for existing in self.broker_orders:
-            if all(existing.get(key) == document.get(key) for key in unique_keys):
-                existing.update(document)
-                return existing, False
-        self.broker_orders.append(dict(document))
-        return document, True
+        assert unique_keys == ["broker_order_key"]
+        return self.claim_broker_order_owner(document)
+
+    def claim_broker_order_owner(self, document):
+        existing = self.find_broker_order(document["broker_order_key"])
+        if existing is None:
+            saved = dict(document)
+            self.broker_orders.append(saved)
+            return saved, True
+        owner_changed = existing.get("internal_order_id") != document.get(
+            "internal_order_id"
+        )
+        for field in (
+            "internal_order_id",
+            "request_id",
+            "broker_correlation_token",
+            "account_id",
+            "trading_day",
+            "order_sysid",
+            "broker_order_id",
+            "symbol",
+            "side",
+        ):
+            if field in document and (
+                document.get(field) is not None or existing.get(field) is None
+            ):
+                existing[field] = document.get(field)
+        if owner_changed or not existing.get("source_type"):
+            existing["source_type"] = document.get("source_type")
+        return existing, False
+
+    def update_broker_order_fields(self, broker_order_key, updates):
+        order = self.find_broker_order(broker_order_key)
+        if order is None:
+            return None
+        order.update(updates)
+        return order
+
+    def fence_broker_order_execution(self, document):
+        order = self.find_broker_order(document["broker_order_key"])
+        assert order["internal_order_id"] == document["internal_order_id"]
+        order["execution_fence"] = True
+        return order
+
+    def compare_and_set_broker_order(self, *, before, after):
+        order = self.find_broker_order(before["broker_order_key"])
+        if order != before:
+            return order if order == after else None
+        order.clear()
+        order.update(after)
+        return order
+
+    def move_broker_order_key(self, old_key, new_key, document):
+        source = self.find_broker_order(old_key)
+        target = self.find_broker_order(new_key)
+        merged = {**(source or {}), **dict(document), "broker_order_key": new_key}
+        if target is None:
+            self.broker_orders.append(merged)
+            target = merged
+        else:
+            target.update(merged)
+        self.broker_orders = [
+            item for item in self.broker_orders if item["broker_order_key"] != old_key
+        ]
+        return target
 
     def upsert_trade_fact(self, document, unique_keys):
         for existing in self.trade_facts:
@@ -89,11 +148,24 @@ class InMemoryRepository:
                 return order
         return None
 
+    def find_order_by_broker_correlation_token(self, token):
+        for order in self.orders:
+            if order.get("broker_correlation_token") == token:
+                return order
+        return None
+
     def find_broker_order(self, broker_order_key):
         for order in self.broker_orders:
             if order["broker_order_key"] == broker_order_key:
                 return order
         return None
+
+    def list_execution_fills(self, *, broker_order_keys=None, **_kwargs):
+        rows = list(self.execution_fills)
+        if broker_order_keys is not None:
+            allowed = set(broker_order_keys)
+            rows = [item for item in rows if item.get("broker_order_key") in allowed]
+        return rows
 
     def update_order(self, internal_order_id, updates):
         order = self.find_order(internal_order_id)
@@ -273,6 +345,7 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
             "broker_order_id": None,
         }
     )
+    correlation_token = repository.find_order("ord_recon_1")["broker_correlation_token"]
     runtime_logger = FakeRuntimeLogger()
     service = ExternalOrderReconcileService(
         repository=repository,
@@ -290,6 +363,7 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
                 "traded_volume": 200,
                 "traded_price": 10.5,
                 "traded_time": 1030,
+                "order_remark": correlation_token,
             }
         ]
     )
@@ -346,6 +420,9 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
         "ord_recon_known_1",
         {"broker_order_id": "90012", "state": "SUBMITTED"},
     )
+    correlation_token = repository.find_order("ord_recon_known_1")[
+        "broker_correlation_token"
+    ]
     reconcile_runtime_logger = FakeRuntimeLogger()
     ingest_runtime_logger = FakeRuntimeLogger()
     ingest_service = OrderManagementXtIngestService(
@@ -369,6 +446,7 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
             "traded_volume": 200,
             "traded_price": 10.5,
             "traded_time": 1030,
+            "order_remark": correlation_token,
         }
     )
 
@@ -472,6 +550,9 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
         "ord_recon_known_sell_1",
         {"broker_order_id": "90021", "state": "SUBMITTED"},
     )
+    correlation_token = repository.find_order("ord_recon_known_sell_1")[
+        "broker_correlation_token"
+    ]
     reconcile_runtime_logger = FakeRuntimeLogger()
     service = ExternalOrderReconcileService(
         repository=repository,
@@ -489,6 +570,7 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
             "traded_volume": 500,
             "traded_price": 10.8,
             "traded_time": 1710003600,
+            "order_remark": correlation_token,
         }
     )
 

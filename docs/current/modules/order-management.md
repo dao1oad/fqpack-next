@@ -65,7 +65,10 @@
 - `om_broker_orders`
   - 券商订单聚合，维护 `requested_quantity / filled_quantity / avg_filled_price / fill_count`
 - `om_execution_fills`
-  - 真实券商成交 fill，`broker_trade_id` 去重
+  - 真实券商成交 fill，以 `execution_identity` 原子幂等写入
+  - XT canonical execution identity 固定包含
+    `account_id + trading_day + symbol + side + broker_trade_id`；
+    `broker_trade_id` 不能跨账户或跨交易日单独去重
 - `om_trade_facts`
   - 兼容期成交事实镜像，仍保留给旧读链和部分排障
 - `om_position_entries`
@@ -100,6 +103,12 @@
 ### 下单
 
 `submit_order -> credit mode resolve -> position gate -> om_order_requests / om_orders / om_broker_orders / om_order_events -> STOCK_ORDER_QUEUE -> broker`
+
+内部订单在受理时生成并持久化严格 24 字符 `FQOM + 20 hex` correlation token；
+broker 把该 token 放入既有 XT `order_remark` 参数槽。五档市价保护仍按买入
+`price × 1.008`、卖出 `price × 0.992` 传入，`order_stock()` 参数及顺序不变。
+XT 返回 `None/0/负订单号` 时订单标记为 `FAILED + submit_failed`，puppet 不
+sleep、不重新入队，也不自动重复提交相同券商委托。
 
 当前信用账户买单的运行期语义已经固定为：
 
@@ -136,6 +145,18 @@ Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起�
 
 当前写链规则：
 
+- XT 回报归属优先按 FQOM token，其次按完整 canonical broker identity；
+  `broker_order_id`、价格、数量或时间邻近都不能作为猜测归属依据
+- 无法匹配内部订单、但 canonical identity 完整的 XT order/trade 使用稳定的
+  `ord_broker_*` broker-only owner；身份不完整则 fail closed
+- 首笔成交固定按 `claim/move -> execution fence -> trade fact/execution fill -> broker aggregate CAS`
+  写入；broker-only owner promotion 与首笔成交在同一
+  `om_broker_orders` fence/CAS 上竞争
+- existing-owner claim 的重领/合并只更新 owner 与不可变身份，不覆盖既有订单状态或
+  成交聚合；状态更新保持 owner 不变，成交聚合使用 `aggregate_revision`
+  compare-and-set，旧回报不能回滚新聚合
+- broker-order key move 的 source delete CAS 失败时会有界重读、合并并收敛到
+  单条 target；这里是数据库收敛重试，不是重复券商委托
 - 若 `broker_order_id` 已在 submit 成功阶段绑定到内部订单，trade callback 当前仍会继续进入 `ingest_trade_report()`；`ExternalOrderReconcileService` 只负责补齐 trace/request/internal order 上下文与 reconcile 侧 runtime event，不再把这类回报提前短路
 - buy fill 先按 `broker_order_key` 收口成 buy execution group，再按保守规则归并进 `buy_cluster` entry
 - `buy_cluster` 归并规则当前固定为：
@@ -209,10 +230,9 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 - 降级状态通过 `arrange_status / arrange_degraded / arrange_error_* / arrange_runtime_errors` 落在 entry 上
 - 降级时仍会写 compat mirror 与 holdings cache，避免真值已确认但视图长期滞后
 
-当前 external reconcile 对 XT 外部回报也支持部分匹配：
-
-- 若内部在途单的请求数量大于 XT 回报数量，但 symbol / side / 价格匹配，当前允许挂回同一 internal order
-- 这样 `intent=600`、`external_reported=300` 这类场景不会再一律 externalize
+当前 external reconcile 不按同价、同量、部分数量或时间邻近猜测 XT 回报归属。
+FQOM 或完整 canonical identity 能证明归属时才挂回内部订单；完整 canonical
+身份无法关联时进入 deterministic broker-only，身份不完整时 fail closed。
 自动平账与 XT 回报补录路径里，凡是由 `trade_time / confirmed_at` 回填 `date/time` 的订单域记录，当前统一按北京时间（`Asia/Shanghai`）落地，避免同一笔成交在不同读模型里出现跨日漂移。
 
 排障查看口径也保持同一套时间语义：`xt-order list`、`xt-trade list` 以及依赖成交 epoch 时间的 fill 查看命令，当前统一按北京时间展示；其中 `--date` 过滤使用北京时间自然日边界，而不是宿主机本地时区。
@@ -306,7 +326,8 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 - `/api/order-management/orders`
   - 订单列表与详情优先围绕 `internal_order_id` 展示
   - 对于 broker rebuild / broker-only 订单，列表和详情当前允许回退使用 `broker_order_id / broker_order_key` 作为详情查找键
-  - 缺失 `internal_order_id` 时，右侧详情仍可继续打开
+  - canonical broker-only 订单总是持久化 deterministic `ord_broker_*` `internal_order_id`；
+    `broker_order_id / broker_order_key` 回退只服务于历史 rebuild/legacy 记录
   - 详情中成交、券商订单聚合和运行态说明都来自 V2 账本
 - `/api/order-management/stoploss/bind`
   - 当前只绑定 `entry_id`

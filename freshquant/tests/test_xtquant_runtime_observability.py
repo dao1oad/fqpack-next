@@ -1,5 +1,6 @@
 import contextlib
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -481,6 +482,135 @@ def test_puppet_buy_emits_runtime_error_when_order_submit_raises(monkeypatch):
     assert collector.events[-1]["payload"]["error_message"] == "xt submit failed"
 
 
+@pytest.mark.parametrize("action", ["buy", "sell"])
+@pytest.mark.parametrize("submit_result", [None, 0, -1])
+def test_puppet_failed_submit_result_does_not_sleep_or_requeue(
+    monkeypatch,
+    action,
+    submit_result,
+):
+    class FakeTrader:
+        def query_stock_asset(self, acc):
+            return types.SimpleNamespace(cash=100000.0, frozen_cash=0.0)
+
+        def query_stock_positions(self, acc):
+            return [types.SimpleNamespace(stock_code="600000.SH", can_use_volume=500)]
+
+        def order_stock(self, *args, **kwargs):
+            return submit_result
+
+    _install_puppet_stubs(monkeypatch, xt_trader=FakeTrader())
+    puppet = _load_module(
+        f"test_runtime_puppet_{action}_{submit_result}",
+        PUPPET_PATH,
+    )
+    collector = EventCollector()
+    puppet._runtime_logger = collector
+
+    class ForbiddenRedis:
+        def lpush(self, *args, **kwargs):
+            raise AssertionError("failed XT submit must not be requeued")
+
+    puppet.redis_db = ForbiddenRedis()
+    puppet.time = types.SimpleNamespace(
+        sleep=lambda _delay: (_ for _ in ()).throw(
+            AssertionError("failed XT submit must not sleep before retry")
+        ),
+        time=lambda: 0,
+    )
+
+    if action == "buy":
+        result = puppet.buy(
+            "600000",
+            10.08,
+            300,
+            retryCount=0,
+            internal_order_id="ord-puppet-failed-buy",
+        )
+    else:
+        result = puppet.sell(
+            "600000",
+            11,
+            9.92,
+            300,
+            retryCount=0,
+            internal_order_id="ord-puppet-failed-sell",
+        )
+
+    assert result == submit_result
+    assert collector.events[-1]["node"] == "submit_result"
+    assert collector.events[-1]["status"] == "failed"
+
+
+@pytest.mark.parametrize("action", ["buy", "sell"])
+def test_puppet_preserves_xt_order_stock_signature_and_correlation_remark(
+    monkeypatch,
+    action,
+):
+    captured = {}
+    token = "FQOM0123456789abcdef0123"
+
+    class FakeTrader:
+        def query_stock_asset(self, acc):
+            return types.SimpleNamespace(cash=100000.0, frozen_cash=0.0)
+
+        def query_stock_positions(self, acc):
+            return [types.SimpleNamespace(stock_code="600000.SH", can_use_volume=500)]
+
+        def order_stock(self, *args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return 90009
+
+    _install_puppet_stubs(monkeypatch, xt_trader=FakeTrader())
+    puppet = _load_module(f"test_runtime_puppet_{action}_signature", PUPPET_PATH)
+
+    if action == "buy":
+        result = puppet.buy(
+            "600000",
+            10.08,
+            300,
+            strategyName="takeprofit",
+            remark=token,
+            order_type=27,
+            price_type=11,
+        )
+        assert captured["args"][1:] == (
+            "600000.SH",
+            27,
+            300,
+            11,
+            10.08,
+        )
+        assert captured["kwargs"] == {
+            "strategy_name": "takeprofit",
+            "order_remark": token,
+        }
+    else:
+        result = puppet.sell(
+            "600000",
+            11,
+            9.92,
+            300,
+            strategyName="takeprofit",
+            remark=token,
+            order_type=32,
+        )
+        assert captured["args"][1:] == (
+            "600000.SH",
+            32,
+            300,
+            11,
+            9.92,
+            "takeprofit",
+            token,
+        )
+        assert captured["kwargs"] == {}
+
+    assert captured["args"][0].account_id == "acct-1"
+    assert result == 90009
+
+
 def test_puppet_buy_keeps_duplicate_check_and_submit_inside_trading_lock(
     monkeypatch,
 ):
@@ -613,8 +743,9 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
     broker = _load_module("test_runtime_broker", BROKER_PATH)
     collector = EventCollector()
     broker._runtime_logger = collector
+    correlation_token = "FQOM0123456789abcdef0123"
     broker.order_management_repository = types.SimpleNamespace(
-        find_order_by_broker_order_id=lambda broker_order_id: {
+        find_order_by_broker_correlation_token=lambda token: {
             "trace_id": "trace-broker-1",
             "intent_id": "intent-broker-1",
             "request_id": "req-broker-1",
@@ -630,6 +761,7 @@ def test_broker_trade_callback_emits_resolved_runtime_context(monkeypatch):
             order_id="90001",
             traded_id="T-90001",
             stock_code="600000.SH",
+            order_remark=correlation_token,
         )
     )
 
@@ -651,6 +783,21 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
     broker._runtime_logger = collector
 
     class DuplicateBrokerOrderRepository:
+        def find_order_by_broker_correlation_token(self, token):
+            assert token == "FQOM0123456789abcdef0123"
+            return {
+                "trace_id": "trc_new",
+                "intent_id": "int_new",
+                "request_id": "req_new",
+                "internal_order_id": "ord_new_sell",
+                "symbol": "002262",
+                "side": "sell",
+                "broker_order_id": "1477443585",
+                "broker_order_type": 24,
+                "state": "SUBMITTED",
+                "submitted_at": "2026-04-29T10:14:06+08:00",
+            }
+
         def list_orders_by_broker_order_id(self, broker_order_id):
             assert str(broker_order_id) == "1477443585"
             return [
@@ -688,6 +835,7 @@ def test_broker_trade_callback_disambiguates_reused_broker_order_id(monkeypatch)
             stock_code="002262.SZ",
             order_type=24,
             traded_time=1777428846,
+            order_remark="FQOM0123456789abcdef0123",
         )
     )
 
@@ -745,6 +893,34 @@ def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
     assert collector.events[-1]["node"] == "execution_bypassed"
     assert collector.events[-1]["action"] == "buy"
     assert collector.events[-1]["payload"]["reason"] == "observe_only"
+
+
+def test_broker_missing_internal_order_fails_closed(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_missing_order", BROKER_PATH)
+    broker.prepare_submit_execution = lambda order, **kwargs: {
+        "status": "missing_order"
+    }
+    broker.finalize_submit_execution = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("missing order must not be finalized after broker submission")
+    )
+
+    result = broker._handle_submit_action(
+        {
+            "action": "buy",
+            "symbol": "600000",
+            "price": 10.0,
+            "quantity": 100,
+            "internal_order_id": "ord-missing-1",
+        },
+        action="buy",
+        submit_executor=lambda _resolved_order: (_ for _ in ()).throw(
+            AssertionError("missing order must not reach XT submit executor")
+        ),
+        broker_submit_mode="normal",
+    )
+
+    assert result == {"status": "missing_order"}
 
 
 def test_broker_submit_emits_runtime_error_when_executor_raises(monkeypatch):
@@ -820,6 +996,47 @@ def test_broker_failed_strategy_buy_clears_guardian_buy_cooldown(monkeypatch):
 
     assert result["status"] == "failed"
     assert fake_redis.deleted == ["buy:002123"]
+
+
+def test_broker_finalize_receives_same_resolved_order_as_submit(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_finalize_resolved_order", BROKER_PATH)
+    original = {
+        "action": "buy",
+        "symbol": "002123",
+        "source": "strategy",
+        "price": 10.0,
+        "quantity": 5000,
+        "internal_order_id": "ord-broker-resolved-order-1",
+    }
+    resolved = {
+        **original,
+        "price": 10.08,
+        "broker_order_remark": "FQOM0123456789abcdef01",
+    }
+    observed = {}
+    broker.prepare_submit_execution = lambda order, **kwargs: {
+        "status": "execute",
+        "order_message": resolved,
+    }
+
+    def finalize(order, **kwargs):
+        observed["finalize_order"] = order
+        return {"status": "submitted", "broker_order_id": "123"}
+
+    broker.finalize_submit_execution = finalize
+
+    result = broker._handle_submit_action(
+        original,
+        action="buy",
+        submit_executor=lambda order: observed.setdefault("submit_order", order)
+        and 123,
+        broker_submit_mode="normal",
+    )
+
+    assert result["status"] == "submitted"
+    assert observed["submit_order"] is resolved
+    assert observed["finalize_order"] is resolved
 
 
 def test_broker_does_not_clear_buy_cooldown_when_finalize_raises_after_submit(
@@ -1034,6 +1251,59 @@ def test_broker_trading_loop_emits_success_heartbeat_after_connect(monkeypatch):
         "payload": {},
         "metrics": {"connected": 1, "retry_count": 0, "retry_delay_s": 0},
     }
+
+
+@pytest.mark.parametrize(("action", "remark_arg_index"), [("buy", 4), ("sell", 5)])
+def test_broker_gateway_passes_correlation_token_as_xt_order_remark(
+    monkeypatch,
+    action,
+    remark_arg_index,
+):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module(f"test_runtime_broker_{action}_remark", BROKER_PATH)
+    captured = {}
+    token = "FQOM0123456789abcdef0123"
+
+    def capture_submit(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return 90009
+
+    broker.puppet.buy = capture_submit
+    broker.puppet.sell = capture_submit
+    broker.connection_manager.connected = True
+    broker.resolve_broker_submit_mode = lambda settings_provider=None: "normal"
+    broker.random.shuffle = lambda _values: None
+    broker.tool_trade_date_seconds_to_start = lambda: 0
+    payload = {
+        "action": action,
+        "symbol": "688772",
+        "price": 14.7,
+        "quantity": 3400,
+        "source": "api",
+        "strategy_name": "takeprofit",
+        "remark": "human readable remark",
+        "broker_order_remark": token,
+        "internal_order_id": f"ord-{action}-remark",
+        "force": True,
+    }
+
+    class OneMessageRedis:
+        def __init__(self):
+            self.calls = 0
+
+        def brpop(self, _queues, _timeout):
+            self.calls += 1
+            if self.calls == 1:
+                return ("QUEUE:ORDER", json.dumps(payload))
+            raise KeyboardInterrupt()
+
+    broker.redis_db = OneMessageRedis()
+
+    broker.trading_main_loop()
+
+    assert captured["args"][remark_arg_index] == token
+    assert captured["args"][remark_arg_index] != payload["remark"]
 
 
 def test_broker_source_no_longer_contains_sync_maintenance_actions():

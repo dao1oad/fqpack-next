@@ -30,9 +30,19 @@
 - `om_order_requests`
 - `om_orders`
 - `om_broker_orders`
+  - `broker_order_key` 使用账户与交易日隔离的 canonical identity：优先
+    `account_id + trading_day + order_sysid`，否则使用
+    `account_id + trading_day + symbol + side + broker_order_id`
+  - owner 固定为 `internal_order_id / request_id / broker_correlation_token`；
+    `execution_fence` 阻止首笔成交后继续 promotion，`aggregate_revision` 用于成交
+    聚合 compare-and-set
 - `om_order_events`
 - `om_execution_fills`
+  - `execution_identity` 对
+    `account_id + trading_day + symbol + side + broker_trade_id` 做稳定摘要并唯一
+    幂等写入
 - `om_trade_facts`
+  - 与 `om_execution_fills` 共用同一 `execution_identity` 幂等边界
 - `om_position_entries`
 - `om_entry_slices`
 - `om_exit_allocations`
@@ -162,6 +172,17 @@
   - 当前只做镜像/adapter，不再定义运行期仓位真值
 - `stock_fills`
   - 仅 raw 审计与最终兜底
+
+## 订单身份索引与并发边界
+
+- `om_orders.internal_order_id` 唯一
+- 非空 `om_orders.broker_correlation_token` 唯一，格式固定为
+  `FQOM + 20 hex` 共 24 字符
+- 非空 `om_broker_orders.broker_order_key` 唯一
+- 非空 `om_execution_fills.execution_identity` 与
+  `om_trade_facts.execution_identity` 分别唯一
+- existing broker owner claim 的重领/合并不覆盖既有订单状态或成交聚合；状态更新
+  保持 owner 不变，成交聚合以 fence/CAS 收敛，避免 stale 回报覆盖较新成交事实
 
 ## Redis 当前角色
 

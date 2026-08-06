@@ -6,6 +6,7 @@ import pytest
 
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
 import freshquant.order_management.reconcile.service as reconcile_service_module
+from freshquant.order_management.broker_identity import BrokerIdentityError
 from freshquant.order_management.guardian.arranger import (
     arrange_buy_lot,
     build_buy_lot_from_trade_fact,
@@ -102,13 +103,74 @@ class InMemoryRepository:
         return document
 
     def upsert_broker_order(self, document, unique_keys):
-        for existing in self.broker_orders:
-            if all(existing.get(key) == document.get(key) for key in unique_keys):
-                existing.update(document)
-                return existing, False
-        saved = dict(document)
-        self.broker_orders.append(saved)
-        return saved, True
+        assert unique_keys == ["broker_order_key"]
+        return self.claim_broker_order_owner(document)
+
+    def claim_broker_order_owner(self, document):
+        existing = self.find_broker_order(document["broker_order_key"])
+        if existing is None:
+            saved = dict(document)
+            self.broker_orders.append(saved)
+            return saved, True
+        owner_changed = existing.get("internal_order_id") != document.get(
+            "internal_order_id"
+        )
+        for field in (
+            "internal_order_id",
+            "request_id",
+            "broker_correlation_token",
+            "broker_order_key",
+            "account_id",
+            "trading_day",
+            "order_sysid",
+            "broker_order_id",
+            "symbol",
+            "side",
+        ):
+            if field in document and (
+                document.get(field) is not None or existing.get(field) is None
+            ):
+                existing[field] = document.get(field)
+        if owner_changed or not existing.get("source_type"):
+            existing["source_type"] = document.get("source_type")
+        return existing, False
+
+    def update_broker_order_fields(self, broker_order_key, updates):
+        order = self.find_broker_order(broker_order_key)
+        if order is None:
+            return None
+        order.update(updates)
+        return order
+
+    def fence_broker_order_execution(self, document):
+        order = self.find_broker_order(document["broker_order_key"])
+        assert order["internal_order_id"] == document["internal_order_id"]
+        order["execution_fence"] = True
+        return order
+
+    def compare_and_set_broker_order(self, *, before, after):
+        order = self.find_broker_order(before["broker_order_key"])
+        if order != before:
+            return order if order == after else None
+        order.clear()
+        order.update(after)
+        return order
+
+    def move_broker_order_key(self, old_key, new_key, document):
+        source = self.find_broker_order(old_key)
+        target = self.find_broker_order(new_key)
+        merged = {**(source or {}), **dict(document), "broker_order_key": new_key}
+        if target is None:
+            self.broker_orders.append(merged)
+            target = merged
+        else:
+            target.update(merged)
+        self.broker_orders = [
+            item
+            for item in self.broker_orders
+            if item.get("broker_order_key") != old_key
+        ]
+        return target
 
     def upsert_trade_fact(self, document, unique_keys):
         for existing in self.trade_facts:
@@ -129,6 +191,12 @@ class InMemoryRepository:
     def find_order(self, internal_order_id):
         for order in self.orders:
             if order["internal_order_id"] == internal_order_id:
+                return order
+        return None
+
+    def find_order_by_broker_correlation_token(self, token):
+        for order in self.orders:
+            if order.get("broker_correlation_token") == token:
                 return order
         return None
 
@@ -764,13 +832,16 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypat
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-reconcile-1",
                 "order_id": 90001,
+                "order_sysid": "SYS-90001",
                 "traded_id": "T90001",
                 "stock_code": "000001.SZ",
                 "order_type": 23,
                 "traded_volume": 200,
                 "traded_price": 10.5,
                 "traded_time": 1_030,
+                "date": 20260805,
             }
         ]
     )
@@ -784,11 +855,94 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypat
         == "matched_execution_fill"
     )
     assert len(repository.buy_lots) == 1
-    assert repository.orders[0]["source_type"] == "external_reported"
+    assert repository.orders[0]["source_type"] == "broker_only"
+    assert repository.orders[0]["internal_order_id"].startswith("ord_broker_")
+    assert repository.broker_orders[0]["execution_fence"] is True
     assert marks == ["matched"]
 
 
-def test_reconcile_matches_inflight_internal_order_before_creating_external_order(
+def test_reconcile_canonical_external_trade_does_not_guess_inflight_owner(monkeypatch):
+    repository, service = _build_service(monkeypatch)
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_inflight_same_shape",
+        }
+    )
+    tracking_service.mark_order_queued("ord_inflight_same_shape")
+
+    outcome = service.reconcile_trade_report(
+        {
+            "account_id": "acct-external-owner",
+            "order_id": 90009,
+            "order_sysid": "SYS-90009",
+            "traded_id": "T90009",
+            "stock_code": "000001.SZ",
+            "order_type": 23,
+            "traded_volume": 200,
+            "traded_price": 10.5,
+            "traded_time": 1_030,
+            "date": 20260805,
+        }
+    )
+
+    assert outcome.ingested is True
+    assert len(repository.orders) == 2
+    assert repository.find_order("ord_inflight_same_shape")["source_type"] == "strategy"
+    external_order = next(
+        order for order in repository.orders if order["source_type"] == "broker_only"
+    )
+    assert external_order["internal_order_id"].startswith("ord_broker_")
+    assert (
+        outcome.result["trade_fact"]["internal_order_id"]
+        == external_order["internal_order_id"]
+    )
+
+
+def test_reconcile_identity_incomplete_trade_fails_closed_without_shape_guess(
+    monkeypatch,
+):
+    repository, service = _build_service(monkeypatch)
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.5,
+            "quantity": 200,
+            "source": "strategy",
+            "internal_order_id": "ord_inflight_same_shape_incomplete",
+        }
+    )
+    tracking_service.mark_order_queued("ord_inflight_same_shape_incomplete")
+
+    with pytest.raises(BrokerIdentityError, match="canonical broker identity"):
+        service.reconcile_trade_report(
+            {
+                "broker_order_id": "90010",
+                "broker_trade_id": "T90010",
+                "symbol": "000001",
+                "side": "buy",
+                "quantity": 200,
+                "price": 10.5,
+                "trade_time": 1_030,
+            }
+        )
+
+    assert len(repository.orders) == 1
+    assert repository.orders[0]["internal_order_id"] == (
+        "ord_inflight_same_shape_incomplete"
+    )
+    assert repository.trade_facts == []
+    assert repository.execution_fills == []
+
+
+def test_reconcile_matches_inflight_internal_order_by_correlation_token(
     monkeypatch,
 ):
     repository, service = _build_service(monkeypatch)
@@ -812,6 +966,9 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
             "broker_order_id": None,
         }
     )
+    correlation_token = repository.find_order("ord_internal_1")[
+        "broker_correlation_token"
+    ]
 
     results = service.reconcile_trade_reports(
         [
@@ -823,6 +980,7 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
                 "traded_volume": 200,
                 "traded_price": 10.5,
                 "traded_time": 1_030,
+                "order_remark": correlation_token,
             }
         ]
     )
@@ -835,7 +993,7 @@ def test_reconcile_matches_inflight_internal_order_before_creating_external_orde
     assert repository.trade_facts[0]["internal_order_id"] == "ord_internal_1"
 
 
-def test_reconcile_matches_partial_inflight_internal_order_without_externalizing(
+def test_reconcile_matches_partial_inflight_internal_order_by_correlation_token(
     monkeypatch,
 ):
     repository, service = _build_service(monkeypatch)
@@ -859,6 +1017,9 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
             "broker_order_id": None,
         }
     )
+    correlation_token = repository.find_order("ord_internal_partial_1")[
+        "broker_correlation_token"
+    ]
 
     results = service.reconcile_trade_reports(
         [
@@ -870,6 +1031,7 @@ def test_reconcile_matches_partial_inflight_internal_order_without_externalizing
                 "traded_volume": 300,
                 "traded_price": 10.5,
                 "traded_time": 1_030,
+                "order_remark": correlation_token,
             }
         ]
     )
@@ -919,6 +1081,9 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
         "ord_internal_known_1",
         {"broker_order_id": "90011", "state": "SUBMITTED"},
     )
+    correlation_token = repository.find_order("ord_internal_known_1")[
+        "broker_correlation_token"
+    ]
 
     outcome = service.reconcile_trade_report(
         {
@@ -929,6 +1094,7 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
             "traded_volume": 200,
             "traded_price": 10.5,
             "traded_time": 1_030,
+            "order_remark": correlation_token,
         }
     )
 
@@ -950,7 +1116,7 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     assert len(repository.sell_allocations) == 1
 
 
-def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
+def test_reconcile_trade_report_uses_correlation_token_with_duplicate_broker_id(
     monkeypatch,
 ):
     repository, service = _build_service(monkeypatch)
@@ -1016,6 +1182,9 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
             "submitted_at": "2026-04-29T10:14:06+08:00",
         },
     )
+    correlation_token = repository.find_order("ord_new_sell_duplicate")[
+        "broker_correlation_token"
+    ]
 
     outcome = service.reconcile_trade_report(
         {
@@ -1026,6 +1195,7 @@ def test_reconcile_trade_report_uses_matching_duplicate_broker_order_candidate(
             "traded_volume": 2300,
             "traded_price": 22.41,
             "traded_time": 1777428846,
+            "order_remark": correlation_token,
         }
     )
 
@@ -1399,13 +1569,16 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     results = service.reconcile_trade_reports(
         [
             {
+                "account_id": "acct-reconcile-2",
                 "order_id": 90003,
+                "order_sysid": "SYS-90003",
                 "traded_id": "T90003",
                 "stock_code": "000001.SZ",
                 "order_type": 24,
                 "traded_volume": 200,
                 "traded_price": 10.5,
                 "traded_time": 1_030,
+                "date": 20260805,
             }
         ]
     )

@@ -1,3 +1,5 @@
+import pytest
+
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
 from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
@@ -35,13 +37,74 @@ class InMemoryRepository:
         return document
 
     def upsert_broker_order(self, document, unique_keys):
-        for existing in self.broker_orders:
-            if all(existing.get(key) == document.get(key) for key in unique_keys):
-                existing.update(document)
-                return existing, False
-        saved = dict(document)
-        self.broker_orders.append(saved)
-        return saved, True
+        assert unique_keys == ["broker_order_key"]
+        return self.claim_broker_order_owner(document)
+
+    def claim_broker_order_owner(self, document):
+        existing = self.find_broker_order(document["broker_order_key"])
+        if existing is None:
+            saved = dict(document)
+            self.broker_orders.append(saved)
+            return saved, True
+        owner_changed = existing.get("internal_order_id") != document.get(
+            "internal_order_id"
+        )
+        for field in (
+            "internal_order_id",
+            "request_id",
+            "broker_correlation_token",
+            "broker_order_key",
+            "account_id",
+            "trading_day",
+            "order_sysid",
+            "broker_order_id",
+            "symbol",
+            "side",
+        ):
+            if field in document and (
+                document.get(field) is not None or existing.get(field) is None
+            ):
+                existing[field] = document.get(field)
+        if owner_changed or not existing.get("source_type"):
+            existing["source_type"] = document.get("source_type")
+        return existing, False
+
+    def update_broker_order_fields(self, broker_order_key, updates):
+        order = self.find_broker_order(broker_order_key)
+        if order is None:
+            return None
+        order.update(updates)
+        return order
+
+    def fence_broker_order_execution(self, document):
+        order = self.find_broker_order(document["broker_order_key"])
+        assert order["internal_order_id"] == document["internal_order_id"]
+        order["execution_fence"] = True
+        return order
+
+    def compare_and_set_broker_order(self, *, before, after):
+        order = self.find_broker_order(before["broker_order_key"])
+        if order != before:
+            return order if order == after else None
+        order.clear()
+        order.update(after)
+        return order
+
+    def move_broker_order_key(self, old_key, new_key, document):
+        source = self.find_broker_order(old_key)
+        target = self.find_broker_order(new_key)
+        merged = {**(source or {}), **dict(document), "broker_order_key": new_key}
+        if target is None:
+            self.broker_orders.append(merged)
+            target = merged
+        else:
+            target.update(merged)
+        self.broker_orders = [
+            item
+            for item in self.broker_orders
+            if item.get("broker_order_key") != old_key
+        ]
+        return target
 
     def insert_order_event(self, document):
         self.order_events.append(document)
@@ -79,6 +142,19 @@ class InMemoryRepository:
             if order["broker_order_key"] == broker_order_key:
                 return order
         return None
+
+    def find_order_by_broker_correlation_token(self, token):
+        for order in self.orders:
+            if order.get("broker_correlation_token") == token:
+                return order
+        return None
+
+    def list_execution_fills(self, *, broker_order_keys=None, **_kwargs):
+        rows = list(self.execution_fills)
+        if broker_order_keys is not None:
+            allowed = set(broker_order_keys)
+            rows = [item for item in rows if item.get("broker_order_key") in allowed]
+        return rows
 
     def find_order_by_broker_order_id(self, broker_order_id):
         for order in self.orders:
@@ -206,6 +282,16 @@ def _bootstrap_service():
             "internal_order_id": "ord_test_1",
         }
     )
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 10.8,
+            "quantity": 500,
+            "source": "xt_trade_callback",
+            "internal_order_id": "ord_test_sell_1",
+        }
+    )
     ingest_service = OrderManagementXtIngestService(
         repository=repository,
         tracking_service=tracking_service,
@@ -265,7 +351,7 @@ def _buy_report(broker_trade_id="T-100", **overrides):
 
 def _sell_report(broker_trade_id="T-101", **overrides):
     payload = {
-        "internal_order_id": "ord_test_1",
+        "internal_order_id": "ord_test_sell_1",
         "broker_trade_id": broker_trade_id,
         "symbol": "000001",
         "side": "sell",
@@ -365,6 +451,9 @@ def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
             "traded_volume": 100,
             "traded_price": 10.0,
             "traded_time": 1710000000,
+            "order_remark": repository.find_order("ord_credit_ingest_1")[
+                "broker_correlation_token"
+            ],
         },
         repository=repository,
     )
@@ -430,6 +519,9 @@ def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
             "traded_volume": 2300,
             "traded_price": 22.41,
             "traded_time": 1777428846,
+            "order_remark": repository.find_order("ord_new_sell")[
+                "broker_correlation_token"
+            ],
         },
         repository=repository,
     )
@@ -495,6 +587,9 @@ def test_normalize_xt_order_report_disambiguates_reused_broker_order_id():
             "order_type": 24,
             "order_time": 1777428846,
             "order_status": 50,
+            "order_remark": repository.find_order("ord_new_sell")[
+                "broker_correlation_token"
+            ],
         },
         repository=repository,
     )
@@ -576,6 +671,9 @@ def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
             "stock_code": "000001.SZ",
             "order_time": 1710000000,
             "order_status": 54,
+            "order_remark": repository.find_order("ord_test_order_report")[
+                "broker_correlation_token"
+            ],
         },
         repository=repository,
     )
@@ -1235,7 +1333,60 @@ def test_order_report_updates_existing_order_state():
             "stock_code": "000001.SZ",
             "order_time": 1710000000,
             "order_status": 54,
+            "order_remark": repository.find_order("ord_order_state_1")[
+                "broker_correlation_token"
+            ],
         }
     )
 
     assert repository.find_order("ord_order_state_1")["state"] == "CANCELED"
+
+
+def test_trade_ingest_requires_meta_tracking_contract():
+    class LegacyOnlyTrackingService:
+        def ingest_trade_report(self, _report):
+            raise AssertionError("legacy trade ingest must not be used")
+
+    service = OrderManagementXtIngestService(
+        repository=InMemoryRepository(),
+        tracking_service=LegacyOnlyTrackingService(),
+        tpsl_service=object(),
+        runtime_logger=object(),
+    )
+
+    with pytest.raises(AttributeError, match="ingest_trade_report_with_meta"):
+        service.ingest_trade_report(
+            {
+                "internal_order_id": "ord_contract_trade",
+                "symbol": "000001",
+                "side": "buy",
+                "broker_trade_id": "trade-contract",
+            },
+            lot_amount=100,
+            grid_interval_lookup=lambda *_args: 1,
+        )
+
+
+def test_order_ingest_requires_meta_tracking_contract():
+    class LegacyOnlyTrackingService:
+        def ingest_order_report(self, _report):
+            raise AssertionError("legacy order ingest must not be used")
+
+    service = OrderManagementXtIngestService(
+        repository=InMemoryRepository(),
+        tracking_service=LegacyOnlyTrackingService(),
+        tpsl_service=object(),
+        runtime_logger=object(),
+    )
+
+    with pytest.raises(AttributeError, match="ingest_order_report_with_meta"):
+        service.ingest_order_report(
+            {
+                "internal_order_id": "ord_contract_order",
+                "broker_order_key": "acct|20260806|sys-contract",
+                "broker_order_id": "order-contract",
+                "symbol": "000001",
+                "side": "buy",
+                "state": "SUBMITTED",
+            }
+        )

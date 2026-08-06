@@ -1,9 +1,7 @@
-import json
 import time
 
 import pendulum
 import pydash
-from fqxtrade import ORDER_QUEUE
 from fqxtrade.database.mongodb import DBfreshquant
 from fqxtrade.database.redis import redis_db
 from fqxtrade.xtquant.fqtype import FqXtAsset, FqXtOrder, FqXtPosition, FqXtTrade
@@ -749,25 +747,6 @@ def buy(
                 ),
                 payload={"broker_order_id": fix_result_order_id},
             )
-            if fix_result_order_id < 0 and retryCount < 3:
-                # Exponential backoff delay: 2^retryCount seconds
-                delay = 2**retryCount
-                time.sleep(delay)
-                redis_db.lpush(
-                    ORDER_QUEUE,
-                    json.dumps(
-                        {
-                            "action": "buy",
-                            "symbol": symbol,
-                            "price": float(price),
-                            "quantity": quantity,
-                            "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
-                            "strategy_name": strategyName,
-                            "remark": remark,
-                            "retry_count": retryCount + 1,
-                        }
-                    ),
-                )
             return fix_result_order_id
     except Exception as exc:
         _emit_puppet_event(
@@ -964,25 +943,6 @@ def sell(
                 ),
                 payload={"broker_order_id": fix_result_order_id},
             )
-            if fix_result_order_id < 0 and retryCount < 3:
-                # Exponential backoff delay: 2^retryCount seconds
-                delay = 2**retryCount
-                time.sleep(delay)
-                redis_db.lpush(
-                    ORDER_QUEUE,
-                    json.dumps(
-                        {
-                            "action": "sell",
-                            "symbol": symbol,
-                            "price": float(price),
-                            "quantity": quantity,
-                            "fire_time": pendulum.now().format("YYYY-MM-DD hh:mm:ss"),
-                            "strategy_name": strategyName,
-                            "remark": remark,
-                            "retry_count": retryCount + 1,
-                        }
-                    ),
-                )
             return fix_result_order_id
     except Exception as exc:
         _emit_puppet_event(

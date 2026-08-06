@@ -90,11 +90,15 @@ class _FakeCollection:
         for index, item in enumerate(self.rows):
             if _matches_query(item, query):
                 self.rows[index] = dict(document)
-                return
+                return type("Result", (), {"matched_count": 1, "upserted_id": None})()
         if upsert:
             self.rows.append(dict(document))
+            return type(
+                "Result", (), {"matched_count": 0, "upserted_id": len(self.rows)}
+            )()
+        return type("Result", (), {"matched_count": 0, "upserted_id": None})()
 
-    def update_one(self, query, update):
+    def update_one(self, query, update, upsert=False):
         query = dict(query or {})
         updates = dict((update or {}).get("$set") or {})
         for index, item in enumerate(self.rows):
@@ -102,7 +106,16 @@ class _FakeCollection:
                 next_item = dict(item)
                 next_item.update(updates)
                 self.rows[index] = next_item
-                return
+                return type("Result", (), {"matched_count": 1, "upserted_id": None})()
+        if upsert:
+            inserted = dict(query)
+            inserted.update(dict((update or {}).get("$setOnInsert") or {}))
+            inserted.update(updates)
+            self.rows.append(inserted)
+            return type(
+                "Result", (), {"matched_count": 0, "upserted_id": len(self.rows)}
+            )()
+        return type("Result", (), {"matched_count": 0, "upserted_id": None})()
 
     def delete_many(self, query):
         query = dict(query or {})
@@ -118,6 +131,15 @@ class _FakeDatabase(dict):
 
 def _matches_query(document, query):
     for key, expected in query.items():
+        if key == "$expr":
+            operands = list((expected or {}).get("$eq") or [])
+            expected_document = operands[1] if len(operands) == 2 else None
+            actual_document = {
+                field: value for field, value in document.items() if field != "_id"
+            }
+            if actual_document != expected_document:
+                return False
+            continue
         actual = document.get(key)
         if isinstance(expected, dict):
             if "$in" in expected and actual not in set(expected["$in"]):
@@ -161,6 +183,15 @@ def test_order_management_repository_supports_v2_collections_and_basic_crud():
         unique_keys=["broker_order_key"],
     )
     assert created_order is False
+    assert saved_order == broker_order
+    saved_order = repository.update_broker_order_fields(
+        "border_1",
+        {"state": "FILLED"},
+    )
+    saved_order = repository.compare_and_set_broker_order(
+        before=saved_order,
+        after={**saved_order, "fill_count": 2},
+    )
     assert saved_order == updated_broker_order
     assert repository.list_broker_orders(symbol="000001") == [updated_broker_order]
 
