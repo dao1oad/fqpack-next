@@ -10,7 +10,7 @@ from freshquant.util.code import (
 )
 
 
-@in_memory_cache.memoize(expiration=3600)
+@in_memory_cache.memoize(expiration=60)
 def queryMustPoolCodes(
     instrumentTypes: List[str] = ["stock_cn", "etf_cn"]
 ) -> List[str]:

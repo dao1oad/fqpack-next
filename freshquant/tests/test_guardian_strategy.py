@@ -830,6 +830,7 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
         }
     )
     signal = _make_signal(price=10.0)
+    signal["tags"] = [guardian_module.MUST_POOL_5M_NEW_OPEN_TAG]
 
     monkeypatch.setattr(
         "freshquant.strategy.guardian.get_guardian_buy_grid_service",

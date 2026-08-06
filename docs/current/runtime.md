@@ -2,6 +2,18 @@
 
 ## Guardian / TPSL 交易运行规则
 
+- Guardian monitor 在正式 `monitor.xtdata.mode=guardian_and_clx_15_30` 下使用
+  一个 listener 监听 `1min / 5min`。listener 范围是当前持仓与 enabled
+  `must_pool` 的并集，每 30 秒刷新；`queryMustPoolCodes` 的进程缓存 TTL 为
+  60 秒。
+- 1 分钟只处理当前持仓并沿用既有 Guardian 买卖规则。5 分钟只处理
+  must-pool-only 标的，并且只把 `buy_v_reverse`、
+  `macd_bullish_divergence` 作为带 `must_pool_5m_new_open` tag 的首次开仓信号；
+  5 分钟 `buy_zs_huila` 与全部卖点不进入保存/策略链。
+- Guardian 最终 scope gate 会再次读取当前持仓与 enabled `must_pool`：首开 tag
+  遇到已持仓或已移出池时跳过，未带 tag 的 must-pool-only 买点也跳过；
+  普通持仓买点与持仓卖点继续走既有分支。CLX 15/30 分钟消费与落库行为不受
+  该 listener 路由影响。
 - Guardian 买入以 Position Management 的 `pm_symbol_position_snapshots.market_value`
   计算阶段剩余容量，容量真值不可读取时本次 Grid 买入退出。
 - Guardian 与最终提交门禁都优先读取持久化的单标的仓位快照；快照缺失时才

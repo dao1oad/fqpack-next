@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 import types
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -75,10 +76,29 @@ class FakeStockPoolCollection:
         return SimpleNamespace(acknowledged=True)
 
 
+class FakeSignalCollection:
+    def __init__(self) -> None:
+        self.docs: list[dict] = []
+
+    def find_one_and_update(self, query: dict, update: dict, upsert: bool = False):
+        for doc in self.docs:
+            if all(doc.get(key) == value for key, value in query.items()):
+                previous = dict(doc)
+                doc.update(update.get("$set", {}))
+                return previous
+        if upsert:
+            self.docs.append({**query, **update.get("$set", {})})
+        return None
+
+
 class FakeDB:
     def __init__(self) -> None:
         self.stock_pre_pools = FakePrePoolCollection()
         self.stock_pools = FakeStockPoolCollection()
+        self.stock_signals = FakeSignalCollection()
+
+    def __getitem__(self, name: str):
+        return getattr(self, name)
 
 
 def _import_a_stock_common_with_stubs(monkeypatch, fake_db: FakeDB):
@@ -137,6 +157,32 @@ def test_save_a_stock_pre_pools_writes_top_level_remark(monkeypatch):
         2026, 3, 17, tz=pendulum.now().timezone
     )
     assert saved["expire_at"].date() == pendulum.now().add(days=89).date()
+
+
+def test_save_a_stock_signal_reuses_upsert_for_duplicate_bar(monkeypatch):
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+    calls = []
+    strategy = SimpleNamespace(on_signal=lambda signal: calls.append(signal))
+    fire_time = datetime.now()
+
+    for _ in range(2):
+        a_stock_common.save_a_stock_signal(
+            "sz000001",
+            "000001",
+            "5m",
+            "V反上涨",
+            fire_time,
+            10.0,
+            9.0,
+            "BUY_LONG",
+            tags=["must_pool_5m_new_open"],
+            strategy=strategy,
+        )
+
+    assert len(fake_db.stock_signals.docs) == 1
+    assert len(calls) == 1
+    assert calls[0]["tags"] == ["must_pool_5m_new_open"]
 
 
 def test_save_a_stock_pre_pools_keeps_rows_isolated_by_remark(monkeypatch):

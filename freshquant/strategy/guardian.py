@@ -41,6 +41,7 @@ from freshquant.util.code import fq_util_code_append_market_code_suffix
 from freshquant.util.datetime_helper import fq_util_datetime_localize
 
 order_alert = signal("order_alert")
+MUST_POOL_5M_NEW_OPEN_TAG = "must_pool_5m_new_open"
 
 
 class StrategyGuardian(metaclass=SingletonType):
@@ -64,6 +65,7 @@ class StrategyGuardian(metaclass=SingletonType):
             period = signal["period"]
             remark = signal["remark"]
             tags = signal["tags"] or []
+            has_must_pool_5m_new_open_tag = MUST_POOL_5M_NEW_OPEN_TAG in tags
             zsdata = signal["zsdata"]
             fills = signal["fills"]
             action = self._resolve_action(position)
@@ -107,20 +109,37 @@ class StrategyGuardian(metaclass=SingletonType):
                     "position": position,
                     "in_holding": in_holding,
                     "in_must_pool": in_must_pool,
+                    "has_must_pool_5m_new_open_tag": (has_must_pool_5m_new_open_tag),
                 }
             }
+            scope_decision_expr = (
+                "(position == BUY_LONG and ((has_must_pool_5m_new_open_tag and "
+                "in_must_pool and not in_holding) or "
+                "(not has_must_pool_5m_new_open_tag and in_holding))) or "
+                "(position == SELL_SHORT and in_holding)"
+            )
             eligible = False
             scope_branch = "unsupported_position"
             scope_reason_code = "unsupported_position"
             if position == "BUY_LONG":
-                if in_holding:
+                if has_must_pool_5m_new_open_tag:
+                    if in_holding:
+                        scope_branch = "must_pool_5m_new_open_already_holding"
+                        scope_reason_code = "must_pool_5m_new_open_already_holding"
+                    elif not in_must_pool:
+                        scope_branch = "must_pool_5m_new_open_not_in_pool"
+                        scope_reason_code = "must_pool_5m_new_open_not_in_pool"
+                    else:
+                        eligible = True
+                        scope_branch = "must_pool_5m_new_open_buy"
+                        scope_reason_code = ""
+                elif in_holding:
                     eligible = True
                     scope_branch = "holding_buy"
                     scope_reason_code = ""
                 elif in_must_pool:
-                    eligible = True
-                    scope_branch = "new_open_buy"
-                    scope_reason_code = ""
+                    scope_branch = "must_pool_5m_new_open_tag_missing"
+                    scope_reason_code = "must_pool_5m_new_open_tag_missing"
                 else:
                     scope_branch = "buy_out_of_scope"
                     scope_reason_code = "buy_out_of_scope"
@@ -140,9 +159,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 status="success" if eligible else "skipped",
                 reason_code=scope_reason_code,
                 decision_branch=scope_branch,
-                decision_expr=(
-                    "position == BUY_LONG ? (in_holding or in_must_pool) : in_holding"
-                ),
+                decision_expr=scope_decision_expr,
                 decision_context=scope_context,
                 decision_outcome={"outcome": "pass" if eligible else "skip"},
                 payload={"in_holding": in_holding, "in_must_pool": in_must_pool},
@@ -156,9 +173,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     reason_code=scope_reason_code,
                     outcome="skip",
                     decision_branch=scope_branch,
-                    decision_expr=(
-                        "position == BUY_LONG ? (in_holding or in_must_pool) : in_holding"
-                    ),
+                    decision_expr=scope_decision_expr,
                     decision_context=scope_context,
                 )
             else:
@@ -213,7 +228,15 @@ class StrategyGuardian(metaclass=SingletonType):
                 )
 
                 if position == "BUY_LONG":
-                    if in_holding:
+                    if has_must_pool_5m_new_open_tag:
+                        self._handle_new_open_buy(
+                            signal=signal,
+                            code=code,
+                            name=name,
+                            price=price,
+                            remark=remark,
+                        )
+                    elif in_holding:
                         self._handle_holding_buy(
                             signal=signal,
                             code=code,
@@ -223,14 +246,6 @@ class StrategyGuardian(metaclass=SingletonType):
                             remark=remark,
                             zsdata=zsdata,
                             fills=fills,
-                        )
-                    elif in_must_pool:
-                        self._handle_new_open_buy(
-                            signal=signal,
-                            code=code,
-                            name=name,
-                            price=price,
-                            remark=remark,
                         )
                 elif position == "SELL_SHORT" and in_holding:
                     self._handle_sell(
