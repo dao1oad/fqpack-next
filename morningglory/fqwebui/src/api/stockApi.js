@@ -56,6 +56,13 @@ export const stockApi = {
       params: { days }
     })
   },
+  syncMustPoolFromTdxSelfSelect ({ days = 30 } = {}) {
+    return http({
+      url: '/api/sync_must_pool_from_tdx_self_select',
+      method: 'post',
+      params: { days }
+    })
+  },
   getStockPrePoolsCategory () {
     return http({
       url: '/api/get_stock_pre_pools_category',

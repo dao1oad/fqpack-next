@@ -97,6 +97,22 @@ test('KlineSlim stock_pools sidebar can sync TDX self-select symbols', () => {
   assert.match(apiSource, /\/api\/sync_stock_pools_from_tdx_self_select/)
 })
 
+test('KlineSlim must_pool sidebar can import TDX 待买 group', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+  const apiSource = fs.readFileSync(new URL('../api/stockApi.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /同步待买/)
+  assert.match(viewSource, /section\.key === 'must_pool'/)
+  assert.match(viewSource, /@click\.stop="syncMustPoolFromTdxSelfSelect"/)
+  assert.match(scriptSource, /mustPoolTdxSyncing: false/)
+  assert.match(scriptSource, /async syncMustPoolFromTdxSelfSelect\(\)/)
+  assert.match(scriptSource, /stockApi\.syncMustPoolFromTdxSelfSelect\(\{ days: 30 \}\)/)
+  assert.match(scriptSource, /await this\.loadMustPools\(\)/)
+  assert.match(apiSource, /syncMustPoolFromTdxSelfSelect/)
+  assert.match(apiSource, /\/api\/sync_must_pool_from_tdx_self_select/)
+})
+
 test('KlineSlim page script delegates lifecycle hooks and orchestration to a dedicated controller module', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')

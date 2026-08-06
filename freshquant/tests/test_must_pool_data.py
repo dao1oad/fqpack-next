@@ -243,3 +243,29 @@ def test_import_pool_persists_provenance_for_new_doc(monkeypatch):
     assert collection.inserted["sources"] == ["daily-screening", "shouban30"]
     assert collection.inserted["categories"] == ["CLXS_10008", "plate:11"]
     assert collection.inserted["workspace_order_hint"] == 7
+
+
+def test_import_pool_accepts_none_stop_loss_price(monkeypatch):
+    collection = FakeMustPoolCollection()
+    must_pool = _import_must_pool_with_stubs(monkeypatch, collection=collection)
+
+    must_pool.import_pool(
+        code="000001",
+        category="待买",
+        stop_loss_price=None,
+        initial_lot_amount=None,
+        lot_amount=None,
+        forever=True,
+        provenance={
+            "sources": ["tdx_must_pool"],
+            "categories": ["待买"],
+            "memberships": [],
+        },
+    )
+
+    assert collection.inserted is not None
+    assert collection.inserted["code"] == "000001"
+    assert collection.inserted["category"] == "待买"
+    assert collection.inserted["stop_loss_price"] is None
+    assert collection.inserted["initial_lot_amount"] == 50000
+    assert collection.inserted["lot_amount"] == 50000

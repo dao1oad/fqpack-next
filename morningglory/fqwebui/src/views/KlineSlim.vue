@@ -129,6 +129,15 @@
             >
               {{ stockPoolsTdxSyncing ? '同步中' : '同步自选股' }}
             </button>
+            <button
+              v-if="section.key === 'must_pool'"
+              type="button"
+              class="sidebar-section-sync"
+              :disabled="mustPoolTdxSyncing"
+              @click.stop="syncMustPoolFromTdxSelfSelect"
+            >
+              {{ mustPoolTdxSyncing ? '同步中' : '同步待买' }}
+            </button>
           </header>
           <transition name="sidebar-section-collapse">
             <div v-show="section.expanded" class="sidebar-section-body">

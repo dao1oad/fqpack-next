@@ -48,7 +48,7 @@
 ## 当前页面结构
 
 - 三栏统一布局
-  - 左栏：持仓、`stock_pools`、`must_pool`、预选池和 CLX 批次/scope、完整筛选条件、cursor 结果列表；分组标题点击即展开/收起，不再额外展示“展开/收起”文字；`stock_pools` 分组提供 `同步自选股` 按钮，可从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 去重追加到 `freshquant.stock_pools`，并在左栏展示时与持仓股去重
+  - 左栏：持仓、`stock_pools`、`must_pool`、预选池和 CLX 批次/scope、完整筛选条件、cursor 结果列表；分组标题点击即展开/收起，不再额外展示“展开/收起”文字；`stock_pools` 分组提供 `同步自选股` 按钮，可从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 去重追加到 `freshquant.stock_pools`，`must_pool` 分组提供 `同步待买` 按钮，可从 `T0002/blocknew/待买.blk` 导入到 `freshquant.must_pool`，并在左栏展示时与持仓股去重
   - 中栏：当前标的主图与多周期结构
   - 右栏：CLX 信号显示控制、时间轴和证据详情
 - 标的设置浮层
@@ -97,6 +97,9 @@
 - `stock_pools` 左栏
   - 列表来自 `/api/get_stock_pools_list`，前端会按 6 位代码过滤掉已在“持仓股”分组展示的标的；点击任一标的后使用同一 K 线加载链路，因此 `15min / 30min` 兼容别名与实时缓存 QFQ 未就绪回退对所有左侧列表标的生效
   - `同步自选股` 调用 `POST /api/sync_stock_pools_from_tdx_self_select?days=30`，以后端读取的 TDX `ZXG.blk` 有效标的减去当前持仓作为唯一集合，覆盖 `stock_pools`；旧集合外记录会删除，同步完成后刷新列表并提示同步、移除旧标的和持仓去重数量
+- `must_pool` 左栏
+  - 列表来自 `/api/get_stock_must_pools_list`，点击任一标的后使用同一 K 线加载链路
+  - `同步待买` 调用 `POST /api/sync_must_pool_from_tdx_self_select?days=30`，以后端读取的 TDX `待买.blk` 有效标的减去当前持仓作为增量导入 `must_pool`；已存在记录保留交易参数并合并 `tdx_must_pool` provenance，分组外既有记录不删除，同步完成后刷新列表并提示导入、持仓去重和忽略无效数量
 - `CLX 信号工作台`
   - 按当前 symbol、asset type、日线 endDate（缺省时由服务端解析最新交易日）、barCount、模型/条件请求 `/api/clx-daily-selection/history/signals`
   - 只在 `profile=production_v1`、`switch_opt=1` 且 `future_function_guard.passed=true` 时把 marker 交给 chart renderer

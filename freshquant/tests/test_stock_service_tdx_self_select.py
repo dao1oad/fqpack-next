@@ -146,3 +146,139 @@ def test_sync_stock_pools_from_tdx_self_select_skips_unsupported_securities(
 
     assert result["synced_codes"] == ["300127"]
     assert result["skipped_invalid_codes"] == ["113000", "123456", "900901"]
+
+
+def test_sync_must_pool_from_tdx_self_select_reads_dai_mai_group(monkeypatch, tmp_path):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("0300127\n000001\n000002\n113000\n", encoding="gbk")
+    fake_db = {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": FakeStockPoolsCollection(),
+        "xt_positions": FakeStockPoolsCollection(),
+    }
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    calls = []
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert result["file_name"] == "待买.blk"
+    assert result["category"] == "待买"
+    assert result["source"] == "tdx_must_pool"
+    assert result["synced_codes"] == ["300127", "000001", "000002"]
+    assert result["skipped_invalid_codes"] == ["113000"]
+    assert [call["code"] for call in calls] == ["300127", "000001", "000002"]
+    assert all(call["category"] == "待买" for call in calls)
+    assert calls[0]["provenance"]["sources"] == ["tdx_must_pool"]
+    assert calls[0]["provenance"]["categories"] == ["待买"]
+    assert calls[0]["provenance"]["memberships"][0]["source"] == "tdx_must_pool"
+    assert calls[0]["provenance"]["memberships"][0]["category"] == "待买"
+    assert calls[0]["provenance"]["memberships"][0]["extra"]["file_name"] == "待买.blk"
+
+
+def test_sync_must_pool_from_tdx_self_select_preserves_existing_params(
+    monkeypatch, tmp_path
+):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("0300127\n", encoding="gbk")
+    fake_db = {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": FakeStockPoolsCollection(
+            [
+                {
+                    "code": "300127",
+                    "category": "人工",
+                    "stop_loss_price": 9.8,
+                    "initial_lot_amount": 80000,
+                    "lot_amount": 50000,
+                }
+            ]
+        ),
+        "xt_positions": FakeStockPoolsCollection(),
+    }
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    calls = []
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert result["synced_codes"] == ["300127"]
+    call = calls[0]
+    assert call["code"] == "300127"
+    assert call["stop_loss_price"] == 9.8
+    assert call["initial_lot_amount"] == 80000
+    assert call["lot_amount"] == 50000
+
+
+def test_sync_must_pool_from_tdx_self_select_keeps_records_outside_group(
+    monkeypatch, tmp_path
+):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("0300127\n", encoding="gbk")
+    collection = FakeStockPoolsCollection(
+        [
+            {"code": "600999", "category": "人工"},
+        ]
+    )
+    fake_db = {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": collection,
+        "xt_positions": FakeStockPoolsCollection(),
+    }
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    calls = []
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert result["synced_codes"] == ["300127"]
+    assert collection.find_one({"code": "600999"}) is not None
+
+
+def test_sync_must_pool_from_tdx_self_select_skips_current_holdings(
+    monkeypatch, tmp_path
+):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("0300127\n000002\n", encoding="gbk")
+    fake_db = {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": FakeStockPoolsCollection(),
+        "xt_positions": FakeStockPoolsCollection(
+            [
+                {"symbol": "sz300127"},
+            ]
+        ),
+    }
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    calls = []
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert result["synced_codes"] == ["000002"]
+    assert result["skipped_holding_codes"] == ["300127"]
+    assert [call["code"] for call in calls] == ["000002"]
