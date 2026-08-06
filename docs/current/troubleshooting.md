@@ -177,6 +177,35 @@ print(list(DBOrderManagement["om_broker_orders"].find({"$or": [{"broker_order_ke
   和订单状态 `FAILED`。任何人工新发前先通过 XT 当日委托与柜台回报确认原请求是否
   已实际受理；puppet 不得 sleep、Redis requeue 或自动重复提交相同券商委托。
 
+### 已确认账本污染的固定作用域修复
+
+当前固定作用域修账入口是
+`script/maintenance/targeted_order_ledger_repair.py`。它不是通用修账器，只接受代码中
+固化的账户、证券、交易日、文档 `_id` 与业务身份白名单；计划外集合、身份或实时新增
+记录都会 fail closed。
+
+执行顺序固定为：
+
+1. 代码通过 PR/CI 合并，并基于最新远程 `main` 同时部署 `api` 与
+   `order_management`。
+2. 停止 `fqnext_xtquant_broker`、`fqnext_xt_account_sync_worker`、
+   `fqnext_xt_auto_repay_worker`、`fqnext_tpsl_worker` 与 API order-write surface。
+3. 从停止写入后的实时 Mongo 完整 BSON 生成 plan；只读证据必须使用
+   `before_document == after_document`，空集合用 verifier 的固定 live-scope 断言。
+4. 运行 `stage`，人工核对 `plan_file_sha256 / plan_hash / preimage_hash /
+   postimage_hash / manifest_hash` 与 change count。
+5. 仅在 deploy-state 的终点 SHA 等于 plan `target_main_sha`、部署输入包含
+   `api + order_management`、deploy phases 全部完成、runtime verify
+   `passed=true` 时运行 `apply --execute`。
+6. `apply` 完成后立即运行 `verify`；失败时保持写入面停止，并只从完整、读回校验通过
+   的 backup bundle 执行 `restore --execute`。
+7. 验证通过后恢复服务，再执行 health 与 runtime ops check。
+
+该流程使用逐 `_id`、完整 BSON CAS；首写前必须先把 manifest/preimage/postimage/hash
+与 backup 落盘、`fsync` 并读回校验。首次 apply 出现 mixed pre/post 状态会阻断；中途
+CAS 失败会逆序补偿本轮已写文档，补偿不完整时必须保持所有写入面停止。工具不读取、
+验证或修改 TDX，TDX 状态不是该修账流程的 gate。
+
 ## broker_gateway 健康摘要停留在旧 warning
 
 现象：
