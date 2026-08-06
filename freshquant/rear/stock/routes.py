@@ -442,6 +442,29 @@ def sync_stock_pools_from_tdx_self_select():
     return jsonify({"code": "0", "msg": "操作成功", "data": result})
 
 
+@stock_bp.route("/sync_must_pool_from_tdx_self_select", methods=["POST"])
+def sync_must_pool_from_tdx_self_select():
+    try:
+        days = int(request.args.get("days", "30"))
+        result = _get_stock_service().sync_must_pool_from_tdx_self_select(days=days)
+    except Exception as exc:
+        logging.error(
+            "sync must_pool from TDX 待买 group failed: %s\n%s",
+            exc,
+            traceback.format_exc(),
+        )
+        return (
+            jsonify(
+                {
+                    "code": "1",
+                    "msg": f"同步待买分组失败: {exc}",
+                }
+            ),
+            500,
+        )
+    return jsonify({"code": "0", "msg": "操作成功", "data": result})
+
+
 # 计算股票网格交易计划
 @stock_bp.route("/plan_grid_trade")
 def plan_grid_trade():

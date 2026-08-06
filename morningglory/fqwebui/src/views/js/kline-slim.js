@@ -398,6 +398,7 @@ export default {
       mustPools: [],
       stockPools: [],
       stockPoolsTdxSyncing: false,
+      mustPoolTdxSyncing: false,
       prePools: [],
       sidebarLoading: {
         holding: false,
@@ -1031,6 +1032,32 @@ export default {
         this.$message?.error?.('同步自选股失败')
       } finally {
         this.stockPoolsTdxSyncing = false
+      }
+    },
+    async syncMustPoolFromTdxSelfSelect() {
+      if (this.mustPoolTdxSyncing) {
+        return
+      }
+      this.mustPoolTdxSyncing = true
+      try {
+        const result = await stockApi.syncMustPoolFromTdxSelfSelect({ days: 30 })
+        if (result && String(result.code ?? '0') !== '0') {
+          throw new Error(result.msg || 'sync_must_pool_from_tdx_self_select failed')
+        }
+        await this.loadMustPools()
+        const summary = result?.data || {}
+        this.$message?.success?.(
+          '待买分组已导入：新增 ' +
+            (summary.synced_count ?? summary.appended_count ?? 0) +
+            '，持仓去重 ' +
+            (summary.skipped_holding_count || 0) +
+            '，忽略无效 ' +
+            (summary.skipped_invalid_count || 0)
+        )
+      } catch (error) {
+        this.$message?.error?.('同步待买分组失败')
+      } finally {
+        this.mustPoolTdxSyncing = false
       }
     },
     async addCurrentSymbolToClx15Monitor() {

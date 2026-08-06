@@ -99,6 +99,12 @@
   - 后端读取当前 TDX home 下的 `T0002/blocknew/ZXG.blk`，解码通达信前缀代码，排除当前 `xt_positions` 持仓后，以该集合覆盖 `stock_pools`
   - 不在当前 TDX 标的池中的旧 `stock_pools` 记录会被删除；当前 TDX 标的会按 `tdx_self_select` 来源更新，默认有效期 30 天
   - 同步只写 `stock_pools`，不写 `must_pool`，不触发下单；左侧 `stock_pools` 分组仍会过滤已在“持仓股”分组出现的标的
+- KlineSlim 从通达信「待买」分组导入 `must_pool`
+  - `/kline-slim` 左侧 `must_pool` 分组的 `同步待买` 按钮调用 `POST /api/sync_must_pool_from_tdx_self_select?days=30`
+  - 后端读取当前 TDX home 下的 `T0002/blocknew/待买.blk`，解码通达信前缀代码，排除当前 `xt_positions` 持仓后，增量导入 `must_pool`
+  - 导入为增量合并：已存在 `must_pool` 记录保留 `stop_loss_price / initial_lot_amount / lot_amount` 交易参数，仅合并 `tdx_must_pool` 来源 provenance；不在「待买」分组中的既有 `must_pool` 记录不会被删除
+  - 新增记录 `stop_loss_price` 保持未配置（`None`），`lot_amount / initial_lot_amount` 走 `get_trade_amount` 默认值；`forever` 固定为 `true`
+  - 导入只写 `must_pool`，不写 `stock_pools`，不触发下单
 - 代码加入 `must_pool`
   - `/api/add_to_must_pool_by_code`
   - 当前显式加入后统一固定写 `forever=true`

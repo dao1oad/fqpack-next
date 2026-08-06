@@ -64,11 +64,12 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/stock_data`
 - `/api/stock_data_v2`
 - `/api/stock_data_chanlun_structure`
-- `/api/guardian_buy_grid_state`
-- `/api/get_stock_pools_list`
+  - `/api/guardian_buy_grid_state`
+  - `/api/get_stock_pools_list`
 - `POST /api/sync_stock_pools_from_tdx_self_select`
-- `/api/get_stock_pre_pools_list`
-- `/api/get_stock_must_pools_list`
+  - `POST /api/sync_must_pool_from_tdx_self_select`
+  - `/api/get_stock_pre_pools_list`
+  - `/api/get_stock_must_pools_list`
 - `/api/add_to_stock_pools_by_code`
 - `/api/add_to_must_pool_by_code`
 
@@ -178,6 +179,12 @@ python -m freshquant.rear.api_server --port 5000
   - 不在当前 TDX 标的池中的旧 `stock_pools` 记录会被删除；当前 TDX 标的按 `tdx_self_select` 来源 upsert
   - 查询参数 `days` 控制新增记录有效期，默认 `30`
   - 返回 `synced_count / removed_count / skipped_holding_count / skipped_invalid_count` 及对应代码列表；兼容保留 `appended_count / skipped_existing_count` 字段；只写 `stock_pools`，不写 `must_pool`，不触发交易动作
+- `POST /api/sync_must_pool_from_tdx_self_select`
+  - 复用与 `sync_stock_pools_from_tdx_self_select` 相同的 TDX `.blk` 读取/解码链路，从当前 TDX home 的 `T0002/blocknew/待买.blk` 读取「待买」自选股分组，解码为 6 位标的代码，排除当前 `xt_positions` 持仓后导入 `freshquant.must_pool`
+  - 导入为增量合并：已存在于 `must_pool` 的记录保留其 `stop_loss_price / initial_lot_amount / lot_amount` 交易参数，仅合并 `tdx_must_pool` 来源的 provenance；不在「待买」分组中的既有 `must_pool` 记录不会被删除
+  - 新增记录 `stop_loss_price` 保持未配置（`None`），`lot_amount / initial_lot_amount` 走 `get_trade_amount` 默认值
+  - 查询参数 `days` 控制 membership 有效期，默认 `30`
+  - 返回 `synced_count / appended_count / skipped_holding_count / skipped_invalid_count` 及对应代码列表；只写 `must_pool`，不写 `stock_pools`，不触发交易动作
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`

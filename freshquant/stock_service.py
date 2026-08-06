@@ -39,6 +39,9 @@ TDX_SELF_SELECT_SUPPORTED_INSTRUMENT_TYPES = {
     InstrumentType.STOCK_CN,
     InstrumentType.ETF_CN,
 }
+TDX_MUST_POOL_FILENAME = "待买.blk"
+TDX_MUST_POOL_CATEGORY = "待买"
+TDX_MUST_POOL_SOURCE = "tdx_must_pool"
 
 
 def _normalize_stock_code6(value):
@@ -256,6 +259,89 @@ def sync_stock_pools_from_tdx_self_select(
         "removed_codes": removed_codes,
         "skipped_holding_codes": skipped_holding_codes,
         "skipped_existing_codes": [],
+        "skipped_invalid_codes": skipped_invalid_codes,
+    }
+
+
+def sync_must_pool_from_tdx_self_select(
+    days=30,
+    *,
+    tdx_home=None,
+    filename=TDX_MUST_POOL_FILENAME,
+    category=TDX_MUST_POOL_CATEGORY,
+    source=TDX_MUST_POOL_SOURCE,
+):
+    """Import freshquant.must_pool from the TDX ``待买`` self-select group.
+
+    Reuses the same TDX ``.blk`` reading/decoding chain as
+    ``sync_stock_pools_from_tdx_self_select``: it reads the group file
+    (default ``T0002/blocknew/待买.blk``), decodes prefixed codes, skips
+    current ``xt_positions`` holdings, and upserts every valid code into
+    ``must_pool`` with a ``tdx_must_pool`` membership.
+
+    Unlike the stock_pools overwrite sync, this is an additive import:
+    existing ``must_pool`` records keep their trading parameters
+    (``stop_loss_price`` / ``initial_lot_amount`` / ``lot_amount``) and are
+    never deleted when they are absent from the TDX group.
+    """
+    codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
+    now = pendulum.now()
+    expire_at = now.add(days=int(days or 30))
+    synced_codes = []
+    skipped_holding_codes = []
+    skipped_invalid_codes = []
+    holding_codes = get_current_stock_holding_codes()
+
+    for code in codes:
+        if not _is_supported_tdx_stock_pool_code(code):
+            skipped_invalid_codes.append(code)
+            continue
+        if code in holding_codes:
+            skipped_holding_codes.append(code)
+            continue
+
+        existing = DBfreshquant["must_pool"].find_one({"code": code}) or {}
+        provenance = {
+            "sources": [source],
+            "categories": [category],
+            "memberships": [
+                {
+                    "source": source,
+                    "category": category,
+                    "added_at": now,
+                    "expire_at": expire_at,
+                    "extra": {
+                        "entrypoint": "tdx_must_pool",
+                        "file_name": filename,
+                    },
+                }
+            ],
+        }
+        must_pool.import_pool(
+            code=code,
+            category=category,
+            stop_loss_price=existing.get("stop_loss_price"),
+            initial_lot_amount=existing.get("initial_lot_amount"),
+            lot_amount=existing.get("lot_amount"),
+            forever=True,
+            provenance=provenance,
+        )
+        synced_codes.append(code)
+
+    return {
+        "file_name": filename,
+        "file_path": str(_tdx_self_select_path(tdx_home=tdx_home, filename=filename)),
+        "category": category,
+        "source": source,
+        "read_count": len(codes),
+        "unique_count": len(codes),
+        "synced_count": len(synced_codes),
+        "appended_count": len(synced_codes),
+        "skipped_holding_count": len(skipped_holding_codes),
+        "skipped_invalid_count": len(skipped_invalid_codes),
+        "synced_codes": synced_codes,
+        "appended_codes": synced_codes,
+        "skipped_holding_codes": skipped_holding_codes,
         "skipped_invalid_codes": skipped_invalid_codes,
     }
 

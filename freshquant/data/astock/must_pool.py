@@ -270,7 +270,7 @@ def remove(id=None, category=None, codes=None):
 def import_pool(
     code: str,
     category: str,
-    stop_loss_price: float,
+    stop_loss_price: float | None = None,
     initial_lot_amount: float = None,
     lot_amount: float = None,
     forever: bool = True,
@@ -282,7 +282,7 @@ def import_pool(
         code: 股票代码
         lot_amount: 每次买入金额
         category: 分类名称
-        stop_loss_price: 止损价格
+        stop_loss_price: 止损价格（可为 None，表示尚未配置）
         initial_lot_amount: 首次买入金额 (可选，默认等于lot_amount)
     """
 
@@ -292,8 +292,8 @@ def import_pool(
         lot_amount = get_trade_amount(code)
     if initial_lot_amount is None:
         initial_lot_amount = lot_amount
-    if not code or stop_loss_price is None:
-        raise ValueError("code, stop_loss_price 参数必须提供")
+    if not code:
+        raise ValueError("code 参数必须提供")
 
     # 检查是否已存在相同code和category的记录
     existing = DBfreshquant.must_pool.find_one({"code": code})

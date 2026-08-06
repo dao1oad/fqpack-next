@@ -13,3 +13,10 @@ test('stockApi sends add_to_stock_pools_by_code through params with direct CLX o
   assert.match(source, /params\.source = options\.source/)
   assert.match(source, /params\.remark = options\.remark/)
 })
+
+test('stockApi exposes must_pool TDX 待买 group sync endpoint', () => {
+  assert.match(source, /syncMustPoolFromTdxSelfSelect \(\{ days = 30 \} = \{\}\)/)
+  assert.match(source, /url: '\/api\/sync_must_pool_from_tdx_self_select'/)
+  assert.match(source, /method: 'post'/)
+  assert.match(source, /params: \{ days \}/)
+})
