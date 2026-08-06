@@ -2783,3 +2783,37 @@ def test_real_xtdata_stock_and_etf_action_fixtures():
             sample["front_reference_normalized_close"],
             abs=sample["front_tolerance"],
         )
+
+
+def test_normalize_xtdata_bars_marks_invalid_close_as_source_exclusion():
+    bars = _bars(
+        [
+            ("2026-01-02", 0.0, 0.0),
+            ("2026-01-05", 0.0, 0.0),
+            ("2026-01-06", 0.0, 0.0),
+        ]
+    )
+    with pytest.raises(qfq.QFQSyncError, match="invalid close") as caught:
+        qfq.normalize_xtdata_bars(bars, code="000004.SZ")
+    assert caught.value.stats["failure"] == "source_invalid_close"
+
+
+def test_normalize_xtdata_bars_marks_invalid_used_preclose_as_source_exclusion():
+    bars = _bars(
+        [
+            ("2026-01-02", 10.0, 0.0),
+            ("2026-01-05", 9.0, 0.0),
+            ("2026-01-06", 9.1, 9.0),
+        ]
+    )
+    with pytest.raises(qfq.QFQSyncError, match="invalid used preClose") as caught:
+        qfq.normalize_xtdata_bars(bars, code="000004.SZ")
+    assert caught.value.stats["failure"] == "source_invalid_close"
+
+
+def test_source_exclusion_reason_recognizes_invalid_close():
+    error = qfq.QFQSyncError(
+        "invalid close values for code=000004.SZ",
+        stats={"failure": "source_invalid_close"},
+    )
+    assert qfq._source_exclusion_reason(error) == "source_invalid_close"
