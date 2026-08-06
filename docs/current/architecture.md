@@ -1,5 +1,22 @@
 # 当前架构
 
+## Guardian 5 分钟首开与 1 分钟持仓路由
+
+- 正式 XTData consumer 模式为 `guardian_and_clx_15_30`；Guardian 复用同一个
+  `BarEventListener` 监听 `1min / 5min`，listener filter 使用 `sh600000 /
+  sz000001` 形式的 prefixed code，scope 与策略门禁使用 6 位 base code。
+- listener 范围为当前持仓与 enabled `must_pool` 的并集，每 30 秒刷新。1 分钟
+  事件只处理当前持仓，继续沿用既有买入、卖出与 `buy_zs_huila` 过滤语义。
+- 5 分钟事件只处理 enabled `must_pool` 中的当前非持仓标的，只接受
+  `buy_v_reverse / macd_bullish_divergence`，忽略 `buy_zs_huila` 和全部卖点；
+  入库前追加 `must_pool_5m_new_open` tag。
+- `StrategyGuardian.on_signal` 是最终交易资格门禁：带首开 tag 的买点只有在
+  `in_must_pool && !in_holding` 时进入 `_handle_new_open_buy`；普通买点只有当前
+  持仓才能进入 `_handle_holding_buy`；`SELL_SHORT` 仍只对当前持仓生效。
+- enabled `must_pool` base-code reader 的进程缓存 TTL 为 60 秒。信号顺序幂等、
+  下单冷却和活动买单门禁继续分别复用 `stock_signals` upsert、Redis cooldown
+  与 Order Management 活动单检查；CLX 15/30 分钟链保持独立。
+
 ## Guardian Grid 与三档止盈
 
 - Guardian 买入 Grid 使用三条 BUY 价格与三档累计仓位上限

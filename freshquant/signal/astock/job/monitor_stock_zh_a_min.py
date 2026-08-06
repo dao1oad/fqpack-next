@@ -5,31 +5,41 @@ from time import sleep
 import click
 from loguru import logger
 
+from freshquant.data.astock.holding import get_stock_holding_codes
 from freshquant.market_data.xtdata.pools import (
-    load_guardian_monitor_codes,
     normalize_xtdata_mode,
     xtdata_mode_enables_guardian,
 )
+from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+from freshquant.pool.general import queryMustPoolCodes
 from freshquant.runtime_constants import TZ
 from freshquant.signal.a_stock_common import save_a_stock_signal
 from freshquant.signal.astock.job.bar_event_listener import BarEventListener
 from freshquant.signal.astock.job.monitor_helpers_event import (
     calculate_guardian_signals_latest,
 )
-from freshquant.strategy.guardian import StrategyGuardian
+from freshquant.strategy.guardian import (
+    MUST_POOL_5M_NEW_OPEN_TAG,
+    StrategyGuardian,
+)
 from freshquant.system_settings import system_settings
 from freshquant.util.code import normalize_to_base_code
 from freshquant.util.period import to_backend_period, to_frontend_period
 
 strategy = StrategyGuardian()
 DISABLED_GUARDIAN_SIGNAL_TYPES = {"buy_zs_huila"}
+MUST_POOL_5M_NEW_OPEN_SIGNAL_TYPES = {
+    "buy_v_reverse",
+    "macd_bullish_divergence",
+}
 
 
 def monitor_stock_zh_a_min_event_driven() -> None:
     """
-    Mode A: Guardian-1m
+    Mode A: Guardian event monitor.
 
-    Subscribe `CHANNEL:BAR_UPDATE` and calculate Guardian signals on 1min updates.
+    Subscribe `CHANNEL:BAR_UPDATE` and calculate Guardian signals for current
+    holdings on 1-minute bars and enabled must-pool new opens on 5-minute bars.
     """
     xt_mode = normalize_xtdata_mode(system_settings.monitor.xtdata_mode)
     if not xtdata_mode_enables_guardian(xt_mode):
@@ -37,8 +47,6 @@ def monitor_stock_zh_a_min_event_driven() -> None:
             f"[Event] monitor.xtdata.mode={xt_mode}; guardian capability disabled. Exiting."
         )
         return
-
-    max_symbols = int(system_settings.monitor.xtdata_max_symbols or 50)
 
     signal_map = {
         "buy_zs_huila": "回拉中枢上涨",
@@ -57,20 +65,41 @@ def monitor_stock_zh_a_min_event_driven() -> None:
         "macd_bearish_divergence": "SELL_SHORT",
     }
 
-    filter_periods = {to_backend_period("1m")}
+    filter_periods = {
+        to_backend_period("1m"),
+        to_backend_period("5m"),
+    }
 
-    def _load_codes() -> set[str]:
-        codes = load_guardian_monitor_codes(max_symbols=max_symbols)
-        return {c.lower() for c in codes if c}
+    def _load_scope() -> dict[str, set[str]]:
+        holding_codes = {
+            normalize_to_base_code(code) for code in get_stock_holding_codes() if code
+        }
+        must_pool_codes = {
+            normalize_to_base_code(code) for code in queryMustPoolCodes() if code
+        }
+        return {
+            "holding_codes": {code for code in holding_codes if code.isdigit()},
+            "must_pool_codes": {code for code in must_pool_codes if code.isdigit()},
+        }
 
-    codes_lock = {"codes": _load_codes()}
+    def _load_codes(scope: dict[str, set[str]]) -> set[str]:
+        base_codes = (scope.get("holding_codes") or set()) | (
+            scope.get("must_pool_codes") or set()
+        )
+        return {normalize_prefixed_code(code).lower() for code in base_codes}
+
+    initial_scope = _load_scope()
+    codes_lock = {"codes": _load_codes(initial_scope)}
+    scope_lock = {"scope": initial_scope}
 
     def _refresh_codes_loop(listener: BarEventListener) -> None:
         while True:
             try:
                 sleep(30)
-                new_codes = _load_codes()
+                new_scope = _load_scope()
+                new_codes = _load_codes(new_scope)
                 old_codes = codes_lock.get("codes") or set()
+                scope_lock["scope"] = new_scope
                 if new_codes != old_codes:
                     codes_lock["codes"] = new_codes
                     listener.update_filter_codes(new_codes)
@@ -83,7 +112,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
     def on_bar_update(code: str, period_backend: str, data: dict) -> None:
         try:
             period_backend = to_backend_period(period_backend)
-            if period_backend != "1min":
+            if period_backend not in filter_periods:
                 return
 
             bar_ts = int(data.get("_bar_time") or 0)
@@ -96,13 +125,28 @@ def monitor_stock_zh_a_min_event_driven() -> None:
             if not base_code or not base_code.isdigit():
                 return
 
+            scope = scope_lock.get("scope") or {}
+            in_holding = base_code in (scope.get("holding_codes") or set())
+            in_must_pool = base_code in (scope.get("must_pool_codes") or set())
+            if period_backend == "1min" and not in_holding:
+                return
+            if period_backend == "5min" and (in_holding or not in_must_pool):
+                return
+
             signals = calculate_guardian_signals_latest(data=data, fire_time=fire_time)
             if not signals:
                 return
 
             for s in signals:
-                if s.signal_type in DISABLED_GUARDIAN_SIGNAL_TYPES:
-                    continue
+                tags = list(s.tags or [])
+                if period_backend == "1min":
+                    if s.signal_type in DISABLED_GUARDIAN_SIGNAL_TYPES:
+                        continue
+                else:
+                    if s.signal_type not in MUST_POOL_5M_NEW_OPEN_SIGNAL_TYPES:
+                        continue
+                    if MUST_POOL_5M_NEW_OPEN_TAG not in tags:
+                        tags.append(MUST_POOL_5M_NEW_OPEN_TAG)
                 save_a_stock_signal(
                     code,
                     base_code,
@@ -112,7 +156,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                     s.price,
                     s.stop_lose_price,
                     position=signal_dir_map.get(s.signal_type, ""),
-                    tags=s.tags,
+                    tags=tags,
                     strategy=strategy,
                     zsdata=data.get("zsdata"),
                     fills=None,

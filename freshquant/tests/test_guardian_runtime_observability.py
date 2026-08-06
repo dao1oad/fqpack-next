@@ -535,6 +535,7 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
     guardian = StrategyGuardian()
     guardian.runtime_logger = runtime_logger
     signal = _make_signal()
+    signal["tags"] = [guardian_module.MUST_POOL_5M_NEW_OPEN_TAG]
 
     fake_redis = FakeRedis()
     fake_redis.data["fq:xtrade:last_new_order_time"] = "2026-03-09 10:00:00"
@@ -567,6 +568,11 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
 
     guardian.on_signal(signal)
 
+    scope_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "holding_scope_resolve"
+    )
     cooldown_event = next(
         event for event in runtime_logger.events if event["node"] == "cooldown_check"
     )
@@ -574,6 +580,11 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
         event for event in runtime_logger.events if event["node"] == "finish"
     )
 
+    assert scope_event["decision_branch"] == "must_pool_5m_new_open_buy"
+    assert (
+        scope_event["decision_context"]["scope"]["has_must_pool_5m_new_open_tag"]
+        is True
+    )
     assert cooldown_event["signal_summary"]["code"] == signal["code"]
     assert (
         cooldown_event["decision_context"]["cooldown"]["key"]
@@ -586,6 +597,134 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
     assert finish_event["decision_outcome"]["outcome"] == "skip"
     assert finish_event["reason_code"] == "new_open_cooldown_active"
     assert finish_event["status"] == "skipped"
+
+
+@pytest.mark.parametrize(
+    ("tags", "holding_codes", "must_pool_codes", "branch", "reason_code"),
+    [
+        (
+            ["must_pool_5m_new_open"],
+            ["000001"],
+            ["000001"],
+            "must_pool_5m_new_open_already_holding",
+            "must_pool_5m_new_open_already_holding",
+        ),
+        (
+            ["must_pool_5m_new_open"],
+            [],
+            [],
+            "must_pool_5m_new_open_not_in_pool",
+            "must_pool_5m_new_open_not_in_pool",
+        ),
+        (
+            [],
+            [],
+            ["000001"],
+            "must_pool_5m_new_open_tag_missing",
+            "must_pool_5m_new_open_tag_missing",
+        ),
+    ],
+)
+def test_guardian_buy_scope_gate_rejects_ineligible_new_open_sources(
+    monkeypatch,
+    tags,
+    holding_codes,
+    must_pool_codes,
+    branch,
+    reason_code,
+):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    signal["period"] = "5m" if tags else "1m"
+    signal["tags"] = tags
+    handler_calls = []
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: holding_codes,
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.queryMustPoolCodes",
+        lambda: must_pool_codes,
+    )
+    monkeypatch.setattr(
+        guardian,
+        "_handle_holding_buy",
+        lambda **_kwargs: handler_calls.append("holding_buy"),
+    )
+    monkeypatch.setattr(
+        guardian,
+        "_handle_new_open_buy",
+        lambda **_kwargs: handler_calls.append("new_open_buy"),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.order_alert",
+        types.SimpleNamespace(send=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    guardian.on_signal(signal)
+
+    scope_event = next(
+        event
+        for event in runtime_logger.events
+        if event["node"] == "holding_scope_resolve"
+    )
+    finish_event = next(
+        event for event in runtime_logger.events if event["node"] == "finish"
+    )
+    assert handler_calls == []
+    assert scope_event["status"] == "skipped"
+    assert scope_event["decision_branch"] == branch
+    assert scope_event["reason_code"] == reason_code
+    assert finish_event["decision_branch"] == branch
+    assert finish_event["reason_code"] == reason_code
+    assert not any(event["node"] == "timing_check" for event in runtime_logger.events)
+
+
+def test_guardian_stale_must_pool_5m_signal_stops_at_freshness_gate(monkeypatch):
+    runtime_logger = FakeRuntimeLogger()
+    guardian = StrategyGuardian()
+    guardian.runtime_logger = runtime_logger
+    signal = _make_signal()
+    signal["period"] = "5m"
+    signal["fire_time"] = pendulum.now().subtract(minutes=31)
+    signal["tags"] = [guardian_module.MUST_POOL_5M_NEW_OPEN_TAG]
+    handler_calls = []
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes", lambda: []
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.queryMustPoolCodes", lambda: ["000001"]
+    )
+    monkeypatch.setattr(
+        guardian,
+        "_handle_new_open_buy",
+        lambda **_kwargs: handler_calls.append("new_open_buy"),
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        types.SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    guardian.on_signal(signal)
+
+    timing_event = next(
+        event for event in runtime_logger.events if event["node"] == "timing_check"
+    )
+    finish_event = next(
+        event for event in runtime_logger.events if event["node"] == "finish"
+    )
+    assert handler_calls == []
+    assert timing_event["status"] == "skipped"
+    assert timing_event["reason_code"] == "signal_too_old"
+    assert finish_event["reason_code"] == "signal_too_old"
 
 
 def test_guardian_scope_exception_emits_error_at_scope_node(monkeypatch):
@@ -694,6 +833,7 @@ def test_guardian_new_open_buy_unexpected_exception_emits_error_at_quantity_chec
     guardian = StrategyGuardian()
     guardian.runtime_logger = runtime_logger
     signal = _make_signal()
+    signal["tags"] = [guardian_module.MUST_POOL_5M_NEW_OPEN_TAG]
 
     monkeypatch.setattr(
         "freshquant.strategy.guardian.get_guardian_buy_grid_service",

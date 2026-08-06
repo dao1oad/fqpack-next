@@ -17,7 +17,7 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 
 ## 依赖
 
-- XTData consumer 推送的 1 分钟 bar 更新
+- XTData consumer 推送的 1 分钟与 5 分钟 bar 更新
 - `must_pool`
 - `xt_positions`
 - Guardian buy grid 状态
@@ -29,7 +29,12 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 
 `bar update -> calculate_guardian_signals_latest -> save_a_stock_signal -> stock_signals -> StrategyGuardian.on_signal -> buy/sell decision -> submit_guardian_order -> OrderSubmitService`
 
-当前正式 Guardian 事件链会在入口直接过滤 `buy_zs_huila`。该信号底层仍可被 `calculate_guardian_signals_latest` 计算，但不会继续写入 `stock_signals`、页面展示或 `guardian_strategy` runtime trace。
+当前正式 Guardian 事件链复用一个 `BarEventListener` 监听 `1min / 5min`，listener filter 使用 prefixed code，scope 判断与 `StrategyGuardian` 使用 base code。监听范围是当前持仓与 enabled `must_pool` 的并集，每 30 秒刷新。
+
+- 1 分钟只处理当前持仓，沿用既有 Guardian 买卖行为，不附加首开 tag。
+- 1 分钟入口继续过滤 `buy_zs_huila`。该信号底层仍可被 `calculate_guardian_signals_latest` 计算，但不会继续写入 `stock_signals`、页面展示或 `guardian_strategy` runtime trace。
+- 5 分钟只处理 enabled `must_pool` 中的当前非持仓标的，只接受 `buy_v_reverse` 与 `macd_bullish_divergence`；`buy_zs_huila` 和全部卖点直接忽略。
+- 5 分钟允许信号会在原 tags 后追加 `must_pool_5m_new_open`，再复用 `save_a_stock_signal -> StrategyGuardian.on_signal`。
 
 买入路径分为两类：
 
@@ -40,6 +45,8 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 - 若当前 symbol 缺失 execution fill，`_handle_holding_buy` 会回退到最低 open Guardian slice 作为价格基准，并按该 slice 的 `grid_interval` 推导“下一档”价格作为买入阈值；Trace 会在 `decision_context.threshold.fill_reference_source / threshold_rule_source / grid_interval` 标明来源与规则
 - must_pool 新开仓
   - `_handle_new_open_buy`
+  - 只有带 `must_pool_5m_new_open` tag、仍在 enabled `must_pool` 且当前非持仓的买点才能进入该分支
+- `StrategyGuardian.on_signal` 的最终 scope gate 会跳过：带首开 tag 但已经持仓、带首开 tag 但已经移出/禁用 `must_pool`、以及未带首开 tag 的 must-pool-only 买点
 
 卖出路径：
 
@@ -54,6 +61,7 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 Guardian 自身不维护订单账本，但依赖以下状态：
 
 - `must_pool`
+  - enabled base-code 查询使用 60 秒进程缓存 TTL
 - `xt_positions`
 - `stock_signals`
 - Guardian buy grid 集合
@@ -119,6 +127,13 @@ Guardian 会把关键判断路径写入 `guardian_strategy` runtime event，不�
 - `submit_intent`
 - `finish`
 
+首次开仓 scope 的关键 `decision_branch / reason_code` 为：
+
+- 允许首开：`decision_branch=must_pool_5m_new_open_buy`，reason 为空
+- 已经持仓：`must_pool_5m_new_open_already_holding`
+- 已移出或禁用池：`must_pool_5m_new_open_not_in_pool`
+- must-pool-only 买点缺少来源 tag：`must_pool_5m_new_open_tag_missing`
+
 `finish` 用于表达 Guardian 自身未继续提交策略单时的终止结论；成功进入下单链时，以 `submit_intent` 作为 Guardian 侧最终节点。
 
 如果 Guardian 在顶层 scope/timing 判断、buy/sell 具体分支或 `submit_intent` 后续执行中出现 unexpected exception，当前会直接在真实失败节点发 `status=error`、`reason_code=unexpected_exception` 的 runtime event，并保留 `payload.error_type/error_message`。不会再补一个兜底 `finish` 去掩盖异常出口节点。
@@ -142,7 +157,8 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 
 ### BUY_LONG 信号没有下单
 
-- 检查目标 code 是否在 `must_pool` 或 `xt_positions`
+- 普通买点检查目标 code 是否在 `xt_positions`；must-pool-only 首开检查信号是否为 5 分钟允许类型并带 `must_pool_5m_new_open`
+- 检查目标 code 当前是否仍在 enabled `must_pool`，或是否已成为持仓；对应 scope skip reason 会写入 `guardian_strategy`
 - 检查 `buy:<code>` 冷却键
 - 检查 Position Management 是否拒绝
 - 检查 `guardian_buy_grid_states`
@@ -152,6 +168,7 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 
 ### 新开仓长期不生效
 
+- 检查 `queryMustPoolCodes` 60 秒 TTL 到期后的 enabled 池结果
 - 检查 `fq:xtrade:last_new_order_time` 是否还在冷却窗口
 - 检查 buy grid 计算出的 `quantity` 是否为 0
 
