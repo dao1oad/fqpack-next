@@ -1,6 +1,12 @@
 """FreshQuant 运维控制台 S3：宿主机只读快照采集脚本。
 
-由宿主机计划任务（默认每 5 分钟）触发，只读采集：
+支持两种运行模式：
+
+- 单次（默认）：采集一次并退出（供手工/测试使用）。
+- ``--daemon``：常驻循环（默认每 5 分钟采集一次），由仓库 supervisor 托管
+  （program ``fqnext_ops_host_snapshot``），不依赖外部计划任务。
+
+只读采集：
 
 - Supervisor XML-RPC ``supervisor.getAllProcessInfo()``（程序状态表）
 - ``docker ps -a``（容器状态表）
@@ -31,6 +37,7 @@ DEFAULT_SNAPSHOT_PATH = "D:/fqpack/freshquant-2026.2.23/ops-snapshot/host-runtim
 DEFAULT_EXPECTED_SUPERVISOR = 9
 DEFAULT_EXPECTED_DOCKER = 10
 DEFAULT_COMPOSE_PROJECT = "fqnext_20260223"
+DEFAULT_INTERVAL_SECONDS = 300
 
 SUPERVISOR_RUNNING_STATE = "RUNNING"
 DOCKER_RUNNING_STATE = "running"
@@ -204,6 +211,17 @@ def main() -> int:
         description="FreshQuant 运维控制台宿主机只读快照采集（S3）"
     )
     parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="常驻循环模式（默认每 5 分钟采集一次），由 supervisor 托管",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=int(os.environ.get("FQ_OPS_SNAPSHOT_INTERVAL") or DEFAULT_INTERVAL_SECONDS),
+        help=f"daemon 模式采集间隔秒数（默认 {DEFAULT_INTERVAL_SECONDS}s）",
+    )
+    parser.add_argument(
         "--rpc-url",
         default=os.environ.get("FQ_OPS_SUPERVISOR_RPC_URL") or DEFAULT_RPC_URL,
         help="Supervisor XML-RPC 地址",
@@ -232,15 +250,32 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    snapshot = build_snapshot(
-        rpc_url=args.rpc_url,
-        expected_supervisor=args.expected_supervisor,
-        expected_docker=args.expected_docker,
-        compose_project=args.compose_project,
-    )
-    path = write_snapshot(Path(args.snapshot_path), snapshot)
-    print(json.dumps(snapshot, ensure_ascii=False, sort_keys=True))
-    print(f"snapshot written: {path}", file=os.sys.stderr)
+    interval = max(int(args.interval or DEFAULT_INTERVAL_SECONDS), 10)
+    path = Path(args.snapshot_path)
+
+    def _collect_once() -> None:
+        snapshot = build_snapshot(
+            rpc_url=args.rpc_url,
+            expected_supervisor=args.expected_supervisor,
+            expected_docker=args.expected_docker,
+            compose_project=args.compose_project,
+        )
+        write_snapshot(path, snapshot)
+        print(json.dumps(snapshot, ensure_ascii=False, sort_keys=True))
+        print(f"snapshot written: {path}", file=os.sys.stderr)
+
+    if not args.daemon:
+        _collect_once()
+        return 0
+
+    # 常驻循环：supervisor 托管，崩溃由 autorestart 拉起；单次失败不中断循环。
+    print(f"daemon mode: interval={interval}s snapshot={path}", file=os.sys.stderr)
+    while True:
+        try:
+            _collect_once()
+        except Exception as exc:  # pragma: no cover - 防御：循环不因单次失败退出
+            print(f"snapshot collect failed: {exc}", file=os.sys.stderr)
+        time.sleep(interval)
     return 0
 
 

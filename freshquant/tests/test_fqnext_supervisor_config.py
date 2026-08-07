@@ -53,6 +53,11 @@ def test_build_supervisor_config_targets_canonical_repo_root() -> None:
         "freshquant.market_data.xtdata.qfq_worker worker" in config_text
     )
     assert (
+        f"command={expected_root}/.venv/Scripts/python.exe "
+        f"{expected_root}/script/fqnext_ops_host_snapshot.py --daemon --interval 300"
+        in config_text
+    )
+    assert (
         "programs=fqnext_xtdata_adj_refresh_worker,fqnext_xtdata_qfq_worker"
         in config_text
     )
