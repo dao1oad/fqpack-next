@@ -22,6 +22,7 @@
 - 当前运行面：`docs/current/runtime.md`
 - 当前部署：`docs/current/deployment.md`
 - 当前排障：`docs/current/troubleshooting.md`
+- 生产机器访问与环境（100/116）：`docs/current/machines.md`
 
 ## 0.2.1 记忆自举
 

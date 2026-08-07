@@ -18,6 +18,7 @@
 6. [当前存储](./current/storage.md)
 7. [当前接口](./current/interfaces.md)
 8. [当前排障](./current/troubleshooting.md)
+9. [生产机器访问与环境（100/116）](./current/machines.md)
 
 ## 当前阶段最常用入口
 
