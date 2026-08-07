@@ -261,20 +261,24 @@ def main() -> int:
             compose_project=args.compose_project,
         )
         write_snapshot(path, snapshot)
-        print(json.dumps(snapshot, ensure_ascii=False, sort_keys=True))
-        print(f"snapshot written: {path}", file=os.sys.stderr)
+        print(json.dumps(snapshot, ensure_ascii=False, sort_keys=True), flush=True)
+        print(f"snapshot written: {path}", file=os.sys.stderr, flush=True)
 
     if not args.daemon:
         _collect_once()
         return 0
 
     # 常驻循环：supervisor 托管，崩溃由 autorestart 拉起；单次失败不中断循环。
-    print(f"daemon mode: interval={interval}s snapshot={path}", file=os.sys.stderr)
+    print(
+        f"daemon mode: interval={interval}s snapshot={path}",
+        file=os.sys.stderr,
+        flush=True,
+    )
     while True:
         try:
             _collect_once()
         except Exception as exc:  # pragma: no cover - 防御：循环不因单次失败退出
-            print(f"snapshot collect failed: {exc}", file=os.sys.stderr)
+            print(f"snapshot collect failed: {exc}", file=os.sys.stderr, flush=True)
         time.sleep(interval)
     return 0
 
