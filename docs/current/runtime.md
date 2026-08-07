@@ -181,6 +181,11 @@
   - `GET /api/position-review/summary`
   - `GET /api/position-review/symbols`
   - `GET /api/position-review/symbols/<symbol>`
+  - `GET /api/position-review/portfolio/summary`
+  - `GET /api/position-review/portfolio/series`
+  - `GET /api/position-review/portfolio/contributions`
+  - `GET /api/position-review/symbols/<symbol>/chart`
+  - `GET /api/position-review/events/<event_id>/conditions`
 - 历史成交标的集合包含当前仍持仓和已经清仓的标的。全局统计、标的列表、图表和订单明细使用同一套账户、标的与时间范围口径。
 - 当前交易快照来自 `xt_trades`，持久历史成交由
   `om_execution_history_archive` 补齐；订单请求、实际成交数量和持仓变化合并
@@ -191,6 +196,11 @@
 - 复盘结果使用 `PASS / FAIL / INSUFFICIENT_EVIDENCE / NOT_APPLICABLE` 四态；合规率只使用可判定的 `PASS + FAIL` 作为分母，不能把证据不足或不适用记录计入合规率。
 - 证据置信度使用 `HIGH / MEDIUM / LOW`；页面同时展示 `data_quality`，使缺失策略上下文、持仓解释或执行关联的结果不会被误读为确定结论。
 - 单标的详情统一返回摘要、图表、订单级复盘、成交时间线和数据质量信息。图表数量与订单级复盘明细必须能够回勾到相同的实际成交事实。
+- 页面一级视图固定为“组合总览 / 标的复盘”，路由 query `view=symbol` 可深链标的复盘。
+- 标的复盘主图是单一 K 线图表：颜色=买卖方向（买红/卖绿 + B/S 文字），形状=信号类型（`signal_type_registry`），边框/透明度/`!`=verdict；跨 bar fill 用同色细区间线；hover 展示订单摘要与条件完整度，点击 marker 固定订单并打开右侧证据（`/events/<id>/conditions` 懒加载完整条件与全部阈值，缺失保持 null）。
+- KlineSlim 的“交易复盘”覆盖层同样消费 `/symbols/<symbol>/chart` 只读投影并在价格层渲染 marker，不再在 K 线下方绘制策略应有量/实际成交量/连续持仓三轨附图；旧 `/timeline` 接口合同保留兼容。
+- 组合总览聚焦持仓市值、剩余成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N；权益曲线名称与 `equity_basis` 跟随证据等级（`broker_total_asset` / `credit_snapshot_reconstructed` / `estimated`），缺失区间不插值。
+- 持仓成本口径：优先 entry/slice/allocation 账本剩余成本，`fees_included=false`；证据不足时降级为成交移动加权估算并在页面与 `data_quality.cost_basis=degraded` 明示。
 - ClickHouse Trace 只用于补充可选的信号、策略门禁和运行链证据，以及跳转到 `/runtime-observability`。持仓复盘接口不依赖 ClickHouse 才能返回成交和账本结果；Trace 不可用时由证据置信度和 `data_quality` 显示降级。
 
 ## 并行环境的默认口径

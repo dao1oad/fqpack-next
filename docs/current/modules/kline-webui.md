@@ -19,6 +19,8 @@
   - `/api/tpsl/takeprofit/<symbol>`
   - `/api/tpsl/takeprofit/<symbol>/rearm`
   - `/api/position-review/symbols/<symbol>/timeline`
+  - `/api/position-review/symbols/<symbol>/chart`
+  - `/api/position-review/events/<event_id>/conditions`
   - `/api/clx-daily-selection/batches`
   - `/api/clx-daily-selection/batches/latest`
   - `/api/clx-daily-selection/batches/<batch_id>/results`
@@ -44,6 +46,13 @@
 - `KlineSlim` 只保留 entry 摘要，不在浮层内展开完整 `aggregation_members / entry_slices`；完整切片检查当前仍依赖 `subject-management` 读模型与组件文件，但独立前端路由已移除
 - 图表价格引导里的持仓参考线已经改成 `entry` 语义，对外文案是“持仓入口线”
 - 持仓股侧边栏排序与 SubjectManagement、PositionManagement 保持一致，按持仓金额从大到小排序
+- 可选“交易复盘”覆盖层消费 `/api/position-review/symbols/<symbol>/chart` 只读投影，在唯一 K 线主图价格层渲染订单 marker：
+  - 颜色只表达方向：买入红色、卖出绿色（同时带 `B` / `S` 文字）
+  - 形状只表达信号类型：由服务端 `signal_type_registry` 提供 `signal_type / signal_family / signal_label / marker_symbol`
+  - verdict 只以边框/透明度/`!` 编码：`FAIL` 深色加粗描边并显示 `!`，`INSUFFICIENT_EVIDENCE` 降透明度，`NOT_APPLICABLE` 低透明度空心
+  - marker 锚定首次成交 bar 与订单加权成交均价；跨 bar fill 用同方向颜色细区间线表示成交跨度
+  - hover 展示订单摘要、成交数量/均价/笔数、持仓前后与条件完整度；点击提示进入 `/position-review` 查看完整证据
+  - 不再在 K 线下方绘制策略应有量 / 实际成交量 / 连续持仓三轨附图；旧 `/timeline` 接口合同保留兼容
 
 ## 当前页面结构
 

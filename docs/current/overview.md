@@ -14,6 +14,7 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 - `/daily-screening?tab=clx` 是 CLX 18 模型正式工作区：在每日选股页内提供批次状态、完整筛选条件、cursor 结果列表、统计、详情、看图跳转和导入通达信；`看图` 进入 `/kline-slim` 并以所选 scope 交易日同步 K 线 `endDate`
 - `/clx-daily-screening` 只保留兼容深链并重定向到 `/daily-screening?tab=clx`，不再挂载第二套筛选页面
 - `PositionReview` 已通过顶部“持仓复盘”导航和独立 `/position-review` 路由提供只读历史交易复盘；当前持仓与已清仓标的使用同一套全量成交、策略判定和图表口径
+- `PositionReview` 已拆为“组合总览 / 标的复盘”两个一级视图：组合总览提供持仓市值、成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N，权益曲线名称跟随证据等级；标的复盘在单一 K 线主图上以颜色/形状/边框编码买卖方向、信号类型与复盘结论，点击 marker 固定订单并查看完整条件阈值证据
 - `SubjectManagement` 独立路由已移除，相关读模型与行内编辑能力已并入 `PositionManagement` 中栏“标的总览”
 - 订单账本已经切到 `broker order / execution fill / position entry / reconciliation` 主语义
 - XT 自动还款已经独立为宿主机 `xt_auto_repay.worker`，只处理普通融资负债，并通过 `/system-settings -> XTQuant` 暴露开关与留底现金

@@ -17,6 +17,20 @@ from freshquant.order_management.execution_archive import (
     build_execution_archive_key,
     build_execution_key,
 )
+from freshquant.position_review.chart_projection import (
+    build_event_conditions_payload,
+    build_holding_cycles,
+    build_order_event_contract,
+    build_position_series_from_fills,
+    build_symbol_chart_payload,
+    replay_cost_basis,
+    signal_type_registry_payload,
+)
+from freshquant.position_review.portfolio_projection import (
+    build_portfolio_contributions,
+    build_portfolio_series,
+    build_portfolio_summary,
+)
 from freshquant.position_review.replay import (
     VERDICTS,
     build_historical_sell_constraints,
@@ -258,6 +272,281 @@ class PositionReviewService:
             ),
             start_time=start_time,
             end_time=end_time,
+        )
+
+    def get_symbol_chart(
+        self,
+        symbol,
+        *,
+        period=None,
+        account_partition=None,
+        include_unfilled=False,
+        refresh=False,
+    ) -> dict[str, Any]:
+        """Return the unified K-line chart projection for one symbol.
+
+        The chart keeps the K-line bars on the existing market-data APIs and
+        only returns the order markers, cost-basis / position / pnl series,
+        holding cycles and the signal-type registry.  It never duplicates
+        bars and never fabricates signal associations.
+        """
+
+        del refresh
+        normalized_symbol = _normalize_symbol(symbol)
+        if not normalized_symbol:
+            raise ValueError("symbol not found")
+        bundle = self._load_symbol_bundle(normalized_symbol)
+        if not bundle["requests"] and not bundle["xt_trades"]:
+            raise ValueError("symbol not found")
+        detail = self._build_detail(normalized_symbol, bundle)
+        canonical_trades = list(detail.get("executions") or [])
+        partition_filter = str(account_partition or "").strip()
+        if partition_filter:
+            canonical_trades = [
+                item
+                for item in canonical_trades
+                if str(item.get("account_partition") or "unknown").strip()
+                == partition_filter
+            ]
+        summary = detail.get("summary") or {}
+        initial_position_quantity = _int(summary.get("initial_position_quantity"))
+        initial_position_source = summary.get("initial_position_source")
+        timeline = _build_order_timeline_projection(
+            symbol=normalized_symbol,
+            name=(detail.get("symbol") or {}).get("name"),
+            bundle=bundle,
+            canonical_trades=canonical_trades,
+            reviews=detail.get("reviews") or [],
+            initial_position_quantity=initial_position_quantity,
+            initial_position_source=initial_position_source,
+            start_time=None,
+            end_time=None,
+        )
+        reviews_by_request = {
+            str(review.get("request_id") or "").strip(): review
+            for review in (detail.get("reviews") or [])
+            if str(review.get("request_id") or "").strip()
+        }
+        requests_by_id = {
+            str(request.get("request_id") or "").strip(): request
+            for request in bundle["requests"]
+            if str(request.get("request_id") or "").strip()
+        }
+        runtime_items = (self._runtime_evidence(normalized_symbol) or {}).get(
+            "items"
+        ) or []
+        cost_replay = replay_cost_basis(
+            symbol=normalized_symbol,
+            canonical_trades=canonical_trades,
+            entries=bundle["entries"],
+            slices=bundle["slices"],
+            allocations=bundle["allocations"],
+            requests_by_id=requests_by_id,
+            initial_position_quantity=initial_position_quantity,
+            initial_position_source=str(initial_position_source or ""),
+        )
+        position_series = build_position_series_from_fills(
+            canonical_trades=canonical_trades,
+            initial_position_quantity=initial_position_quantity,
+            initial_position_source=str(initial_position_source or ""),
+        )
+        holding_cycles = build_holding_cycles(
+            position_series=position_series,
+            cost_basis_series=cost_replay.get("cost_basis_series") or [],
+            realized_pnl=cost_replay.get("realized_pnl") or 0.0,
+            symbol=normalized_symbol,
+        )
+        timeline_events = list(timeline.get("events") or [])
+        if not include_unfilled:
+            timeline_events = [
+                event
+                for event in timeline_events
+                if (
+                    event.get("type") == "unassociated_execution"
+                    or _int(((event.get("actual") or {}).get("filled_quantity"))) > 0
+                )
+            ]
+        data_quality = dict(detail.get("data_quality") or {})
+        data_quality["cost_basis"] = cost_replay.get("data_quality") or {}
+        payload = build_symbol_chart_payload(
+            symbol=normalized_symbol,
+            name=str((detail.get("symbol") or {}).get("name") or ""),
+            timeline_events=timeline_events,
+            canonical_trades=canonical_trades,
+            reviews_by_request=reviews_by_request,
+            requests_by_id=requests_by_id,
+            runtime_items=runtime_items,
+            cost_replay=cost_replay,
+            cost_context_by_execution=cost_replay.get("event_cost_context") or {},
+            position_series=position_series,
+            holding_cycles=holding_cycles,
+            data_quality=data_quality,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        payload["range"] = {
+            "start": None,
+            "end": None,
+            "period": str(period or "").strip() or None,
+            "account_partition": partition_filter or None,
+            "include_unfilled": bool(include_unfilled),
+        }
+        payload["signal_type_registry"] = signal_type_registry_payload()
+        return payload
+
+    def get_event_conditions(self, event_id, *, refresh=False) -> dict[str, Any]:
+        """Lazy-load the full condition evidence for one order event."""
+
+        del refresh
+        event_key = str(event_id or "").strip()
+        if not event_key:
+            raise ValueError("event not found")
+        rows, snapshot = self._get_catalog_snapshot(refresh=False)
+        del rows, snapshot
+        with self._catalog_lock:
+            cached = self._catalog_cache
+            detail_by_symbol = dict((cached or {}).get("detail_by_symbol") or {})
+        for symbol, detail in detail_by_symbol.items():
+            bundle = self._load_symbol_bundle(symbol)
+            timeline = _build_order_timeline_projection(
+                symbol=symbol,
+                name=(detail.get("symbol") or {}).get("name"),
+                bundle=bundle,
+                canonical_trades=detail.get("executions") or [],
+                reviews=detail.get("reviews") or [],
+                initial_position_quantity=(
+                    (detail.get("summary") or {}).get("initial_position_quantity")
+                ),
+                initial_position_source=(
+                    (detail.get("summary") or {}).get("initial_position_source")
+                ),
+                start_time=None,
+                end_time=None,
+            )
+            for event in timeline.get("events") or []:
+                if str(event.get("id") or "") != event_key:
+                    continue
+                request_id = str(event.get("request_id") or "").strip()
+                review = next(
+                    (
+                        item
+                        for item in (detail.get("reviews") or [])
+                        if str(item.get("request_id") or "").strip() == request_id
+                    ),
+                    None,
+                )
+                request = next(
+                    (
+                        item
+                        for item in bundle["requests"]
+                        if str(item.get("request_id") or "").strip() == request_id
+                    ),
+                    None,
+                )
+                runtime_items = (self._runtime_evidence(symbol) or {}).get(
+                    "items"
+                ) or []
+                payload = build_event_conditions_payload(
+                    review=review,
+                    request=request,
+                    runtime_items=runtime_items,
+                    side=str(event.get("side") or "").strip().lower() or None,
+                )
+                payload["event_id"] = event_key
+                payload["symbol"] = symbol
+                return payload
+        raise ValueError("event not found")
+
+    def get_portfolio_summary(self, *, refresh=False) -> dict[str, Any]:
+        detail_by_symbol, cost_by_symbol, position_by_symbol, xt_assets, _ = (
+            self._build_portfolio_inputs(refresh=bool(refresh))
+        )
+        return build_portfolio_summary(
+            catalog_rows=list(detail_by_symbol),
+            detail_by_symbol=detail_by_symbol,
+            cost_by_symbol=cost_by_symbol,
+            position_by_symbol=position_by_symbol,
+            xt_assets=xt_assets,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def get_portfolio_series(self, *, refresh=False) -> dict[str, Any]:
+        _, _, _, xt_assets, credit_snapshots = self._build_portfolio_inputs(
+            refresh=bool(refresh)
+        )
+        return build_portfolio_series(
+            xt_assets=xt_assets,
+            credit_snapshots=credit_snapshots,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def get_portfolio_contributions(self, *, refresh=False, top_n=10) -> dict[str, Any]:
+        detail_by_symbol, cost_by_symbol, position_by_symbol, _, _ = (
+            self._build_portfolio_inputs(refresh=bool(refresh))
+        )
+        return build_portfolio_contributions(
+            detail_by_symbol=detail_by_symbol,
+            cost_by_symbol=cost_by_symbol,
+            position_by_symbol=position_by_symbol,
+            top_n=top_n,
+        )
+
+    def _build_portfolio_inputs(self, *, refresh):
+        """Build portfolio-level inputs in one read-only pass."""
+
+        del refresh
+        catalog_bundles = None
+        if hasattr(self.repository, "load_catalog_bundles"):
+            catalog_bundles = self.repository.load_catalog_bundles()
+        if catalog_bundles is None:
+            return {}, {}, {}, [], []
+        runtime_catalog = self._runtime_catalog_evidence()
+        positions = {}
+        for item in self.repository.list_xt_positions():
+            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+            if symbol:
+                positions[symbol] = item
+        detail_by_symbol: dict[str, Any] = {}
+        cost_by_symbol: dict[str, Any] = {}
+        for symbol in sorted(catalog_bundles):
+            bundle = _prepare_symbol_bundle(catalog_bundles[symbol])
+            if not bundle["requests"] and not bundle["xt_trades"]:
+                continue
+            runtime_result = _runtime_result_for_symbol(runtime_catalog, symbol)
+            detail = self._build_detail(
+                symbol,
+                bundle,
+                runtime_result=runtime_result,
+            )
+            canonical_trades = list(detail.get("executions") or [])
+            requests_by_id = {
+                str(request.get("request_id") or "").strip(): request
+                for request in bundle["requests"]
+                if str(request.get("request_id") or "").strip()
+            }
+            cost_replay = replay_cost_basis(
+                symbol=symbol,
+                canonical_trades=canonical_trades,
+                entries=bundle["entries"],
+                slices=bundle["slices"],
+                allocations=bundle["allocations"],
+                requests_by_id=requests_by_id,
+                initial_position_quantity=_int(
+                    (detail.get("summary") or {}).get("initial_position_quantity")
+                ),
+                initial_position_source=(
+                    (detail.get("summary") or {}).get("initial_position_source")
+                ),
+            )
+            detail_by_symbol[symbol] = detail
+            cost_by_symbol[symbol] = cost_replay
+        xt_assets = self.repository.list_xt_assets()
+        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=20_000)
+        return (
+            detail_by_symbol,
+            cost_by_symbol,
+            positions,
+            xt_assets,
+            credit_snapshots,
         )
 
     def _get_catalog_snapshot(self, *, refresh):

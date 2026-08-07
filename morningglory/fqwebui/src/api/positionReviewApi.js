@@ -40,4 +40,44 @@ export const positionReviewApi = {
       params: compactParams(params),
     })
   },
+
+  getSymbolChart (symbol, params = {}) {
+    return http({
+      url: `/api/position-review/symbols/${encodeURIComponent(toText(symbol))}/chart`,
+      method: 'get',
+      params: compactParams(params),
+    })
+  },
+
+  getEventConditions (eventId, params = {}) {
+    return http({
+      url: `/api/position-review/events/${encodeURIComponent(toText(eventId))}/conditions`,
+      method: 'get',
+      params: compactParams(params),
+    })
+  },
+
+  getPortfolioSummary (params = {}) {
+    return http({
+      url: '/api/position-review/portfolio/summary',
+      method: 'get',
+      params: compactParams(params),
+    })
+  },
+
+  getPortfolioSeries (params = {}) {
+    return http({
+      url: '/api/position-review/portfolio/series',
+      method: 'get',
+      params: compactParams(params),
+    })
+  },
+
+  getPortfolioContributions (params = {}) {
+    return http({
+      url: '/api/position-review/portfolio/contributions',
+      method: 'get',
+      params: compactParams(params),
+    })
+  },
 }

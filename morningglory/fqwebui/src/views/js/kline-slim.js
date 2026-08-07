@@ -368,6 +368,7 @@ export default {
       showOrderReview: false,
       orderReviewLegendSelected: buildOrderReviewLegendSelectionState(),
       orderReviewTimeline: null,
+      orderReviewChart: null,
       orderReviewLoading: false,
       orderReviewError: '',
       orderReviewRequestId: 0,
@@ -628,7 +629,7 @@ export default {
           message: '交易复盘加载中',
         }
       }
-      if (!normalizeOrderReviewTimeline(this.orderReviewTimeline || {}).hasData) {
+      if (!Array.isArray(this.orderReviewChart?.order_events) || !this.orderReviewChart.order_events.length) {
         return {
           kind: 'empty',
           message: '当前时间窗暂无订单复盘数据',
@@ -1178,6 +1179,7 @@ export default {
     resetOrderReviewState() {
       this.orderReviewRequestId += 1
       this.orderReviewTimeline = null
+      this.orderReviewChart = null
       this.orderReviewLoading = false
       this.orderReviewError = ''
       this.orderReviewRequestKey = ''
@@ -1199,28 +1201,21 @@ export default {
     },
     getOrderReviewTimelineParams() {
       return buildOrderReviewTimelineParams({
-        mainData: this.mainData,
         period: this.currentPeriod,
       })
     },
     getOrderReviewTimelineKey() {
-      if (!this.routeSymbol || !this.mainData) return ''
-      const params = this.getOrderReviewTimelineParams()
-      return [
-        this.routeSymbol,
-        this.currentPeriod,
-        params.start || '',
-        params.end || '',
-      ].join('__')
+      if (!this.routeSymbol) return ''
+      return [this.routeSymbol, this.currentPeriod].join('__')
     },
     async loadOrderReviewTimeline({ force = false } = {}) {
-      if (!this.showOrderReview || !this.routeSymbol || !this.mainData) {
+      if (!this.showOrderReview || !this.routeSymbol) {
         return null
       }
       const requestKey = this.getOrderReviewTimelineKey()
       if (!requestKey) return null
-      if (!force && this.orderReviewTimeline && this.orderReviewLoadedKey === requestKey) {
-        return this.orderReviewTimeline
+      if (!force && this.orderReviewChart && this.orderReviewLoadedKey === requestKey) {
+        return this.orderReviewChart
       }
       if (
         this.orderReviewLoading &&
@@ -1236,12 +1231,13 @@ export default {
       this.orderReviewRequestKey = requestKey
       this.orderReviewError = ''
       this.orderReviewTimeline = null
+      this.orderReviewChart = null
       this.orderReviewLoadedKey = ''
       this.orderReviewVersion += 1
       this.scheduleRender()
       try {
         const params = this.getOrderReviewTimelineParams()
-        const payload = await positionReviewApi.getSymbolTimeline(this.routeSymbol, params)
+        const payload = await positionReviewApi.getSymbolChart(this.routeSymbol, params)
         if (
           requestId !== this.orderReviewRequestId ||
           routeToken !== this.routeToken ||
@@ -1249,11 +1245,11 @@ export default {
         ) {
           return null
         }
-        this.orderReviewTimeline = payload || null
+        this.orderReviewChart = payload || null
         this.orderReviewLoadedKey = requestKey
         this.orderReviewVersion += 1
         this.scheduleRender()
-        return this.orderReviewTimeline
+        return this.orderReviewChart
       } catch (error) {
         if (
           requestId !== this.orderReviewRequestId ||
@@ -1262,7 +1258,7 @@ export default {
         ) {
           return null
         }
-        this.orderReviewTimeline = null
+        this.orderReviewChart = null
         this.orderReviewLoadedKey = ''
         this.orderReviewError = Number(error?.response?.status) === 404
           ? '订单级复盘服务未部署'

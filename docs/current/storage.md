@@ -223,6 +223,13 @@
   - 同一账户内按成交六元身份去重，不同已知账户分区保留为不同成交
   - 无账户 OM 证据只在唯一账户匹配时归并；多账户候选保持歧义证据，
     不额外制造第三笔 canonical execution
+  - 组合总览与权益曲线新增只读读取：
+    - `xt_assets`（券商总资产快照，`broker_total_asset` 口径）
+    - `pm_credit_asset_snapshots`（信用资产快照，按分钟聚合为
+      `credit_snapshot_reconstructed` 估算权益，缺失区间不插值）
+  - 成本口径读取 `om_position_entries / om_entry_slices / om_exit_allocations`
+    重建剩余成本；证据不足时回退成交移动加权估算并标记
+    `cost_basis_source=estimated_moving_average`、`data_quality.cost_basis=degraded`
 - `ClxDailySelectionService.plan_partition / execute_partition`
   - 只读本资产 ready marker，写本侧 `partition_attempts`
   - 使用 scheduled/running/committing owner-token claim lease 和 compare-and-set；过期 attempt 标为 `claim_expired` 后只重派本侧

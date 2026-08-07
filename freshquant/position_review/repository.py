@@ -297,6 +297,30 @@ class PositionReviewRepository:
             .sort("evaluated_at", 1)
         )
 
+    def list_xt_assets(self) -> list[dict[str, Any]]:
+        """Read-only broker total-asset snapshots (current and historical)."""
+
+        return _documents(
+            self.business_database["xt_assets"].find({}).sort("updated_at", 1)
+        )
+
+    def list_credit_asset_snapshots(
+        self,
+        *,
+        limit: int = 20_000,
+    ) -> list[dict[str, Any]]:
+        """Read-only credit/asset snapshot series for equity reconstruction."""
+
+        collection = _optional_collection(
+            self.position_database,
+            "pm_credit_asset_snapshots",
+        )
+        if collection is None:
+            return []
+        return _documents(
+            collection.find({}).sort("queried_at", 1).limit(max(int(limit or 0), 0))
+        )
+
     def load_catalog_bundles(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
         """Read every catalog collection once and group the snapshot in memory."""
 
