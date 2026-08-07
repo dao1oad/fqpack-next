@@ -8,6 +8,10 @@ from math import floor
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from freshquant.order_management.guardian.slice_evaluation import (
+    evaluate_guardian_sell_slices,
+)
+
 _BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 VERDICTS = (
     "PASS",
@@ -521,6 +525,10 @@ def _threshold_candidates(evidence, guardian_price):
                     "threshold_price": round(guardian_price * ratio, 4),
                     "ratio": ratio,
                     "delta": None,
+                    "config": {
+                        "mode": "percent",
+                        "percent": round((ratio - 1) * 100, 4),
+                    },
                 }
             )
         return candidates
@@ -532,6 +540,7 @@ def _threshold_candidates(evidence, guardian_price):
                     "threshold_price": round(guardian_price + delta, 4),
                     "ratio": None,
                     "delta": delta,
+                    "config": {"mode": "atr", "threshold_delta": delta},
                 }
             )
         return candidates
@@ -545,12 +554,17 @@ def _threshold_candidates(evidence, guardian_price):
                     "threshold_price": round(guardian_price * ratio, 4),
                     "ratio": ratio,
                     "delta": None,
+                    "config": {
+                        "mode": "percent",
+                        "percent": round((ratio - 1) * 100, 4),
+                    },
                 },
                 {
                     "mode": "atr",
                     "threshold_price": round(guardian_price + delta, 4),
                     "ratio": None,
                     "delta": delta,
+                    "config": {"mode": "atr", "threshold_delta": delta},
                 },
             ]
         )
@@ -577,18 +591,6 @@ def _threshold_mode(value):
     if normalized in {"atr", "absolute", "delta", "fixed"}:
         return "atr"
     return None
-
-
-def _raw_sell_quantity(active, *, signal_price, threshold_price):
-    raw_quantity = 0
-    threshold_met = signal_price >= threshold_price
-    if threshold_met:
-        for item in active:
-            if signal_price <= item["guardian_price"]:
-                break
-            raw_quantity += item["remaining_quantity"]
-        raw_quantity = floor(raw_quantity / 100) * 100
-    return int(raw_quantity), threshold_met
 
 
 def _review_guardian_sell(
@@ -620,13 +622,16 @@ def _review_guardian_sell(
         reason_codes.append("historical_threshold_unavailable")
         return "INSUFFICIENT_EVIDENCE"
     for candidate in candidates:
-        raw_quantity, met = _raw_sell_quantity(
+        evaluation = evaluate_guardian_sell_slices(
             active,
             signal_price=signal_price,
-            threshold_price=candidate["threshold_price"],
+            threshold_config=candidate.get("config"),
         )
+        raw_quantity = int(evaluation["raw_quantity"] or 0)
+        met = raw_quantity > 0
         candidate["raw_quantity"] = raw_quantity
         candidate["threshold_met"] = met
+        candidate["threshold_evidence"] = evaluation["threshold_evidence"]
     candidate_quantities = {int(item["raw_quantity"]) for item in candidates}
     if len(candidate_quantities) > 1:
         expected.update(
@@ -732,9 +737,10 @@ def _review_guardian_sell(
             "threshold_delta": _round_or_none(normalized_threshold.get("delta")),
             "threshold_mode": threshold_mode,
             "threshold_candidates": candidates,
+            "per_slice_thresholds": list(selected.get("threshold_evidence") or []),
             "formula": (
-                "price >= replayed percent/ATR historical threshold; "
-                "sum contiguous profitable slices; floor to board lot"
+                "per-slice price >= replayed percent/ATR threshold; "
+                "sum slices meeting their own threshold; floor to board lot"
             ),
         }
     )

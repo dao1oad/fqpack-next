@@ -2,6 +2,7 @@
 
 import runpy
 import sys
+import time
 import types
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -102,7 +103,7 @@ def test_worker_run_once_calls_sync_service_without_credit_subjects_by_default()
     ]
 
 
-def test_worker_run_once_logs_when_positions_snapshot_is_quarantined(
+def test_worker_run_once_logs_when_positions_snapshot_is_empty_guarded(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from freshquant.xt_account_sync import worker as worker_module
@@ -110,8 +111,8 @@ def test_worker_run_once_logs_when_positions_snapshot_is_quarantined(
     service = FakeSyncService(
         result={
             "positions": {
-                "quarantined": True,
-                "reason": "empty_snapshot_with_positive_market_value",
+                "empty_snapshot_guard": True,
+                "deleted_missing": [],
             }
         }
     )
@@ -125,7 +126,7 @@ def test_worker_run_once_logs_when_positions_snapshot_is_quarantined(
     worker_module.run_once(service=service)
 
     assert warnings == [
-        "xt_account_sync positions snapshot quarantined: empty_snapshot_with_positive_market_value"
+        "xt_account_sync empty snapshot guarded; kept existing positions"
     ]
 
 
@@ -573,24 +574,17 @@ def test_build_default_sync_service_filters_replayed_orders_and_trades_by_cursor
     ]
 
 
-def test_build_default_sync_positions_quarantines_empty_snapshot_with_positive_market_value(
+def test_build_default_sync_positions_skips_reconcile_on_empty_snapshot_guard(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from freshquant.xt_account_sync.service import XtAccountSyncService
 
     class FakeQueryClient:
         account_id = "acct-sync"
-        account_type = "CREDIT"
+        account_type = "STOCK"
 
         def query_stock_positions(self):
             return []
-
-    class FakePositionRepository:
-        def get_latest_snapshot(self):
-            return {
-                "account_id": "acct-sync",
-                "market_value": 128000.0,
-            }
 
     class FakePositionsCollection:
         def find(self, query):
@@ -601,6 +595,7 @@ def test_build_default_sync_positions_quarantines_empty_snapshot_with_positive_m
                     "stock_code": "512600.SH",
                     "volume": 4700,
                     "avg_price": 1.02,
+                    "sync_missing_count": 0,
                 }
             ]
 
@@ -609,7 +604,13 @@ def test_build_default_sync_positions_quarantines_empty_snapshot_with_positive_m
 
     def _capture_persist(*args, **kwargs):
         persist_calls.append((args, kwargs))
-        return {"count": 0, "account_id": "acct-sync"}
+        return {
+            "count": 0,
+            "account_id": "acct-sync",
+            "empty_snapshot_guard": True,
+            "deleted_missing": [],
+            "cleared_zero_volume": [],
+        }
 
     def _capture_reconcile(*args, **kwargs):
         reconcile_calls.append((args, kwargs))
@@ -622,47 +623,37 @@ def test_build_default_sync_positions_quarantines_empty_snapshot_with_positive_m
 
     service = XtAccountSyncService.build_default(
         client=FakeQueryClient(),
-        position_repository=FakePositionRepository(),
         reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
     )
 
     result = service.sync_positions()
 
-    assert result["quarantined"] is True
-    assert result["reason"] == "empty_snapshot_with_positive_market_value"
-    assert result["previous_summary"]["symbol_count"] == 1
-    assert result["current_summary"]["symbol_count"] == 0
-    assert result["latest_credit_market_value"] == 128000.0
-    assert persist_calls == []
+    assert result["empty_snapshot_guard"] is True
+    assert result["reconcile_skipped"] is True
+    assert result["reconcile"] is None
+    assert len(persist_calls) == 1
     assert reconcile_calls == []
 
 
-def test_build_default_sync_positions_quarantines_severely_shrunk_snapshot_when_credit_market_value_stays_high(
+def test_build_default_sync_positions_passes_effective_view_with_hysteresis_retained_symbol(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from freshquant.xt_account_sync.service import XtAccountSyncService
 
     class FakeQueryClient:
         account_id = "acct-sync"
-        account_type = "CREDIT"
+        account_type = "STOCK"
 
         def query_stock_positions(self):
             return [
                 {
                     "account_id": "acct-sync",
                     "stock_code": "300760.SZ",
-                    "volume": 100,
-                    "avg_price": 10.0,
+                    "volume": 900,
+                    "avg_price": 170.0,
                 }
             ]
-
-    class FakePositionRepository:
-        def get_latest_snapshot(self):
-            return {
-                "account_id": "acct-sync",
-                "market_value": 98000.0,
-            }
 
     class FakePositionsCollection:
         def find(self, query):
@@ -673,24 +664,92 @@ def test_build_default_sync_positions_quarantines_severely_shrunk_snapshot_when_
                     "stock_code": "300760.SZ",
                     "volume": 900,
                     "avg_price": 170.0,
+                    "sync_missing_count": 0,
                 },
                 {
                     "account_id": "acct-sync",
-                    "stock_code": "600570.SH",
-                    "volume": 800,
-                    "avg_price": 25.0,
+                    "stock_code": "600271.SH",
+                    "volume": 78100,
+                    "avg_price": 8.7,
+                    "sync_missing_count": 5,
+                },
+            ]
+
+    persist_calls = []
+    reconcile_calls = []
+
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {
+            "count": 1,
+            "account_id": "acct-sync",
+            "empty_snapshot_guard": False,
+            "deleted_missing": [],
+            "cleared_zero_volume": [],
+        }
+
+    def _capture_reconcile(account_id, **kwargs):
+        reconcile_calls.append((account_id, kwargs))
+        return {"confirmed_candidates": []}
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
+        positions_collection=FakePositionsCollection(),
+    )
+
+    result = service.sync_positions()
+
+    assert result["reconcile_skipped"] is False
+    assert len(reconcile_calls) == 1
+    reconcile_account_id, reconcile_kwargs = reconcile_calls[0]
+    assert reconcile_account_id == "acct-sync"
+    effective = reconcile_kwargs["positions"]
+    effective_codes = {doc["stock_code"] for doc in effective}
+    # 滞回期内的缺失标的（sync_missing_count=5 < 20）必须保留在有效视图中
+    assert "600271.SH" in effective_codes
+    assert "300760.SZ" in effective_codes
+
+
+def test_build_default_sync_positions_excludes_cleared_zero_volume_from_effective_view(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "STOCK"
+
+        def query_stock_positions(self):
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "600271.SH",
+                    "volume": 0,
+                }
+            ]
+
+    class FakePositionsCollection:
+        def find(self, query):
+            assert query == {"account_id": "acct-sync"}
+            return [
+                {
+                    "account_id": "acct-sync",
+                    "stock_code": "600271.SH",
+                    "volume": 0,
+                    "sync_missing_count": 0,
                 },
                 {
                     "account_id": "acct-sync",
                     "stock_code": "512600.SH",
                     "volume": 4700,
                     "avg_price": 1.0,
-                },
-                {
-                    "account_id": "acct-sync",
-                    "stock_code": "603919.SH",
-                    "volume": 2800,
-                    "avg_price": 18.0,
+                    "sync_missing_count": 0,
                 },
             ]
 
@@ -699,84 +758,17 @@ def test_build_default_sync_positions_quarantines_severely_shrunk_snapshot_when_
 
     def _capture_persist(*args, **kwargs):
         persist_calls.append((args, kwargs))
-        return {"count": 1, "account_id": "acct-sync"}
+        return {
+            "count": 1,
+            "account_id": "acct-sync",
+            "empty_snapshot_guard": False,
+            "deleted_missing": [],
+            "cleared_zero_volume": ["600271.SH"],
+        }
 
-    def _capture_reconcile(*args, **kwargs):
-        reconcile_calls.append((args, kwargs))
-        return None
-
-    monkeypatch.setattr(
-        "freshquant.xt_account_sync.service.persist_positions",
-        _capture_persist,
-    )
-
-    service = XtAccountSyncService.build_default(
-        client=FakeQueryClient(),
-        position_repository=FakePositionRepository(),
-        reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
-        positions_collection=FakePositionsCollection(),
-    )
-
-    result = service.sync_positions()
-
-    assert result["quarantined"] is True
-    assert result["reason"] == "shrunk_snapshot_with_positive_market_value"
-    assert result["previous_summary"]["symbol_count"] == 4
-    assert result["current_summary"]["symbol_count"] == 1
-    assert result["current_summary"]["estimated_market_value"] == 1000.0
-    assert result["latest_credit_market_value"] == 98000.0
-    assert persist_calls == []
-    assert reconcile_calls == []
-
-
-def test_build_default_sync_positions_quarantines_small_account_severe_shrink_when_credit_market_value_stays_high(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from freshquant.xt_account_sync.service import XtAccountSyncService
-
-    class FakeQueryClient:
-        account_id = "acct-sync"
-        account_type = "CREDIT"
-
-        def query_stock_positions(self):
-            return [
-                {
-                    "account_id": "acct-sync",
-                    "stock_code": "300760.SZ",
-                    "volume": 100,
-                    "avg_price": 170.0,
-                }
-            ]
-
-    class FakePositionRepository:
-        def get_latest_snapshot(self):
-            return {
-                "account_id": "acct-sync",
-                "market_value": 153000.0,
-            }
-
-    class FakePositionsCollection:
-        def find(self, query):
-            assert query == {"account_id": "acct-sync"}
-            return [
-                {
-                    "account_id": "acct-sync",
-                    "stock_code": "300760.SZ",
-                    "volume": 900,
-                    "avg_price": 170.0,
-                }
-            ]
-
-    persist_calls = []
-    reconcile_calls = []
-
-    def _capture_persist(*args, **kwargs):
-        persist_calls.append((args, kwargs))
-        return {"count": 1, "account_id": "acct-sync"}
-
-    def _capture_reconcile(*args, **kwargs):
-        reconcile_calls.append((args, kwargs))
-        return None
+    def _capture_reconcile(account_id, **kwargs):
+        reconcile_calls.append((account_id, kwargs))
+        return {"confirmed_candidates": []}
 
     monkeypatch.setattr(
         "freshquant.xt_account_sync.service.persist_positions",
@@ -785,43 +777,31 @@ def test_build_default_sync_positions_quarantines_small_account_severe_shrink_wh
 
     service = XtAccountSyncService.build_default(
         client=FakeQueryClient(),
-        position_repository=FakePositionRepository(),
         reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
     )
 
     result = service.sync_positions()
 
-    assert result["quarantined"] is True
-    assert (
-        result["reason"] == "small_account_shrunk_snapshot_with_positive_market_value"
-    )
-    assert result["previous_summary"]["symbol_count"] == 1
-    assert result["current_summary"]["symbol_count"] == 1
-    assert result["current_summary"]["total_volume"] == 100
-    assert result["latest_credit_market_value"] == 153000.0
-    assert persist_calls == []
-    assert reconcile_calls == []
+    assert result["reconcile_skipped"] is False
+    assert len(reconcile_calls) == 1
+    effective = reconcile_calls[0][1]["positions"]
+    effective_codes = {doc["stock_code"] for doc in effective}
+    assert "600271.SH" not in effective_codes
+    assert "512600.SH" in effective_codes
 
 
-def test_build_default_sync_positions_allows_empty_snapshot_when_credit_market_value_is_flat(
+def test_build_default_sync_positions_uses_effective_view_from_persisted_collection(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from freshquant.xt_account_sync.service import XtAccountSyncService
 
     class FakeQueryClient:
         account_id = "acct-sync"
-        account_type = "CREDIT"
+        account_type = "STOCK"
 
         def query_stock_positions(self):
             return []
-
-    class FakePositionRepository:
-        def get_latest_snapshot(self):
-            return {
-                "account_id": "acct-sync",
-                "market_value": 0.0,
-            }
 
     class FakePositionsCollection:
         def find(self, query):
@@ -832,6 +812,8 @@ def test_build_default_sync_positions_allows_empty_snapshot_when_credit_market_v
                     "stock_code": "512600.SH",
                     "volume": 4700,
                     "avg_price": 1.02,
+                    "sync_missing_count": 0,
+                    "sync_last_seen_at": 100,
                 }
             ]
 
@@ -840,7 +822,13 @@ def test_build_default_sync_positions_allows_empty_snapshot_when_credit_market_v
 
     def _capture_persist(positions, **kwargs):
         persist_calls.append((positions, kwargs))
-        return {"count": 0, "account_id": "acct-sync"}
+        return {
+            "count": 0,
+            "account_id": "acct-sync",
+            "empty_snapshot_guard": False,
+            "deleted_missing": [],
+            "cleared_zero_volume": [],
+        }
 
     def _capture_reconcile(*args, **kwargs):
         reconcile_calls.append((args, kwargs))
@@ -853,7 +841,6 @@ def test_build_default_sync_positions_allows_empty_snapshot_when_credit_market_v
 
     service = XtAccountSyncService.build_default(
         client=FakeQueryClient(),
-        position_repository=FakePositionRepository(),
         reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
     )
@@ -863,10 +850,11 @@ def test_build_default_sync_positions_allows_empty_snapshot_when_credit_market_v
     assert result["count"] == 0
     assert result["account_id"] == "acct-sync"
     assert result["reconcile"] == {"confirmed_candidates": []}
-    assert "quarantined" not in result
+    assert result["reconcile_skipped"] is False
     assert len(persist_calls) == 1
-    assert persist_calls[0][0] == []
     assert len(reconcile_calls) == 1
+    effective = reconcile_calls[0][1]["positions"]
+    assert [doc["stock_code"] for doc in effective] == ["512600.SH"]
 
 
 def test_persist_positions_clears_only_current_account_and_invalidates_holdings():
@@ -897,8 +885,20 @@ def test_persist_positions_clears_only_current_account_and_invalidates_holdings(
     class FakeCollection:
         def __init__(self):
             self.docs = [
-                {"account_id": "acct-a", "stock_code": "600000.SH", "volume": 10},
-                {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 20},
+                {
+                    "account_id": "acct-a",
+                    "stock_code": "600000.SH",
+                    "volume": 10,
+                    "sync_missing_count": 0,
+                    "sync_last_seen_at": int(time.time()),
+                },
+                {
+                    "account_id": "acct-a",
+                    "stock_code": "600570.SH",
+                    "volume": 20,
+                    "sync_missing_count": 0,
+                    "sync_last_seen_at": int(time.time()),
+                },
                 {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
             ]
 
@@ -922,22 +922,32 @@ def test_persist_positions_clears_only_current_account_and_invalidates_holdings(
 
         def delete_many(self, query):
             account_id = query.get("account_id")
-            stock_filter = query.get("stock_code")
-            if isinstance(stock_filter, dict) and "$nin" in stock_filter:
-                excluded = set(stock_filter["$nin"])
-                self.docs = [
-                    document
-                    for document in self.docs
-                    if document.get("account_id") != account_id
-                    or document.get("stock_code") in excluded
-                ]
-            else:
-                self.docs = [
-                    document
-                    for document in self.docs
-                    if document.get("account_id") != account_id
-                ]
-            return None
+            stock_code = query.get("stock_code")
+            self.docs = [
+                document
+                for document in self.docs
+                if not (
+                    document.get("account_id") == account_id
+                    and (stock_code is None or document.get("stock_code") == stock_code)
+                )
+            ]
+            return 0
+
+        def update_one(self, query, update):
+            for document in self.docs:
+                if all(document.get(key) == value for key, value in query.items()):
+                    if "$inc" in update:
+                        for key, value in update["$inc"].items():
+                            document[key] = int(document.get(key) or 0) + value
+                    return 1
+            return 0
+
+        def find(self, query):
+            return [
+                dict(document)
+                for document in self.docs
+                if all(document.get(key) == value for key, value in query.items())
+            ]
 
     invalidation_calls = []
     collection = FakeCollection()
@@ -954,11 +964,20 @@ def test_persist_positions_clears_only_current_account_and_invalidates_holdings(
 
     assert result["count"] == 2
     assert invalidation_calls == ["bumped"]
-    assert collection.docs == [
-        {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 200},
-        {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
-        {"account_id": "acct-a", "stock_code": "688111.SH", "volume": 300},
+    # 600000.SH 不在本次快照，滞回首轮缺失计数=1，保留不删除
+    kept_600000 = [d for d in collection.docs if d.get("stock_code") == "600000.SH"][0]
+    assert kept_600000["sync_missing_count"] == 1
+    assert {d["stock_code"] for d in collection.docs} == {
+        "600570.SH",
+        "600000.SH",
+        "000001.SZ",
+        "688111.SH",
+    }
+    updated_600570 = [d for d in collection.docs if d.get("stock_code") == "600570.SH"][
+        0
     ]
+    assert updated_600570["volume"] == 200
+    assert updated_600570["sync_missing_count"] == 0
 
 
 def test_persist_positions_deletes_current_account_when_snapshot_is_empty():
@@ -967,7 +986,13 @@ def test_persist_positions_deletes_current_account_when_snapshot_is_empty():
     class FakeCollection:
         def __init__(self):
             self.docs = [
-                {"account_id": "acct-a", "stock_code": "600570.SH", "volume": 20},
+                {
+                    "account_id": "acct-a",
+                    "stock_code": "600570.SH",
+                    "volume": 20,
+                    "sync_missing_count": 0,
+                    "sync_last_seen_at": 1,
+                },
                 {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
             ]
 
@@ -986,7 +1011,17 @@ def test_persist_positions_deletes_current_account_when_snapshot_is_empty():
                 for document in self.docs
                 if document.get("account_id") != account_id
             ]
-            return None
+            return 0
+
+        def update_one(self, query, update):
+            return 0
+
+        def find(self, query):
+            return [
+                dict(document)
+                for document in self.docs
+                if all(document.get(key) == value for key, value in query.items())
+            ]
 
     invalidation_calls = []
     collection = FakeCollection()
@@ -998,9 +1033,18 @@ def test_persist_positions_deletes_current_account_when_snapshot_is_empty():
         invalidator=lambda: invalidation_calls.append("bumped"),
     )
 
+    # 空快照守卫：保留 acct-a 存量，不删除
     assert result["count"] == 0
+    assert result["empty_snapshot_guard"] is True
     assert invalidation_calls == ["bumped"]
     assert collection.docs == [
+        {
+            "account_id": "acct-a",
+            "stock_code": "600570.SH",
+            "volume": 20,
+            "sync_missing_count": 0,
+            "sync_last_seen_at": 1,
+        },
         {"account_id": "acct-b", "stock_code": "000001.SZ", "volume": 30},
     ]
 

@@ -29,6 +29,7 @@
   - `python -m freshquant.cli stock.fill rebuild --code <symbol>`
   - `python -m freshquant.cli stock.fill rebuild --all`
   - `python -m freshquant.cli stock.fill compare --code <symbol>`
+  - `python -m freshquant.cli guardian.sell simulate --code <symbol> --signal-price <price>`
 - 核心服务
   - `freshquant.order_management.submit.service.OrderSubmitService`
   - `freshquant.order_management.read_service.OrderManagementReadService`
@@ -120,16 +121,24 @@ sleep、不重新入队，也不自动重复提交相同券商委托。
 
 Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起写入 `om_order_requests.strategy_context.guardian_sell_sources`：
 
-- `requested_quantity / submit_quantity`
-- `profitable_fill_count`
+- `version = 2`
+- `requested_quantity / submit_quantity / profitable_fill_count`
+- `slices[] = { entry_id, entry_slice_id, quantity, guardian_price, threshold_price }`
+  - 精确执行合同：每个来源 slice 一行，携带 `entry_slice_id`，只包含达到独立
+    止盈阈值的 slice
 - `entries[] = { entry_id, quantity }`
+  - 按 entry 聚合后的唯一行（同一 `entry_id` 只出现一次），供旧读链/复盘使用
+- 守恒：`sum(slices.quantity) == sum(entries.quantity) == submit_quantity`
 
 这组来源入口语义当前同时用于两条卖出落账链：
 
-- XT `trade` 回报正常进入 ingest 时，sell fill 优先按这组来源入口做 `exit_allocation`
+- XT `trade` 回报正常进入 ingest 时，sell fill 按请求级剩余来源预算做 `exit_allocation`
 - XT `trade` 回报缺失、系统只能退回 `xt_positions delta` 自动平账时，sell gap 也优先按这组来源入口扣减
 
 这样“本次卖出实际是按哪些买入入口算出来的”会在正常成交链和差额收敛链保持同一套 entry 语义。
+
+历史 `version=1` 请求（只有 `entries[]`、无 `entry_slice_id`）仍被兼容：按
+entry 级剩余预算分配，不回退到全量 open slice 猜测。
 
 ### 撤单
 
@@ -167,7 +176,23 @@ Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起�
   - 成交均价偏差 `<= 0.3%`
   - 已发生卖出扣减的 entry 不再接受新的 buy order 合并
 - 同一 broker order 的多笔 fill 会更新同一个聚合成员，而不是继续生成多条 entry
-- sell fill 先尝试按 `om_order_requests.strategy_context.guardian_sell_sources.entries` 对齐来源入口，再回退默认 `entry_slice` 顺序扣减，最后写 `exit_allocations`
+- sell fill 按 `guardian_sell_sources`（v2/v1 兼容）解析请求级来源计划；处理新
+  fill 前先按 `request_id / internal_order_id` 查询已写入的
+  `om_exit_allocations` 累计本请求已分配量，计算 `remaining_plan =
+  original_plan - already_allocated`，本次 fill 只允许消费剩余计划内的
+  entry/slice（跨 fill 共享同一份剩余预算；乱序 / 重复 callback / 部分成交后
+  撤单均收敛到同一守恒结果）
+- 正常链路**禁止静默跨计划 fallback**：剩余来源计划不足以解释 broker fill 时
+  抛 `SellAllocationPlanExhaustedError`，不扣减计划外 entry/slice，而是写
+  `om_ingest_rejections.reason_code=allocation_source_plan_exhausted` 与
+  `xt_report_ingest` `sell_allocation` degraded runtime event，把 degraded /
+  reconciliation 证据留给运行面与 Position Review；只有无来源计划（非
+  Guardian 卖单）才回退稳定默认顺序
+- 所有 slice 查询与分配使用显式稳定排序（`guardian_price ASC, trade_time ASC,
+  slice_seq ASC, entry_slice_id ASC`），不依赖 Mongo natural order
+- sell fill 的 entry/slice read-modify-write 在
+  `OrderManagementXtIngestService` 内按 symbol 串行锁保护，配合
+  `om_execution_fills.execution_identity` 幂等，避免并发 fill 互相覆盖
 - legacy `buy_lot / lot_slice / sell_allocation` 仍同步写入，供迁移期兼容链使用
 - 若 sell fill 已成功写入 V2 `om_position_entries / om_entry_slices / om_exit_allocations`，但 legacy `buy_lot / lot_slice` 镜像缺失或数量落后，trade callback 当前会跳过 legacy sell allocation，并依赖后续 `stock_fills_compat` 镜像刷新，不再把整笔成交回报记为失败
 
@@ -271,6 +296,28 @@ FQOM 或完整 canonical identity 能证明归属时才挂回内部订单；完�
 py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --dry-run
 py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup_db_name>
 ```
+
+`rebuild_order_ledger_v2.py` 当前支持两种模式：
+
+- `--mode replay`（默认）：既有逐笔重建语义；
+- `--mode flatten-cost-price`：成本价拍平重建（Guardian 卖出账本重建方案 v4）。
+  按 `(account_id, symbol)` 从 `xt_positions` 生成 1 条
+  `source_ref_type=position_snapshot_flatten` 的 entry（`entry_price =
+  avg_price` 保留原始精度、`aggregation_members=[]` 阻止后续聚类并入），再用
+  该标的配置网格（`lot_amount` + `grid_interval`）重新切分
+  `om_entry_slices`；脚本内硬不变量（Σentry == Σxt volume、Σslice ==
+  Σentry、全 OPEN）失败即 abort；dry-run 输出“旧锚点全集 → 新切片全集”对照与
+  `acceptance.old_anchor_prices_still_present` 查询结果。
+
+flatten 模式执行时的归档/清理边界：
+
+- 归档：先写 `position_review_evidence_archive` / `om_execution_history_archive`
+  （沿用既有 history backfill），并把 `om_entry_stoploss_bindings` /
+  `om_takeprofit_states` 快照进 `order_ledger_flatten_auxiliary_archive`；
+- 清理：在 `ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS` 基础上追加 purge
+  `om_takeprofit_states`；
+- 执行破坏性 flatten 仍要求显式 `--backup-db` 且不允许 `--account-id`；
+  dry-run 允许 `--account-id` 单账户演练。
 
 初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前会直接执行 destructive rebuild：先把将被替换的 `xt_trades` 和将被 purge 的订单请求、订单、成交、position entries / slices / allocations 幂等写入 `om_execution_history_archive / position_review_evidence_archive`；归档成功后才 purge order-ledger rebuild 边界内的旧账本集合，再仅用刚同步的 `xt_positions` 生成新的 `om_position_entries / om_entry_slices / om_exit_allocations` 等主账本结果，并在完成后重建 `stock_fills_compat` 镜像，同时把同账户的 `xt_orders / xt_trades` 快照清空，避免旧委托/成交残留继续被误当成 broker truth，而不是走 runtime `auto_open_entry` 平账链路。归档失败时初始化会在删除前中止。
 

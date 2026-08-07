@@ -54,8 +54,14 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 - 持仓内 `SELL_SHORT` 触发 `_handle_sell`
 - `_handle_sell` 依赖 order management arranged fill 的最近 `date/time` 判断切片先后；对 `external_inferred` 历史 lot / slice，当前投影会在读路径按 `trade_time` 回填缺失时间，避免 Trace 在 `timing_check` 后因为 `last_fill date/time=None` 直接中断
 - `_handle_sell` 的 `timing_check` / `price_threshold_check` 仍以 arranged fill 作为 Guardian 切片基准；Trace 同样会在 `decision_context.*.fill_reference_source` 标明该来源
-- `_handle_sell` 先按当前价累计可盈利切片数量，再统一按 `xt_positions.can_use_volume` 截断并按一手向下取整；只有 `sellable_volume_check` 通过后才继续冷却判断和下单提交
-- `_handle_sell` 提交卖单时会把 `guardian_sell_sources.entries[] = { entry_id, quantity }` 写入请求上下文；Order Management 在 XT `trade` 回报链和 `auto_close_allocation` 差额链里都会优先按这组来源入口扣减
+- 卖出数量判定统一走 `freshquant.order_management.guardian.slice_evaluation.evaluate_guardian_sell_slices`：对每个 open slice 独立计算止盈阈值
+  - percent 模式：`threshold = guardian_price * (1 + percent / 100)`
+  - ATR 模式：`threshold = guardian_price + threshold_delta`（同一历史 ATR 参数逐 slice 使用）
+  - 可卖判定：`normalized_signal_price >= threshold_price`；信号价先按 `0.01` 最小价位规范化（`Decimal` + `ROUND_HALF_UP`），阈值保留 `0.0001` 精度，不再依赖二进制 float 的 `>` 处理 `21.580000000000002 > 21.58` 边界
+  - 返回值含 `raw_quantity / eligible_slices / threshold_evidence`，逐 slice 证据写入 `price_threshold_check` / `quantity_check` 的 Trace
+- `_handle_sell` 只有至少一个 slice 达到独立阈值（`raw_quantity > 0`）才进入后续流程；随后统一按 `xt_positions.can_use_volume` 截断并按一手向下取整；只有 `sellable_volume_check` 通过后才继续冷却判断和下单提交
+- `_handle_sell` 提交卖单时写入 `guardian_sell_sources` **version=2** 来源计划：`slices[]`（精确执行合同，每 slice 一行，携带 `entry_slice_id / guardian_price / threshold_price`）+ `entries[]`（按 entry 聚合唯一行）；来源计划只包含达到独立阈值的 slice，`sum(slices.quantity) == sum(entries.quantity) == submit_quantity`
+- 历史 v1 请求（只有 `entries[]`，无 `entry_slice_id`）由 Order Management 按 entry 级剩余预算兼容处理
 
 ## 存储
 
@@ -130,6 +136,13 @@ Guardian 会把关键判断路径写入 `guardian_strategy` runtime event，不�
 - `position_management_check`
 - `submit_intent`
 - `finish`
+
+`price_threshold_check` / `quantity_check` 的 `decision_context.threshold` /
+`decision_context.quantity` 当前会输出 `threshold_mode`、
+`eligible_slice_count`、`eligible_slice_ids` 与逐 slice `threshold_evidence`
+（每项含 `entry_id / entry_slice_id / guardian_price / threshold_price /
+signal_price_normalized / eligible / eligible_quantity`），供 Position Review
+与 `guardian.sell simulate` 共用同一份逐切片语义。
 
 首次开仓 scope 的关键 `decision_branch / reason_code` 为：
 

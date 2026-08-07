@@ -1118,9 +1118,11 @@ def test_guardian_sell_carries_selected_source_entries_in_strategy_context(
     assert captured["action"] == "sell"
     assert captured["quantity"] == 3100
     assert captured["kwargs"]["strategy_context"]["guardian_sell_sources"] == {
+        "version": 2,
         "profitable_fill_count": 4,
         "requested_quantity": 3100,
         "submit_quantity": 3100,
+        "slices": [],
         "entries": [
             {"entry_id": "entry_new", "quantity": 1000},
             {"entry_id": "entry_mid_2", "quantity": 1000},

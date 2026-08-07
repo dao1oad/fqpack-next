@@ -17,7 +17,11 @@ from freshquant.database.redis import redis_db
 from freshquant.db import DBfreshquant
 from freshquant.order_management.entry_adapter import list_open_entry_views
 from freshquant.order_management.guardian.sell_semantics import (
-    build_guardian_sell_source_entries,
+    build_guardian_sell_source_plan_v2,
+)
+from freshquant.order_management.guardian.slice_evaluation import (
+    evaluate_guardian_sell_slices,
+    resolve_sell_threshold_config,
 )
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.sell_constraints import (
@@ -906,6 +910,12 @@ class StrategyGuardian(metaclass=SingletonType):
             current_node = "price_threshold_check"
             last_fill_price = fill_reference["fill_price"]
             threshold = eval_stock_threshold_price(code, last_fill_price)
+            threshold_config = _resolve_guardian_sell_threshold_config(threshold)
+            sell_evaluation = evaluate_guardian_sell_slices(
+                fill_list,
+                signal_price=price,
+                threshold_config=threshold_config,
+            )
             threshold_context = {
                 "threshold": {
                     "current_price": price,
@@ -913,9 +923,12 @@ class StrategyGuardian(metaclass=SingletonType):
                     "fill_reference_source": fill_reference["fill_reference_source"],
                     "bot_river_price": threshold.get("bot_river_price"),
                     "top_river_price": threshold.get("top_river_price"),
+                    "threshold_mode": threshold_config["mode"],
+                    "eligible_slice_count": len(sell_evaluation["eligible_slices"]),
+                    "threshold_evidence": sell_evaluation["threshold_evidence"],
                 }
             }
-            if price < threshold["top_river_price"]:
+            if sell_evaluation["raw_quantity"] <= 0:
                 self._emit_runtime(
                     signal,
                     "price_threshold_check",
@@ -923,7 +936,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     status="skipped",
                     reason_code="sell_threshold_not_met",
                     decision_branch="profit_take_threshold",
-                    decision_expr="current_price >= top_river_price",
+                    decision_expr="per_slice_threshold_met_quantity > 0",
                     decision_context=threshold_context,
                     decision_outcome={"outcome": "skip"},
                 )
@@ -934,7 +947,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     reason_code="sell_threshold_not_met",
                     outcome="skip",
                     decision_branch="profit_take_threshold",
-                    decision_expr="current_price >= top_river_price",
+                    decision_expr="per_slice_threshold_met_quantity > 0",
                     decision_context=threshold_context,
                 )
                 logger.info("条件未达，跳过下单指令")
@@ -946,26 +959,25 @@ class StrategyGuardian(metaclass=SingletonType):
                 action="sell",
                 status="success",
                 decision_branch="profit_take_threshold",
-                decision_expr="current_price >= top_river_price",
+                decision_expr="per_slice_threshold_met_quantity > 0",
                 decision_context=threshold_context,
                 decision_outcome={"outcome": "pass"},
             )
 
             current_node = "quantity_check"
-            quantity = 0
-            profitable_fill_count = 0
-            for i in range(len(fill_list) - 1, -1, -1):
-                if price > fill_list[i]["price"]:
-                    quantity = quantity + fill_list[i]["quantity"]
-                    profitable_fill_count += 1
-                else:
-                    break
+            quantity = int(sell_evaluation["raw_quantity"] or 0)
+            profitable_fill_count = len(sell_evaluation["eligible_slices"])
 
             quantity_context = {
                 "quantity": {
                     "quantity": quantity,
                     "profitable_fill_count": profitable_fill_count,
                     "fill_count": len(fill_list),
+                    "eligible_slice_ids": [
+                        item.get("entry_slice_id")
+                        for item in sell_evaluation["eligible_slices"]
+                    ],
+                    "threshold_evidence": sell_evaluation["threshold_evidence"],
                 }
             }
             if quantity <= 0:
@@ -1124,6 +1136,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 requested_quantity=requested_quantity,
                 submit_quantity=quantity,
                 profitable_fill_count=profitable_fill_count,
+                eligible_evidence=sell_evaluation["eligible_slices"],
             )
             self._emit_runtime(
                 signal,
@@ -1579,25 +1592,22 @@ def _build_guardian_sell_strategy_context(
     requested_quantity,
     submit_quantity,
     profitable_fill_count,
+    eligible_evidence=None,
 ):
-    source_entries = _resolve_guardian_sell_source_entries(
-        fill_list,
-        quantity=submit_quantity,
-    )
-    if not source_entries:
+    eligible_evidence = list(eligible_evidence or [])
+    if not eligible_evidence:
         return None
-    return {
-        "guardian_sell_sources": {
-            "profitable_fill_count": int(profitable_fill_count or 0),
-            "requested_quantity": int(requested_quantity or 0),
-            "submit_quantity": int(submit_quantity or 0),
-            "entries": source_entries,
-        }
-    }
+    source_plan = build_guardian_sell_source_plan_v2(
+        eligible_evidence,
+        requested_quantity=requested_quantity,
+        submit_quantity=submit_quantity,
+        profitable_fill_count=profitable_fill_count,
+    )
+    return {'guardian_sell_sources': source_plan}
 
 
-def _resolve_guardian_sell_source_entries(fill_list, *, quantity):
-    return build_guardian_sell_source_entries(fill_list, quantity=quantity)
+def _resolve_guardian_sell_threshold_config(threshold):
+    return resolve_sell_threshold_config(threshold)
 
 
 def _resolve_guardian_buy_fill_reference(code):

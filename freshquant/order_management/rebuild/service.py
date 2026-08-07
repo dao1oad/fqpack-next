@@ -19,6 +19,7 @@ from freshquant.order_management.guardian.arranger import (
     build_position_entry_from_trade_fact,
 )
 from freshquant.order_management.ids import (
+    new_position_entry_id,
     new_reconciliation_gap_id,
     new_reconciliation_resolution_id,
     new_trade_fact_id,
@@ -31,6 +32,8 @@ _BUY_ORDER_TYPES = {23, 27, "23", "27", "buy", "BUY"}
 _SELL_ORDER_TYPES = {24, 31, "24", "31", "sell", "SELL"}
 _DEFAULT_LOT_AMOUNT = 50000
 _DEFAULT_GRID_INTERVAL = 1.03
+POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE = "position_snapshot_flatten"
+POSITION_SNAPSHOT_FLATTEN_ENTRY_TYPE = "position_snapshot_flatten"
 
 
 class OrderLedgerV2RebuildService:
@@ -207,6 +210,141 @@ class OrderLedgerV2RebuildService:
                 entry_slice_documents,
                 lot_amount_lookup=self.lot_amount_lookup,
             ),
+        }
+
+    def build_flatten_from_positions(
+        self,
+        *,
+        xt_positions=None,
+        now_ts=None,
+        lot_amount_lookup=None,
+        grid_interval_lookup=None,
+    ):
+        """按券商持仓快照生成 cost-price 拍平账本（每 (account, symbol) 一条）。
+
+        - 唯一持仓真值：``xt_positions`` 的 ``(account_id, stock_code) ->
+          volume / avg_price``；
+        - 每个持仓生成一条 ``position_snapshot_flatten`` entry + 该标的配置
+          网格（``lot_amount`` / ``grid_interval``）重新切分
+          ``om_entry_slices``；
+        - 不做逐笔重建，不依赖被污染的 ``om_exit_allocations``；
+        - 含第 5.3 节硬不变量断言，失败即抛异常（abort）。
+        """
+
+        rebuild_ts = _resolve_rebuild_timestamp(now_ts)
+        lot_amount_lookup = lot_amount_lookup or self.lot_amount_lookup
+        grid_interval_lookup = grid_interval_lookup or self.grid_interval_lookup
+        if lot_amount_lookup is _default_lot_amount_lookup:
+            lot_amount_lookup = _resolve_flatten_lot_amount
+        if grid_interval_lookup is _default_grid_interval_lookup:
+            grid_interval_lookup = _resolve_flatten_grid_interval
+        position_rows = _normalize_flatten_positions(xt_positions or [])
+        if not position_rows:
+            raise ValueError("flatten rebuild requires non-empty xt_positions snapshot")
+
+        entry_documents: list[dict] = []
+        slice_documents: list[dict] = []
+        entries_by_symbol: dict[str, list[dict]] = {}
+        slices_by_symbol: dict[str, list[dict]] = {}
+        invariant_checks: list[dict] = []
+
+        for position in position_rows:
+            account_id = position.get("account_id")
+            symbol = position.get("symbol")
+            volume = int(position.get("volume") or 0)
+            avg_price = position.get("avg_price")
+            if volume <= 0 or avg_price in {None, ""}:
+                continue
+            try:
+                lot_amount = int(lot_amount_lookup(symbol) or _DEFAULT_LOT_AMOUNT)
+                grid_interval = float(
+                    grid_interval_lookup(symbol) or _DEFAULT_GRID_INTERVAL
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"flatten rebuild config resolve failed for {symbol}: {exc}"
+                ) from exc
+
+            entry = _build_flatten_position_entry(
+                account_id=account_id,
+                symbol=symbol,
+                volume=volume,
+                avg_price=avg_price,
+                rebuild_ts=rebuild_ts,
+            )
+            slices = arrange_entry(
+                entry,
+                lot_amount=lot_amount,
+                grid_interval=grid_interval,
+            )
+            entry_documents.append(entry)
+            slice_documents.extend(slices)
+            entries_by_symbol.setdefault(symbol, []).append(entry)
+            slices_by_symbol.setdefault(symbol, []).extend(slices)
+
+            invariant_checks.extend(
+                _assert_flatten_symbol_invariants(
+                    symbol=symbol,
+                    account_id=account_id,
+                    position_volume=volume,
+                    entries=[entry],
+                    slices=slices,
+                )
+            )
+
+        invariant_checks.extend(
+            _assert_flatten_global_invariants(
+                position_rows=position_rows,
+                entry_documents=entry_documents,
+                slice_documents=slice_documents,
+            )
+        )
+        failed = [item for item in invariant_checks if not item.get("passed")]
+        if failed:
+            raise AssertionError(
+                "flatten rebuild invariant check failed: "
+                + "; ".join(str(item) for item in failed)
+            )
+
+        return {
+            "broker_orders": 0,
+            "execution_fills": 0,
+            "position_entries": len(entry_documents),
+            "entry_slices": len(slice_documents),
+            "exit_allocations": 0,
+            "reconciliation_gaps": 0,
+            "reconciliation_resolutions": 0,
+            "auto_open_entries": 0,
+            "auto_close_allocations": 0,
+            "ingest_rejections": 0,
+            "broker_order_documents": [],
+            "execution_fill_documents": [],
+            "position_entry_documents": entry_documents,
+            "entry_slice_documents": slice_documents,
+            "exit_allocation_documents": [],
+            "reconciliation_gap_documents": [],
+            "reconciliation_resolution_documents": [],
+            "ingest_rejection_documents": [],
+            "unmatched_sell_trade_facts": [],
+            "replay_warnings": [],
+            "clustered_entries": 0,
+            "mergeable_entry_gap": 0,
+            "non_default_lot_slices": _count_non_default_lot_slices_with_lookup(
+                slice_documents,
+                lot_amount_lookup=lot_amount_lookup,
+            ),
+            "flatten": {
+                "rebuild_ts": rebuild_ts,
+                "entries_by_symbol": {
+                    symbol: entries
+                    for symbol, entries in sorted(entries_by_symbol.items())
+                },
+                "slices_by_symbol": {
+                    symbol: slices
+                    for symbol, slices in sorted(slices_by_symbol.items())
+                },
+                "invariant_checks": invariant_checks,
+            },
         }
 
 
@@ -904,6 +1042,216 @@ def _normalize_xt_positions(xt_positions):
             "avg_price": avg_price,
         }
     return normalized
+
+
+def _normalize_flatten_positions(xt_positions):
+    """按 (account_id, symbol) 聚合券商持仓，avg_price 保留原始精度。"""
+
+    positions_by_key: dict[tuple, dict] = {}
+    for raw_position in list(xt_positions or []):
+        account_id = str(raw_position.get("account_id") or "").strip() or None
+        symbol = _normalize_symbol(raw_position)
+        if not symbol:
+            continue
+        volume = _coerce_int(raw_position.get("volume")) or 0
+        avg_price = _coerce_float(raw_position.get("avg_price"))
+        if volume <= 0 or avg_price is None:
+            continue
+        key = (account_id, symbol)
+        position = positions_by_key.setdefault(
+            key,
+            {
+                "account_id": account_id,
+                "symbol": symbol,
+                "volume": 0,
+                "price_notional": 0.0,
+                "priced_volume": 0,
+            },
+        )
+        position["volume"] += volume
+        position["price_notional"] += volume * avg_price
+        position["priced_volume"] += volume
+    rows = []
+    for (account_id, symbol), position in sorted(
+        positions_by_key.items(),
+        key=lambda item: (
+            str(item[0][0] or ""),
+            str(item[0][1] or ""),
+        ),
+    ):
+        priced_volume = position["priced_volume"]
+        avg_price = None
+        if priced_volume > 0:
+            avg_price = round(position["price_notional"] / priced_volume, 6)
+        rows.append(
+            {
+                "account_id": account_id,
+                "symbol": symbol,
+                "volume": int(position["volume"]),
+                "avg_price": avg_price,
+            }
+        )
+    return rows
+
+
+def _build_flatten_position_entry(
+    *,
+    account_id,
+    symbol,
+    volume,
+    avg_price,
+    rebuild_ts,
+):
+    resolved_date, resolved_time = _flatten_beijing_date_time_from_epoch(rebuild_ts)
+    entry_price = float(avg_price)
+    entry = {
+        "entry_id": new_position_entry_id(),
+        "source_ref_type": POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE,
+        "source_ref_id": (
+            f"flatten:{account_id or 'unknown'}:{symbol}:{int(rebuild_ts)}"
+        ),
+        "entry_type": POSITION_SNAPSHOT_FLATTEN_ENTRY_TYPE,
+        "symbol": symbol,
+        "stock_code": symbol,
+        "entry_price": entry_price,
+        "buy_price_real": entry_price,
+        "original_quantity": int(volume),
+        "remaining_quantity": int(volume),
+        "amount": round(entry_price * int(volume), 2),
+        "amount_adjust": 1.0,
+        "date": resolved_date,
+        "time": resolved_time,
+        "trade_time": int(rebuild_ts),
+        "name": "",
+        "source": "order_ledger_rebuild",
+        "arrange_mode": "position_snapshot_flatten",
+        "sell_history": [],
+        "aggregation_members": [],
+        "aggregation_member_keys": [],
+        "status": "OPEN",
+        "account_id": account_id,
+    }
+    return entry
+
+
+def _flatten_beijing_date_time_from_epoch(timestamp):
+    dt = datetime.fromtimestamp(int(timestamp), tz=_BEIJING_TIMEZONE)
+    return int(dt.strftime("%Y%m%d")), dt.strftime("%H:%M:%S")
+
+
+def _assert_flatten_symbol_invariants(
+    *,
+    symbol,
+    account_id,
+    position_volume,
+    entries,
+    slices,
+):
+    entry_total = sum(
+        _coerce_int(item.get("original_quantity")) or 0 for item in entries
+    )
+    slice_total = sum(
+        _coerce_int(item.get("original_quantity")) or 0 for item in slices
+    )
+    return [
+        {
+            "check": "sum(entry.original_quantity) == xt_positions.volume",
+            "symbol": symbol,
+            "account_id": account_id,
+            "expected": position_volume,
+            "actual": entry_total,
+            "passed": entry_total == position_volume,
+        },
+        {
+            "check": "sum(slices.original_quantity) == entry.original_quantity",
+            "symbol": symbol,
+            "account_id": account_id,
+            "expected": entry_total,
+            "actual": slice_total,
+            "passed": slice_total == entry_total,
+        },
+        {
+            "check": "sum(slices.original_quantity) == xt_positions.volume",
+            "symbol": symbol,
+            "account_id": account_id,
+            "expected": position_volume,
+            "actual": slice_total,
+            "passed": slice_total == position_volume,
+        },
+        {
+            "check": "all(slice.status == OPEN)",
+            "symbol": symbol,
+            "account_id": account_id,
+            "passed": bool(slices)
+            and all(str(item.get("status")) == "OPEN" for item in slices),
+        },
+    ]
+
+
+def _assert_flatten_global_invariants(
+    *,
+    position_rows,
+    entry_documents,
+    slice_documents,
+):
+    position_total = sum(_coerce_int(item.get("volume")) or 0 for item in position_rows)
+    entry_total = sum(
+        _coerce_int(item.get("original_quantity")) or 0 for item in entry_documents
+    )
+    slice_total = sum(
+        _coerce_int(item.get("original_quantity")) or 0 for item in slice_documents
+    )
+    return [
+        {
+            "check": "global sum(entry.original_quantity) == sum(xt_positions.volume)",
+            "expected": position_total,
+            "actual": entry_total,
+            "passed": entry_total == position_total,
+        },
+        {
+            "check": "global sum(slices.original_quantity) == sum(xt_positions.volume)",
+            "expected": position_total,
+            "actual": slice_total,
+            "passed": slice_total == position_total,
+        },
+    ]
+
+
+def _resolve_flatten_lot_amount(symbol):
+    from freshquant.strategy.common import get_trade_amount
+    from freshquant.util.code import fq_util_code_append_market_code_suffix
+
+    try:
+        stock_code = fq_util_code_append_market_code_suffix(
+            symbol,
+            upper_case=True,
+        )
+        return int(get_trade_amount(stock_code) or _DEFAULT_LOT_AMOUNT)
+    except (TypeError, ValueError, ImportError):
+        return _DEFAULT_LOT_AMOUNT
+
+
+def _resolve_flatten_grid_interval(symbol):
+    from freshquant.strategy.common import get_grid_interval_config
+    from freshquant.util.code import fq_util_code_append_market_code_suffix
+
+    try:
+        stock_code = fq_util_code_append_market_code_suffix(
+            symbol,
+            upper_case=True,
+        )
+        config = get_grid_interval_config(stock_code) or {}
+        mode = str(config.get("mode") or "percent").strip().lower()
+        if mode == "percent":
+            percent = float(config.get("percent", 3))
+            return round(1 + percent / 100.0, 6)
+        return float(
+            config.get("multiplier")
+            or config.get("grid_interval")
+            or _DEFAULT_GRID_INTERVAL
+        )
+    except (TypeError, ValueError, ImportError):
+        return _DEFAULT_GRID_INTERVAL
 
 
 def _estimate_ledger_price(symbol, position_entry_documents):

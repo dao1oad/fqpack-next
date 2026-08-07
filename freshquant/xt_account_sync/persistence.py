@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import time
 from datetime import datetime, timezone
 
+from loguru import logger
 from pymongo import UpdateOne
 
 from freshquant.order_management.credit_subjects.models import (
@@ -49,30 +51,45 @@ def persist_assets(assets, *, collection=None):
     }
 
 
+MISSING_DELETE_THRESHOLD = 20
+MISSING_DELETE_WALL_CLOCK_SECONDS = 300
+
+
 def persist_positions(
     positions,
     *,
     account_id=None,
     collection=None,
     invalidator=None,
+    missing_threshold=MISSING_DELETE_THRESHOLD,
+    missing_wall_clock_seconds=MISSING_DELETE_WALL_CLOCK_SECONDS,
+    missing_count_field="sync_missing_count",
+    last_seen_field="sync_last_seen_at",
+    now_provider=None,
+    audit_collection=None,
 ):
     if collection is None:
         collection = _load_freshquant_collection("xt_positions")
     invalidator = invalidator or mark_stock_holdings_projection_updated
+    now_provider = now_provider or (lambda: int(time.time()))
     documents = [_normalize_xt_position(position) for position in list(positions or [])]
     resolved_account_id = str(
         account_id or (documents[0].get("account_id") if documents else "") or ""
     ).strip()
     if not resolved_account_id:
         raise ValueError("persist_positions requires account_id")
+    now_epoch = int(now_provider())
 
     batch = []
     stock_codes = []
     for document in documents:
         document["account_id"] = resolved_account_id
+        document[missing_count_field] = 0
+        document[last_seen_field] = now_epoch
         stock_code = str(document.get("stock_code") or "").strip()
         if not stock_code:
             continue
+        volume = _safe_int(document.get("volume"))
         stock_codes.append(stock_code)
         batch.append(
             UpdateOne(
@@ -87,20 +104,148 @@ def persist_positions(
 
     if batch:
         collection.bulk_write(batch)
-    if stock_codes:
-        collection.delete_many(
-            {
-                "account_id": resolved_account_id,
-                "stock_code": {"$nin": stock_codes},
-            }
+
+    cleared_zero_volume = [
+        code for code, volume in _current_snapshot_volumes(documents) if volume <= 0
+    ]
+
+    existing_documents = collection.find({"account_id": resolved_account_id})
+    snapshot_code_set = set(stock_codes)
+    existing_by_code = {
+        str(doc.get("stock_code") or "").strip(): doc
+        for doc in existing_documents
+        if str(doc.get("stock_code") or "").strip()
+    }
+
+    if not snapshot_code_set and existing_by_code:
+        # 空快照守卫：本次快照为空且存量非空时，跳过 $inc 与删除（保留存量）
+        invalidator()
+        return {
+            "count": len(batch),
+            "account_id": resolved_account_id,
+            "deleted_missing": [],
+            "empty_snapshot_guard": True,
+            "cleared_zero_volume": cleared_zero_volume,
+        }
+
+    missing_codes = [
+        code for code in sorted(existing_by_code) if code not in snapshot_code_set
+    ]
+    if missing_codes:
+        for code in missing_codes:
+            collection.update_one(
+                {
+                    "account_id": resolved_account_id,
+                    "stock_code": code,
+                },
+                {"$inc": {missing_count_field: 1}},
+            )
+
+    evict_conditions = []
+    if missing_threshold is not None:
+        evict_conditions.append({missing_count_field: {"$gte": int(missing_threshold)}})
+    if missing_wall_clock_seconds is not None:
+        evict_conditions.append(
+            {last_seen_field: {"$lte": now_epoch - int(missing_wall_clock_seconds)}}
         )
-    else:
-        collection.delete_many({"account_id": resolved_account_id})
+    deleted_missing = []
+    if evict_conditions:
+        for code in missing_codes:
+            candidate = collection.find(
+                {
+                    "account_id": resolved_account_id,
+                    "stock_code": code,
+                }
+            )
+            candidate_doc = candidate[0] if candidate else None
+            if candidate_doc is None:
+                continue
+            missing_count_value = int(candidate_doc.get(missing_count_field) or 0)
+            last_seen_value = int(candidate_doc.get(last_seen_field) or 0)
+            evict = False
+            if missing_threshold is not None and missing_count_value >= int(
+                missing_threshold
+            ):
+                evict = True
+            if (
+                missing_wall_clock_seconds is not None
+                and last_seen_value > 0
+                and (now_epoch - last_seen_value) >= int(missing_wall_clock_seconds)
+            ):
+                evict = True
+            if evict:
+                collection.delete_many(
+                    {
+                        "account_id": resolved_account_id,
+                        "stock_code": code,
+                    }
+                )
+                deleted_missing.append(code)
+
+        if deleted_missing:
+            _write_eviction_audit(
+                audit_collection=audit_collection,
+                account_id=resolved_account_id,
+                stock_codes=deleted_missing,
+                snapshot_codes=sorted(snapshot_code_set),
+                missing_count_field=missing_count_field,
+                last_seen_field=last_seen_field,
+            )
+
     invalidator()
     return {
         "count": len(batch),
         "account_id": resolved_account_id,
+        "deleted_missing": deleted_missing,
+        "empty_snapshot_guard": False,
+        "cleared_zero_volume": cleared_zero_volume,
     }
+
+
+def _current_snapshot_volumes(documents):
+    return [
+        (
+            str(document.get("stock_code") or "").strip(),
+            _safe_int(document.get("volume")),
+        )
+        for document in documents
+        if str(document.get("stock_code") or "").strip()
+    ]
+
+
+def _write_eviction_audit(
+    *,
+    audit_collection,
+    account_id,
+    stock_codes,
+    snapshot_codes,
+    missing_count_field,
+    last_seen_field,
+):
+    if audit_collection is None:
+        try:
+            audit_collection = _load_freshquant_collection("audit_log")
+        except Exception:
+            return
+    try:
+        audit_collection.insert_one(
+            {
+                "operation": "xt_positions_missing_evict",
+                "account_id": account_id,
+                "stock_codes": sorted(stock_codes),
+                "snapshot_codes": snapshot_codes,
+                "missing_count_field": missing_count_field,
+                "last_seen_field": last_seen_field,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    except Exception as exc:
+        # 审计写入是尽力而为：清仓判定（delete_many）已经成功，审计不可用
+        # 不能回滚或中断整个 persist 链路。
+        logger.warning(
+            "failed to write xt_positions_missing_evict audit: {}",
+            exc,
+        )
 
 
 def refresh_credit_detail(

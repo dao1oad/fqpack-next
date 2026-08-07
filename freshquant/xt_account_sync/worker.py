@@ -18,7 +18,7 @@ def run_once(service=None):
         include_credit_subjects=False,
         seed_symbol_snapshots=True,
     )
-    _log_positions_quarantine(result)
+    _log_positions_persistence(result)
     return result
 
 
@@ -179,7 +179,7 @@ def _sync_once_with_xt_retry(
             if sync_service_factory is not None:
                 sync_service = sync_service_factory()
             continue
-        _log_positions_quarantine(result)
+        _log_positions_persistence(result)
         return sync_service
 
 
@@ -197,14 +197,21 @@ def _is_retryable_xt_sync_error(error):
     )
 
 
-def _log_positions_quarantine(result):
+def _log_positions_persistence(result):
     positions = result.get("positions") if isinstance(result, dict) else None
-    if not isinstance(positions, dict) or not positions.get("quarantined"):
+    if not isinstance(positions, dict):
         return
-    logger.warning(
-        "xt_account_sync positions snapshot quarantined: %s",
-        positions.get("reason") or "unknown",
-    )
+    if positions.get("empty_snapshot_guard"):
+        logger.warning(
+            "xt_account_sync empty snapshot guarded; kept existing positions"
+        )
+        return
+    deleted_missing = list(positions.get("deleted_missing") or [])
+    if deleted_missing:
+        logger.info(
+            "xt_account_sync evicted missing positions: %s",
+            ",".join(sorted(deleted_missing)),
+        )
 
 
 if __name__ == "__main__":
