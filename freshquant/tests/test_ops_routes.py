@@ -173,8 +173,9 @@ def test_ops_overview_aggregates_kpis_and_ledger(ops_app, monkeypatch):
     assert payload["trade_session"]["label"] == "盘中"
 
     kpis = payload["kpis"]
-    assert kpis["supervisor"]["status"] == "placeholder"
-    assert kpis["docker_containers"]["status"] == "placeholder"
+    # S3 后宿主机卡由快照驱动；测试环境无快照文件 -> 显式降级而非占位
+    assert kpis["supervisor"]["status"] == "degraded"
+    assert kpis["docker_containers"]["status"] == "degraded"
     assert kpis["xtdata_connection"]["ok"] is True
     assert kpis["xtdata_connection"]["summary"] == "connected"
     assert kpis["kline_freshness"]["status"] == "ok"
@@ -392,3 +393,139 @@ def test_resolve_tdxhq_endpoint_prefers_compose_env(monkeypatch):
 
     monkeypatch.setenv("FRESHQUANT_TDX__HQ__ENDPOINT", "http://fallback:6000")
     assert ops_routes._resolve_tdxhq_endpoint() == "http://fq_tdxhq:5001"
+
+
+def _fake_host_snapshot(
+    *,
+    supervisor_ok=True,
+    supervisor_running=9,
+    supervisor_expected=9,
+    supervisor_error=None,
+    docker_ok=True,
+    docker_running=10,
+    docker_expected=10,
+    docker_error=None,
+    captured_at="2026-08-07T23:00:00+00:00",
+):
+    return {
+        "captured_at": captured_at,
+        "expected": {
+            "supervisor_programs": supervisor_expected,
+            "docker_containers": docker_expected,
+        },
+        "supervisor": {
+            "ok": supervisor_ok,
+            "error": supervisor_error,
+            "running_count": supervisor_running,
+            "expected_count": supervisor_expected,
+            "programs": [
+                {
+                    "name": f"prog_{index}",
+                    "group": "g",
+                    "state": "Running" if index < supervisor_running else "FATAL",
+                    "pid": 100 + index,
+                    "uptime_s": 60,
+                    "description": "desc",
+                }
+                for index in range(supervisor_expected)
+            ],
+        },
+        "docker": {
+            "ok": docker_ok,
+            "error": docker_error,
+            "compose_project": "fqnext_20260223",
+            "running_count": docker_running,
+            "expected_count": docker_expected,
+            "containers": [
+                {
+                    "name": f"fqnext_20260223-svc_{index}-1",
+                    "image": "img",
+                    "state": "running" if index < docker_running else "exited",
+                    "status": "Up" if index < docker_running else "Exited",
+                    "compose_project": "fqnext_20260223",
+                    "compose_service": f"svc_{index}",
+                }
+                for index in range(docker_expected)
+            ],
+        },
+    }
+
+
+def test_supervisor_kpi_reports_running_and_degraded_programs():
+    kpi = ops_routes._build_supervisor_kpi(_fake_host_snapshot())
+    assert kpi["status"] == "ok"
+    assert kpi["summary"] == "Running 9/9"
+    assert kpi["source"] == "host_snapshot"
+
+    degraded = ops_routes._build_supervisor_kpi(
+        _fake_host_snapshot(supervisor_running=7)
+    )
+    assert degraded["status"] == "error"
+    assert degraded["summary"] == "Running 7/9"
+    assert "prog_7" in degraded["detail"]
+
+
+def test_docker_kpi_reports_running_and_degraded_containers():
+    kpi = ops_routes._build_docker_kpi(_fake_host_snapshot())
+    assert kpi["status"] == "ok"
+    assert kpi["summary"] == "Up 10/10"
+
+    degraded = ops_routes._build_docker_kpi(
+        _fake_host_snapshot(docker_running=9)
+    )
+    assert degraded["status"] == "error"
+    assert degraded["summary"] == "Up 9/10"
+    assert "svc_9" in degraded["detail"]
+
+
+def test_host_kpis_degrade_when_snapshot_missing(monkeypatch, ops_app):
+    monkeypatch.setattr(ops_routes, "_load_host_snapshot", lambda: None)
+    service = _FakeOpsService(summary=_default_summary())
+    monkeypatch.setattr(ops_routes, "get_runtime_query_service", lambda: service)
+    _patch_mongo(monkeypatch, positions=[{"sync_last_seen_at": int(time.time()) - 5}])
+
+    response = ops_app.test_client().get("/api/ops/overview")
+    payload = response.get_json()
+    assert payload["kpis"]["supervisor"]["status"] == "degraded"
+    assert payload["kpis"]["supervisor"]["summary"] == "数据源不可用"
+    assert "宿主快照不可用" in payload["kpis"]["supervisor"]["detail"]
+    assert payload["kpis"]["docker_containers"]["status"] == "degraded"
+    assert payload["host"]["available"] is False
+
+
+def test_host_kpis_degrade_when_supervisor_source_down(monkeypatch, ops_app):
+    monkeypatch.setattr(
+        ops_routes,
+        "_load_host_snapshot",
+        lambda: _fake_host_snapshot(
+            supervisor_ok=False,
+            supervisor_error="supervisor XML-RPC 失败: boom",
+        ),
+    )
+    service = _FakeOpsService(summary=_default_summary())
+    monkeypatch.setattr(ops_routes, "get_runtime_query_service", lambda: service)
+    _patch_mongo(monkeypatch, positions=[{"sync_last_seen_at": int(time.time()) - 5}])
+
+    payload = ops_app.test_client().get("/api/ops/overview").get_json()
+    assert payload["kpis"]["supervisor"]["status"] == "degraded"
+    assert "Supervisor 数据源不可用" in payload["kpis"]["supervisor"]["detail"]
+    # docker 卡独立于 supervisor 源
+    assert payload["kpis"]["docker_containers"]["status"] == "ok"
+
+
+def test_host_runtime_endpoint_returns_snapshot_detail(monkeypatch, ops_app):
+    monkeypatch.setattr(
+        ops_routes,
+        "_load_host_snapshot",
+        lambda: _fake_host_snapshot(),
+    )
+    response = ops_app.test_client().get("/api/ops/host-runtime")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["available"] is True
+    assert payload["supervisor"]["running_count"] == 9
+    assert payload["supervisor"]["expected_count"] == 9
+    assert len(payload["supervisor"]["programs"]) == 9
+    assert payload["docker"]["running_count"] == 10
+    assert len(payload["docker"]["containers"]) == 10
+    assert payload["docker"]["compose_project"] == "fqnext_20260223"

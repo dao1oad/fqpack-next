@@ -23,6 +23,7 @@ import pymongo
 import redis
 import requests
 from flask import Blueprint, jsonify
+from pathlib import Path
 
 from freshquant.bootstrap_config import bootstrap_config
 from freshquant.database.mongodb import DBfreshquant, DBOrderManagement
@@ -47,6 +48,10 @@ KLINE_PROBE_MIN_INTERVAL_S = 60.0
 KLINE_503_WINDOW_S = 300.0
 KLINE_PROBE_SYMBOL = "sz000001"
 KLINE_PROBE_PERIOD = "5m"
+HOST_SNAPSHOT_FILE = os.environ.get(
+    "FQ_OPS_SNAPSHOT_FILE", "/freshquant/ops-snapshot/host-runtime.json"
+)
+HOST_SNAPSHOT_MAX_AGE_S = 900.0  # 5 分钟快照间隔，容忍 3 个周期
 
 IN_FLIGHT_ORDER_STATES = frozenset(
     {
@@ -140,6 +145,139 @@ def _placeholder(label: str, summary: str, detail: str) -> dict[str, Any]:
         "summary": summary,
         "detail": detail,
         "source": "S3",
+    }
+
+
+# ---- 宿主机只读快照（S3：宿主侧采集 -> JSON 快照 -> apiserver ro 挂载） ----
+
+
+def _load_host_snapshot() -> dict[str, Any] | None:
+    """只读加载宿主机快照 JSON；文件缺失/损坏/过期返回 None（降级）。"""
+    try:
+        path = Path(HOST_SNAPSHOT_FILE)
+        if not path.exists():
+            return None
+        age_s = time.time() - path.stat().st_mtime
+        if age_s > HOST_SNAPSHOT_MAX_AGE_S:
+            logger.warning("ops host snapshot stale: age=%ss", round(age_s, 1))
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        payload["_age_s"] = round(age_s, 1)
+        return payload
+    except Exception as exc:
+        logger.warning("ops host snapshot read failed: %s", exc)
+        return None
+
+
+def _build_supervisor_kpi(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    label = "Supervisor 进程"
+    if snapshot is None:
+        return _degraded(label, "宿主快照不可用（缺失/过期/读取失败）")
+    supervisor = snapshot.get("supervisor") or {}
+    if not supervisor.get("ok"):
+        return _degraded(label, f"Supervisor 数据源不可用（{supervisor.get('error')}）")
+    running = _to_int(supervisor.get("running_count"))
+    expected = _to_int(supervisor.get("expected_count"), 9)
+    programs = supervisor.get("programs") or []
+    degraded = [
+        program
+        for program in programs
+        if str(program.get("state") or "").upper() != "RUNNING"
+    ]
+    if degraded:
+        status, tone, summary = "error", "error", f"Running {running}/{expected}"
+    else:
+        status, tone, summary = "ok", "ok", f"Running {running}/{expected}"
+    detail = (
+        f"异常 {len(degraded)} 个："
+        + ", ".join(
+            f"{item.get('name')}[{item.get('state')}]" for item in degraded[:3]
+        )
+        if degraded
+        else "全部正常"
+    )
+    return {
+        "label": label,
+        "ok": not degraded,
+        "status": status,
+        "tone": tone,
+        "summary": summary,
+        "detail": detail,
+        "source": "host_snapshot",
+    }
+
+
+def _build_docker_kpi(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    label = "Docker 容器"
+    if snapshot is None:
+        return _degraded(label, "宿主快照不可用（缺失/过期/读取失败）")
+    docker = snapshot.get("docker") or {}
+    if not docker.get("ok"):
+        return _degraded(label, f"Docker 数据源不可用（{docker.get('error')}）")
+    running = _to_int(docker.get("running_count"))
+    expected = _to_int(docker.get("expected_count"), 10)
+    containers = docker.get("containers") or []
+    degraded = [
+        container
+        for container in containers
+        if str(container.get("state") or "").lower() != "running"
+    ]
+    if degraded:
+        status, tone, summary = "error", "error", f"Up {running}/{expected}"
+    else:
+        status, tone, summary = "ok", "ok", f"Up {running}/{expected}"
+    detail = (
+        f"异常 {len(degraded)} 个："
+        + ", ".join(f"{item.get('name')}[{item.get('state')}]" for item in degraded[:3])
+        if degraded
+        else "全部正常"
+    )
+    return {
+        "label": label,
+        "ok": not degraded,
+        "status": status,
+        "tone": tone,
+        "summary": summary,
+        "detail": detail,
+        "source": "host_snapshot",
+    }
+
+
+def _build_host_payload(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    """宿主机分层区明细：supervisor 程序表 + docker 容器表（含降级原因）。"""
+    if snapshot is None:
+        return {
+            "available": False,
+            "reason": "宿主快照不可用（缺失/过期/读取失败）",
+            "captured_at": None,
+            "supervisor": {"ok": False, "error": None, "programs": []},
+            "docker": {"ok": False, "error": None, "containers": []},
+        }
+    supervisor = snapshot.get("supervisor") or {}
+    docker = snapshot.get("docker") or {}
+    return {
+        "available": True,
+        "reason": None,
+        "captured_at": snapshot.get("captured_at"),
+        "snapshot_age_s": snapshot.get("_age_s"),
+        "expected": snapshot.get("expected") or {},
+        "supervisor": {
+            "ok": bool(supervisor.get("ok")),
+            "error": supervisor.get("error"),
+            "running_count": _to_int(supervisor.get("running_count")),
+            "expected_count": _to_int(supervisor.get("expected_count"), 9),
+            "programs": supervisor.get("programs") or [],
+        },
+        "docker": {
+            "ok": bool(docker.get("ok")),
+            "error": docker.get("error"),
+            "compose_project": docker.get("compose_project"),
+            "running_count": _to_int(docker.get("running_count")),
+            "expected_count": _to_int(docker.get("expected_count"), 10),
+            "containers": docker.get("containers") or [],
+        },
     }
 
 
@@ -545,13 +683,10 @@ def _build_overview() -> dict[str, Any]:
         health_error = f"ClickHouse 数据源不可用（{exc}）"
         logger.warning("ops overview health summary failed: %s", exc)
 
+    host_snapshot = _load_host_snapshot()
     kpi_items: dict[str, Any] = {
-        "supervisor": _placeholder(
-            "Supervisor 进程", "未接入", "待宿主机桥（S3）"
-        ),
-        "docker_containers": _placeholder(
-            "Docker 容器", "未接入", "待宿主机桥（S3）"
-        ),
+        "supervisor": _build_supervisor_kpi(host_snapshot),
+        "docker_containers": _build_docker_kpi(host_snapshot),
     }
     if health_error is None:
         kpi_items["xtdata_connection"] = _build_xtdata_connection(
@@ -615,6 +750,7 @@ def _build_overview() -> dict[str, Any]:
         "kpis": kpi_items,
         "dependencies": dependencies,
         "issues": issue_aggregate,
+        "host": _build_host_payload(host_snapshot),
         "summary": {
             "degraded_count": degraded_count,
             "total_kpis": len(kpi_items),
@@ -641,6 +777,13 @@ def ops_overview():
     payload = dict(payload)
     payload["cache"] = {"ttl_s": OVERVIEW_CACHE_TTL_S, "cached": cached}
     return jsonify(payload)
+
+
+@ops_bp.get("/host-runtime")
+def ops_host_runtime():
+    """宿主机只读运行面明细（Supervisor 程序表 + Docker 容器表）。"""
+    snapshot = _load_host_snapshot()
+    return jsonify(_build_host_payload(snapshot))
 
 
 # ---- K 线读取探针（S2） ----
