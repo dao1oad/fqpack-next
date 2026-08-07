@@ -17,7 +17,7 @@ from freshquant.database.redis import redis_db
 from freshquant.db import DBfreshquant
 from freshquant.order_management.entry_adapter import list_open_entry_views
 from freshquant.order_management.guardian.sell_semantics import (
-    build_guardian_sell_source_entries,
+    build_guardian_sell_source_plan_v2,
 )
 from freshquant.order_management.guardian.slice_evaluation import (
     evaluate_guardian_sell_slices,
@@ -959,7 +959,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 action="sell",
                 status="success",
                 decision_branch="profit_take_threshold",
-                decision_expr="current_price >= top_river_price",
+                decision_expr="per_slice_threshold_met_quantity > 0",
                 decision_context=threshold_context,
                 decision_outcome={"outcome": "pass"},
             )
@@ -1594,57 +1594,16 @@ def _build_guardian_sell_strategy_context(
     profitable_fill_count,
     eligible_evidence=None,
 ):
-    source_rows = _eligible_source_rows(fill_list, eligible_evidence)
-    source_entries = _resolve_guardian_sell_source_entries(
-        source_rows,
-        quantity=submit_quantity,
-    )
-    if not source_entries:
-        return None
-    return {
-        "guardian_sell_sources": {
-            "profitable_fill_count": int(profitable_fill_count or 0),
-            "requested_quantity": int(requested_quantity or 0),
-            "submit_quantity": int(submit_quantity or 0),
-            "entries": source_entries,
-        }
-    }
-
-
-def _resolve_guardian_sell_source_entries(fill_list, *, quantity):
-    return build_guardian_sell_source_entries(fill_list, quantity=quantity)
-
-
-def _eligible_source_rows(fill_list, eligible_evidence):
-    """把逐切片判定结果映射回 arranged fill 行，只保留达到独立阈值的来源。"""
-
     eligible_evidence = list(eligible_evidence or [])
     if not eligible_evidence:
-        return list(fill_list or [])
-    fill_list = list(fill_list or [])
-    eligible_slice_ids = {
-        str(item.get("entry_slice_id") or "").strip()
-        for item in eligible_evidence
-        if str(item.get("entry_slice_id") or "").strip()
-    }
-    if eligible_slice_ids and all(
-        str(item.get("entry_slice_id") or "").strip() for item in fill_list
-    ):
-        return [
-            item
-            for item in fill_list
-            if str(item.get("entry_slice_id") or "").strip() in eligible_slice_ids
-        ]
-    eligible_entry_ids = {
-        str(item.get("entry_id") or "").strip()
-        for item in eligible_evidence
-        if str(item.get("entry_id") or "").strip()
-    }
-    return [
-        item
-        for item in fill_list
-        if str(item.get("entry_id") or "").strip() in eligible_entry_ids
-    ]
+        return None
+    source_plan = build_guardian_sell_source_plan_v2(
+        eligible_evidence,
+        requested_quantity=requested_quantity,
+        submit_quantity=submit_quantity,
+        profitable_fill_count=profitable_fill_count,
+    )
+    return {'guardian_sell_sources': source_plan}
 
 
 def _resolve_guardian_sell_threshold_config(threshold):

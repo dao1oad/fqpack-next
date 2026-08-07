@@ -758,7 +758,70 @@ class OrderManagementRepository:
             query["symbol"] = symbol
         if entry_ids is not None:
             query["entry_id"] = {"$in": list(entry_ids)}
-        return list(self.entry_slices.find(query))
+        cursor = self.entry_slices.find(query)
+        try:
+            cursor = cursor.sort(
+                [
+                    ("guardian_price", 1),
+                    ("trade_time", 1),
+                    ("slice_seq", 1),
+                    ("entry_slice_id", 1),
+                ]
+            )
+        except (TypeError, AttributeError):
+            return sorted(
+                cursor,
+                key=lambda item: (
+                    _stable_slice_sort_value(item.get("guardian_price")),
+                    int(item.get("trade_time") or 0),
+                    int(item.get("slice_seq") or 0),
+                    str(item.get("entry_slice_id") or ""),
+                ),
+            )
+        return list(cursor)
+
+    def list_exit_allocations_for_request(
+        self,
+        *,
+        request_id=None,
+        internal_order_id=None,
+    ):
+        query = {}
+        if request_id not in {None, ""}:
+            query["request_id"] = str(request_id).strip()
+        if internal_order_id not in {None, ""}:
+            query["internal_order_id"] = str(internal_order_id).strip()
+        if not query:
+            return []
+        return list(self.exit_allocations.find(query))
+
+    def sum_exit_allocations_for_request(
+        self,
+        *,
+        request_id=None,
+        internal_order_id=None,
+    ):
+        rows = self.list_exit_allocations_for_request(
+            request_id=request_id,
+            internal_order_id=internal_order_id,
+        )
+        by_slice: dict[str, int] = {}
+        by_entry: dict[str, int] = {}
+        for row in rows:
+            entry_id = str(row.get("entry_id") or "").strip()
+            entry_slice_id = str(row.get("entry_slice_id") or "").strip()
+            allocated_quantity = int(row.get("allocated_quantity") or 0)
+            if entry_id:
+                by_entry[entry_id] = by_entry.get(entry_id, 0) + allocated_quantity
+            if entry_slice_id:
+                by_slice[entry_slice_id] = (
+                    by_slice.get(entry_slice_id, 0) + allocated_quantity
+                )
+        return {
+            "by_slice": by_slice,
+            "by_entry": by_entry,
+            "total": sum(by_entry.values()),
+        }
 
     def insert_external_candidate(self, document):
         self.external_candidates.insert_one(document)
@@ -853,6 +916,13 @@ class OrderManagementRepository:
 
 def _without_mongo_id(document):
     return {key: value for key, value in dict(document or {}).items() if key != "_id"}
+
+
+def _stable_slice_sort_value(value) -> tuple:
+    try:
+        return (0, float(value))
+    except (TypeError, ValueError):
+        return (1, str(value or ""))
 
 
 def _exact_document_selector(document, *, identity_field):

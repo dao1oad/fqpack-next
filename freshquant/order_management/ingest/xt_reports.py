@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import threading
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -32,7 +33,9 @@ from freshquant.order_management.entry_aggregation import (
     select_cluster_entry,
 )
 from freshquant.order_management.guardian.allocation_policy import (
+    SellAllocationPlanExhaustedError,
     allocate_sell_to_entry_slices,
+    allocate_sell_to_entry_slices_with_budget,
     allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
@@ -40,6 +43,9 @@ from freshquant.order_management.guardian.arranger import (
     arrange_entry,
     build_buy_lot_from_trade_fact,
     build_position_entry_from_trade_fact,
+)
+from freshquant.order_management.guardian.sell_semantics import (
+    extract_guardian_sell_source_plan,
 )
 from freshquant.order_management.projection.cache_invalidator import (
     mark_stock_holdings_projection_updated,
@@ -100,6 +106,18 @@ class OrderManagementXtIngestService:
         )
         self.tpsl_service = tpsl_service or _get_tpsl_service()
         self.runtime_logger = runtime_logger or _get_runtime_logger()
+        self._sell_allocation_locks: dict[str, threading.Lock] = {}
+        self._sell_allocation_locks_guard = threading.Lock()
+
+    def _sell_allocation_lock(self, symbol):
+        """按 symbol 的进程内串行锁，保护 sell fill 的 read-modify-write。"""
+
+        with self._sell_allocation_locks_guard:
+            lock = self._sell_allocation_locks.get(symbol)
+            if lock is None:
+                lock = threading.Lock()
+                self._sell_allocation_locks[symbol] = lock
+            return lock
 
     def ingest_trade_report(self, report, lot_amount, grid_interval_lookup):
         current_node = "trade_match"
@@ -212,88 +230,143 @@ class OrderManagementXtIngestService:
                         reason_code="non_board_lot_quantity",
                     )
                 else:
-                    if hasattr(self.repository, "list_position_entries") and hasattr(
-                        self.repository, "list_open_entry_slices"
-                    ):
-                        entries = self.repository.list_position_entries(symbol=symbol)
-                        open_entry_slices = self.repository.list_open_entry_slices(
-                            symbol=symbol
-                        )
-                        if entries and open_entry_slices:
-                            preferred_entry_quantities = (
-                                _resolve_trade_preferred_entry_quantities(
-                                    repository=self.repository,
-                                    report=report,
-                                    execution_fill=execution_fill,
-                                    trade_fact=trade_fact,
-                                )
+                    with self._sell_allocation_lock(symbol):
+                        v2_allocation_degraded = False
+                        allocation_degraded_reason = ""
+                        if hasattr(
+                            self.repository, "list_position_entries"
+                        ) and hasattr(self.repository, "list_open_entry_slices"):
+                            entries = self.repository.list_position_entries(
+                                symbol=symbol
                             )
-                            exit_allocations = allocate_sell_to_entry_slices(
-                                entries=entries,
-                                open_slices=open_entry_slices,
-                                sell_trade_fact=trade_fact,
-                                preferred_entry_quantities=preferred_entry_quantities,
+                            open_entry_slices = self.repository.list_open_entry_slices(
+                                symbol=symbol
                             )
-                            for item in entries:
-                                self.repository.replace_position_entry(item)
-                            touched_entry_ids = {
-                                item.get("entry_id")
-                                for item in open_entry_slices
-                                if item.get("entry_id")
-                            }
-                            for entry_id in touched_entry_ids:
-                                self.repository.replace_entry_slices_for_entry(
-                                    entry_id,
-                                    [
-                                        item
-                                        for item in open_entry_slices
-                                        if item.get("entry_id") == entry_id
-                                    ],
-                                )
-                            self.repository.insert_exit_allocations(exit_allocations)
-                            entry_slices = open_entry_slices
-                            holdings_changed = holdings_changed or bool(
-                                exit_allocations
-                            )
-                    if hasattr(self.repository, "list_buy_lots") and hasattr(
-                        self.repository, "list_open_slices"
-                    ):
-                        buy_lots = self.repository.list_buy_lots(symbol)
-                        open_slices = self.repository.list_open_slices(symbol)
-                        should_attempt_legacy_allocation = (
-                            bool(buy_lots and open_slices) or not exit_allocations
-                        )
-                        if should_attempt_legacy_allocation:
-                            try:
-                                sell_allocations = allocate_sell_to_slices(
-                                    buy_lots=buy_lots,
-                                    open_slices=open_slices,
-                                    sell_trade_fact=trade_fact,
-                                )
-                            except ValueError as exc:
-                                if (
-                                    exit_allocations
-                                    and str(exc)
-                                    == "sell quantity exceeds open guardian slices"
-                                ):
-                                    logger.info(
-                                        "skip legacy sell allocation after authoritative V2 exit allocation: symbol={} internal_order_id={} broker_trade_id={}",
-                                        symbol,
-                                        trade_fact.get("internal_order_id"),
-                                        trade_fact.get("broker_trade_id"),
+                            if entries and open_entry_slices:
+                                source_plan, request_id, internal_order_id = (
+                                    _resolve_trade_guardian_sell_source_plan(
+                                        repository=self.repository,
+                                        report=report,
+                                        execution_fill=execution_fill,
+                                        trade_fact=trade_fact,
                                     )
-                                else:
-                                    raise
-                            else:
-                                for item in buy_lots:
-                                    self.repository.replace_buy_lot(item)
-                                self.repository.replace_open_slices(open_slices)
-                                self.repository.insert_sell_allocations(
-                                    sell_allocations
                                 )
+                                already_allocated = _sum_request_sell_allocations(
+                                    self.repository,
+                                    request_id=request_id,
+                                    internal_order_id=internal_order_id,
+                                )
+                                try:
+                                    exit_allocations = allocate_sell_to_entry_slices_with_budget(
+                                        entries=entries,
+                                        open_slices=open_entry_slices,
+                                        sell_trade_fact=trade_fact,
+                                        source_plan=source_plan,
+                                        already_allocated_by_slice=already_allocated[
+                                            "by_slice"
+                                        ],
+                                        already_allocated_by_entry=already_allocated[
+                                            "by_entry"
+                                        ],
+                                        request_id=request_id,
+                                        internal_order_id=internal_order_id,
+                                    )
+                                except SellAllocationPlanExhaustedError as exc:
+                                    v2_allocation_degraded = True
+                                    allocation_degraded_reason = str(exc)
+                                    exit_allocations = []
+                                    _record_ingest_rejection(
+                                        self.repository,
+                                        trade_fact=trade_fact,
+                                        reason_code="allocation_source_plan_exhausted",
+                                    )
+                                    self._emit_runtime(
+                                        "sell_allocation",
+                                        report,
+                                        internal_order_id=internal_order_id
+                                        or trade_fact.get("internal_order_id"),
+                                        status="degraded",
+                                        reason_code="allocation_source_plan_exhausted",
+                                        extra_payload={
+                                            "request_id": request_id,
+                                            "internal_order_id": internal_order_id,
+                                            "side": "sell",
+                                            "quantity": trade_fact.get("quantity"),
+                                            "detail": allocation_degraded_reason,
+                                            "broker_trade_id": trade_fact.get(
+                                                "broker_trade_id"
+                                            ),
+                                        },
+                                    )
+                                    logger.warning(
+                                        "sell fill allocation plan exhausted: symbol={} broker_trade_id={} detail={}",
+                                        symbol,
+                                        trade_fact.get("broker_trade_id"),
+                                        allocation_degraded_reason,
+                                    )
+                                for item in entries:
+                                    self.repository.replace_position_entry(item)
+                                touched_entry_ids = {
+                                    item.get("entry_id")
+                                    for item in open_entry_slices
+                                    if item.get("entry_id")
+                                }
+                                for entry_id in touched_entry_ids:
+                                    self.repository.replace_entry_slices_for_entry(
+                                        entry_id,
+                                        [
+                                            item
+                                            for item in open_entry_slices
+                                            if item.get("entry_id") == entry_id
+                                        ],
+                                    )
+                                if exit_allocations:
+                                    self.repository.insert_exit_allocations(
+                                        exit_allocations
+                                    )
+                                entry_slices = open_entry_slices
                                 holdings_changed = holdings_changed or bool(
-                                    sell_allocations
+                                    exit_allocations
                                 )
+                        if hasattr(self.repository, "list_buy_lots") and hasattr(
+                            self.repository, "list_open_slices"
+                        ):
+                            buy_lots = self.repository.list_buy_lots(symbol)
+                            open_slices = self.repository.list_open_slices(symbol)
+                            should_attempt_legacy_allocation = (
+                                bool(buy_lots and open_slices) or not exit_allocations
+                            ) and not v2_allocation_degraded
+                            if should_attempt_legacy_allocation:
+                                try:
+                                    sell_allocations = allocate_sell_to_slices(
+                                        buy_lots=buy_lots,
+                                        open_slices=open_slices,
+                                        sell_trade_fact=trade_fact,
+                                    )
+                                except ValueError as exc:
+                                    if (
+                                        exit_allocations
+                                        and str(exc)
+                                        == "sell quantity exceeds open guardian slices"
+                                    ):
+                                        logger.info(
+                                            "skip legacy sell allocation after authoritative V2 exit allocation: symbol={} internal_order_id={} broker_trade_id={}",
+                                            symbol,
+                                            trade_fact.get("internal_order_id"),
+                                            trade_fact.get("broker_trade_id"),
+                                        )
+                                    else:
+                                        raise
+                                else:
+                                    for item in buy_lots:
+                                        self.repository.replace_buy_lot(item)
+                                    self.repository.replace_open_slices(open_slices)
+                                    self.repository.insert_sell_allocations(
+                                        sell_allocations
+                                    )
+                                    holdings_changed = holdings_changed or bool(
+                                        sell_allocations
+                                    )
                     if holdings_changed:
                         self._reset_guardian_buy_grid_after_sell(symbol)
 
@@ -720,17 +793,21 @@ def _build_entry_projections(symbol, *, repository):
     }
 
 
-def _resolve_trade_preferred_entry_quantities(
+def _resolve_trade_guardian_sell_source_plan(
     *, repository, report=None, execution_fill=None, trade_fact=None
 ):
-    direct_entries = _extract_guardian_sell_source_entries(report)
-    if direct_entries:
-        return direct_entries
-    direct_entries = _extract_guardian_sell_source_entries(execution_fill)
-    if direct_entries:
-        return direct_entries
+    """解析本次成交对应的请求级来源计划（v2/v1 兼容）。"""
+
+    for payload in (report, execution_fill):
+        plan = extract_guardian_sell_source_plan(payload)
+        if plan.get("slices") or plan.get("entries"):
+            request_id = str((payload or {}).get("request_id") or "").strip()
+            internal_order_id = str(
+                (payload or {}).get("internal_order_id") or ""
+            ).strip()
+            return plan, request_id or None, internal_order_id or None
     if not hasattr(repository, "find_order_request"):
-        return []
+        return {}, None, None
 
     request_id = _resolve_trade_request_id(
         repository=repository,
@@ -739,9 +816,37 @@ def _resolve_trade_preferred_entry_quantities(
         trade_fact=trade_fact,
     )
     if not request_id:
-        return []
+        return {}, None, None
     request = repository.find_order_request(request_id)
-    return _extract_guardian_sell_source_entries(request)
+    plan = extract_guardian_sell_source_plan(request)
+    internal_order_id = None
+    if hasattr(repository, "find_order_by_request_id"):
+        order = repository.find_order_by_request_id(request_id) or {}
+        internal_order_id = (
+            str((order or {}).get("internal_order_id") or "").strip() or None
+        )
+    if not internal_order_id:
+        internal_order_id = (
+            str((request or {}).get("internal_order_id") or "").strip() or None
+        )
+    if not internal_order_id:
+        internal_order_id = (
+            str((trade_fact or {}).get("internal_order_id") or "").strip() or None
+        )
+    return plan, request_id, internal_order_id
+
+
+def _sum_request_sell_allocations(
+    repository, *, request_id=None, internal_order_id=None
+):
+    """按 request_id/internal_order_id 累计已写入的 exit allocations。"""
+
+    if not hasattr(repository, "sum_exit_allocations_for_request"):
+        return {"by_slice": {}, "by_entry": {}, "total": 0}
+    return repository.sum_exit_allocations_for_request(
+        request_id=request_id,
+        internal_order_id=internal_order_id,
+    )
 
 
 def _resolve_trade_request_id(
@@ -764,12 +869,6 @@ def _resolve_trade_request_id(
     order = repository.find_order(internal_order_id) or {}
     request_id = str(order.get("request_id") or "").strip()
     return request_id or None
-
-
-def _extract_guardian_sell_source_entries(payload):
-    context = dict((payload or {}).get("strategy_context") or {})
-    sell_sources = dict(context.get("guardian_sell_sources") or {})
-    return list(sell_sources.get("entries") or [])
 
 
 def _find_position_entry_for_broker_order(repository, *, symbol, broker_order_key):
