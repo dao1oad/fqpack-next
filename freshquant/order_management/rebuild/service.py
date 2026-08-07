@@ -1098,9 +1098,7 @@ def _build_flatten_position_entry(
     avg_price,
     rebuild_ts,
 ):
-    resolved_date, resolved_time = _flatten_beijing_date_time_from_epoch(
-        rebuild_ts
-    )
+    resolved_date, resolved_time = _flatten_beijing_date_time_from_epoch(rebuild_ts)
     entry_price = float(avg_price)
     entry = {
         "entry_id": new_position_entry_id(),
