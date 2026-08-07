@@ -34,6 +34,23 @@ MUST_POOL_5M_NEW_OPEN_SIGNAL_TYPES = {
 }
 
 
+def _log_pool_change(old_codes, new_codes):
+    removed_codes = set(old_codes) - set(new_codes)
+    if removed_codes:
+        logger.warning(
+            "[Event] pool changed: %d -> %d removed=[%s]",
+            len(old_codes),
+            len(new_codes),
+            ",".join(sorted(removed_codes)),
+        )
+    else:
+        logger.info(
+            "[Event] pool changed: %d -> %d",
+            len(old_codes),
+            len(new_codes),
+        )
+
+
 def monitor_stock_zh_a_min_event_driven() -> None:
     """
     Mode A: Guardian event monitor.
@@ -103,9 +120,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                 if new_codes != old_codes:
                     codes_lock["codes"] = new_codes
                     listener.update_filter_codes(new_codes)
-                    logger.info(
-                        f"[Event] pool changed: {len(old_codes)} -> {len(new_codes)}"
-                    )
+                    _log_pool_change(old_codes, new_codes)
             except Exception:
                 logger.error(traceback.format_exc())
 

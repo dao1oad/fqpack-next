@@ -199,6 +199,9 @@
   - 写 `xt_*`
   - 写 `pm_*`
   - 增量触发订单回报 ingest
+  - `xt_positions` 写入采用滞回语义：缺失标的经 `sync_missing_count / sync_last_seen_at`
+    连续确认后才驱逐，空快照守卫保留存量；reconcile 使用滞回后的有效持仓视图，
+    避免 XT 瞬时部分返回导致持仓被清空或触发虚假 sell gap
 - `OrderSubmitService`
   - 写 `om_order_requests / om_orders / om_broker_orders / om_order_events`
 - `OrderManagementXtIngestService`
