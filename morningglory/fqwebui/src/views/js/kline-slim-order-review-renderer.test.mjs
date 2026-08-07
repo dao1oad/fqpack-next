@@ -85,6 +85,70 @@ const makeTimeline = () => ({
   ],
 })
 
+const makeReviewChart = () => ({
+  order_events: [
+    {
+      event_id: 'order-buy',
+      side: 'buy',
+      event_type: 'filled_order',
+      signal: { label: '反转买点', type: 'buy_v_reverse', family: 'reversal' },
+      execution: {
+        actual_quantity: 10000,
+        avg_filled_price: 10.27,
+        fill_count: 3,
+        first_fill_time: '2026-03-16T09:35:00+08:00',
+        last_fill_time: '2026-03-16T09:40:00+08:00',
+      },
+      position_impact: { position_before: 0, position_after: 10000 },
+      review: { verdict: 'PASS' },
+      marker: {
+        bar_time: '2026-03-16T09:35:00+08:00',
+        price: 10.27,
+        symbol: 'triangle',
+      },
+      conditions: {
+        count: 2,
+        condition_snapshot_status: 'complete',
+        threshold_missing_count: 0,
+      },
+      data_quality: { warnings: [] },
+    },
+    {
+      event_id: 'order-sell',
+      side: 'sell',
+      event_type: 'filled_order',
+      signal: { label: '止盈卖点', type: 'sell_takeprofit', family: 'takeprofit' },
+      execution: {
+        actual_quantity: 4000,
+        avg_filled_price: 10.35,
+        fill_count: 1,
+        first_fill_time: '2026-03-16T09:45:00+08:00',
+        last_fill_time: '2026-03-16T09:45:00+08:00',
+      },
+      position_impact: { position_before: 10000, position_after: 6000 },
+      review: { verdict: 'FAIL' },
+      marker: {
+        bar_time: '2026-03-16T09:45:00+08:00',
+        price: 10.35,
+        symbol: 'path://M0,18 L10,0 L-10,0 Z',
+      },
+      conditions: {
+        count: 6,
+        condition_snapshot_status: 'complete',
+        threshold_missing_count: 0,
+      },
+      data_quality: { warnings: [] },
+    },
+  ],
+  cost_basis_series: [
+    { time: '2026-03-16T09:35:00+08:00', average_cost: 10.27 },
+    { time: '2026-03-16T09:45:00+08:00', average_cost: 10.27 },
+  ],
+  signal_type_registry: {
+    buy_v_reverse: { type: 'buy_v_reverse', family: 'reversal', marker_symbol: 'triangle' },
+  },
+})
+
 const countRenderedSeriesData = (option, seriesId) => {
   const chart = echarts.init(null, null, {
     renderer: 'svg',
@@ -273,6 +337,65 @@ test('compresses review tracks in constrained chart viewports to protect K-line 
   assert.equal(option.legend.formatter('连续持仓'), '持仓')
 })
 
+test('order review chart keeps a single K-line grid and renders price-layer markers', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: makeMainData(),
+    currentPeriod: '5m',
+    visiblePeriods: ['5m'],
+    orderReviewChart: makeReviewChart(),
+    orderReviewChartVisible: true,
+  })
+  const viewport = deriveViewportStateForScene({
+    scene,
+    viewport: { xRange: { start: 0, end: 100 }, yRange: null },
+  })
+  const option = buildKlineSlimChartOption({ scene, viewport })
+
+  assert.equal(scene.orderReviewChartTrackVisible, true)
+  assert.equal(Array.isArray(option.grid), false)
+  assert.equal(Array.isArray(option.xAxis), false)
+  assert.equal(Array.isArray(option.yAxis), false)
+  assert.equal(
+    countRenderedSeriesData(option, 'order-review-chart-markers'),
+    2,
+  )
+  assert.equal(
+    countRenderedSeriesData(option, 'order-review-chart-fill-spans'),
+    1,
+  )
+  assert.equal(
+    countRenderedSeriesData(option, 'order-review-chart-cost'),
+    2,
+  )
+  const markerSeries = option.series.find((item) => item.id === 'order-review-chart-markers')
+  const buy = markerSeries.data.find((item) => item.event.event_id === 'order-buy')
+  const sell = markerSeries.data.find((item) => item.event.event_id === 'order-sell')
+  assert.equal(buy.itemStyle.color, '#ef4444')
+  assert.equal(buy.sideText, 'B')
+  assert.equal(buy.symbol, 'triangle')
+  assert.equal(buy.mark, false)
+  assert.equal(sell.itemStyle.color, '#22c55e')
+  assert.equal(sell.sideText, 'S')
+  assert.equal(sell.mark, true)
+})
+
+test('order review chart without events keeps the single K-line grid', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: makeMainData(),
+    currentPeriod: '5m',
+    visiblePeriods: ['5m'],
+    orderReviewChart: { order_events: [], cost_basis_series: [] },
+    orderReviewChartVisible: true,
+  })
+  const viewport = deriveViewportStateForScene({
+    scene,
+    viewport: { xRange: { start: 0, end: 100 }, yRange: null },
+  })
+  const option = buildKlineSlimChartOption({ scene, viewport })
+  assert.equal(scene.orderReviewChartTrackVisible, false)
+  assert.equal(Array.isArray(option.grid), false)
+})
+
 test('KlineSlim loads review data on demand and can open the full review context', () => {
   const viewSource = fs.readFileSync(new URL('../KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./kline-slim.js', import.meta.url), 'utf8')
@@ -281,9 +404,9 @@ test('KlineSlim loads review data on demand and can open the full review context
   assert.match(viewSource, /@click="jumpToPositionReview"/)
   assert.match(viewSource, /orderReviewChartState/)
   assert.match(viewSource, /retryOrderReviewTimeline/)
-  assert.match(scriptSource, /getSymbolTimeline\(this\.routeSymbol, params\)/)
+  assert.match(scriptSource, /getSymbolChart\(this\.routeSymbol, params\)/)
   assert.match(scriptSource, /jumpToPositionReview\(\)/)
-  assert.match(scriptSource, /orderReviewTimeline = null/)
+  assert.match(scriptSource, /orderReviewChart = null/)
 })
 
 test('KlineSlim only accepts a review response for the active K-line window', () => {

@@ -498,6 +498,8 @@ export const klineSlimController = {
           priceGuideEditLocked: this.priceGuideEditLocked,
           orderReviewTimeline: this.orderReviewTimeline,
           orderReviewVisible: this.showOrderReview,
+          orderReviewChart: this.orderReviewChart,
+          orderReviewChartVisible: this.showOrderReview,
           clxSignalHistory: this.clxSignalHistory,
           clxModelKeys: this.clxSelectedModelKeys,
           clxConditionKeys: this.clxSelectedConditionKeys,
