@@ -380,3 +380,15 @@ def test_compute_trade_session_cases():
         )["session"]
         == "unknown"
     )
+
+
+def test_resolve_tdxhq_endpoint_prefers_compose_env(monkeypatch):
+    monkeypatch.delenv("FRESHQUANT_TDX__HQ_ENDPOINT", raising=False)
+    monkeypatch.delenv("FRESHQUANT_TDX__HQ__ENDPOINT", raising=False)
+    assert ops_routes._resolve_tdxhq_endpoint() == "http://127.0.0.1:15001"
+
+    monkeypatch.setenv("FRESHQUANT_TDX__HQ_ENDPOINT", "http://fq_tdxhq:5001")
+    assert ops_routes._resolve_tdxhq_endpoint() == "http://fq_tdxhq:5001"
+
+    monkeypatch.setenv("FRESHQUANT_TDX__HQ__ENDPOINT", "http://fallback:6000")
+    assert ops_routes._resolve_tdxhq_endpoint() == "http://fq_tdxhq:5001"

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
 import time
 from collections import deque
@@ -280,8 +281,18 @@ def _clickhouse_ping() -> tuple[bool, float | None, str | None]:
         return False, None, f"clickhouse ping 失败: {exc}"
 
 
+def _resolve_tdxhq_endpoint() -> str:
+    """解析 TDXHQ 端点：优先 compose 环境变量（FRESHQUANT_TDX__HQ_ENDPOINT）。"""
+    for key in ("FRESHQUANT_TDX__HQ_ENDPOINT", "FRESHQUANT_TDX__HQ__ENDPOINT"):
+        value = os.environ.get(key)
+        if value and str(value).strip():
+            return str(value).strip()
+    endpoint = str(bootstrap_config.tdx.hq_endpoint or "").strip()
+    return endpoint or "http://127.0.0.1:15001"
+
+
 def _tdxhq_ping() -> tuple[bool, float | None, str | None]:
-    endpoint = str(bootstrap_config.tdx.hq_endpoint or "").strip() or "http://127.0.0.1:15001"
+    endpoint = _resolve_tdxhq_endpoint()
     parsed = urlparse(endpoint if "://" in endpoint else f"//{endpoint}")
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
