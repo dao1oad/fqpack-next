@@ -47,7 +47,7 @@ FreshQuant 当前同时使用三类行情来源：
 - TDX 股票日线对未上市/暂无源数据代码返回空结果时按 no-op 处理，不执行空批量写入；连接、抓取或真实写库异常仍由 Dagster 标记为失败
 - 股票除权除息复权计算使用显式列赋值与 `DataFrame.ffill()`，避免 Pandas 3.0 链式 `inplace`/`fillna(method=...)` 兼容性问题，计算口径不变
 - CLX 日线选股按 Stock / ETF 各自 active marker 冻结 QFQ snapshot pair，并通过共享 strict reader 构造 effective universe；marker `source_exclusions` 与逐标的 `QFQ_DATA_NOT_READY` 会在 attempt 前通用隔离并记录，其他异常直接阻断规划，不回退为 `adj=1` 或 BFQ
-- Stock / ETF 在线读取统一使用 `freshquant.data.qfq_reader`，按 `quantaxis.qfq_ready` 指向的 active slot 读取 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`
+- Stock / ETF 在线读取统一使用 `freshquant.data.qfq_reader`，按 `quantaxis.qfq_ready` 指向的 active slot 读取 `stock_adj_qfq_a/b`、`etf_adj_qfq_a/b`；K 线读取路径对源 bar 中的 QASU sentinel 占位行（`vol/volume` 与 `amount` 均为 `5.877471754e-39`）按快照构建同一语义跳过，缺失因子日期全部可证明为占位行时剔除后继续返回，不回退 `adj=1.0`
 - XTData `preClose` QFQ writer 只在 inactive slot 构建并审计，审计成功且 writer lease owner 仍匹配后原子切换 marker；reader 每次请求重新解析 marker，并对 snapshot、coverage、source exclusion 与 override fail closed
 - Redis Kline 与 StrategyConsumer 常驻窗口绑定 effective adjustment version；旧 `stock_adj` / `etf_adj` 不再是 reader 真值，旧 writer 在切换健康检查后停止，旧集合保留至少 7 个交易日
 - 完整历史请求后仍无 source bars、有界内部 source gap 两端 adjustment proof 不一致，或 primary source 前缀分页稳定报告 `history_prefix_no_progress` 的 code，不写推断因子或 `1.0`，从当前 snapshot 隔离，并在对应 slot `source_exclusions[]` 分别记录 `source_empty_bars`、`source_adjustment_gap_unproven` 或 `source_prefix_unavailable`；A/B 与 rollback 各自保留该审计边界

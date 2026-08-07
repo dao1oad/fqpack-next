@@ -43,7 +43,7 @@ TEMPORARY_DIRECT_ADJUSTMENT_COLLECTION_ALLOWLIST = {
     ("freshquant/data/etf_adj_sync.py", 683, "attribute:etf_adj"): (
         "PR2a transitional legacy ETF writer"
     ),
-    ("freshquant/data/qfq_reader.py", 129, "fragment:_adj_intraday"): (
+    ("freshquant/data/qfq_reader.py", 162, "fragment:_adj_intraday"): (
         "shared strict QFQ reader"
     ),
     (

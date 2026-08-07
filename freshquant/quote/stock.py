@@ -14,6 +14,7 @@ def fq_quote_QA_fetch_stock_day_adv(code, start, end):
             scope="stock",
             code=normalize_to_base_code(code),
             date_col="date",
+            skip_sentinel_placeholder_bars=True,
         )
         return adjusted
     return

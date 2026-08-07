@@ -14,6 +14,39 @@ from freshquant.util.code import normalize_to_base_code
 
 QFQ_DATA_NOT_READY = "QFQ_DATA_NOT_READY"
 QFQ_DATA_NOT_READY_HTTP_STATUS = 503
+BFQ_SENTINEL_VALUE = 5.877471754e-39
+
+
+def _is_sentinel_placeholder_row(row: Mapping[str, Any]) -> bool:
+    """Mirror the snapshot-builder sentinel semantics for source placeholder bars."""
+
+    volume = row.get("vol", row.get("volume"))
+    amount = row.get("amount")
+    if volume is None or amount is None:
+        return False
+    try:
+        values = (float(volume), float(amount))
+    except (TypeError, ValueError):
+        return False
+    return all(
+        math.isfinite(value)
+        and math.isclose(value, BFQ_SENTINEL_VALUE, rel_tol=1e-9, abs_tol=0.0)
+        for value in values
+    )
+
+
+def _all_sentinel_placeholder_dates(
+    bars: pd.DataFrame,
+    dates: pd.Series,
+    missing_dates: Iterable[str],
+) -> bool:
+    """True when every requested bar at a missing factor date is a placeholder."""
+
+    missing = set(missing_dates)
+    for (_, row), date_value in zip(bars.iterrows(), dates):
+        if date_value in missing and not _is_sentinel_placeholder_row(row):
+            return False
+    return True
 
 
 class QFQDataNotReadyError(RuntimeError):
@@ -365,6 +398,7 @@ def _read_factor_series(
     code: str,
     dates: pd.Series,
     db,
+    bars: pd.DataFrame | None = None,
 ) -> tuple[pd.Series, QFQReadMetadata]:
     unique_dates = sorted(set(dates.tolist()))
     trade_date = unique_dates[-1]
@@ -431,13 +465,19 @@ def _read_factor_series(
         )
 
     missing_dates = [value for value in canonical_dates if value not in factors_by_date]
+    tolerated_sentinel_dates: set[str] = set()
     if missing_dates:
-        raise QFQDataNotReadyError(
-            "active QFQ snapshot does not cover the requested bars",
-            scope=scope,
-            code=code,
-            missing_dates=missing_dates,
-        )
+        if bars is not None and _all_sentinel_placeholder_dates(
+            bars, dates, missing_dates
+        ):
+            tolerated_sentinel_dates.update(missing_dates)
+        else:
+            raise QFQDataNotReadyError(
+                "active QFQ snapshot does not cover the requested bars",
+                scope=scope,
+                code=code,
+                missing_dates=missing_dates,
+            )
 
     factor = dates.map(factors_by_date).astype(float)
     if uncovered_dates:
@@ -458,9 +498,15 @@ def _read_factor_series(
         )
         factor.loc[dates == override_date] = 1.0
     if factor.isna().any():
-        raise QFQDataNotReadyError(
-            "active QFQ factor result is incomplete", scope=scope, code=code
-        )
+        if tolerated_sentinel_dates:
+            tolerated_mask = dates.isin(tolerated_sentinel_dates)
+            unresolved = factor.isna() & ~tolerated_mask
+        else:
+            unresolved = factor.isna()
+        if unresolved.any():
+            raise QFQDataNotReadyError(
+                "active QFQ factor result is incomplete", scope=scope, code=code
+            )
     return factor, metadata
 
 
@@ -473,6 +519,7 @@ def apply_qfq_to_bars(
     date_col: str | None = None,
     datetime_col: str = "datetime",
     ohlc_cols: Iterable[str] = ("open", "high", "low", "close"),
+    skip_sentinel_placeholder_bars: bool = False,
 ) -> tuple[pd.DataFrame, QFQReadMetadata]:
     if bars is None or len(bars) == 0:
         raise QFQDataNotReadyError(
@@ -482,9 +529,18 @@ def apply_qfq_to_bars(
     code = normalize_to_base_code(code)
     dates = _extract_bar_dates(bars, date_col=date_col, datetime_col=datetime_col)
     factor, metadata = _read_factor_series(
-        scope=scope, code=code, dates=dates, db=database
+        scope=scope,
+        code=code,
+        dates=dates,
+        db=database,
+        bars=bars if skip_sentinel_placeholder_bars else None,
     )
     result = bars.copy()
+    if skip_sentinel_placeholder_bars:
+        kept = ~factor.isna().to_numpy(dtype=bool)
+        if not kept.all():
+            result = result.loc[kept].copy()
+            factor = factor.loc[kept]
     factor_values = factor.to_numpy(dtype=float)
     for column in ohlc_cols:
         if column in result.columns:

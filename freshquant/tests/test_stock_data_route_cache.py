@@ -287,6 +287,98 @@ def test_stock_data_realtime_today_qfq_gap_uses_previous_trade_date(
     ]
 
 
+def test_stock_data_realtime_historical_qfq_gap_falls_back_to_history(
+    monkeypatch, stock_routes
+):
+    class FakeDatetime:
+        @staticmethod
+        def now():
+            return real_datetime(2026, 8, 3, 10, 30)
+
+    calls = []
+
+    def fake_get_data_v2(symbol, period, end_date, bar_count=0):
+        calls.append((symbol, period, end_date, bar_count))
+        if end_date is None:
+            raise stock_routes.QFQDataNotReadyError(
+                "active QFQ snapshot does not cover the requested bars",
+                scope="etf",
+                code="512600",
+                missing_dates=["2016-04-26", "2016-04-27"],
+            )
+        return {"source": "history", "endDate": end_date, "barCount": bar_count}
+
+    monkeypatch.setattr(stock_routes, "datetime", FakeDatetime)
+    monkeypatch.setattr(
+        stock_routes, "_get_realtime_stock_data_from_cache", lambda *args: None
+    )
+    monkeypatch.setattr(
+        stock_routes,
+        "fq_trading_fetch_trade_dates",
+        lambda *args, **kwargs: ["2026-07-30", "2026-07-31", "2026-08-03"],
+    )
+    monkeypatch.setattr(stock_routes, "get_data_v2", fake_get_data_v2)
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sh512600",
+        period="1d",
+        realtimeCache="1",
+        barCount="20000",
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "source": "history",
+        "endDate": "2026-07-31",
+        "barCount": 20000,
+    }
+    assert calls == [
+        ("sh512600", "1d", None, 20000),
+        ("sh512600", "1d", "2026-07-31", 20000),
+    ]
+
+
+def test_stock_data_realtime_historical_qfq_gap_stays_503_when_fallback_fails(
+    monkeypatch, stock_routes
+):
+    class FakeDatetime:
+        @staticmethod
+        def now():
+            return real_datetime(2026, 8, 3, 10, 30)
+
+    def fail(*_args, **_kwargs):
+        raise stock_routes.QFQDataNotReadyError(
+            "active QFQ snapshot does not cover the requested bars",
+            scope="etf",
+            code="512600",
+            missing_dates=["2016-04-26", "2016-04-27"],
+        )
+
+    monkeypatch.setattr(stock_routes, "datetime", FakeDatetime)
+    monkeypatch.setattr(
+        stock_routes, "_get_realtime_stock_data_from_cache", lambda *args: None
+    )
+    monkeypatch.setattr(
+        stock_routes,
+        "fq_trading_fetch_trade_dates",
+        lambda *args, **kwargs: ["2026-07-30", "2026-07-31", "2026-08-03"],
+    )
+    monkeypatch.setattr(stock_routes, "get_data_v2", fail)
+
+    response = call_stock_data(
+        stock_routes,
+        symbol="sh512600",
+        period="1d",
+        realtimeCache="1",
+        barCount="20000",
+    )
+
+    assert response.status_code == 503
+    assert response.get_json()["error_code"] == "QFQ_DATA_NOT_READY"
+    assert response.get_json()["missing_dates"] == ["2016-04-26", "2016-04-27"]
+
+
 def test_stock_data_explicit_end_date_qfq_gap_stays_503(monkeypatch, stock_routes):
     def fail(*_args, **_kwargs):
         raise stock_routes.QFQDataNotReadyError(

@@ -218,7 +218,9 @@ def _recent_previous_trade_dates(
     return sorted(set(keys), reverse=True)[:limit]
 
 
-def _is_current_date_qfq_gap(error):
+def _has_qfq_gap(error):
+    """Any missing factor date is treated as a realtime-cache gap to retry."""
+
     missing_dates = [
         value
         for value in (
@@ -227,14 +229,11 @@ def _is_current_date_qfq_gap(error):
         )
         if value
     ]
-    if not missing_dates:
-        return False
-    today = datetime.now().strftime("%Y-%m-%d")
-    return set(missing_dates) == {today}
+    return bool(missing_dates)
 
 
 def _get_realtime_history_fallback(symbol, period, bar_count, error):
-    if not _is_current_date_qfq_gap(error):
+    if not _has_qfq_gap(error):
         raise error
 
     for fallback_end_date in _recent_previous_trade_dates():

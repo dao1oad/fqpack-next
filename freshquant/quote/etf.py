@@ -180,6 +180,7 @@ def queryEtfCandleSticksDay(code, start=None, end=None):
         scope="etf",
         code=normalize_to_base_code(code),
         datetime_col="datetime",
+        skip_sentinel_placeholder_bars=True,
     )
 
     data = data.round(
@@ -259,6 +260,7 @@ def queryEtfCandleSticksMin(code, frequence, start=None, end=None):
         scope="etf",
         code=normalize_to_base_code(code),
         datetime_col="datetime",
+        skip_sentinel_placeholder_bars=True,
     )
 
     data = data.round(

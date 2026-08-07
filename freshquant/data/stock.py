@@ -45,6 +45,7 @@ def _apply_stock_qfq(
         scope="stock",
         code=base_code,
         datetime_col="datetime",
+        skip_sentinel_placeholder_bars=True,
     )
     return adjusted
 
