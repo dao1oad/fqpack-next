@@ -25,7 +25,7 @@ from freshquant.order_management.rebuild.service import OrderLedgerV2RebuildServ
 def _flatten_service():
     return OrderLedgerV2RebuildService(
         lot_amount_lookup=lambda _symbol: 50000,
-        grid_interval_lookup=lambda _symbol, _trade_fact: 1.2,
+        grid_interval_lookup=lambda _symbol: 1.2,
     )
 
 

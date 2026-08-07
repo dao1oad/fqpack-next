@@ -232,8 +232,12 @@ class OrderLedgerV2RebuildService:
         """
 
         rebuild_ts = _resolve_rebuild_timestamp(now_ts)
-        lot_amount_lookup = lot_amount_lookup or _resolve_flatten_lot_amount
-        grid_interval_lookup = grid_interval_lookup or _resolve_flatten_grid_interval
+        lot_amount_lookup = lot_amount_lookup or self.lot_amount_lookup
+        grid_interval_lookup = grid_interval_lookup or self.grid_interval_lookup
+        if lot_amount_lookup is _default_lot_amount_lookup:
+            lot_amount_lookup = _resolve_flatten_lot_amount
+        if grid_interval_lookup is _default_grid_interval_lookup:
+            grid_interval_lookup = _resolve_flatten_grid_interval
         position_rows = _normalize_flatten_positions(xt_positions or [])
         if not position_rows:
             raise ValueError("flatten rebuild requires non-empty xt_positions snapshot")
