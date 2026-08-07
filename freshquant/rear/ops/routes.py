@@ -16,14 +16,14 @@ import socket
 import time
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import pymongo
 import redis
-import requests
+import requests  # type: ignore[import-untyped]
 from flask import Blueprint, jsonify
-from pathlib import Path
 
 from freshquant.bootstrap_config import bootstrap_config
 from freshquant.database.mongodb import DBfreshquant, DBOrderManagement
@@ -94,7 +94,9 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def _component_by_name(components: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+def _component_by_name(
+    components: list[dict[str, Any]], name: str
+) -> dict[str, Any] | None:
     for item in components or []:
         if str(item.get("component") or "") == name:
             return item
@@ -192,9 +194,7 @@ def _build_supervisor_kpi(snapshot: dict[str, Any] | None) -> dict[str, Any]:
         status, tone, summary = "ok", "ok", f"Running {running}/{expected}"
     detail = (
         f"异常 {len(degraded)} 个："
-        + ", ".join(
-            f"{item.get('name')}[{item.get('state')}]" for item in degraded[:3]
-        )
+        + ", ".join(f"{item.get('name')}[{item.get('state')}]" for item in degraded[:3])
         if degraded
         else "全部正常"
     )
@@ -317,7 +317,9 @@ def _frame_trade_date_set(frame: Any) -> set[str]:
     return {str(value).strip()[:10] for value in values if str(value).strip()}
 
 
-def _compute_trade_session(now: datetime, trade_dates: set[str] | None) -> dict[str, Any]:
+def _compute_trade_session(
+    now: datetime, trade_dates: set[str] | None
+) -> dict[str, Any]:
     if trade_dates is None:
         return {
             "is_trade_day": None,
@@ -365,7 +367,7 @@ def _resolve_trade_session() -> dict[str, Any]:
 
 
 def _mongo_ping() -> tuple[bool, float | None, str | None]:
-    client = pymongo.MongoClient(
+    client: pymongo.MongoClient = pymongo.MongoClient(
         host=bootstrap_config.mongodb.host,
         port=bootstrap_config.mongodb.port,
         serverSelectionTimeoutMS=2000,
@@ -595,9 +597,7 @@ def _build_ledger_consistency(
     label = "账本一致性"
     total_in_flight = in_flight_orders + in_flight_broker_orders
     status, tone = (
-        ("ok", "ok")
-        if gaps == 0 and total_in_flight == 0
-        else ("warn", "warn")
+        ("ok", "ok") if gaps == 0 and total_in_flight == 0 else ("warn", "warn")
     )
     return {
         "label": label,
@@ -655,7 +655,9 @@ def _build_issue_aggregate(components: list[dict[str, Any]]) -> dict[str, Any]:
         issue_trace_count += _to_int(item.get("issue_trace_count"))
         issue_step_count += _to_int(item.get("issue_step_count"))
         item_issue_ts = item.get("last_issue_ts")
-        if item_issue_ts and (last_issue_ts is None or str(item_issue_ts) > last_issue_ts):
+        if item_issue_ts and (
+            last_issue_ts is None or str(item_issue_ts) > last_issue_ts
+        ):
             last_issue_ts = str(item_issue_ts)
     issue_components.sort(key=lambda item: item["last_issue_ts"] or "", reverse=True)
     return {
@@ -740,9 +742,7 @@ def _build_overview() -> dict[str, Any]:
 
     dependencies = _probe_dependencies()
     degraded_count = sum(
-        1
-        for kpi in kpi_items.values()
-        if kpi.get("status") in {"degraded", "error"}
+        1 for kpi in kpi_items.values() if kpi.get("status") in {"degraded", "error"}
     )
     return {
         "generated_at": _iso(_now()),
@@ -763,7 +763,10 @@ def _build_overview() -> dict[str, Any]:
 def _overview_with_cache() -> tuple[dict[str, Any], bool]:
     now = time.monotonic()
     cached_payload = _overview_cache.get("payload")
-    if cached_payload is not None and now - _overview_cache.get("at", 0.0) < OVERVIEW_CACHE_TTL_S:
+    if (
+        cached_payload is not None
+        and now - _overview_cache.get("at", 0.0) < OVERVIEW_CACHE_TTL_S
+    ):
         return cached_payload, True
     payload = _build_overview()
     _overview_cache["at"] = now
@@ -798,7 +801,9 @@ def _read_realtime_cache_sample() -> dict[str, Any]:
         return {"status": "error", "realtime_cache": False, "detail": "非法周期配置"}
     prefix = f"CACHE:KLINE:{KLINE_PROBE_SYMBOL}:{period_backend}:"
     try:
-        found_key = next(iter(probe_redis.scan_iter(match=f"{prefix}*", count=100)), None)
+        found_key = next(
+            iter(probe_redis.scan_iter(match=f"{prefix}*", count=100)), None
+        )
     except Exception as exc:
         return {
             "status": "error",
@@ -826,7 +831,8 @@ def _read_realtime_cache_sample() -> dict[str, Any]:
             "detail": "realtimeCache 缓存已过期",
         }
     try:
-        payload = json.loads(raw)
+        raw_text = raw if isinstance(raw, str) else ""
+        payload = json.loads(raw_text)
     except (TypeError, ValueError) as exc:
         return {
             "status": "error",
@@ -839,7 +845,7 @@ def _read_realtime_cache_sample() -> dict[str, Any]:
         "status": "success" if has_bars else "no_data",
         "realtime_cache": True,
         "detail": (
-            f"realtimeCache 命中 {len(dates)} 根 K 线"
+            f"realtimeCache 命中 {len(dates) if isinstance(dates, list) else 0} 根 K 线"
             if has_bars
             else "realtimeCache 存在但无 K 线数据"
         ),
@@ -869,7 +875,11 @@ def _prune_probe_window(now_ts: float) -> None:
 def _kline_probe_if_due(now_ts: float | None = None) -> dict[str, Any]:
     current_ts = float(now_ts if now_ts is not None else time.time())
     last_result = _probe_state.get("last_result")
-    if last_result is not None and current_ts - _probe_state.get("last_run_at", 0.0) < KLINE_PROBE_MIN_INTERVAL_S:
+    if (
+        last_result is not None
+        and current_ts - _probe_state.get("last_run_at", 0.0)
+        < KLINE_PROBE_MIN_INTERVAL_S
+    ):
         return last_result
     result = _execute_kline_probe(current_ts)
     _probe_state["last_run_at"] = current_ts
@@ -974,12 +984,18 @@ def _build_kline_segments(
     now_ts = time.time()
     _prune_probe_window(now_ts)
     recent_503 = sum(
-        1 for (ts, status) in window if status == "error" and now_ts - ts <= KLINE_503_WINDOW_S
+        1
+        for (ts, status) in window
+        if status == "error" and now_ts - ts <= KLINE_503_WINDOW_S
     )
     if probe["status"] == "error":
         kline_status, kline_tone, kline_summary = "error", "error", "不可用"
     elif recent_503 > 0:
-        kline_status, kline_tone, kline_summary = "warn", "warn", f"近期 503 ×{recent_503}"
+        kline_status, kline_tone, kline_summary = (
+            "warn",
+            "warn",
+            f"近期 503 ×{recent_503}",
+        )
     elif probe["status"] == "no_data":
         kline_status, kline_tone, kline_summary = "warn", "warn", "无缓存"
     else:
@@ -989,9 +1005,7 @@ def _build_kline_segments(
         "status": kline_status,
         "tone": kline_tone,
         "summary": kline_summary,
-        "detail": (
-            f"{probe.get('detail')}；近5分钟503={recent_503}"
-        ),
+        "detail": (f"{probe.get('detail')}；近5分钟503={recent_503}"),
         "log_component": "xt_consumer",
         "last_issue_ts": (
             probe.get("checked_at") if probe["status"] == "error" else None

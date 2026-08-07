@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import time
 import xmlrpc.client
 from datetime import datetime, timezone
@@ -55,9 +56,12 @@ def fetch_supervisor_programs(rpc_url: str) -> dict[str, Any]:
     """只读调用 supervisor.getAllProcessInfo()。"""
     try:
         proxy = xmlrpc.client.ServerProxy(rpc_url)
-        infos = proxy.supervisor.getAllProcessInfo()
+        raw_infos = proxy.supervisor.getAllProcessInfo()
+        infos = raw_infos if isinstance(raw_infos, list) else []
         programs = []
-        for info in infos or []:
+        for info in infos:
+            if not isinstance(info, dict):
+                continue
             start_ts = info.get("start")
             programs.append(
                 {
@@ -300,7 +304,7 @@ def main() -> int:
         )
         write_snapshot(path, snapshot)
         print(json.dumps(snapshot, ensure_ascii=False, sort_keys=True), flush=True)
-        print(f"snapshot written: {path}", file=os.sys.stderr, flush=True)
+        print(f"snapshot written: {path}", file=sys.stderr, flush=True)
 
     if not args.daemon:
         _collect_once()
@@ -309,14 +313,14 @@ def main() -> int:
     # 常驻循环：supervisor 托管，崩溃由 autorestart 拉起；单次失败不中断循环。
     print(
         f"daemon mode: interval={interval}s snapshot={path}",
-        file=os.sys.stderr,
+        file=sys.stderr,
         flush=True,
     )
     while True:
         try:
             _collect_once()
         except Exception as exc:  # pragma: no cover - 防御：循环不因单次失败退出
-            print(f"snapshot collect failed: {exc}", file=os.sys.stderr, flush=True)
+            print(f"snapshot collect failed: {exc}", file=sys.stderr, flush=True)
         time.sleep(interval)
     return 0
 
