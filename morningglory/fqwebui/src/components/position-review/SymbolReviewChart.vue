@@ -27,12 +27,17 @@ const kline = ref(null)
 const chartPayload = ref(null)
 const loading = ref(false)
 const error = ref('')
+const conditionsCache = ref(new Map())
 let requestId = 0
 
 const normalized = computed(() => normalizeSymbolChart(chartPayload.value || {}))
 
 const chartOption = computed(() => (
-  buildSymbolReviewChartOption({ kline: kline.value || {}, chart: chartPayload.value || {} })
+  buildSymbolReviewChartOption({
+    kline: kline.value || {},
+    chart: chartPayload.value || {},
+    conditionsResolver: (eventId) => conditionsCache.value.get(eventId) || null,
+  })
 ))
 
 const costBasisSourceLabel = computed(() => {
@@ -85,6 +90,22 @@ const handleChartClick = (params) => {
   }
 }
 
+const handleChartHover = async (params) => {
+  const event = params?.data?.event
+  if (!event?.event_id) return
+  if (conditionsCache.value.has(event.event_id)) return
+  try {
+    const payload = await positionReviewApi.getEventConditions(event.event_id)
+    const next = new Map(conditionsCache.value)
+    next.set(event.event_id, payload || null)
+    conditionsCache.value = next
+  } catch {
+    const next = new Map(conditionsCache.value)
+    next.set(event.event_id, null)
+    conditionsCache.value = next
+  }
+}
+
 watch(
   () => [props.symbol, props.period],
   () => {
@@ -119,6 +140,7 @@ defineExpose({ reload: () => loadChart({ force: true }) })
       :empty="Boolean(error) || !chartOption"
       :empty-text="error || '当前标的暂无可绘制的交易复盘主图'"
       @chart-click="handleChartClick"
+      @chart-hover="handleChartHover"
     />
     <p class="symbol-review-chart__hint">
       红色 = 买入 / 绿色 = 卖出；形状 = 信号类型；边框/透明度 = 复盘结论；点击 marker 固定订单并查看完整证据。

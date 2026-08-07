@@ -119,29 +119,6 @@ def get_position_review_event_conditions(event_id):
         return jsonify({"error": str(exc)}), status
 
 
-@position_review_bp.get("/symbols/<symbol>/timeline")
-def get_position_review_symbol_timeline(symbol):
-    try:
-        refresh = _boolean_arg("refresh", default=False)
-        return jsonify(
-            _get_position_review_service().get_symbol_timeline(
-                symbol,
-                start=request.args.get("start"),
-                end=request.args.get("end"),
-                refresh=refresh,
-            )
-        )
-    except ValueError as exc:
-        message = str(exc)
-        status = (
-            400
-            if message.startswith(("start ", "end "))
-            or "refresh must be boolean" in message
-            else 404
-        )
-        return jsonify({"error": message}), status
-
-
 @position_review_bp.get("/symbols/<symbol>")
 def get_position_review_symbol(symbol):
     try:

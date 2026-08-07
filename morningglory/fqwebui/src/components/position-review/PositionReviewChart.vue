@@ -21,7 +21,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['chart-click'])
+const emit = defineEmits(['chart-click', 'chart-hover'])
 
 const chartRef = ref(null)
 let chartInstance = null
@@ -40,6 +40,9 @@ const ensureChart = () => {
     chartInstance = echarts.init(chartRef.value)
     chartInstance.on('click', (params) => {
       emit('chart-click', params)
+    })
+    chartInstance.on('mouseover', (params) => {
+      emit('chart-hover', params)
     })
   }
   return chartInstance

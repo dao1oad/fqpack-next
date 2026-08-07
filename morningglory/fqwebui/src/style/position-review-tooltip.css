@@ -1,0 +1,132 @@
+/* 持仓复盘 K 线主图 marker 悬浮框（ECharts tooltip 全局渲染，不能被 scoped 样式覆盖） */
+.prt {
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #e5e7eb;
+}
+
+.prt-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.prt-side {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.prt-side-buy {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+}
+
+.prt-side-sell {
+  background: rgba(34, 197, 94, 0.22);
+  color: #86efac;
+}
+
+.prt-id {
+  overflow: hidden;
+  color: #d1d5db;
+  font-family: Consolas, Monaco, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prt-verdict {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid rgba(147, 197, 253, 0.4);
+  border-radius: 999px;
+  color: #93c5fd;
+  font-size: 11px;
+}
+
+.prt-section {
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 6px;
+}
+
+.prt-section-title {
+  margin-bottom: 4px;
+  color: #f3f4f6;
+  font-weight: 600;
+}
+
+.prt-row {
+  display: flex;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.prt-label {
+  flex: 0 0 96px;
+  color: #9ca3af;
+}
+
+.prt-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #e5e7eb;
+  word-break: break-all;
+}
+
+.prt-muted {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.prt-missing {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.prt-ok {
+  color: #86efac;
+  font-weight: 600;
+}
+
+.prt-bad {
+  color: #fca5a5;
+  font-weight: 600;
+}
+
+.prt-table-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+}
+
+.prt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.prt-table th,
+.prt-table td {
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: left;
+  vertical-align: top;
+  word-break: break-all;
+}
+
+.prt-table th {
+  position: sticky;
+  top: 0;
+  background: #1f2937;
+  color: #d1d5db;
+  font-weight: 600;
+}
+
+.prt-table .prt-key {
+  max-width: 150px;
+}

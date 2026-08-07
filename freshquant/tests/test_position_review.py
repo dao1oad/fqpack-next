@@ -21,7 +21,7 @@ from freshquant.position_review.runtime_repository import (
 from freshquant.position_review.service import (
     PositionReviewService,
     _associate_canonical_trades,
-    _build_timeline,
+    _build_order_timeline_projection,
 )
 from freshquant.rear.position_review.routes import position_review_bp
 
@@ -30,6 +30,35 @@ _TZ = ZoneInfo("Asia/Shanghai")
 
 def _epoch(text):
     return int(datetime.fromisoformat(text).replace(tzinfo=_TZ).timestamp())
+
+
+def _parse_projection_bound(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    return int(datetime.fromisoformat(str(value)).timestamp())
+
+
+def _build_projection(service, symbol, *, start=None, end=None):
+    bundle = service._load_symbol_bundle(symbol)
+    detail = service._build_detail(symbol, bundle)
+    return _build_order_timeline_projection(
+        symbol=symbol,
+        name=(detail.get("symbol") or {}).get("name"),
+        bundle=bundle,
+        canonical_trades=detail.get("executions") or [],
+        reviews=detail.get("reviews") or [],
+        initial_position_quantity=(detail.get("summary") or {}).get(
+            "initial_position_quantity"
+        ),
+        initial_position_source=(detail.get("summary") or {}).get(
+            "initial_position_source"
+        ),
+        start_time=_parse_projection_bound(start),
+        end_time=_parse_projection_bound(end),
+    )
+
 
 
 class FakePositionReviewRepository:
@@ -451,7 +480,7 @@ def test_order_timeline_aggregates_fills_preserves_real_position_steps_and_links
         name_resolver=lambda symbol: "恩华药业",
     )
 
-    timeline = service.get_symbol_timeline("002262")
+    timeline = _build_projection(service, "002262")
     first = next(
         item for item in timeline["events"] if item["internal_order_id"] == "ord_first"
     )
@@ -493,7 +522,8 @@ def test_order_timeline_aggregates_fills_preserves_real_position_steps_and_links
         ("2026-04-29T10:33:07+08:00", 22300),
     ]
 
-    window = service.get_symbol_timeline(
+    window = _build_projection(
+        service,
         "002262",
         start="2026-04-29T10:14:08+08:00",
         end="2026-04-29T10:14:10+08:00",
@@ -529,7 +559,8 @@ def test_order_timeline_keeps_position_visible_across_an_empty_window():
         name_resolver=lambda symbol: "恩华药业",
     )
 
-    window = service.get_symbol_timeline(
+    window = _build_projection(
+        service,
         "002262",
         start="2026-04-29T10:20:00+08:00",
         end="2026-04-29T10:21:00+08:00",
@@ -557,7 +588,7 @@ def test_order_timeline_marks_same_second_cross_order_positions_ambiguous():
         name_resolver=lambda symbol: "恩华药业",
     )
 
-    timeline = service.get_symbol_timeline("002262")
+    timeline = _build_projection(service, "002262")
     events = {
         item["internal_order_id"]: item
         for item in timeline["events"]
@@ -590,7 +621,8 @@ def test_order_timeline_marks_same_second_cross_order_positions_ambiguous():
         item["id"] for item in events.values()
     }
 
-    window = service.get_symbol_timeline(
+    window = _build_projection(
+        service,
         "002262",
         start="2026-04-29T10:14:07+08:00",
         end="2026-04-29T10:14:07+08:00",
@@ -693,7 +725,8 @@ def test_order_timeline_keeps_same_internal_order_separate_per_account_partition
         repository=repository,
         runtime_repository=FakeRuntimeRepository(),
         name_resolver=lambda symbol: "恩华药业",
-    ).get_symbol_timeline("002262")
+    )
+    timeline = _build_projection(timeline, "002262")
 
     events = [
         item
@@ -789,7 +822,8 @@ def test_order_timeline_does_not_cross_attach_an_order_specific_signal_via_reque
         repository=repository,
         runtime_repository=FakeRuntimeRepository(),
         name_resolver=lambda symbol: "恩华药业",
-    ).get_symbol_timeline("002262")
+    )
+    timeline = _build_projection(timeline, "002262")
     events = {
         item["internal_order_id"]: item
         for item in timeline["events"]
@@ -802,63 +836,6 @@ def test_order_timeline_does_not_cross_attach_an_order_specific_signal_via_reque
     assert events["ord_split"]["data_quality"]["signal_association"] == "none"
     assert all(item["expected_quantity"] is None for item in events.values())
 
-
-def test_order_timeline_rejects_invalid_time_window():
-    service = PositionReviewService(
-        repository=FakePositionReviewRepository(),
-        runtime_repository=FakeRuntimeRepository(),
-        name_resolver=lambda symbol: "恩华药业",
-    )
-
-    for kwargs, expected_message in (
-        ({"start": "not-a-time"}, "start must be"),
-        ({"start": float("nan")}, "start must be"),
-        (
-            {
-                "start": "2026-04-29T10:14:10+08:00",
-                "end": "2026-04-29T10:14:09+08:00",
-            },
-            "start must be earlier",
-        ),
-    ):
-        try:
-            service.get_symbol_timeline("002262", **kwargs)
-        except ValueError as exc:
-            assert expected_message in str(exc)
-        else:
-            raise AssertionError("invalid timeline window must be rejected")
-
-
-def test_order_timeline_route_validates_range_and_serializes_projection(monkeypatch):
-    service = PositionReviewService(
-        repository=FakePositionReviewRepository(),
-        runtime_repository=FakeRuntimeRepository(),
-        name_resolver=lambda symbol: "恩华药业",
-    )
-    monkeypatch.setattr(
-        "freshquant.rear.position_review.routes._get_position_review_service",
-        lambda: service,
-    )
-    app = Flask("position-review-timeline-route")
-    app.register_blueprint(position_review_bp)
-    client = app.test_client()
-
-    response = client.get(
-        "/api/position-review/symbols/002262/timeline",
-        query_string={
-            "start": "2026-04-29T10:14:00+08:00",
-            "end": "2026-04-29T10:34:00+08:00",
-        },
-    )
-    assert response.status_code == 200
-    assert response.get_json()["position_series"][0]["time"].endswith("+08:00")
-    assert (
-        client.get(
-            "/api/position-review/symbols/002262/timeline",
-            query_string={"start": "not-a-time"},
-        ).status_code
-        == 400
-    )
 
 
 def test_reused_broker_trade_id_with_zero_score_does_not_attach_wrong_fill():
@@ -1125,12 +1102,7 @@ def test_reused_broker_trade_ids_at_different_times_have_stable_unique_ids():
     )
 
     assert len({item["execution_key"] for item in executions}) == 2
-    timeline = _build_timeline(
-        signals=[],
-        canonical_trades=executions,
-        reviews=[],
-    )
-    assert len({item["id"] for item in timeline}) == 2
+    assert len({item["execution_key"] for item in executions}) == 2
 
 
 def test_exact_duplicate_canonical_rows_are_stably_deduplicated():
@@ -2022,16 +1994,31 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
                 raise ValueError("symbol not found")
             return {"symbol": {"code": "002262", "name": "恩华药业"}}
 
-        def get_symbol_timeline(self, symbol, *, start=None, end=None, refresh=False):
+        def get_symbol_chart(
+            self,
+            symbol,
+            *,
+            period=None,
+            account_partition=None,
+            include_unfilled=False,
+            refresh=False,
+        ):
             if symbol == "missing":
                 raise ValueError("symbol not found")
-            self.calls.append(("timeline", symbol, start, end, refresh))
-            return {
-                "symbol": {"code": "002262", "name": "恩华药业"},
-                "range": {"start": start, "end": end},
-                "events": [],
-                "position_series": [],
-            }
+            self.calls.append(
+                ("chart", symbol, period, account_partition, include_unfilled, refresh)
+            )
+            return {"symbol": {"code": "002262", "name": "恩华药业"}, "order_events": []}
+
+        def get_event_conditions(self, event_id, *, refresh=False):
+            if event_id == "missing":
+                raise ValueError("event not found")
+            self.calls.append(("conditions", event_id, refresh))
+            return {"event_id": event_id, "conditions": []}
+
+        def get_portfolio_summary(self, *, refresh=False):
+            self.calls.append(("portfolio_summary", refresh))
+            return {"kpis": {}, "data_quality": {}}
 
     fake_service = FakeService()
     monkeypatch.setattr(
@@ -2055,16 +2042,28 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
     assert symbols["rows"][0]["symbol"] == "002262"
     assert client.get("/api/position-review/symbols/002262").status_code == 200
     assert client.get("/api/position-review/symbols/missing").status_code == 404
-    timeline = client.get(
-        "/api/position-review/symbols/002262/timeline?start=1714356847&end=1714356849&refresh=1"
+    chart = client.get(
+        "/api/position-review/symbols/002262/chart?period=5m&include_unfilled=1&refresh=1"
     ).get_json()
-    assert timeline["range"] == {"start": "1714356847", "end": "1714356849"}
+    assert chart["symbol"]["code"] == "002262"
     assert fake_service.calls[-1] == (
-        "timeline",
+        "chart",
         "002262",
-        "1714356847",
-        "1714356849",
+        "5m",
+        None,
+        True,
         True,
     )
-    assert fake_service.calls[:2] == [("summary", True), ("symbols", True)]
+    conditions = client.get("/api/position-review/events/evt_1/conditions").get_json()
+    assert conditions["event_id"] == "evt_1"
+    assert client.get("/api/position-review/events/missing/conditions").status_code == 404
+    assert (
+        client.get("/api/position-review/portfolio/summary?refresh=1").status_code
+        == 200
+    )
+    assert fake_service.calls[:3] == [
+        ("summary", True),
+        ("symbols", True),
+        ("chart", "002262", "5m", None, True, True),
+    ]
     assert client.get("/api/position-review/summary?refresh=maybe").status_code == 400

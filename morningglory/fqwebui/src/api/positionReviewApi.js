@@ -33,14 +33,6 @@ export const positionReviewApi = {
     })
   },
 
-  getSymbolTimeline (symbol, params = {}) {
-    return http({
-      url: `/api/position-review/symbols/${encodeURIComponent(toText(symbol))}/timeline`,
-      method: 'get',
-      params: compactParams(params),
-    })
-  },
-
   getSymbolChart (symbol, params = {}) {
     return http({
       url: `/api/position-review/symbols/${encodeURIComponent(toText(symbol))}/chart`,

@@ -691,38 +691,6 @@ const aggregateMonthlyActivity = (items = []) => {
   return [...monthMap.values()].sort((left, right) => left.month.localeCompare(right.month))
 }
 
-const normalizeTimelineRows = (timeline = []) => {
-  const seenIds = new Map()
-  return toArray(timeline)
-    .map((item, index) => {
-      const status = normalizePositionReviewStatus(item.verdict || item.status)
-      const meta = getPositionReviewStatusMeta(status)
-      const time = toText(item.time || item.ts)
-      const baseId = toText(item.id) || [
-        item.type || 'timeline',
-        time || 'no-time',
-        normalizeSide(item.side) || 'no-side',
-        item.quantity ?? 'no-quantity',
-        item.price ?? 'no-price',
-      ].join(':')
-      const occurrence = seenIds.get(baseId) || 0
-      seenIds.set(baseId, occurrence + 1)
-      return {
-        ...item,
-        id: occurrence > 0 ? `${baseId}:${occurrence}:${index}` : baseId,
-        time,
-        timeLabel: time ? formatBeijingTimestamp(time) : '-',
-        side: normalizeSide(item.side),
-        status,
-        statusLabel: meta.label,
-        statusChipVariant: meta.chipVariant,
-        price: toFiniteNumber(item.price),
-        quantity: toInteger(item.quantity),
-      }
-    })
-    .sort((left, right) => (parseTimestampMs(left.time) || 0) - (parseTimestampMs(right.time) || 0))
-}
-
 export const normalizePositionReviewDetail = (response = {}) => {
   const payload = readPositionReviewPayload(response)
   const symbolPayload = (
@@ -732,15 +700,6 @@ export const normalizePositionReviewDetail = (response = {}) => {
   )
   const summaryPayload = payload.summary || {}
   const charts = payload.charts || {}
-  const orderTimeline = (
-    payload.order_timeline ||
-    payload.orderTimeline ||
-    payload.timeline_projection ||
-    payload.timelineProjection ||
-    (!Array.isArray(payload.timeline) && payload.timeline && typeof payload.timeline === 'object'
-      ? payload.timeline
-      : {})
-  )
   const reviews = toArray(payload.reviews || payload.orders || payload.events)
     .map(normalizeReviewRow)
     .sort((left, right) => (parseTimestampMs(left.time) || 0) - (parseTimestampMs(right.time) || 0))
@@ -888,8 +847,6 @@ export const normalizePositionReviewDetail = (response = {}) => {
     initialPositionSource,
     initialPositionFormula: dataQuality.initialPositionFormula,
     initialPositionAssumption: dataQuality.initialPositionAssumption,
-    orderTimeline,
-    timeline: normalizeTimelineRows(Array.isArray(payload.timeline) ? payload.timeline : []),
     positionPoints,
     pricePoints,
     quantityCompare: quantityCompare.length ? quantityCompare : fallbackQuantityCompare,
