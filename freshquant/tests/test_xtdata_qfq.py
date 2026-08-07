@@ -2783,3 +2783,75 @@ def test_real_xtdata_stock_and_etf_action_fixtures():
             sample["front_reference_normalized_close"],
             abs=sample["front_tolerance"],
         )
+
+
+def test_normalize_xtdata_bars_marks_invalid_close_as_source_exclusion():
+    bars = _bars(
+        [
+            ("2026-01-02", 0.0, 0.0),
+            ("2026-01-05", 0.0, 0.0),
+            ("2026-01-06", 0.0, 0.0),
+        ]
+    )
+    with pytest.raises(qfq.QFQSyncError, match="invalid close") as caught:
+        qfq.normalize_xtdata_bars(bars, code="000004.SZ")
+    assert caught.value.stats["failure"] == "source_invalid_close"
+
+
+def test_normalize_xtdata_bars_marks_invalid_used_preclose_as_source_exclusion():
+    bars = _bars(
+        [
+            ("2026-01-02", 10.0, 0.0),
+            ("2026-01-05", 9.0, 0.0),
+            ("2026-01-06", 9.1, 9.0),
+        ]
+    )
+    with pytest.raises(qfq.QFQSyncError, match="invalid used preClose") as caught:
+        qfq.normalize_xtdata_bars(bars, code="000004.SZ")
+    assert caught.value.stats["failure"] == "source_invalid_close"
+
+
+def test_source_exclusion_reason_recognizes_invalid_close():
+    error = qfq.QFQSyncError(
+        "invalid close values for code=000004.SZ",
+        stats={"failure": "source_invalid_close"},
+    )
+    assert qfq._source_exclusion_reason(error) == "source_invalid_close"
+
+
+def test_bootstrap_excludes_source_invalid_close_and_publishes_marker():
+    target = "2026-01-05"
+    db = _DB(
+        stock_list=[
+            {"code": code, "name": "Stock"} for code in ("000001", "000004", "000005")
+        ],
+        stock_day=[
+            {"code": code, "date": target} for code in ("000001", "000004", "000005")
+        ],
+    )
+
+    def loader(code, **_kwargs):
+        if code == "000004":
+            return _bars([(target, 0.0, 0.0)])
+        if code == "000005":
+            return _bars([("2026-01-02", 5.0, 0.0), (target, 4.0, 5.0)])
+        return _bars([(target, 10.0, 0.0)])
+
+    result = qfq.sync_stock_adj_all(target_date=target, db=db, bars_loader=loader)
+
+    scope = result["by_scope"]["stock"]
+    exclusions = [{"code": "000004", "reason": "source_invalid_close"}]
+    assert scope["codes"] == 2
+    assert scope["coverage"]["source_invalid_close_excluded"] == 1
+    assert scope["coverage"]["source_invalid_close"] == exclusions
+    assert {row["code"] for row in db["stock_adj_qfq_a"].rows} == {
+        "000001",
+        "000005",
+    }
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {
+        "000001",
+        "000005",
+    }
+    marker = db["qfq_ready"].rows[0]
+    assert marker["slots"]["a"]["source_exclusions"] == exclusions
+    assert marker["slots"]["b"]["source_exclusions"] == exclusions

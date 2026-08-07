@@ -63,6 +63,7 @@ SOURCE_EXCLUSION_REASONS = frozenset(
         "source_empty_bars",
         "source_adjustment_gap_unproven",
         "source_prefix_unavailable",
+        "source_invalid_close",
     }
 )
 
@@ -376,13 +377,19 @@ def normalize_xtdata_bars(payload: Any, *, code: str | None = None) -> pd.DataFr
         lambda value: math.isfinite(float(value)) and float(value) > 0
     )
     if not valid_close.all():
-        raise QFQSyncError(f"invalid close values for code={code}")
+        raise QFQSyncError(
+            f"invalid close values for code={code}",
+            stats={"failure": "source_invalid_close"},
+        )
     used_preclose = frame["preClose"].iloc[1:]
     valid_used_preclose = used_preclose.map(
         lambda value: math.isfinite(float(value)) and float(value) > 0
     )
     if not valid_used_preclose.all():
-        raise QFQSyncError(f"invalid used preClose values for code={code}")
+        raise QFQSyncError(
+            f"invalid used preClose values for code={code}",
+            stats={"failure": "source_invalid_close"},
+        )
     return frame
 
 
@@ -810,6 +817,8 @@ def _new_bfq_coverage_summary() -> dict[str, Any]:
         "source_adjustment_gap_unproven": [],
         "source_prefix_unavailable_excluded": 0,
         "source_prefix_unavailable": [],
+        "source_invalid_close_excluded": 0,
+        "source_invalid_close": [],
         "skipped_codes": 0,
         "skipped": [],
     }
@@ -2028,6 +2037,8 @@ def _source_exclusion_reason(error: QFQSyncError) -> str | None:
         return "source_prefix_unavailable"
     if error.stats.get("failure") == "source_adjustment_gap_unproven":
         return "source_adjustment_gap_unproven"
+    if error.stats.get("failure") == "source_invalid_close":
+        return "source_invalid_close"
     return None
 
 
