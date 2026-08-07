@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FreshQuant 交易体系可视化教程 · 从选股到止盈止损</title>
+  <meta name="description" content="面向量化新手：用动态模拟器讲清楚日线选股、15/30分钟确认、5分钟首开、1分钟做T、Tick级止盈止损的完整交易体系。" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============ 顶部导航 ============ -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#hero">
+        <span class="brand-dot"></span>
+        <span>FreshQuant 交易体系课堂</span>
+      </a>
+      <nav class="nav" aria-label="页面导航">
+        <a href="#overview">一图看懂</a>
+        <a href="#pipeline">多周期漏斗</a>
+        <a href="#first-open">首次开仓</a>
+        <a href="#sim">核心模拟器</a>
+        <a href="#tp">三档止盈</a>
+        <a href="#sl">止损防线</a>
+        <a href="#guard">风险护栏</a>
+        <a href="#glossary">术语表</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ============ Hero ============ -->
+  <section class="hero" id="hero">
+    <div class="hero-inner">
+      <p class="eyebrow">量化交易入门 · 零基础友好</p>
+      <h1>一只股票，从「被选中」到「止盈离场」，<br />系统是如何一步步操作的？</h1>
+      <p class="lead">
+        这套系统不做「一次性买卖」，而是像一位有纪律的操盘手：<b>多周期选股、分级建仓、下跌补仓降成本、分档止盈、明确止损</b>。
+        下面的动态模拟器会让你像看动画一样，看懂每一个操作背后的原因。
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#sim">▶ 直接看动画模拟</a>
+        <a class="btn btn-ghost" href="#pipeline">先看体系全貌</a>
+      </div>
+      <div class="hero-meta">
+        <span>5 分钟读完</span><i></i>
+        <span>2 个可播放场景</span><i></i>
+        <span>30+ 个新手词条</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 01 一图看懂 ============ -->
+  <section class="section" id="overview">
+    <div class="section-head">
+      <p class="eyebrow">01 · 系统总览</p>
+      <h2>一图看懂：整个体系的「一句话模型」</h2>
+      <p class="section-sub">把复杂系统压缩成一条主线：<b>选股 → 确认 → 开仓 → 管理 → 退出</b>。每一步都有独立的周期和职责。</p>
+    </div>
+
+    <div class="overview-grid">
+      <div class="overview-card">
+        <div class="oc-num">1</div>
+        <h3>选股</h3>
+        <p>每天收盘后，用 18 个缠论模型（CLX）在全市场「海选」出值得跟踪的股票，进入候选池。</p>
+        <span class="oc-tag">日线级别 · 不交易</span>
+      </div>
+      <div class="overview-card">
+        <div class="oc-num">2</div>
+        <h3>盘中确认</h3>
+        <p>第二天盘中，15 分钟 / 30 分钟级别的 CLX 模型持续「复查」，确认候选股没有走坏。</p>
+        <span class="oc-tag">15/30 分钟 · 只看不买</span>
+      </div>
+      <div class="overview-card">
+        <div class="oc-num">3</div>
+        <h3>首次开仓</h3>
+        <p>当 5 分钟级别出现「V 反」或「MACD 看涨背驰」信号时，系统才第一次买入。</p>
+        <span class="oc-tag">5 分钟 · 首次买入</span>
+      </div>
+      <div class="overview-card">
+        <div class="oc-num">4</div>
+        <h3>持仓管理（做T）</h3>
+        <p>持有期间切到 1 分钟级别：跌出空间就补仓摊低成本，反弹达标就卖出部分，循环降低持仓成本。</p>
+        <span class="oc-tag">1 分钟 · 加仓/减仓</span>
+      </div>
+      <div class="overview-card">
+        <div class="oc-num">5</div>
+        <h3>止盈止损</h3>
+        <p>全程用 Tick（逐笔）行情盯住：到三档止盈价就分批兑现；跌破止损价就果断离场。</p>
+        <span class="oc-tag">Tick 级别 · 计划退出</span>
+      </div>
+    </div>
+
+    <div class="note-box">
+      <b>新手最容易误解的一点：</b> 三个补仓价（B1/B2/B3）不是「止损」。它是下跌时的<span class="hl-buy">补仓计划</span>；
+      真正的风险底线由<span class="hl-sell">全仓止损价</span>和<span class="hl-sell">单笔止损价</span>负责。
+    </div>
+  </section>
+
+  <!-- ============ 02 多周期漏斗 ============ -->
+  <section class="section" id="pipeline">
+    <div class="section-head">
+      <p class="eyebrow">02 · 多周期漏斗</p>
+      <h2>五层周期，各司其职</h2>
+      <p class="section-sub">周期越短，越接近交易本身。点击任一节点，查看这一层「在做什么、为什么不直接下单」。</p>
+    </div>
+
+    <div class="pipeline" id="pipeline-stage">
+      <div class="pipe-node" data-pipe="0" tabindex="0" role="button" aria-pressed="true">
+        <div class="pipe-icon pipe-day">日</div>
+        <div class="pipe-title">日线 CLX 选股</div>
+        <div class="pipe-desc">18 模型海选候选股</div>
+        <div class="pipe-badge">只选不买</div>
+      </div>
+      <div class="pipe-link"><span></span></div>
+      <div class="pipe-node" data-pipe="1" tabindex="0" role="button" aria-pressed="false">
+        <div class="pipe-icon pipe-m15">15'</div>
+        <div class="pipe-title">15/30 分钟确认</div>
+        <div class="pipe-desc">盘中复查 + 提醒</div>
+        <div class="pipe-badge">只看不买</div>
+      </div>
+      <div class="pipe-link"><span></span></div>
+      <div class="pipe-node" data-pipe="2" tabindex="0" role="button" aria-pressed="false">
+        <div class="pipe-icon pipe-m5">5'</div>
+        <div class="pipe-title">5 分钟首开</div>
+        <div class="pipe-desc">V反 / 背驰信号</div>
+        <div class="pipe-badge">第一次买入</div>
+      </div>
+      <div class="pipe-link"><span></span></div>
+      <div class="pipe-node" data-pipe="3" tabindex="0" role="button" aria-pressed="false">
+        <div class="pipe-icon pipe-m1">1'</div>
+        <div class="pipe-title">1 分钟做T</div>
+        <div class="pipe-desc">补仓摊低 / 反弹卖出</div>
+        <div class="pipe-badge">持仓管理</div>
+      </div>
+      <div class="pipe-link"><span></span></div>
+      <div class="pipe-node" data-pipe="4" tabindex="0" role="button" aria-pressed="false">
+        <div class="pipe-icon pipe-tick">T</div>
+        <div class="pipe-title">Tick 止盈止损</div>
+        <div class="pipe-desc">三档止盈 / 两级止损</div>
+        <div class="pipe-badge">计划退出</div>
+      </div>
+    </div>
+
+    <div class="pipe-detail card" id="pipe-detail">
+      <h3 id="pipe-detail-title">日线 CLX 选股</h3>
+      <p id="pipe-detail-body">每天收盘后（15:05 之后），系统用冻结的 production_v1 参数运行 18 个缠论模型（S0000–S0017），在全部 A 股与 ETF 中寻找形态符合条件的标的，结果进入「候选池」。这一层解决的是<b>「买什么」</b>，它不看盘中价格，所以不可能在这里下单。</p>
+      <ul id="pipe-detail-points">
+        <li>候选对象：全市场股票 + ETF（融资标的，ETF 排除 LOF）</li>
+        <li>输出：候选池 / 每日选股工作台</li>
+        <li>与你相关的动作：把感兴趣的候选股加入自选，等待盘中确认</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ 03 首次开仓 ============ -->
+  <section class="section" id="first-open">
+    <div class="section-head">
+      <p class="eyebrow">03 · 首次开仓条件</p>
+      <h2>「第一次买入」不是想买就买，要同时满足 4 个条件</h2>
+      <p class="section-sub">系统用「与」的关系把条件串起来：缺任何一个，这笔单子都不会发生。</p>
+    </div>
+
+    <div class="gate-list" id="gate-list">
+      <div class="gate-item" data-gate="0">
+        <div class="gate-check">☑</div>
+        <div class="gate-main">
+          <h3>在「候选池」里</h3>
+          <p>股票必须来自日线选股后加入的 must_pool（核心自选池），且没有被禁用。</p>
+        </div>
+      </div>
+      <div class="gate-arrow">↓</div>
+      <div class="gate-item" data-gate="1">
+        <div class="gate-check">☑</div>
+        <div class="gate-main">
+          <h3>5 分钟出现缠论买点</h3>
+          <p>只接受两类：<b>V 反</b>（急跌后快速反转）或 <b>MACD 看涨背驰</b>（跌势动能衰竭）。</p>
+        </div>
+      </div>
+      <div class="gate-arrow">↓</div>
+      <div class="gate-item" data-gate="2">
+        <div class="gate-check">☑</div>
+        <div class="gate-main">
+          <h3>当前没有持仓</h3>
+          <p>首开只对「未持有」的标的生效。一旦持有，管理权就交给 1 分钟做T，不再重复开仓。</p>
+        </div>
+      </div>
+      <div class="gate-arrow">↓</div>
+      <div class="gate-item" data-gate="3">
+        <div class="gate-check">☑</div>
+        <div class="gate-main">
+          <h3>仓位与风控允许</h3>
+          <p>账户状态允许开新仓、单标的不超仓位上限、两次新开仓之间至少间隔 15 分钟。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="note-box">
+      <b>为什么用 5 分钟而不是 15/30 分钟直接买？</b>
+      15/30 分钟负责「方向对不对」，但节奏太慢；1 分钟太敏感、噪音大。
+      5 分钟是「确认方向后，等一个更精确的入场点」的折中周期。
+    </div>
+  </section>
+
+  <!-- ============ 04 核心模拟器 ============ -->
+  <section class="section section-sim" id="sim">
+    <div class="section-head">
+      <p class="eyebrow">04 · 动态模拟器</p>
+      <h2>亲手看一遍：从首开到止盈 / 止损的完整一生</h2>
+      <p class="section-sub">这是本页的核心。两条剧情线任选，点击播放，K 线会逐根推进，左侧实时显示持仓、成本、盈亏和系统日志。</p>
+    </div>
+
+    <div class="sim-toolbar card">
+      <div class="sim-path-switch" role="group" aria-label="剧情线选择">
+        <button type="button" id="path-bull" class="btn btn-primary" aria-pressed="true">乐观线：做T + 三档止盈</button>
+        <button type="button" id="path-bear" class="btn" aria-pressed="false">风险线：补仓后触发止损</button>
+      </div>
+      <div class="sim-controls" role="group" aria-label="播放控制">
+        <button type="button" id="btn-play" class="btn btn-primary">▶ 播放</button>
+        <button type="button" id="btn-prev" class="btn">上一步</button>
+        <button type="button" id="btn-next" class="btn">下一步</button>
+        <button type="button" id="btn-reset" class="btn">重置</button>
+        <select id="sim-speed" class="form-select" aria-label="播放速度">
+          <option value="1">速度 ×1</option>
+          <option value="2" selected>速度 ×2</option>
+          <option value="4">速度 ×4</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sim-layout">
+      <div class="sim-chart card">
+        <div class="sim-chart-head">
+          <div>
+            <h3 id="sim-symbol-name">示例标的 600000.SH</h3>
+            <span class="text-muted" id="sim-symbol-sub">教学用合成数据 · 不代表真实行情</span>
+          </div>
+          <div class="sim-price-box">
+            <span class="sim-price-label">最新价</span>
+            <span class="sim-price" id="sim-price">--</span>
+            <span class="sim-chg" id="sim-chg">--</span>
+          </div>
+        </div>
+        <div id="kline-wrap" role="img" aria-label="K线模拟图，展示价格走势、买入卖出标记与成本线"></div>
+        <div class="sim-legend">
+          <span><i class="lg lg-buy"></i>买入</span>
+          <span><i class="lg lg-sell"></i>卖出</span>
+          <span><i class="lg lg-tp"></i>止盈档</span>
+          <span><i class="lg lg-sl"></i>止损价</span>
+          <span><i class="lg lg-avg"></i>持仓成本线</span>
+          <span><i class="lg lg-band"></i>补仓价带</span>
+        </div>
+        <div class="sim-explainer" id="sim-explainer">
+          <div class="sim-explainer-head"><span id="explainer-tag" class="viz-badge">等待开始</span></div>
+          <p id="explainer-text">点击「播放」，从第一根 K 线开始，系统会告诉你每一步发生了什么、为什么。</p>
+        </div>
+      </div>
+
+      <div class="sim-side">
+        <div class="sim-panel card">
+          <h3>当前持仓</h3>
+          <div class="stat-row">
+            <div class="stat">
+              <span class="stat-label">持股数</span>
+              <span class="stat-value" id="st-qty">0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">成本均价</span>
+              <span class="stat-value" id="st-avg">--</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">持仓市值</span>
+              <span class="stat-value" id="st-mv">--</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">浮动盈亏</span>
+              <span class="stat-value" id="st-pnl">--</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">已实现盈亏</span>
+              <span class="stat-value" id="st-realized">--</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">累计盈亏</span>
+              <span class="stat-value" id="st-total">--</span>
+            </div>
+          </div>
+          <div class="lots" id="lots"></div>
+        </div>
+
+        <div class="sim-panel card">
+          <h3>系统日志 <span class="text-muted">（模拟自真实事件链）</span></h3>
+          <div class="log" id="sim-log" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 三档止盈 ============ -->
+  <section class="section" id="tp">
+    <div class="section-head">
+      <p class="eyebrow">05 · 三档止盈</p>
+      <h2>止盈不是「一次卖光」，而是三档分批兑现</h2>
+      <p class="section-sub">系统为每只股票设定 L1 / L2 / L3 三个固定价位，价格每上一档，就卖掉「当时总仓位」的一部分。</p>
+    </div>
+
+    <div class="tp-grid">
+      <div class="tp-card" data-tier="1">
+        <div class="tp-level">L1</div>
+        <div class="tp-price" id="tp-price-1">10.20</div>
+        <div class="tp-ratio">卖出 1/3</div>
+        <p>第一档：涨到这里，先落袋一部分，锁定利润，也留足子弹。</p>
+      </div>
+      <div class="tp-card" data-tier="2">
+        <div class="tp-level">L2</div>
+        <div class="tp-price" id="tp-price-2">11.05</div>
+        <div class="tp-ratio">卖出剩余 1/2</div>
+        <p>第二档：继续上涨，再卖一半。注意：是按<b>触发时的剩余仓位</b>算，不是按最初仓位。</p>
+      </div>
+      <div class="tp-card" data-tier="3">
+        <div class="tp-level">L3</div>
+        <div class="tp-price" id="tp-price-3">12.00</div>
+        <div class="tp-ratio">全部卖出</div>
+        <p>第三档：价格到顶位，清仓离场，完成一次完整周期。</p>
+      </div>
+    </div>
+
+    <div class="tp-visual card">
+      <h3>档位卖出比例动画</h3>
+      <div class="tp-anim" id="tp-anim">
+        <div class="tp-anim-bar">
+          <div class="tp-anim-fill" id="tp-anim-fill"></div>
+          <div class="tp-anim-marks">
+            <span class="mark mark-1" style="left:33.3%">L1</span>
+            <span class="mark mark-2" style="left:66.6%">L2</span>
+          </div>
+        </div>
+        <div class="tp-anim-status" id="tp-anim-status">未触发：持有 100%</div>
+      </div>
+      <div class="tp-controls">
+        <button type="button" class="btn btn-primary" id="tp-step" aria-pressed="false">演示：触发 L1</button>
+        <button type="button" class="btn" id="tp-reset">重置</button>
+      </div>
+      <p class="text-muted text-small">L1 卖 1/3 → L2 卖剩余 1/2 → L3 卖全部。档位触发后，低于该档的档位会一起关闭，不会重复触发。</p>
+    </div>
+
+    <div class="note-box">
+      <b>小知识：</b> 止盈卖出并不是「随便挑一些股票卖」，而是优先卖<b>已经盈利的买入切片</b>；盈利切片不够时，再从剩余数量最大的切片补足。每一笔买入都会被打上「切片」标签，方便精确核算。
+    </div>
+  </section>
+
+  <!-- ============ 06 止损防线 ============ -->
+  <section class="section" id="sl">
+    <div class="section-head">
+      <p class="eyebrow">06 · 止损防线</p>
+      <h2>补仓不是「无限接飞刀」：两层止损守住底线</h2>
+      <p class="section-sub">很多新手以为系统只补仓不止损，其实它有两条明确的纪律线，专门防止「越跌越买、越买越亏」。</p>
+    </div>
+
+    <div class="sl-grid">
+      <div class="sl-card">
+        <div class="sl-tag sl-full">全仓止损</div>
+        <h3>整个股票一起止损</h3>
+        <ul>
+          <li>价格来源：must_pool 里人工设置的全仓止损价</li>
+          <li>触发条件：买一价 ≤ 全仓止损价</li>
+          <li>动作：卖出该股票<b>全部</b>可卖持仓</li>
+        </ul>
+      </div>
+      <div class="sl-card">
+        <div class="sl-tag sl-entry">单笔止损</div>
+        <h3>每一笔买入单独止损</h3>
+        <ul>
+          <li>价格来源：每一笔买入（entry）可以绑定自己的止损价</li>
+          <li>触发条件：买一价 ≤ 该笔止损价</li>
+          <li>动作：只清掉这一笔，其他持仓保留</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="sl-strip card">
+      <h3>价格防线一览（把上面两层放在价格轴上）</h3>
+      <div class="price-axis" id="price-axis">
+        <div class="axis-track"></div>
+        <div class="axis-labels">
+          <span class="al al-b3" style="left:22%"><i></i>B3 补仓 9.55</span>
+          <span class="al al-b2" style="left:34%"><i></i>B2 补仓 9.25</span>
+          <span class="al al-b1" style="left:46%"><i></i>B1 补仓 8.95</span>
+          <span class="al al-sl" style="left:64%"><i></i>全仓止损 8.60</span>
+          <span class="al al-l1" style="left:78%"><i></i>L1 止盈 10.20</span>
+        </div>
+      </div>
+      <p class="text-muted text-small">左边是「越跌越买」的补仓带（橙色），右边是「跌过头就清仓」的止损线（红色）与止盈线（紫色）。补仓带和止损线之间，就是系统允许价格波动的「缓冲区间」。</p>
+    </div>
+  </section>
+
+  <!-- ============ 07 风险护栏 ============ -->
+  <section class="section" id="guard">
+    <div class="section-head">
+      <p class="eyebrow">07 · 风险护栏</p>
+      <h2>除了价格，系统还有 4 道「看不见的护栏」</h2>
+      <p class="section-sub">这些护栏不产生买卖信号，但任何一笔单子都必须通过它们，否则会被拦下。</p>
+    </div>
+
+    <div class="guard-grid">
+      <div class="guard-card">
+        <div class="guard-icon">🛡</div>
+        <h3>单标的仓位上限</h3>
+        <p>每个股票最多占用多少资金，超出上限就拒绝继续买入。系统默认上限可全局设置，也可单独覆盖某只股票。</p>
+      </div>
+      <div class="guard-card">
+        <div class="guard-icon">🚦</div>
+        <h3>账户状态门禁</h3>
+        <p>账户处于「允许开仓」状态才能买新股票；处于「仅可加仓」状态只允许补仓；处于「强制减仓」状态则禁止一切买入。</p>
+      </div>
+      <div class="guard-card">
+        <div class="guard-icon">⏱</div>
+        <h3>冷却时间</h3>
+        <p>同一股票买卖后 15 分钟内不再重复操作；两次「新开仓」之间也至少间隔 15 分钟，防止信号噪音引发频繁交易。</p>
+      </div>
+      <div class="guard-card">
+        <div class="guard-icon">📋</div>
+        <h3>订单账本与对账</h3>
+        <p>每一笔委托、成交、持仓都会被记录成「账本」，与券商数据持续对账。账目对不上时，系统宁可暂停也不乱下新单。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 08 术语表 ============ -->
+  <section class="section" id="glossary">
+    <div class="section-head">
+      <p class="eyebrow">08 · 新手词典</p>
+      <h2>30 个词，读完就能看懂这套系统</h2>
+      <p class="section-sub">按「出现频率」排序。遇到不懂的词，随时回来查。</p>
+    </div>
+    <div class="glossary" id="glossary"></div>
+  </section>
+
+  <!-- ============ 09 代码对照 ============ -->
+  <section class="section" id="sources">
+    <div class="section-head">
+      <p class="eyebrow">09 · 进阶：与代码的对应关系</p>
+      <h2>每个机制，都能在真实代码里找到</h2>
+      <p class="section-sub">本教程基于 FreshQuant 仓库当前实现整理，以下为关键落点，供进阶学习者对照源码。</p>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr><th>机制</th><th>代码位置</th><th>一句话说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>5 分钟首开信号路由</td><td><code>signal/astock/job/monitor_stock_zh_a_min.py</code></td><td>1 分钟只处理持仓，5 分钟只处理候选池新开仓</td></tr>
+          <tr><td>缠论买点计算</td><td><code>signal/astock/job/monitor_helpers_event.py</code></td><td>V 反、MACD 背驰、回拉中枢六类信号</td></tr>
+          <tr><td>三档补仓与仓位上限</td><td><code>strategy/guardian_buy_grid.py</code></td><td>B1/B2/B3 价格 + 每档累计仓位上限</td></tr>
+          <tr><td>买卖决策门禁</td><td><code>strategy/guardian.py</code></td><td>scope、时效、阈值、结构、冷却、门禁检查链</td></tr>
+          <tr><td>三档止盈数量</td><td><code>tpsl/takeprofit_quantity.py</code></td><td>L1=1/3、L2=1/2、L3=全部</td></tr>
+          <tr><td>止盈止损评估</td><td><code>tpsl/service.py</code></td><td>全仓止损优先，再逐 entry 止损</td></tr>
+          <tr><td>日线 CLX 18 模型</td><td><code>clx_daily_selection/</code></td><td>production_v1 / S0000–S0017</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note-box note-warn">
+      <b>免责声明：</b> 页面中的价格、持仓、盈亏均为教学用合成数据，不构成任何投资建议，也不代表真实行情。量化交易存在风险，请充分了解规则后再参与。
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>FreshQuant 交易体系可视化教程 · 基于仓库当前代码与文档整理 · 仅供学习交流</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -86,6 +86,7 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
     ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
     ['gantt', 'shouban30', 'dailyScreening', 'clxEvaluation'],
     ['stock', 'pool'],
+    ['tradingGuide'],
   ])
 
   const groups = resolveHeaderNavGroups()
@@ -104,6 +105,9 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.equal(groups[2][3].label, 'CLX评价')
   assert.equal(groups[2][3].path, '/clx-evaluation')
   assert.equal(groups[2][3].query.tabTitle, 'CLX评价')
+  assert.equal(groups[4][0].label, '交易课堂')
+  assert.equal(groups[4][0].path, '/trading-guide')
+  assert.equal(groups[4][0].query.tabTitle, '交易课堂')
   assert.equal(Object.hasOwn(groups[2][2].query, 'clxScreening'), false)
   assert.equal(Object.hasOwn(groups[2][2].query, 'clxWorkbench'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/daily-screening'), true)

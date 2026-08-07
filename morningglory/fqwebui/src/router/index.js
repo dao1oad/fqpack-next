@@ -20,6 +20,7 @@ const PositionReview = () => import('../views/PositionReview.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
 const OpsConsole = () => import('../views/OpsConsole.vue')
 const SystemSettings = () => import('../views/SystemSettings.vue')
+const TradingGuide = () => import('../views/TradingGuide.vue')
 
 const withRouteTitle = (route) => ({
   ...route,
@@ -121,6 +122,11 @@ const routes = [
     path: '/system-settings',
     name: 'system-settings',
     component: SystemSettings
+  }),
+  withRouteTitle({
+    path: '/trading-guide',
+    name: 'trading-guide',
+    component: TradingGuide
   }),
 ]
 
