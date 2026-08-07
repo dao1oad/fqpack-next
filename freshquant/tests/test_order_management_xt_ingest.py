@@ -264,6 +264,49 @@ class InMemoryRepository:
         self.exit_allocations.extend(dict(item) for item in allocations)
         return allocations
 
+    def list_exit_allocations_for_request(
+        self,
+        *,
+        request_id=None,
+        internal_order_id=None,
+    ):
+        rows = []
+        for item in self.exit_allocations:
+            if request_id not in {None, ""} and item.get("request_id") != request_id:
+                continue
+            if (
+                internal_order_id not in {None, ""}
+                and item.get("internal_order_id") != internal_order_id
+            ):
+                continue
+            rows.append(dict(item))
+        return rows
+
+    def sum_exit_allocations_for_request(
+        self,
+        *,
+        request_id=None,
+        internal_order_id=None,
+    ):
+        by_slice = {}
+        by_entry = {}
+        for row in self.list_exit_allocations_for_request(
+            request_id=request_id,
+            internal_order_id=internal_order_id,
+        ):
+            entry_id = str(row.get("entry_id") or "")
+            entry_slice_id = str(row.get("entry_slice_id") or "")
+            allocated = int(row.get("allocated_quantity") or 0)
+            if entry_id:
+                by_entry[entry_id] = by_entry.get(entry_id, 0) + allocated
+            if entry_slice_id:
+                by_slice[entry_slice_id] = by_slice.get(entry_slice_id, 0) + allocated
+        return {
+            "by_slice": by_slice,
+            "by_entry": by_entry,
+            "total": sum(by_entry.values()),
+        }
+
     def insert_ingest_rejection(self, document):
         self.ingest_rejections.append(dict(document))
         return document
@@ -871,6 +914,151 @@ def test_sell_trade_report_prefers_guardian_source_entries_when_allocating_entry
 
     assert len(result["exit_allocations"]) == 1
     assert result["exit_allocations"][0]["entry_id"] == preferred_entry_id
+
+
+def test_sell_multi_fill_ingest_shares_request_remaining_budget():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    for internal_order_id, quantity, price, trade_time in (
+        ("ord_mf_buy_1", 2300, 21.36, 1710000000),
+        ("ord_mf_buy_2", 2300, 21.58, 1710000300),
+    ):
+        tracking_service.submit_order(
+            {
+                "action": "buy",
+                "symbol": "000001",
+                "price": price,
+                "quantity": quantity,
+                "source": "xt_trade_callback",
+                "internal_order_id": internal_order_id,
+            }
+        )
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 21.8,
+            "quantity": 4600,
+            "source": "xt_trade_callback",
+            "internal_order_id": "ord_mf_sell_1",
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "version": 2,
+                    "requested_quantity": 4600,
+                    "submit_quantity": 4600,
+                    "profitable_fill_count": 2,
+                    "slices": [],
+                    "entries": [],
+                }
+            },
+        }
+    )
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+
+    ingest_service.ingest_trade_report(
+        _buy_report(
+            "T-MF-BUY-1",
+            internal_order_id="ord_mf_buy_1",
+            quantity=2300,
+            price=21.36,
+            trade_time=1710000000,
+            date=20240102,
+            time="09:31:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.2,
+    )
+    ingest_service.ingest_trade_report(
+        _buy_report(
+            "T-MF-BUY-2",
+            internal_order_id="ord_mf_buy_2",
+            quantity=2300,
+            price=21.58,
+            trade_time=1710000300,
+            date=20240102,
+            time="09:35:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.2,
+    )
+
+    entries = repository.list_position_entries(symbol="000001")
+    assert len(entries) == 2, "21.36/21.58 价差超过 0.3% 不应聚簇"
+    slices = repository.entry_slices
+    plan_slices = []
+    for entry in sorted(
+        entries,
+        key=lambda item: float(item["entry_price"]),
+    ):
+        entry_slices = [
+            item
+            for item in slices
+            if item["entry_id"] == entry["entry_id"]
+            and int(item["remaining_quantity"]) > 0
+        ]
+        assert entry_slices
+        plan_slices.append(
+            {
+                "entry_id": entry["entry_id"],
+                "entry_slice_id": entry_slices[0]["entry_slice_id"],
+                "quantity": 2300,
+                "guardian_price": entry_slices[0]["guardian_price"],
+                "threshold_price": round(
+                    float(entry_slices[0]["guardian_price"]) * 1.01, 4
+                ),
+            }
+        )
+    repository.order_requests[-1]["strategy_context"]["guardian_sell_sources"][
+        "slices"
+    ] = plan_slices
+    repository.order_requests[-1]["strategy_context"]["guardian_sell_sources"][
+        "entries"
+    ] = [{"entry_id": item["entry_id"], "quantity": 2300} for item in plan_slices]
+
+    ingest_service.ingest_trade_report(
+        _sell_report(
+            "T-MF-SELL-1",
+            internal_order_id="ord_mf_sell_1",
+            quantity=200,
+            price=21.8,
+            trade_time=1710000600,
+            date=20240102,
+            time="09:50:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.2,
+    )
+    ingest_service.ingest_trade_report(
+        _sell_report(
+            "T-MF-SELL-2",
+            internal_order_id="ord_mf_sell_1",
+            quantity=4400,
+            price=21.8,
+            trade_time=1710000660,
+            date=20240102,
+            time="09:51:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.2,
+    )
+
+    by_entry = {}
+    for allocation in repository.exit_allocations:
+        by_entry[allocation["entry_id"]] = (
+            by_entry.get(allocation["entry_id"], 0) + allocation["allocated_quantity"]
+        )
+    assert by_entry == {
+        entries[0]["entry_id"]: 2300,
+        entries[1]["entry_id"]: 2300,
+    }
+    assert all(
+        item.get("request_id") and item.get("internal_order_id")
+        for item in repository.exit_allocations
+    )
 
 
 def test_sell_trade_report_syncs_stock_fills_compat_when_holdings_change(monkeypatch):

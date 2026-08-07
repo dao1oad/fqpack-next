@@ -1814,6 +1814,73 @@ def test_guardian_sell_applies_historical_can_use_volume_cap():
     assert reviews[0]["verdict"] == "PASS"
 
 
+def test_guardian_sell_replays_per_slice_threshold_for_20260807_case():
+    # 2026-08-07 11:02 真实案例：21.580000000000002 只应卖出最低切片 2300，
+    # 而不是把 21.58 切片（阈值 21.7958）一起卖出成 4600。
+    request = {
+        "request_id": "req_20260807",
+        "symbol": "002262",
+        "action": "sell",
+        "quantity": 4600,
+        "price": 21.580000000000002,
+        "trace_id": "trc_20260807",
+        "created_at": "2026-08-07T03:02:00+00:00",
+        "strategy_context": {
+            "guardian_sell_sources": {
+                "requested_quantity": 4600,
+                "submit_quantity": 4600,
+                "entries": [
+                    {"entry_id": "entry_4f11", "quantity": 2300},
+                    {"entry_id": "entry_e72f", "quantity": 2300},
+                ],
+            }
+        },
+    }
+    inventory = [
+        {
+            "entry_id": "entry_4f11",
+            "entry_slice_id": "entryslice_b8df",
+            "guardian_price": 21.36,
+            "initial_quantity": 2300,
+            "remaining_quantity": 2300,
+            "available_at": _epoch("2026-07-15T13:50:02"),
+            "synthetic": False,
+        },
+        {
+            "entry_id": "entry_e72f",
+            "entry_slice_id": "entryslice_57c7",
+            "guardian_price": 21.58,
+            "initial_quantity": 2300,
+            "remaining_quantity": 2300,
+            "available_at": _epoch("2026-07-15T13:50:03"),
+            "synthetic": False,
+        },
+    ]
+
+    reviews = review_requests(
+        symbol="002262",
+        requests=[request],
+        orders_by_request={},
+        canonical_trades=[],
+        inventory=inventory,
+        threshold_ratios={"trc_20260807": 1.01},
+        sell_constraints={"trc_20260807": {"can_use_volume": 4600}},
+    )
+
+    review = reviews[0]
+    assert review["expected"]["quantity"] == 2300
+    assert review["expected"]["raw_quantity"] == 2300
+    assert review["verdict"] == "FAIL"
+    assert "requested_quantity_mismatch" in review["reason_codes"]
+    per_slice = {
+        item["entry_slice_id"]: item
+        for item in review["expected"]["per_slice_thresholds"]
+    }
+    assert per_slice["entryslice_57c7"]["eligible"] is False
+    assert per_slice["entryslice_57c7"]["threshold_price"] == "21.7958"
+    assert per_slice["entryslice_b8df"]["eligible"] is True
+
+
 def test_same_second_xt_fill_is_replayed_after_its_request():
     request = {
         "request_id": "req_same_second",
