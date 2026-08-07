@@ -33,6 +33,12 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'danger',
     size: 'small',
   },
+  opsConsole: {
+    label: '运维',
+    path: '/ops-console',
+    buttonType: 'warning',
+    size: 'small',
+  },
   gantt: {
     label: '板块趋势',
     path: '/gantt',
@@ -94,7 +100,7 @@ export const HEADER_NAV_TARGETS = {
 
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
-  ['klineSlim', 'positionManagement', 'positionReview', 'runtime'],
+  ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
   ['gantt', 'shouban30', 'dailyScreening', 'clxEvaluation'],
   ['stock', 'pool'],
 ]
@@ -114,6 +120,7 @@ export const ROUTE_TITLES_BY_NAME = {
   'position-management': '仓位管理',
   'position-review': '持仓复盘',
   'runtime-observability': '运行观测',
+  'ops-console': '运维',
   'system-settings': '系统设置',
 }
 
