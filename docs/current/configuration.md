@@ -269,11 +269,11 @@ Guardian 当前有两条买入路径：
   - 不应用 `BUY-1/BUY-2/BUY-3` 倍数
 - 持仓内加仓 `holding_add`
   - 基础金额来自 `get_trade_amount(symbol)`，当前口径可落到单标的 `instrument_strategy.lot_amount`，否则回退系统 `guardian.stock.lot_amount`
-  - 触发买入层级后，金额计算为 `base_amount * multiplier`
-  - 当前倍数：`BUY-1=2`、`BUY-2=3`、`BUY-3=4`
-  - 数量计算同样是 `int(amount / price / 100) * 100`
+  - 数量决策：`build_holding_add_decision()` 先按当前价格所在区间识别最近阶段 CAP（`effective_stage_cap`），可用仓位 = `effective_stage_cap - 当前实时市值`，本次买入量按可用仓位的一半截断（`capacity_ratio=0.5`），即 `min(base_quantity, floor(可用仓位×0.5 / price / 100) × 100)`
+  - `price <= BUY-3` 阶段同样适用半容量规则，无特例分支；`new_open` 仍按完整剩余容量（`capacity_ratio=1.0`）计算
+  - 不使用买入倍率（历史 `BUY-1=2 / BUY-2=3 / BUY-3=4` 已移除），每次买入不超过基础金额，也不一次补满 CAP
 
-因此“首次开仓且触发买入层级倍数”在当前实现里不是同一路径：首次开仓不会叠加层级倍数，层级倍数只用于已有持仓时的 `holding_add`。
+因此“首次开仓且触发买入层级”在当前实现里不是同一路径：首次开仓按完整剩余容量计算，持仓加仓按剩余容量的一半截断。
 
 ## 前端设置页
 

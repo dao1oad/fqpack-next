@@ -305,7 +305,102 @@ def test_position_cap_limits_each_buy_to_base_amount_and_remaining_capacity():
     assert decision["stage"] == "BUY-1_TO_BUY-2"
     assert decision["effective_stage_cap"] == 350000
     assert decision["remaining_amount"] == 20000
-    assert decision["quantity"] == 2100
+    assert decision["capacity_ratio"] == 0.5
+    assert decision["capacity_quantity"] == 1000
+    assert decision["quantity"] == 1000
+
+
+def test_holding_add_half_capacity_applies_to_buy3_below_stage():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [200000, 350000, 500000],
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            )
+        }
+    )
+    service = _build_service(database)
+    service._load_position_capacity = lambda _code: (750000.0, 800000.0)
+
+    decision = service.build_holding_add_decision("000001", 7.5)
+
+    assert decision["stage"] == "BUY-3_BELOW"
+    assert decision["effective_stage_cap"] == 800000
+    assert decision["remaining_amount"] == 50000
+    assert decision["capacity_ratio"] == 0.5
+    assert decision["capacity_quantity"] == 3300
+    assert decision["quantity"] == 3300
+
+
+def test_new_open_uses_full_capacity_ratio():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [200000, 350000, 500000],
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            )
+        }
+    )
+    service = _build_service(database)
+    service._load_position_capacity = lambda _code: (0.0, 800000.0)
+
+    decision = service.build_new_open_decision("000001", 9.5)
+
+    assert decision["path"] == "new_open"
+    assert decision["stage"] == "BUY-1_TO_BUY-2"
+    assert decision["remaining_amount"] == 350000
+    assert decision["capacity_ratio"] == 1.0
+    assert decision["capacity_quantity"] == 36800
+    assert decision["quantity"] == 10500
+
+
+def test_holding_add_half_capacity_below_one_lot_skips():
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [200000, 350000, 500000],
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            )
+        }
+    )
+    service = _build_service(database)
+    service._load_position_capacity = lambda _code: (349000.0, 800000.0)
+
+    decision = service.build_holding_add_decision("000001", 9.5)
+
+    assert decision["stage"] == "BUY-1_TO_BUY-2"
+    assert decision["remaining_amount"] == 1000
+    assert decision["capacity_ratio"] == 0.5
+    assert decision["capacity_quantity"] == 0
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_capacity_exhausted"
 
 
 def test_new_open_with_existing_grid_and_missing_caps_fails_closed():

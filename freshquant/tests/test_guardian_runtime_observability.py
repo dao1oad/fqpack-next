@@ -250,6 +250,7 @@ def test_guardian_submit_intent_emits_trace_step(monkeypatch):
                 "remaining_amount": 0.0,
                 "base_quantity": 5200,
                 "capacity_quantity": 0,
+                "capacity_ratio": 0.5,
             },
         ),
     ],
@@ -300,6 +301,7 @@ def test_guardian_zero_quantity_uses_grid_skip_reason_and_cap_context(
         "remaining_amount",
         "base_quantity",
         "capacity_quantity",
+        "capacity_ratio",
     ):
         assert field in context
         assert context[field] == decision_fields.get(field)
@@ -325,6 +327,7 @@ def test_guardian_successful_buy_carries_cap_decision_strategy_context(
         "remaining_amount": 20000.0,
         "base_quantity": 5100,
         "capacity_quantity": 2100,
+        "capacity_ratio": 0.5,
     }
     monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
     monkeypatch.setattr(
@@ -365,6 +368,7 @@ def test_guardian_successful_buy_carries_cap_decision_strategy_context(
         "remaining_amount",
         "base_quantity",
         "capacity_quantity",
+        "capacity_ratio",
     ):
         assert context[field] == decision[field]
 
