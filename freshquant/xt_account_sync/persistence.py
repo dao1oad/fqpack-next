@@ -3,6 +3,7 @@
 import time
 from datetime import datetime, timezone
 
+from loguru import logger
 from pymongo import UpdateOne
 
 from freshquant.order_management.credit_subjects.models import (
@@ -226,17 +227,25 @@ def _write_eviction_audit(
             audit_collection = _load_freshquant_collection("audit_log")
         except Exception:
             return
-    audit_collection.insert_one(
-        {
-            "operation": "xt_positions_missing_evict",
-            "account_id": account_id,
-            "stock_codes": sorted(stock_codes),
-            "snapshot_codes": snapshot_codes,
-            "missing_count_field": missing_count_field,
-            "last_seen_field": last_seen_field,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    )
+    try:
+        audit_collection.insert_one(
+            {
+                "operation": "xt_positions_missing_evict",
+                "account_id": account_id,
+                "stock_codes": sorted(stock_codes),
+                "snapshot_codes": snapshot_codes,
+                "missing_count_field": missing_count_field,
+                "last_seen_field": last_seen_field,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    except Exception as exc:
+        # 审计写入是尽力而为：清仓判定（delete_many）已经成功，审计不可用
+        # 不能回滚或中断整个 persist 链路。
+        logger.warning(
+            "failed to write xt_positions_missing_evict audit: {}",
+            exc,
+        )
 
 
 def refresh_credit_detail(
