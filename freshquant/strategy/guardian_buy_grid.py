@@ -294,7 +294,11 @@ class GuardianBuyGridService:
         grid_level = hit_levels[-1] if hit_levels else None
         if config:
             quantity, context = self._resolve_capped_quantity(
-                normalized, source_price, base_amount, config
+                normalized,
+                source_price,
+                base_amount,
+                config,
+                capacity_ratio=0.5,
             )
         else:
             quantity, context = _amount_to_quantity(base_amount, source_price), {}
@@ -409,7 +413,14 @@ class GuardianBuyGridService:
             return None
         return {level: _coerce_float(config.get(level)) for level in BUY_LEVELS}
 
-    def _resolve_capped_quantity(self, code, price, base_amount, config):
+    def _resolve_capped_quantity(
+        self,
+        code,
+        price,
+        base_amount,
+        config,
+        capacity_ratio=1.0,
+    ):
         raw_caps = config.get("max_position_amounts")
         if raw_caps is None:
             return 0, {"skip_reason": "grid_position_cap_unconfigured"}
@@ -441,12 +452,13 @@ class GuardianBuyGridService:
         effective_cap = global_limit if cap is None else min(float(cap), global_limit)
         remaining = max(effective_cap - current_value, 0.0)
         base_quantity = _amount_to_quantity(base_amount, price)
-        capacity_quantity = _amount_to_quantity(remaining, price)
+        capacity_quantity = _amount_to_quantity(remaining * capacity_ratio, price)
         context = {
             "stage": stage,
             "effective_stage_cap": effective_cap,
             "current_market_value": current_value,
             "remaining_amount": remaining,
+            "capacity_ratio": capacity_ratio,
             "base_quantity": base_quantity,
             "capacity_quantity": capacity_quantity,
         }

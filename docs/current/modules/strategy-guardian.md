@@ -40,6 +40,7 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 
 - 持仓加仓
   - `_handle_holding_buy`
+  - 数量决策由 `GuardianBuyGridService.build_holding_add_decision()` 完成：先按当前价格所在区间识别最近阶段 CAP（`effective_stage_cap`），以 `effective_stage_cap - 当前实时市值` 得到可用仓位，再按可用仓位的一半截断本次买入量（`capacity_ratio=0.5`，100 股整手向下取整）；`price <= BUY-3` 阶段同样适用该半容量规则，无特例分支
 - `_handle_holding_buy` 的 `timing_check` / `price_threshold_check` 优先读取 order management `om_execution_fills` 的最新真实成交 `trade_time/price` 作为基准，价格阈值继续沿用 `threshold` 配置，避免卖出后又按剩余 Guardian slice 锚点做反向差价
 - 若最新 `execution_fill` 早于当前 open Guardian slices 的最新时间锚点，Guardian 会把它视为历史旧成交并忽略，继续走 Guardian slice fallback，避免把旧成交误用到 `manual_locked / external_inferred / reset` 之后的当前持仓
 - 若当前 symbol 缺失 execution fill，`_handle_holding_buy` 会回退到最低 open Guardian slice 作为价格基准，并按该 slice 的 `grid_interval` 推导“下一档”价格作为买入阈值；Trace 会在 `decision_context.threshold.fill_reference_source / threshold_rule_source / grid_interval` 标明来源与规则
@@ -73,11 +74,14 @@ Guardian buy grid 当前区分两类语义：
 - `guardian_buy_grid_configs.buy_enabled`
   - 手工配置态，表示某层级是否允许参与 Guardian 买入层级判断
 - `guardian_buy_grid_states.buy_active`
-  - 运行态，表示某层级在当前买入周期内是否仍处于可触发状态
+  - 只读审计态，不再作为买入准入条件；`_resolve_hit_levels()` 只按 `buy_enabled` 与 `price <= BUY-N` 判断命中，`buy_active=false` 不会阻止符合条件的买入
 
 当前正式真义是 fail-closed：
-- 缺失 `guardian_buy_grid_state` 时，按 `buy_active=[false,false,false]` 处理
-- 只有显式 `reset_after_sell_trade` 或价格配置更新触发的 rearm 才会把三层重新置为激活
+- 缺失或非法 `max_position_amounts` 时跳过本次 Grid 买入（`grid_position_cap_unconfigured` / `grid_position_config_invalid`）
+- 当前阶段开关 `buy_enabled[N]` 关闭时不买入，也不改变价格阶段映射（`grid_stage_disabled`）
+- 实时仓位或全局单标的上限读不到时跳过（`position_capacity_unavailable`）
+- 阶段剩余容量（按 `capacity_ratio` 折算后）不足一手时不买入（`grid_position_capacity_exhausted`）
+- `guardian_buy_grid_states` 保留字段与 `last_hit_*` 审计记录；`reset_after_sell_trade` 或价格配置更新仍会把 `buy_active` 重置为全激活，仅作审计信息
 
 ## 配置
 

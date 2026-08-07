@@ -518,6 +518,7 @@ class StrategyGuardian(metaclass=SingletonType):
                         "remaining_amount": decision.get("remaining_amount"),
                         "base_quantity": decision.get("base_quantity"),
                         "capacity_quantity": decision.get("capacity_quantity"),
+                        "capacity_ratio": decision.get("capacity_ratio"),
                         "set_new_open_cooldown": True,
                     }
                 }
@@ -598,6 +599,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     "remaining_amount": decision.get("remaining_amount"),
                     "base_quantity": decision.get("base_quantity"),
                     "capacity_quantity": decision.get("capacity_quantity"),
+                    "capacity_ratio": decision.get("capacity_ratio"),
                     "set_new_open_cooldown": set_new_open_cooldown,
                 }
             }
@@ -717,6 +719,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     "remaining_amount": decision.get("remaining_amount"),
                     "base_quantity": decision.get("base_quantity"),
                     "capacity_quantity": decision.get("capacity_quantity"),
+                    "capacity_ratio": decision.get("capacity_ratio"),
                 }
             }
 
