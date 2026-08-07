@@ -146,7 +146,9 @@ def _default_summary() -> dict:
 
 def _patch_mongo(monkeypatch, *, positions=None, gaps=0, in_flight=0):
     collections = {
-        "xt_positions": _FakeCollection(docs=positions or [{"sync_last_seen_at": int(time.time())}]),
+        "xt_positions": _FakeCollection(
+            docs=positions or [{"sync_last_seen_at": int(time.time())}]
+        ),
         "om_reconciliation_gaps": _FakeCollection(count=gaps),
         "om_orders": _FakeCollection(count=in_flight),
         "om_broker_orders": _FakeCollection(count=0),
@@ -376,9 +378,9 @@ def test_compute_trade_session_cases():
         == "non_trade_day"
     )
     assert (
-        ops_routes._compute_trade_session(
-            datetime(2026, 8, 8, 10, 0, tzinfo=TZ), None
-        )["session"]
+        ops_routes._compute_trade_session(datetime(2026, 8, 8, 10, 0, tzinfo=TZ), None)[
+            "session"
+        ]
         == "unknown"
     )
 
@@ -470,9 +472,7 @@ def test_docker_kpi_reports_running_and_degraded_containers():
     assert kpi["status"] == "ok"
     assert kpi["summary"] == "Up 10/10"
 
-    degraded = ops_routes._build_docker_kpi(
-        _fake_host_snapshot(docker_running=9)
-    )
+    degraded = ops_routes._build_docker_kpi(_fake_host_snapshot(docker_running=9))
     assert degraded["status"] == "error"
     assert degraded["summary"] == "Up 9/10"
     assert "svc_9" in degraded["detail"]
