@@ -452,9 +452,7 @@ class GuardianBuyGridService:
         effective_cap = global_limit if cap is None else min(float(cap), global_limit)
         remaining = max(effective_cap - current_value, 0.0)
         base_quantity = _amount_to_quantity(base_amount, price)
-        capacity_quantity = _amount_to_quantity(
-            remaining * capacity_ratio, price
-        )
+        capacity_quantity = _amount_to_quantity(remaining * capacity_ratio, price)
         context = {
             "stage": stage,
             "effective_stage_cap": effective_cap,
