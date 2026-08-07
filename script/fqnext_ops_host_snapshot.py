@@ -66,9 +66,7 @@ def fetch_supervisor_programs(rpc_url: str) -> dict[str, Any]:
                     "state": str(info.get("statename") or ""),
                     "pid": int(info.get("pid") or 0),
                     "uptime_s": (
-                        max(0, int(time.time()) - int(start_ts))
-                        if start_ts
-                        else None
+                        max(0, int(time.time()) - int(start_ts)) if start_ts else None
                     ),
                     "description": str(info.get("description") or ""),
                 }
@@ -97,9 +95,7 @@ def resolve_docker_cli() -> str | None:
 
 def _command_on_path(name: str) -> bool:
     path_dirs = [
-        part
-        for part in os.environ.get("PATH", "").split(os.pathsep)
-        if part.strip()
+        part for part in os.environ.get("PATH", "").split(os.pathsep) if part.strip()
     ]
     return any(
         Path(directory, name).is_file() or Path(directory, f"{name}.exe").is_file()
@@ -254,7 +250,9 @@ def main() -> int:
     parser.add_argument(
         "--interval",
         type=int,
-        default=int(os.environ.get("FQ_OPS_SNAPSHOT_INTERVAL") or DEFAULT_INTERVAL_SECONDS),
+        default=int(
+            os.environ.get("FQ_OPS_SNAPSHOT_INTERVAL") or DEFAULT_INTERVAL_SECONDS
+        ),
         help=f"daemon 模式采集间隔秒数（默认 {DEFAULT_INTERVAL_SECONDS}s）",
     )
     parser.add_argument(
@@ -270,13 +268,17 @@ def main() -> int:
     parser.add_argument(
         "--expected-supervisor",
         type=int,
-        default=int(os.environ.get("FQ_OPS_EXPECTED_SUPERVISOR") or DEFAULT_EXPECTED_SUPERVISOR),
+        default=int(
+            os.environ.get("FQ_OPS_EXPECTED_SUPERVISOR") or DEFAULT_EXPECTED_SUPERVISOR
+        ),
         help="期望的 Supervisor 程序数（默认 9）",
     )
     parser.add_argument(
         "--expected-docker",
         type=int,
-        default=int(os.environ.get("FQ_OPS_EXPECTED_DOCKER") or DEFAULT_EXPECTED_DOCKER),
+        default=int(
+            os.environ.get("FQ_OPS_EXPECTED_DOCKER") or DEFAULT_EXPECTED_DOCKER
+        ),
         help="期望的 Docker 容器数（默认 10，ta_backend 已废弃删除）",
     )
     parser.add_argument(
