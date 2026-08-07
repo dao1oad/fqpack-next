@@ -228,12 +228,7 @@ def resolve_signal_type(
             if path in {"holding_add", ""} and buy_grid.get("base_amount") is not None:
                 return "buy_zs_huila"
         for signal_type, keywords in _BUY_SIGNAL_KEYWORDS:
-            if any(
-                kw in text.lower()
-                for text in remarks
-                if text
-                for kw in keywords
-            ):
+            if any(kw in text.lower() for text in remarks if text for kw in keywords):
                 return signal_type
         return "buy_v_reverse"
 
@@ -251,12 +246,7 @@ def resolve_signal_type(
                 if "profit" in lowered or "盈" in lowered:
                     return "sell_takeprofit"
         for signal_type, keywords in _SELL_SIGNAL_KEYWORDS:
-            if any(
-                kw in text.lower()
-                for text in remarks
-                if text
-                for kw in keywords
-            ):
+            if any(kw in text.lower() for text in remarks if text for kw in keywords):
                 return signal_type
         return "sell_takeprofit"
 
@@ -274,7 +264,9 @@ def build_signal_block(
 
     if not timeline_signal:
         return None
-    signal_type = resolve_signal_type(request=request, signal=timeline_signal, side=side)
+    signal_type = resolve_signal_type(
+        request=request, signal=timeline_signal, side=side
+    )
     meta = signal_meta(signal_type)
     trace_id = _first_text((request or {}).get("trace_id"))
     intent_id = _first_text((request or {}).get("intent_id"))
@@ -374,9 +366,9 @@ def _fill_rows_for_event(
             continue
         trade_internal = str(trade.get("internal_order_id") or "").strip() or None
         trade_request = str(trade.get("request_id") or "").strip() or None
-        trade_execution = str(
-            trade.get("execution_key") or trade.get("id") or ""
-        ).strip() or None
+        trade_execution = (
+            str(trade.get("execution_key") or trade.get("id") or "").strip() or None
+        )
         if execution_key and trade_execution == execution_key:
             matches.append(trade)
             continue
@@ -509,8 +501,7 @@ def _merge_event_cost_context(
             else contexts[0].get("average_cost_after")
         ),
         "realized_pnl_impact": sum(
-            _float(context.get("realized_pnl_impact")) or 0.0
-            for context in contexts
+            _float(context.get("realized_pnl_impact")) or 0.0 for context in contexts
         ),
         "holding_cycle_id": next(
             (
@@ -657,9 +648,7 @@ def build_order_event_contract(
         "conditions": build_condition_summary(review, side=side),
         "data_quality": {
             "association_quality": _first_text(
-                (timeline_event.get("data_quality") or {}).get(
-                    "association_quality"
-                ),
+                (timeline_event.get("data_quality") or {}).get("association_quality"),
                 "none",
             ),
             "condition_snapshot_status": (
@@ -675,6 +664,7 @@ def build_order_event_contract(
 # ---------------------------------------------------------------------------
 # Cost basis replay
 # ---------------------------------------------------------------------------
+
 
 def _entry_unit_cost(entry: dict[str, Any] | None) -> float | None:
     if not entry:
@@ -693,8 +683,7 @@ def _entry_is_flatten_snapshot(entry: dict[str, Any] | None) -> bool:
         "position_snapshot_flatten",
     } or (
         str(entry.get("source") or "").strip() == "order_ledger_rebuild"
-        and str(entry.get("arrange_mode") or "").strip()
-        == "position_snapshot_flatten"
+        and str(entry.get("arrange_mode") or "").strip() == "position_snapshot_flatten"
     )
 
 
@@ -708,9 +697,7 @@ def _ledger_basis_available(
         return False
     if not canonical_trades:
         return False
-    return any(
-        not _entry_is_flatten_snapshot(entry) for entry in entries
-    )
+    return any(not _entry_is_flatten_snapshot(entry) for entry in entries)
 
 
 def _source_plan_from_request(request: dict[str, Any] | None) -> dict[str, int]:
@@ -777,7 +764,10 @@ def replay_cost_basis(
             for trade in canonical_trades or []
             if _int(trade.get("trade_time")) > 0
         ],
-        key=lambda item: (int(item.get("trade_time") or 0), item.get("execution_key") or ""),
+        key=lambda item: (
+            int(item.get("trade_time") or 0),
+            item.get("execution_key") or "",
+        ),
     )
     ledger_available = _ledger_basis_available(
         entries=entries or [],
@@ -788,14 +778,11 @@ def replay_cost_basis(
         str(entry.get("entry_id") or "").strip(): entry for entry in entries or []
     }
     entry_cost_by_id = {
-        entry_id: _entry_unit_cost(entry)
-        for entry_id, entry in entry_by_id.items()
+        entry_id: _entry_unit_cost(entry) for entry_id, entry in entry_by_id.items()
     }
     assigned_by_entry: dict[str, int] = defaultdict(int)
     entry_time_by_id = {
-        entry_id: _int(entry.get("trade_time"))
-        or _int(entry.get("created_at"))
-        or 0
+        entry_id: _int(entry.get("trade_time")) or _int(entry.get("created_at")) or 0
         for entry_id, entry in entry_by_id.items()
     }
 
@@ -818,8 +805,7 @@ def replay_cost_basis(
         if total_quantity <= 0:
             return last_average_cost if running_quantity > 0 else None
         total_cost = sum(
-            _int(share["quantity"]) * (_float(share["cost"]) or 0.0)
-            for share in shares
+            _int(share["quantity"]) * (_float(share["cost"]) or 0.0) for share in shares
         )
         return total_cost / total_quantity
 
@@ -844,7 +830,9 @@ def replay_cost_basis(
                 "realized_pnl": _round(realized_pnl, 2),
                 "point_type": point_type,
                 "cost_basis_source": (
-                    "entry_slice_allocation" if ledger_available else "estimated_moving_average"
+                    "entry_slice_allocation"
+                    if ledger_available
+                    else "estimated_moving_average"
                 ),
                 "fees_included": False,
             }
@@ -895,16 +883,18 @@ def replay_cost_basis(
     if initial_position_quantity > 0:
         series.append(
             {
-                "time": _epoch_iso(max(trades[0]["trade_time"] - 1, 1))
-                if trades
-                else None,
+                "time": (
+                    _epoch_iso(max(trades[0]["trade_time"] - 1, 1)) if trades else None
+                ),
                 "position_quantity": running_quantity,
                 "remaining_cost": None,
                 "average_cost": None,
                 "realized_pnl": 0.0,
                 "point_type": "derived_initial",
                 "cost_basis_source": (
-                    "entry_slice_allocation" if ledger_available else "estimated_moving_average"
+                    "entry_slice_allocation"
+                    if ledger_available
+                    else "estimated_moving_average"
                 ),
                 "fees_included": False,
             }
@@ -919,9 +909,7 @@ def replay_cost_basis(
             continue
         request_id = str(trade.get("request_id") or "").strip()
         request = requests_by_id.get(request_id)
-        execution_key = str(
-            trade.get("execution_key") or trade.get("id") or ""
-        ).strip()
+        execution_key = str(trade.get("execution_key") or trade.get("id") or "").strip()
         before_quantity = running_quantity
         before_average_cost = _average_cost()
         realized_impact = 0.0
@@ -931,15 +919,16 @@ def replay_cost_basis(
                 current_cycle_id = f"{symbol}:cycle:{cycle_counter}"
             entry = None
             for candidate_id, candidate in entry_by_id.items():
-                if (
-                    _matches_entry(
-                        candidate,
-                        fill_time=time,
-                        entry_time=entry_time_by_id.get(candidate_id, 0),
-                        entry_assigned_quantity=assigned_by_entry[candidate_id],
-                        fill_quantity=quantity,
-                    )
-                    and (entry is None or entry_time_by_id.get(candidate_id, 0) < entry_time_by_id.get(str(entry.get("entry_id") or ""), 0))
+                if _matches_entry(
+                    candidate,
+                    fill_time=time,
+                    entry_time=entry_time_by_id.get(candidate_id, 0),
+                    entry_assigned_quantity=assigned_by_entry[candidate_id],
+                    fill_quantity=quantity,
+                ) and (
+                    entry is None
+                    or entry_time_by_id.get(candidate_id, 0)
+                    < entry_time_by_id.get(str(entry.get("entry_id") or ""), 0)
                 ):
                     entry = candidate
             if entry is not None:
@@ -1003,7 +992,7 @@ def replay_cost_basis(
     cost_basis_quality = (
         "full" if ledger_available and not ledger_buy_missing else "degraded"
     )
-    warnings = []
+    warnings: list[dict[str, Any]] = []
     if not ledger_available:
         warnings.append(
             {
@@ -1058,7 +1047,10 @@ def build_position_series_from_fills(
             for trade in canonical_trades or []
             if _int(trade.get("trade_time")) > 0
         ],
-        key=lambda item: (int(item.get("trade_time") or 0), item.get("execution_key") or ""),
+        key=lambda item: (
+            int(item.get("trade_time") or 0),
+            item.get("execution_key") or "",
+        ),
     )
     series: list[dict[str, Any]] = []
     if trades:
@@ -1108,9 +1100,7 @@ def build_holding_cycles(
     for index, point in enumerate(position_series or []):
         value = _int(point.get("value"))
         cost_point = (
-            cost_basis_series[index]
-            if index < len(cost_basis_series or [])
-            else None
+            cost_basis_series[index] if index < len(cost_basis_series or []) else None
         )
         average_cost = _float((cost_point or {}).get("average_cost"))
         if value > 0 and current is None:
@@ -1131,16 +1121,17 @@ def build_holding_cycles(
             inherited_open = False
             cycles.append(current)
         elif current is not None:
-            current["max_position"] = max(
-                _int(current.get("max_position") or 0), value
-            )
+            current["max_position"] = max(_int(current.get("max_position") or 0), value)
             if value == 0:
                 current["close_time"] = point.get("time")
                 current["status"] = "closed"
                 current["average_cost_close"] = None
                 current = None
     # Initial inherited position with no closing fill stays open.
-    if current is None and _int((position_series[0].get("value") if position_series else 0)) > 0:
+    if (
+        current is None
+        and _int((position_series[0].get("value") if position_series else 0)) > 0
+    ):
         cycle_id = f"{symbol}:cycle:{len(cycles) + 1}"
         cycles.append(
             {
@@ -1168,6 +1159,7 @@ def build_holding_cycles(
 # Conditions
 # ---------------------------------------------------------------------------
 
+
 def _condition(
     *,
     condition_key: str,
@@ -1185,9 +1177,7 @@ def _condition(
         "condition_key": condition_key,
         "label": label,
         "actual_value": actual_value,
-        "actual_display": (
-            None if actual_value is None else str(actual_value)
-        ),
+        "actual_display": (None if actual_value is None else str(actual_value)),
         "operator": operator,
         "threshold_value": threshold_value,
         "threshold_display": (
@@ -1232,7 +1222,11 @@ def build_conditions(
                 operator=">=",
                 threshold_value=_round(threshold_price, 6),
                 passed=(
-                    bool(threshold_price is not None and signal_price is not None and signal_price >= threshold_price)
+                    bool(
+                        threshold_price is not None
+                        and signal_price is not None
+                        and signal_price >= threshold_price
+                    )
                     if threshold_price is not None
                     else None
                 ),
@@ -1249,7 +1243,9 @@ def build_conditions(
                 label="历史阈值模式",
                 actual_value=mode,
                 operator="in",
-                threshold_value=["percent", "atr"] if mode in {"percent", "atr"} else None,
+                threshold_value=(
+                    ["percent", "atr"] if mode in {"percent", "atr"} else None
+                ),
                 passed=mode in {"percent", "atr"},
                 source="runtime_event" if runtime_available else "request_snapshot",
                 observed_at=observed_at,
@@ -1267,12 +1263,14 @@ def build_conditions(
                 operator="<=",
                 threshold_value=requested_quantity,
                 passed=(
-                    can_use_volume is not None
-                    and requested_quantity is not None
-                    and can_use_volume >= requested_quantity
-                )
-                if can_use_volume is not None
-                else None,
+                    (
+                        can_use_volume is not None
+                        and requested_quantity is not None
+                        and can_use_volume >= requested_quantity
+                    )
+                    if can_use_volume is not None
+                    else None
+                ),
                 source="runtime_event" if runtime_available else "missing",
                 observed_at=observed_at,
                 evidence_id=evidence_id,
@@ -1282,9 +1280,7 @@ def build_conditions(
     elif side == "buy":
         buy_grid = request.get("strategy_context") or {}
         buy_grid = (
-            buy_grid.get("guardian_buy_grid")
-            if isinstance(buy_grid, dict)
-            else None
+            buy_grid.get("guardian_buy_grid") if isinstance(buy_grid, dict) else None
         )
         source_price = _float((buy_grid or {}).get("source_price"))
         conditions.append(
@@ -1295,7 +1291,11 @@ def build_conditions(
                 operator="<=",
                 threshold_value=_round(source_price, 6),
                 passed=(
-                    bool(signal_price is not None and source_price is not None and signal_price <= source_price)
+                    bool(
+                        signal_price is not None
+                        and source_price is not None
+                        and signal_price <= source_price
+                    )
                     if source_price is not None
                     else None
                 ),

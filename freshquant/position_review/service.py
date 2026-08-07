@@ -343,12 +343,12 @@ class PositionReviewService:
             allocations=bundle["allocations"],
             requests_by_id=requests_by_id,
             initial_position_quantity=initial_position_quantity,
-            initial_position_source=initial_position_source,
+            initial_position_source=str(initial_position_source or ""),
         )
         position_series = build_position_series_from_fills(
             canonical_trades=canonical_trades,
             initial_position_quantity=initial_position_quantity,
-            initial_position_source=initial_position_source,
+            initial_position_source=str(initial_position_source or ""),
         )
         holding_cycles = build_holding_cycles(
             position_series=position_series,
@@ -363,17 +363,14 @@ class PositionReviewService:
                 for event in timeline_events
                 if (
                     event.get("type") == "unassociated_execution"
-                    or _int(
-                        ((event.get("actual") or {}).get("filled_quantity"))
-                    )
-                    > 0
+                    or _int(((event.get("actual") or {}).get("filled_quantity"))) > 0
                 )
             ]
         data_quality = dict(detail.get("data_quality") or {})
         data_quality["cost_basis"] = cost_replay.get("data_quality") or {}
         payload = build_symbol_chart_payload(
             symbol=normalized_symbol,
-            name=(detail.get("symbol") or {}).get("name"),
+            name=str((detail.get("symbol") or {}).get("name") or ""),
             timeline_events=timeline_events,
             canonical_trades=canonical_trades,
             reviews_by_request=reviews_by_request,
@@ -505,9 +502,7 @@ class PositionReviewService:
         runtime_catalog = self._runtime_catalog_evidence()
         positions = {}
         for item in self.repository.list_xt_positions():
-            symbol = _normalize_symbol(
-                item.get("stock_code") or item.get("symbol")
-            )
+            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
             if symbol:
                 positions[symbol] = item
         detail_by_symbol: dict[str, Any] = {}
