@@ -4,6 +4,7 @@ import threading
 from types import SimpleNamespace
 
 import pendulum
+import pytest
 
 from freshquant.signal.astock.job.monitor_helpers_event import GuardianSignal
 
@@ -175,3 +176,47 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
             "tags": [tag],
         },
     ]
+
+
+def test_guardian_monitor_refresh_codes_logs_removed_symbols_on_scope_shrink(
+    monkeypatch,
+):
+    import freshquant.signal.astock.job.monitor_stock_zh_a_min as monitor
+
+    warnings = []
+    monkeypatch.setattr(
+        monitor,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: warnings.append(message % args),
+            info=lambda *args, **kwargs: None,
+            error=lambda *args, **kwargs: None,
+        ),
+    )
+
+    # scope 收缩：600000 被移除
+    monitor._log_pool_change(
+        {"sz000001", "sh600000"},
+        {"sz000001"},
+    )
+    assert any("removed=[sh600000]" in message for message in warnings)
+
+
+def test_guardian_monitor_refresh_codes_logs_info_when_scope_grows(
+    monkeypatch,
+):
+    import freshquant.signal.astock.job.monitor_stock_zh_a_min as monitor
+
+    infos = []
+    monkeypatch.setattr(
+        monitor,
+        "logger",
+        SimpleNamespace(
+            warning=lambda *args, **kwargs: None,
+            info=lambda message, *args: infos.append(message % args),
+            error=lambda *args, **kwargs: None,
+        ),
+    )
+
+    monitor._log_pool_change({"sz000001"}, {"sz000001", "sh600000"})
+    assert any("[Event] pool changed: 1 -> 2" in message for message in infos)
