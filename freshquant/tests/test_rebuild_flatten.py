@@ -46,7 +46,7 @@ def test_flatten_builder_generates_one_cost_price_entry_for_002262():
     )
 
     assert result["position_entries"] == 1
-    assert result["entry_slices"] == 83
+    assert result["entry_slices"] == 18
     assert result["exit_allocations"] == 0
     entry = result["position_entry_documents"][0]
     assert entry["source_ref_type"] == "position_snapshot_flatten"
@@ -294,7 +294,7 @@ def test_rebuild_cli_flatten_dry_run_reports_anchor_comparison_without_mutation(
     assert summary["mode"] == "flatten-cost-price"
     assert summary["dry_run"] is True
     assert summary["position_entries"] == 1
-    assert summary["entry_slices"] == 83
+    assert summary["entry_slices"] == 18
     assert summary["flatten_entries_by_symbol"]["002262"][0]["entry_price"] == 23.41255
     assert summary["flatten_slices_by_symbol"]["002262"]
     assert all(item["passed"] for item in summary["flatten_invariant_checks"])

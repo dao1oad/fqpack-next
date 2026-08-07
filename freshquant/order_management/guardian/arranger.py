@@ -164,7 +164,9 @@ def _arrange_entry_remaining(
     if current_amount > lot_amount:
         quantity = int(lot_amount / guardian_price / 100) * 100
         if quantity == 0:
-            quantity = 100
+            # 整手（100 股）金额已超过 lot_amount：网格不再有意义的细分粒度，
+            # 剩余量全部并入最后一格（保证 Σslice == entry 守恒并终止）。
+            quantity = remaining_quantity
         quantity = min(quantity, remaining_quantity)
     else:
         quantity = remaining_quantity
@@ -268,7 +270,7 @@ def _arrange_remaining(
     if current_amount > lot_amount:
         quantity = int(lot_amount / guardian_price / 100) * 100
         if quantity == 0:
-            quantity = 100
+            quantity = remaining_quantity
         quantity = min(quantity, remaining_quantity)
     else:
         quantity = remaining_quantity
