@@ -36,6 +36,12 @@ LAZY_COMMANDS: dict[str, tuple[str, str, str]] = {
         "股票预选池",
     ),
     "stock.fill": ("freshquant.command.stock", "stock_fill_command_group", "股票成交"),
+    "guardian": ("freshquant.command.guardian", "guardian_command_group", "Guardian"),
+    "guardian.sell": (
+        "freshquant.command.guardian",
+        "guardian_sell_command_group",
+        "Guardian 卖出",
+    ),
     "etf": ("freshquant.command.etf", "etf_command_group", "ETF 主命令"),
     "etf.list": ("freshquant.command.etf", "etf_list_command_group", "ETF 列表"),
     "etf.day": ("freshquant.command.etf", "etf_day_command_group", "ETF 日线"),
