@@ -2855,3 +2855,132 @@ def test_bootstrap_excludes_source_invalid_close_and_publishes_marker():
     marker = db["qfq_ready"].rows[0]
     assert marker["slots"]["a"]["source_exclusions"] == exclusions
     assert marker["slots"]["b"]["source_exclusions"] == exclusions
+
+
+def test_etf_sentinel_history_is_excluded_by_builder_and_skipped_by_reader():
+    sentinel = 5.877471754e-39
+    db = _DB(
+        etf_list=[
+            {"code": "512600", "name": "Dividend ETF"},
+            {"code": "510050", "name": "Tradable ETF"},
+        ],
+        index_day=[
+            {
+                "code": "512600",
+                "date": "2015-12-03",
+                "open": 1.4,
+                "high": 1.4,
+                "low": 1.4,
+                "close": 1.4,
+                "vol": sentinel,
+                "amount": sentinel,
+            },
+            {
+                "code": "512600",
+                "date": "2016-04-26",
+                "open": 1.3,
+                "high": 1.3,
+                "low": 1.3,
+                "close": 1.3,
+                "vol": sentinel,
+                "amount": sentinel,
+            },
+            {
+                "code": "512600",
+                "date": "2026-07-30",
+                "vol": 100.0,
+                "amount": 200.0,
+            },
+            {
+                "code": "512600",
+                "date": "2026-07-31",
+                "vol": 100.0,
+                "amount": 200.0,
+            },
+            {
+                "code": "510050",
+                "date": "2026-07-31",
+                "vol": 100.0,
+                "amount": 250.0,
+            },
+        ],
+    )
+
+    def loader(code, *, start_time, end_time):
+        if code == "512600":
+            return _bars(
+                [
+                    ("2026-07-30", 1.5, 0.0),
+                    ("2026-07-31", 1.6, 1.2),
+                ]
+            )
+        return _bars([("2026-07-31", 2.5, 0.0)])
+
+    result = qfq.sync_etf_adj_all(target_date="2026-07-31", db=db, bars_loader=loader)
+
+    scope = result["by_scope"]["etf"]
+    assert scope["coverage"]["sentinel_rows_excluded"] == 2
+    factor_dates = sorted(
+        str(row["date"])[:10]
+        for row in db["etf_adj_qfq_a"].rows
+        if row["code"] == "512600"
+    )
+    assert factor_dates == ["2026-07-30", "2026-07-31"]
+
+    from freshquant.data.qfq_reader import apply_qfq_to_bars
+
+    bars = pd.DataFrame(
+        [
+            {
+                "datetime": pd.Timestamp("2015-12-03 10:00:00"),
+                "open": 1.4,
+                "high": 1.4,
+                "low": 1.4,
+                "close": 1.4,
+                "volume": sentinel,
+                "amount": sentinel,
+            },
+            {
+                "datetime": pd.Timestamp("2016-04-26 10:00:00"),
+                "open": 1.3,
+                "high": 1.3,
+                "low": 1.3,
+                "close": 1.3,
+                "volume": sentinel,
+                "amount": sentinel,
+            },
+            {
+                "datetime": pd.Timestamp("2026-07-30 10:00:00"),
+                "open": 1.5,
+                "high": 1.5,
+                "low": 1.5,
+                "close": 1.5,
+                "volume": 100.0,
+                "amount": 200.0,
+            },
+            {
+                "datetime": pd.Timestamp("2026-07-31 10:00:00"),
+                "open": 1.6,
+                "high": 1.6,
+                "low": 1.6,
+                "close": 1.6,
+                "volume": 100.0,
+                "amount": 200.0,
+            },
+        ]
+    )
+    adjusted, metadata = apply_qfq_to_bars(
+        bars,
+        scope="etf",
+        code="512600",
+        datetime_col="datetime",
+        db=db,
+        skip_sentinel_placeholder_bars=True,
+    )
+    assert len(adjusted) == 2
+    assert adjusted["datetime"].dt.strftime("%Y-%m-%d").tolist() == [
+        "2026-07-30",
+        "2026-07-31",
+    ]
+    assert adjusted["close"].round(4).tolist() == [1.2, 1.6]
+    assert metadata.scope == "etf"

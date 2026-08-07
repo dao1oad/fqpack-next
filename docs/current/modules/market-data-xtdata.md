@@ -80,7 +80,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - 完整 source 区间下载后仍无 `none` bars 的 code 同样不生成空因子或 `1.0`，并记录 `{code, reason=source_empty_bars}`。A/B 各自保留自己的 `source_exclusions[]`，rollback 随 slot 一起恢复。tail 请求为空必须先用完整 BFQ 区间复核；`front_ratio` proof 为空不属于该分类，继续 fail closed。
 - primary `none` loader 完成单调前缀分页后仍报告 `history_prefix_no_progress` 时，该 code 记录 `{code, reason=source_prefix_unavailable}` 并从本轮 slot 隔离；同一错误来自 `front_ratio` proof loader 时仍中止 scope。普通 unbounded prefix/suffix、proof 缺失和日期轴不一致不进入该分类。
 - XTData 长区间下载只返回近期后缀时，QFQ client 会以当前最早缓存日的前一日为边界继续向前分页，直至覆盖请求起点；任一页未把最早日期向前推进时立即报错，不发布不完整快照。
-- Stock / ETF 在线 reader 统一使用 `freshquant.data.qfq_reader`：每个请求重新解析 marker 指向的 active slot，严格验证 snapshot、请求日期覆盖、正因子、重复键、source exclusion 与 snapshot-bound override；失败统一为 `QFQ_DATA_NOT_READY`，Stock Kline API 映射 HTTP 503。
+- Stock / ETF 在线 reader 统一使用 `freshquant.data.qfq_reader`：每个请求重新解析 marker 指向的 active slot，严格验证 snapshot、请求日期覆盖、正因子、重复键、source exclusion 与 snapshot-bound override；失败统一为 `QFQ_DATA_NOT_READY`，Stock Kline API 映射 HTTP 503。K 线读取路径对源 bar 中的 QASU sentinel 占位行（`vol/volume` 与 `amount` 均为 `5.877471754e-39`）按快照构建同一语义跳过：缺失因子日期全部可证明为占位行时剔除这些行后继续返回，不回退 `adj=1.0`。
 - StrategyConsumer 先落 raw realtime bar，再执行严格 QFQ 派生；Redis Kline key/payload 和常驻窗口绑定 effective adjustment version，版本变化后旧缓存 miss、窗口 reload。
 - 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 不在正常 schedule，仅保留为人工 legacy 运维入口；`stock_adj` / `etf_adj` 至少保留 7 个交易日但不再作为在线读取真值。
 - 真实 Index 走 BFQ 日线/分钟线和 `index_realtime`，不读取 ETF/Stock 因子，也不进入 QFQ scope。
@@ -185,4 +185,4 @@ consumer 还会把本批命中标的（带前缀代码，如 `sh600000`）去重
 - 执行 `python -m freshquant.market_data.xtdata.qfq_worker worker --once`，区分 `waiting_for_bfq`、`current`、`published` 与错误结果。
 - 执行 `status --strict` 核对 active 截止日与盘后 marker，执行 `audit --scope stock|etf --mode full` 对 active slot 做 XTData source-aware 审计；快速排查可先用 `--mode structure`。
 - 若 active slot 已更新但页面仍是旧结果，核对响应/Redis payload 的 `adjustment_version` 与 marker `snapshot_id`；旧 version key 不应被新 reader 命中。
-- `QFQ_DATA_NOT_READY/503` 时先核对 active slot `status=ready`、请求 code/date coverage、`source_exclusions[]` 和 intraday override 的 `base_snapshot_id`，不回退到 BFQ 或 `1.0`。
+- `QFQ_DATA_NOT_READY/503` 时先核对 active slot `status=ready`、请求 code/date coverage、`source_exclusions[]` 和 intraday override 的 `base_snapshot_id`，不回退到 BFQ 或 `1.0`。历史缺口若全部对应源 bar 的 sentinel 占位行（如 ETF 512600 的 QASU 占位日期），属 reader 可跳过场景，检查 `quote/etf.py` / `quote/stock.py` / `data/stock.py` 是否带 `skip_sentinel_placeholder_bars=True` 读取。
