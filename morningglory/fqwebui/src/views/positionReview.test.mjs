@@ -386,29 +386,10 @@ test('reused broker trade ids still produce unique execution rows and timeline p
         },
       ],
     },
-    timeline: [
-      {
-        id: 'fill:reused-trade-id',
-        time: '2026-04-29T10:14:01+08:00',
-        type: 'fill',
-        side: 'sell',
-        price: 22.41,
-        quantity: 100,
-      },
-      {
-        id: 'fill:reused-trade-id',
-        time: '2026-04-29T10:14:02+08:00',
-        type: 'fill',
-        side: 'sell',
-        price: 22.42,
-        quantity: 200,
-      },
-    ],
   })
 
   assert.equal(new Set(detail.executions.map((item) => item.id)).size, 2)
   assert.equal(new Set(detail.pricePoints.map((item) => item.pointId)).size, 2)
-  assert.equal(new Set(detail.timeline.map((item) => item.id)).size, 2)
 })
 
 test('detail exposes derived opening position and its explicit chart starting point', () => {

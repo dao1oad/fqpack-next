@@ -203,45 +203,7 @@
           />
         </WorkbenchSidebarPanel>
 
-        <div class="position-review-detail-stack">
-          <div class="position-review-overview-grid">
-            <WorkbenchPanel class="position-review-overview-panel">
-              <div class="workbench-panel__header">
-                <div class="workbench-title-group">
-                  <div class="workbench-panel__title">全局复盘结论</div>
-                  <p class="workbench-panel__desc">
-                    “证据不足”不会被计入符合率，也不会被默认为符合。
-                  </p>
-                </div>
-              </div>
-              <PositionReviewChart
-                class="position-review-overview-chart"
-                :option="statusDonutOption"
-                :loading="loading.summary"
-                :empty="summaryStatusTotal === 0"
-                empty-text="暂无可复盘请求"
-              />
-            </WorkbenchPanel>
-
-            <WorkbenchPanel class="position-review-overview-panel">
-              <div class="workbench-panel__header">
-                <div class="workbench-title-group">
-                  <div class="workbench-panel__title">月度成交额</div>
-                  <p class="workbench-panel__desc">
-                    {{ selectedDetail?.displayName || '选择标的后展示' }}，按成交日聚合。
-                  </p>
-                </div>
-              </div>
-              <PositionReviewChart
-                class="position-review-overview-chart"
-                :option="monthlyTradeOption"
-                :loading="loading.detail"
-                :empty="!selectedDetail?.monthlyActivity?.length"
-                empty-text="选择有成交记录的标的后展示"
-              />
-            </WorkbenchPanel>
-          </div>
-
+        <div class="position-review-center">
           <WorkbenchDetailPanel
             class="position-review-subject-panel"
             v-loading="loading.detail"
@@ -547,18 +509,16 @@
             </el-collapse-item>
           </el-collapse>
         </div>
-      </div>
-    </div>
 
-    </div>
-
-    <el-drawer
-      v-model="drawerVisible"
-      class="position-review-drawer"
-      :title="drawerTitle"
-      size="720px"
-      destroy-on-close
-    >
+        <WorkbenchDetailPanel
+          class="position-review-evidence-panel"
+        >
+          <template v-if="activeReview || activeExecution || activeFixedEvent">
+            <div class="position-review-evidence-panel__header">
+              <div class="position-review-evidence-panel__title">{{ drawerTitle }}</div>
+              <el-button size="small" @click="closeEvidence">关闭</el-button>
+            </div>
+            <div class="position-review-evidence-panel__body">
       <template v-if="activeReview">
         <div class="position-review-drawer__summary">
           <StatusChip :variant="activeReview.statusChipVariant">
@@ -917,7 +877,20 @@
           >{{ prettyJson(fixedEventNormalized.triggerSnapshot) }}</pre>
         </section>
       </template>
-    </el-drawer>
+            </div>
+          </template>
+
+          <div v-else class="workbench-empty position-review-evidence-panel__empty">
+            <el-empty
+              description="点击主图 marker 固定订单，或点击账本行查看完整证据"
+              :image-size="72"
+            />
+          </div>
+        </WorkbenchDetailPanel>
+      </div>
+    </div>
+
+    </div>
   </WorkbenchPage>
 </template>
 
@@ -956,14 +929,6 @@ import {
   runPositionReviewRefresh,
 } from './positionReview.mjs'
 import {
-  buildPositionReviewMonthlyTradeOption,
-  buildPositionReviewStatusDonutOption,
-} from './positionReviewCharts.mjs'
-import {
-  buildOrderReviewTimelineOption,
-  normalizeOrderReviewTimeline,
-} from './orderReviewTimeline.mjs'
-import {
   normalizePositionReviewStatus,
   POSITION_REVIEW_FILTER_OPTIONS,
 } from './positionReviewStateMeta.mjs'
@@ -988,33 +953,28 @@ const loading = reactive({
   summary: false,
   symbols: false,
   detail: false,
-  timeline: false,
 })
 const loadErrors = reactive({
   summary: '',
   symbols: '',
   detail: '',
-  timeline: '',
 })
 const summary = ref(normalizePositionReviewSummary({}))
 const symbolResult = ref(normalizePositionReviewSymbolRows({ rows: [], total: 0, page: 1, size: 100 }))
 const activeView = ref(String(route.query.view || 'portfolio').trim() === 'symbol' ? 'symbol' : 'portfolio')
 const selectedSymbol = ref('')
 const selectedDetail = ref(null)
-const selectedTimeline = ref(null)
 const activeReview = ref(null)
 const activeExecution = ref(null)
 const activeFixedEvent = ref(null)
 const fixedEventConditions = ref(null)
 const fixedEventLoading = ref(false)
 const ledgerCollapse = ref(['ledger-executions', 'ledger-reviews'])
-const drawerVisible = ref(false)
 const reviewTableRef = ref(null)
 
 let summaryRequestId = 0
 let symbolRequestId = 0
 let detailRequestId = 0
-let timelineRequestId = 0
 
 const summaryKpis = computed(() => buildPositionReviewSummaryKpis(summary.value))
 const detailKpis = computed(() => buildPositionReviewDetailKpis(selectedDetail.value || {}))
@@ -1028,22 +988,6 @@ const summaryDataQualityTitle = computed(() => (
     )),
   ].filter(Boolean).join('\n')
 ))
-const summaryStatusTotal = computed(() => (
-  summary.value.statusDistribution.reduce((sum, item) => sum + Number(item.value || 0), 0)
-))
-const statusDonutOption = computed(() => (
-  buildPositionReviewStatusDonutOption(summary.value.statusDistribution)
-))
-const monthlyTradeOption = computed(() => (
-  buildPositionReviewMonthlyTradeOption(selectedDetail.value?.monthlyActivity || [])
-))
-const orderTimeline = computed(() => (
-  normalizeOrderReviewTimeline(selectedTimeline.value || selectedDetail.value || {})
-))
-const timelineOption = computed(() => (
-  buildOrderReviewTimelineOption(orderTimeline.value)
-))
-const hasTimelineData = computed(() => orderTimeline.value.hasData)
 const selectedOutsideCatalog = computed(() => Boolean(
   selectedSymbol.value &&
   !loading.symbols &&
@@ -1054,7 +998,6 @@ const activeLoadErrors = computed(() => (
     { scope: 'summary', message: loadErrors.summary },
     { scope: 'symbols', message: loadErrors.symbols },
     { scope: 'detail', message: loadErrors.detail },
-    { scope: 'timeline', message: loadErrors.timeline },
   ].filter((item) => item.message)
 ))
 const activeDataQualityWarnings = computed(() => {
@@ -1159,7 +1102,6 @@ const openFixedEvent = async (event) => {
   activeExecution.value = null
   activeFixedEvent.value = event
   fixedEventConditions.value = null
-  drawerVisible.value = true
   fixedEventLoading.value = true
   try {
     const response = await positionReviewApi.getEventConditions(normalized)
@@ -1174,7 +1116,13 @@ const openFixedEvent = async (event) => {
 const closeFixedEvent = () => {
   activeFixedEvent.value = null
   fixedEventConditions.value = null
-  drawerVisible.value = false
+}
+
+const closeEvidence = () => {
+  activeReview.value = null
+  activeExecution.value = null
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
 }
 
 const buildSymbolParams = () => ({
@@ -1215,50 +1163,16 @@ const loadSummary = async ({ refresh = false } = {}) => {
   }
 }
 
-const isTimelineEndpointUnavailable = (error) => Number(error?.response?.status) === 404
-
-const loadSymbolTimeline = async (symbol) => {
-  const normalizedSymbol = String(symbol || '').trim()
-  const requestId = ++timelineRequestId
-  if (!normalizedSymbol) {
-    selectedTimeline.value = null
-    loadErrors.timeline = ''
-    loading.timeline = false
-    return
-  }
-  loading.timeline = true
-  loadErrors.timeline = ''
-  selectedTimeline.value = null
-  try {
-    const response = await positionReviewApi.getSymbolTimeline(normalizedSymbol)
-    if (requestId !== timelineRequestId) return
-    selectedTimeline.value = response
-    loadErrors.timeline = ''
-  } catch (error) {
-    if (requestId !== timelineRequestId) return
-    selectedTimeline.value = null
-    // Old API deployments do not yet expose the projection. The detail payload
-    // remains a compatible timeline fallback until that endpoint is available.
-    loadErrors.timeline = isTimelineEndpointUnavailable(error)
-      ? ''
-      : errorMessage(`加载 ${normalizedSymbol} 订单复盘时间轴失败`, error)
-  } finally {
-    if (requestId === timelineRequestId) loading.timeline = false
-  }
-}
-
 const loadSymbolDetail = async (symbol) => {
   const normalizedSymbol = String(symbol || '').trim()
   const requestId = ++detailRequestId
   if (!normalizedSymbol) {
     selectedDetail.value = null
-    await loadSymbolTimeline('')
     loading.detail = false
     return
   }
   loading.detail = true
   loadErrors.detail = ''
-  void loadSymbolTimeline(normalizedSymbol)
   try {
     const response = await positionReviewApi.getSymbolReview(normalizedSymbol)
     if (requestId !== detailRequestId) return
@@ -1322,7 +1236,8 @@ const selectSymbol = async (symbol) => {
   selectedSymbol.value = normalizedSymbol
   activeReview.value = null
   activeExecution.value = null
-  drawerVisible.value = false
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
   syncRouteQuery()
   await loadSymbolDetail(normalizedSymbol)
 }
@@ -1356,16 +1271,18 @@ const changeSymbolPage = async (page) => {
 const openReviewDrawer = (row) => {
   if (!row) return
   activeExecution.value = null
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
   activeReview.value = row
-  drawerVisible.value = true
   reviewTableRef.value?.setCurrentRow?.(row)
 }
 
 const openExecutionDrawer = (row) => {
   if (!row) return
   activeReview.value = null
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
   activeExecution.value = row
-  drawerVisible.value = true
 }
 
 const openAssociatedReview = async () => {
@@ -1373,26 +1290,6 @@ const openAssociatedReview = async () => {
   if (!review) return
   await nextTick()
   openReviewDrawer(review)
-}
-
-const handleChartClick = async (params) => {
-  const eventId = String(
-    params?.data?.eventId ||
-    params?.data?.requestId ||
-    params?.data?.internalOrderId ||
-    params?.data?.orderKey ||
-    '',
-  ).trim()
-  if (!eventId || !selectedDetail.value) return
-  const row = selectedDetail.value.reviews.find((item) => (
-    item.id === eventId ||
-    item.reviewId === eventId ||
-    item.requestId === eventId ||
-    item.internalOrderId === eventId
-  ))
-  if (!row) return
-  await nextTick()
-  openReviewDrawer(row)
 }
 
 const reviewRowClassName = ({ row }) => (
@@ -1414,9 +1311,6 @@ const retryLoadError = async (scope) => {
   if (scope === 'detail') {
     await loadSymbolDetail(selectedSymbol.value)
     return
-  }
-  if (scope === 'timeline') {
-    await loadSymbolTimeline(selectedSymbol.value)
   }
 }
 
@@ -1465,7 +1359,7 @@ onMounted(async () => {
 .position-review-main-grid {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr) 400px;
   gap: var(--fq-space-3);
   min-height: 0;
   min-width: 0;
@@ -1592,34 +1486,19 @@ onMounted(async () => {
   justify-content: center;
 }
 
-.position-review-detail-stack {
+.position-review-center {
   display: flex;
   flex-direction: column;
   gap: var(--fq-space-3);
   min-height: 0;
   min-width: 0;
-  overflow-y: auto;
-  padding-right: 3px;
-  scrollbar-gutter: stable;
-}
-
-.position-review-overview-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.72fr) minmax(420px, 1.28fr);
-  gap: var(--fq-space-3);
-}
-
-.position-review-overview-panel {
-  min-height: 330px;
-}
-
-.position-review-overview-chart {
-  flex: 1 1 auto;
-  min-height: 240px;
+  overflow: hidden;
 }
 
 .position-review-subject-panel {
   flex: 0 0 auto;
+  padding-top: var(--fq-space-2);
+  padding-bottom: var(--fq-space-2);
 }
 
 .position-review-scope-meta {
@@ -1632,15 +1511,15 @@ onMounted(async () => {
 }
 
 .position-review-timeline-panel {
-  flex: 0 0 auto;
-  min-height: 620px;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
 .position-review-timeline-chart {
   flex: 1 1 auto;
-  min-height: 520px;
+  min-height: 0;
 }
 
 .position-review-view-switch {
@@ -1658,10 +1537,15 @@ onMounted(async () => {
 .position-review-portfolio {
   margin-top: 12px;
   min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .position-review-ledger-collapse {
   flex: 0 0 auto;
+  max-height: 34%;
+  overflow: auto;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
@@ -1681,13 +1565,47 @@ onMounted(async () => {
 
 .position-review-ledger-panel {
   flex: 0 0 auto;
-  height: min(680px, 68vh);
-  min-height: 420px;
+  height: 100%;
+  min-height: 260px;
   overflow: hidden;
 }
 
 .position-review-table-wrap {
-  min-height: 320px;
+  min-height: 220px;
+}
+
+.position-review-evidence-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.position-review-evidence-panel__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.position-review-evidence-panel__title {
+  overflow: hidden;
+  font-size: var(--fq-font-panel-title);
+  font-weight: 600;
+  color: var(--fq-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-evidence-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+
+.position-review-evidence-panel__empty {
+  flex: 1 1 auto;
 }
 
 .position-review-ledger-counts,
@@ -1794,11 +1712,7 @@ onMounted(async () => {
 
 @media (max-width: 1280px) {
   .position-review-main-grid {
-    grid-template-columns: 280px minmax(0, 1fr);
-  }
-
-  .position-review-overview-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 240px minmax(0, 1fr) 360px;
   }
 }
 
@@ -1834,24 +1748,25 @@ onMounted(async () => {
     max-height: 52vh;
   }
 
-  .position-review-detail-stack {
+  .position-review-center {
     overflow: visible;
   }
 
-  .position-review-overview-grid {
-    grid-template-columns: 1fr;
-  }
-
   .position-review-timeline-panel {
-    min-height: 560px;
+    min-height: 480px;
   }
 
   .position-review-timeline-chart {
-    min-height: 470px;
+    min-height: 400px;
   }
 
   .position-review-ledger-panel {
-    height: min(620px, 76vh);
+    height: min(520px, 76vh);
+  }
+
+  .position-review-evidence-panel {
+    min-height: 420px;
+    max-height: 60vh;
   }
 }
 

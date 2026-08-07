@@ -226,54 +226,6 @@ class PositionReviewService:
             raise ValueError("symbol not found")
         return self._build_detail(normalized_symbol, bundle)
 
-    def get_symbol_timeline(
-        self,
-        symbol,
-        *,
-        start=None,
-        end=None,
-        refresh=False,
-    ) -> dict[str, Any]:
-        """Return a read-only order-level projection for a visible time window.
-
-        The existing symbol-detail response deliberately remains a fill-level
-        audit surface.  This projection keeps those fills as the source for
-        position replay, while exposing only one visual event per order (or an
-        explicit unassociated execution when evidence cannot identify an
-        order).  ``refresh`` is accepted for API consistency; the projection
-        always loads a current evidence bundle because its range is caller
-        specific.
-        """
-
-        del refresh
-        normalized_symbol = _normalize_symbol(symbol)
-        if not normalized_symbol:
-            raise ValueError("symbol not found")
-        start_time = _parse_timeline_bound(start, name="start")
-        end_time = _parse_timeline_bound(end, name="end")
-        if start_time is not None and end_time is not None and start_time > end_time:
-            raise ValueError("start must be earlier than or equal to end")
-
-        bundle = self._load_symbol_bundle(normalized_symbol)
-        if not bundle["requests"] and not bundle["xt_trades"]:
-            raise ValueError("symbol not found")
-        detail = self._build_detail(normalized_symbol, bundle)
-        return _build_order_timeline_projection(
-            symbol=normalized_symbol,
-            name=(detail.get("symbol") or {}).get("name"),
-            bundle=bundle,
-            canonical_trades=detail.get("executions") or [],
-            reviews=detail.get("reviews") or [],
-            initial_position_quantity=(
-                (detail.get("summary") or {}).get("initial_position_quantity")
-            ),
-            initial_position_source=(
-                (detail.get("summary") or {}).get("initial_position_source")
-            ),
-            start_time=start_time,
-            end_time=end_time,
-        )
-
     def get_symbol_chart(
         self,
         symbol,
@@ -873,11 +825,6 @@ class PositionReviewService:
                 initial_position_source=summary["initial_position_source"],
             ),
             "reviews": reviews,
-            "timeline": _build_timeline(
-                signals=bundle["signals"],
-                canonical_trades=canonical_trades,
-                reviews=reviews,
-            ),
             "data_quality": {
                 "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
                 "canonical_trade_source_label": "历史成交档案 + 当前 XT/OM",
@@ -1883,58 +1830,6 @@ def _serialize_execution(item):
         "association_quality": item.get("association_quality"),
         "association_method": item.get("association_method"),
     }
-
-
-def _build_timeline(*, signals, canonical_trades, reviews):
-    items = []
-    for signal in signals or []:
-        position = str(signal.get("position") or "")
-        items.append(
-            {
-                "id": f"signal:{signal.get('_id') or len(items)}",
-                "time": _value_iso(signal.get("fire_time")),
-                "type": "signal",
-                "side": "buy" if position == "BUY_LONG" else "sell",
-                "price": _float(signal.get("price")),
-                "quantity": None,
-                "verdict": None,
-                "request_id": None,
-                "title": "Guardian 信号",
-                "description": str(signal.get("remark") or ""),
-            }
-        )
-    for review in reviews:
-        items.append(
-            {
-                "id": f"request:{review['request_id']}",
-                "time": review.get("time"),
-                "type": "request",
-                "side": review.get("side"),
-                "price": (review.get("request") or {}).get("price"),
-                "quantity": (review.get("request") or {}).get("quantity"),
-                "verdict": review.get("verdict"),
-                "request_id": review.get("request_id"),
-                "title": "策略下单请求",
-                "description": " / ".join(review.get("reason_codes") or []),
-            }
-        )
-    for trade in canonical_trades:
-        items.append(
-            {
-                "id": f"fill:{trade.get('execution_key')}",
-                "time": _epoch_iso(_int(trade.get("trade_time"))),
-                "type": "fill",
-                "side": trade.get("side"),
-                "price": trade.get("price"),
-                "quantity": trade.get("quantity"),
-                "verdict": None,
-                "request_id": trade.get("request_id"),
-                "title": "XT 实际成交",
-                "description": str(trade.get("broker_trade_id") or ""),
-            }
-        )
-    items.sort(key=lambda item: (item.get("time") or "", item.get("id") or ""))
-    return items
 
 
 def _build_order_timeline_projection(
@@ -3203,27 +3098,6 @@ def _timestamp(value):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_BEIJING_TZ)
     return int(dt.timestamp())
-
-
-def _parse_timeline_bound(value, *, name):
-    if value is None or str(value).strip() == "":
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            timestamp = int(value)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError(
-                f"{name} must be an ISO-8601 datetime or Unix timestamp"
-            ) from exc
-    else:
-        text = str(value).strip()
-        try:
-            timestamp = int(float(text))
-        except (TypeError, ValueError, OverflowError):
-            timestamp = _timestamp(text)
-    if timestamp <= 0:
-        raise ValueError(f"{name} must be an ISO-8601 datetime or Unix timestamp")
-    return timestamp
 
 
 def _epoch_iso(value):

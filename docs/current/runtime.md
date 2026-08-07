@@ -197,8 +197,11 @@
 - 证据置信度使用 `HIGH / MEDIUM / LOW`；页面同时展示 `data_quality`，使缺失策略上下文、持仓解释或执行关联的结果不会被误读为确定结论。
 - 单标的详情统一返回摘要、图表、订单级复盘、成交时间线和数据质量信息。图表数量与订单级复盘明细必须能够回勾到相同的实际成交事实。
 - 页面一级视图固定为“组合总览 / 标的复盘”，路由 query `view=symbol` 可深链标的复盘。
-- 标的复盘主图是单一 K 线图表：颜色=买卖方向（买红/卖绿 + B/S 文字），形状=信号类型（`signal_type_registry`），边框/透明度/`!`=verdict；跨 bar fill 用同色细区间线；hover 展示订单摘要与条件完整度，点击 marker 固定订单并打开右侧证据（`/events/<id>/conditions` 懒加载完整条件与全部阈值，缺失保持 null）。
-- KlineSlim 的“交易复盘”覆盖层同样消费 `/symbols/<symbol>/chart` 只读投影并在价格层渲染 marker，不再在 K 线下方绘制策略应有量/实际成交量/连续持仓三轨附图；旧 `/timeline` 接口合同保留兼容。
+- 标的复盘是三栏视口布局（左历史标的目录 / 中 K 线主图 + 折叠账本 / 右固定订单证据面板），100% 缩放下全部组件在同一屏内可操作，各栏内部滚动。
+- 标的复盘主图是单一 K 线图表：颜色=买卖方向（买红/卖绿 + B/S 文字），形状=信号类型（`signal_type_registry`），边框/透明度/`!`=verdict；跨 bar fill 用同色细区间线。
+- 悬浮框一次性展示全部信息：订单摘要、触发信号完整详情（类型/族/名称/时间/价格/数量/方向/来源/关联方式/trace/intent）、全部触发条件与阈值（缺失保持 null 并提示“历史阈值证据缺失”）、订单与成交、仓位与成本影响、数据质量；conditions 按 `event_id` 缓存并按需从 `/events/<id>/conditions` 懒加载，Hover 无需再点击链接。
+- 点击 marker 固定订单，右侧证据面板展示完整证据；点击账本行同样在右栏展示请求复盘或成交证据。
+- KlineSlim 的“交易复盘”覆盖层同样消费 `/symbols/<symbol>/chart` 只读投影并在价格层渲染 marker，使用相同的完整悬浮框；不再在 K 线下方绘制策略应有量/实际成交量/连续持仓三轨附图，旧 `/timeline` 接口已移除。
 - 组合总览聚焦持仓市值、剩余成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N；权益曲线名称与 `equity_basis` 跟随证据等级（`broker_total_asset` / `credit_snapshot_reconstructed` / `estimated`），缺失区间不插值。
 - 持仓成本口径：优先 entry/slice/allocation 账本剩余成本，`fees_included=false`；证据不足时降级为成交移动加权估算并在页面与 `data_quality.cost_basis=degraded` 明示。
 - ClickHouse Trace 只用于补充可选的信号、策略门禁和运行链证据，以及跳转到 `/runtime-observability`。持仓复盘接口不依赖 ClickHouse 才能返回成交和账本结果；Trace 不可用时由证据置信度和 `data_quality` 显示降级。

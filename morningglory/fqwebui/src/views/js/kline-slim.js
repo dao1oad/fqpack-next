@@ -10,7 +10,8 @@ import echartsConfig from './echartsConfig'
 import { createKlineSlimChartController, createKlineSlimViewportState } from './kline-slim-chart-controller.mjs'
 import {
   CLX_SIGNAL_LEGEND_NAME,
-  buildOrderReviewLegendSelectionState,
+  getOrderReviewChartConditions,
+  setOrderReviewChartConditions,
 } from './kline-slim-chart-renderer.mjs'
 import {
   buildInitialKlineSlimPricePanelState,
@@ -43,7 +44,6 @@ import {
   buildPeriodLegendSelectionState,
   getVisibleChanlunPeriods,
   normalizeChanlunPeriod,
-  PERIOD_DURATION_MS,
 } from './kline-slim-chanlun-periods.mjs'
 import {
   buildChartPriceGuides,
@@ -61,7 +61,6 @@ import {
   buildKlineSlimRouteSymbol,
   closeOtherPanels,
 } from '../klineSlimPageState.mjs'
-import { normalizeOrderReviewTimeline } from '../orderReviewTimeline.mjs'
 import klineSlimController from '../klineSlimController.mjs'
 import {
   normalizeClxCatalog,
@@ -115,22 +114,6 @@ function parseKlineTimeMs(value) {
     ? `${normalized}T00:00:00+08:00`
     : `${normalized}+08:00`
   return Date.parse(withTimezone)
-}
-
-export function buildOrderReviewTimelineParams({ mainData, period } = {}) {
-  const dates = Array.isArray(mainData?.date) ? mainData.date : []
-  if (!dates.length) return {}
-  const startMs = parseKlineTimeMs(dates[0])
-  const lastOpenMs = parseKlineTimeMs(dates[dates.length - 1])
-  const durationMs = PERIOD_DURATION_MS[period] || PERIOD_DURATION_MS['5m']
-  if (!Number.isFinite(startMs) || !Number.isFinite(lastOpenMs)) return {}
-  return {
-    start: new Date(startMs).toISOString(),
-    // The K-line axis is half-open: [first bar open, next bar open). Do not
-    // request a trade exactly at the next bar boundary because it has no slot
-    // in the current candle set.
-    end: new Date(lastOpenMs + durationMs - 1).toISOString(),
-  }
 }
 
 function formatDirectionLabel(value) {
@@ -366,8 +349,6 @@ export default {
       priceGuideEditMode: false,
       priceGuideDragDirty: false,
       showOrderReview: false,
-      orderReviewLegendSelected: buildOrderReviewLegendSelectionState(),
-      orderReviewTimeline: null,
       orderReviewChart: null,
       orderReviewLoading: false,
       orderReviewError: '',
@@ -1108,6 +1089,7 @@ export default {
         return
       }
       this.chart = echarts.init(chartDom, 'dark')
+      this.chart.on('mouseover', this.handleOrderReviewChartHover)
       this.chartController = createKlineSlimChartController({
         chart: this.chart,
         onLegendChange: this.handleSlimLegendSelectionChange,
@@ -1178,7 +1160,6 @@ export default {
     },
     resetOrderReviewState() {
       this.orderReviewRequestId += 1
-      this.orderReviewTimeline = null
       this.orderReviewChart = null
       this.orderReviewLoading = false
       this.orderReviewError = ''
@@ -1199,20 +1180,15 @@ export default {
       this.clxSelectedMarkerId = ''
       this.clxHistoryVersion += 1
     },
-    getOrderReviewTimelineParams() {
-      return buildOrderReviewTimelineParams({
-        period: this.currentPeriod,
-      })
-    },
-    getOrderReviewTimelineKey() {
+    getOrderReviewChartKey() {
       if (!this.routeSymbol) return ''
       return [this.routeSymbol, this.currentPeriod].join('__')
     },
-    async loadOrderReviewTimeline({ force = false } = {}) {
+    async loadOrderReviewChart({ force = false } = {}) {
       if (!this.showOrderReview || !this.routeSymbol) {
         return null
       }
-      const requestKey = this.getOrderReviewTimelineKey()
+      const requestKey = this.getOrderReviewChartKey()
       if (!requestKey) return null
       if (!force && this.orderReviewChart && this.orderReviewLoadedKey === requestKey) {
         return this.orderReviewChart
@@ -1230,18 +1206,18 @@ export default {
       this.orderReviewLoading = true
       this.orderReviewRequestKey = requestKey
       this.orderReviewError = ''
-      this.orderReviewTimeline = null
       this.orderReviewChart = null
       this.orderReviewLoadedKey = ''
       this.orderReviewVersion += 1
       this.scheduleRender()
       try {
-        const params = this.getOrderReviewTimelineParams()
-        const payload = await positionReviewApi.getSymbolChart(this.routeSymbol, params)
+        const payload = await positionReviewApi.getSymbolChart(this.routeSymbol, {
+          period: this.currentPeriod,
+        })
         if (
           requestId !== this.orderReviewRequestId ||
           routeToken !== this.routeToken ||
-          requestKey !== this.getOrderReviewTimelineKey()
+          requestKey !== this.getOrderReviewChartKey()
         ) {
           return null
         }
@@ -1254,7 +1230,7 @@ export default {
         if (
           requestId !== this.orderReviewRequestId ||
           routeToken !== this.routeToken ||
-          requestKey !== this.getOrderReviewTimelineKey()
+          requestKey !== this.getOrderReviewChartKey()
         ) {
           return null
         }
@@ -1280,11 +1256,37 @@ export default {
       this.orderReviewVersion += 1
       this.scheduleRender()
       if (this.showOrderReview) {
-        await this.loadOrderReviewTimeline()
+        await this.loadOrderReviewChart()
       }
     },
-    async retryOrderReviewTimeline() {
-      await this.loadOrderReviewTimeline({ force: true })
+    async retryOrderReviewChart() {
+      await this.loadOrderReviewChart({ force: true })
+    },
+    async handleOrderReviewChartHover(params) {
+      if (String(params?.seriesId || '') !== 'order-review-chart-markers') {
+        return
+      }
+      const event = params?.data?.event
+      const eventId = String(event?.event_id || '').trim()
+      if (!eventId || !this.showOrderReview) {
+        return
+      }
+      if (getOrderReviewChartConditions(eventId) !== null) {
+        return
+      }
+      try {
+        const payload = await positionReviewApi.getEventConditions(eventId)
+        setOrderReviewChartConditions(eventId, payload || null)
+      } catch {
+        setOrderReviewChartConditions(eventId, null)
+      }
+      this.chart?.dispatchAction?.({
+        type: 'showTip',
+        seriesIndex: params.seriesIndex,
+        dataIndex: params.dataIndex,
+        x: params?.event?.offsetX,
+        y: params?.event?.offsetY,
+      })
     },
     isSidebarItemActive(item) {
       return getSidebarCode6(item) === this.activeCode6
@@ -1584,10 +1586,6 @@ export default {
         previousSelected: selected
       })
       this.priceGuideLegendSelected = buildPriceGuideLegendSelectionState(selected)
-      this.orderReviewLegendSelected = buildOrderReviewLegendSelectionState({
-        ...this.orderReviewLegendSelected,
-        ...(selected && typeof selected === 'object' ? selected : {}),
-      })
       if (selected && Object.prototype.hasOwnProperty.call(selected, CLX_SIGNAL_LEGEND_NAME)) {
         this.clxLegendSelected = selected[CLX_SIGNAL_LEGEND_NAME] !== false
       }
@@ -1673,9 +1671,9 @@ export default {
         this.scheduleRender()
         if (
           this.showOrderReview &&
-          this.getOrderReviewTimelineKey() !== this.orderReviewLoadedKey
+          this.getOrderReviewChartKey() !== this.orderReviewLoadedKey
         ) {
-          this.loadOrderReviewTimeline()
+          this.loadOrderReviewChart()
         }
       } catch (error) {
         if (isCurrentOwner() && error?.name !== 'AbortError' && !controller.signal.aborted) {

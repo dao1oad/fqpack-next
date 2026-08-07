@@ -588,7 +588,7 @@
             v-if="orderReviewChartState.kind === 'error'"
             size="small"
             type="primary"
-            @click="retryOrderReviewTimeline"
+            @click="retryOrderReviewChart"
           >
             重试
           </el-button>

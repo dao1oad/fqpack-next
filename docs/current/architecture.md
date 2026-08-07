@@ -221,11 +221,11 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
   - 正式导航、人工操作和 Web 健康检查都以 `/daily-screening?tab=clx` 为准
 - `PositionReview`
   - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
-  - 与 `KlineSlim` 共享订单级时间线投影：信号、订单聚合成交、数量对比和连续持仓使用同一口径
   - 页面拆为“组合总览 / 标的复盘”两个一级视图，路由 query `view=symbol` 可深链标的复盘
+  - 标的复盘是三栏视口布局：左历史标的目录 / 中 K 线主图 + 折叠账本 / 右固定订单证据面板；100% 缩放下全部组件同一屏可操作，各栏内部滚动
   - 标的复盘使用单一 K 线主图：颜色表达买卖方向（买红/卖绿 + B/S 文字）、形状表达信号类型（服务端 `signal_type_registry`）、边框/透明度/`!` 表达四态 verdict
   - 主图 marker 锚定首次成交 bar 与订单加权成交均价；跨 bar fill 用同色细区间线；逐笔 fill 只保留在 canonical 成交账本与订单详情
-  - Hover 展示订单摘要与条件完整度；点击 marker 固定订单并打开右侧证据（`/events/<id>/conditions` 懒加载完整条件与全部阈值）
+  - 悬浮框一次性展示全部信息（订单摘要、信号完整详情、全部条件阈值、成交、持仓影响、数据质量），conditions 按 `event_id` 缓存并懒加载，Hover 无需点击链接；点击 marker 固定订单并在右侧证据面板展示完整证据
   - 组合总览聚焦持仓市值、剩余成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N；权益曲线名称跟随证据等级，缺失区间不插值
   - ClickHouse Trace 只作为可选判定上下文和运行观测跳转证据
 

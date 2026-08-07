@@ -48,7 +48,6 @@ function createVm() {
     isRealtimeMode: true,
     showOrderReview: false,
     scheduleRender() {},
-    getOrderReviewTimelineKey() { return '' },
     cacheChanlunPeriodPayload: component.methods.cacheChanlunPeriodPayload,
     abortMainDataRequest: component.methods.abortMainDataRequest,
     resetOrderReviewState() {},
@@ -213,7 +212,6 @@ test('main period switch resets chanlun period legend to the new current period 
     currentPeriod: '30m',
     periodLegendSelected: { '1m': true, '5m': true, '15m': false, '30m': true, '1d': true },
     priceGuideLegendSelected: { '价格辅助线': true },
-    orderReviewLegendSelected: { '订单复盘': true },
     clxLegendSelected: true,
     lastSubjectDetailSymbol: '',
     applyClxRouteState() {},
@@ -238,7 +236,6 @@ test('main period switch resets chanlun period legend to the new current period 
   assert.equal(vm.periodLegendSelected['1d'], false)
   assert.deepEqual(vm.visibleChanlunPeriods, [])
   assert.deepEqual(vm.priceGuideLegendSelected, { '价格辅助线': true })
-  assert.deepEqual(vm.orderReviewLegendSelected, { '订单复盘': true })
   assert.equal(vm.clxLegendSelected, true)
   assert.deepEqual(refreshes, ['15m'])
 })

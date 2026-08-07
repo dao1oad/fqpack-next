@@ -274,7 +274,11 @@ const assignMarkerOffsets = (markers) => {
   return offsets
 }
 
-export const buildSymbolReviewChartOption = ({ kline, chart } = {}) => {
+export const buildSymbolReviewChartOption = ({
+  kline,
+  chart,
+  conditionsResolver = () => null,
+} = {}) => {
   const bars = buildBarSlots(kline)
   if (!bars.length) return null
   const normalized = normalizeSymbolChart(chart || {})
@@ -325,7 +329,17 @@ export const buildSymbolReviewChartOption = ({ kline, chart } = {}) => {
             },
           }
         }),
-        tooltip: { show: true, formatter: (params) => buildMarkerTooltip(params?.data?.event) },
+        tooltip: {
+          show: true,
+          className: 'prt-tooltip',
+          confine: true,
+          extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          formatter: (params) => {
+            const event = params?.data?.event
+            if (!event) return ''
+            return buildFullMarkerTooltip(event, conditionsResolver(event.event_id))
+          },
+        },
       }]
     : []
 
@@ -455,31 +469,150 @@ const verdictMarkerStyle = (verdict) => {
   return { borderColor: '#111827', borderWidth: 1, opacity: 1, mark: false }
 }
 
-export const buildMarkerTooltip = (event = {}) => {
-  if (!event) return ''
+const escapeTooltipHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
+const tooltipValue = (value, fallback = '—') => (
+  value === null || value === undefined || value === ''
+    ? fallback
+    : escapeTooltipHtml(value)
+)
+
+const tooltipRow = (label, value, fallback = '—') => (
+  `<div class="prt-row"><span class="prt-label">${escapeTooltipHtml(label)}</span><span class="prt-value">${tooltipValue(value, fallback)}</span></div>`
+)
+
+const tooltipSection = (title, body) => (
+  `<div class="prt-section"><div class="prt-section-title">${escapeTooltipHtml(title)}</div>${body}</div>`
+)
+
+const conditionStatusLabel = (event) => {
+  const conditions = event.conditions || {}
+  if (conditions.condition_snapshot_status === 'complete') return '条件完整'
+  if (conditions.condition_snapshot_status === 'missing') return '历史阈值证据缺失'
+  if (conditions.condition_snapshot_status === 'partial') return '条件部分缺失'
+  return '条件待加载'
+}
+
+const buildConditionsTooltipTable = (payload) => {
+  const normalized = normalizeConditions(payload || {})
+  if (!normalized.conditions.length) {
+    return '<div class="prt-muted">该订单暂无可用条件证据</div>'
+  }
+  const rows = normalized.conditions.map((condition) => {
+    const thresholdCell = condition.thresholdMissing
+      ? '<span class="prt-missing">缺失</span>'
+      : tooltipValue(condition.thresholdDisplay)
+    const passedCell = condition.passed === null
+      ? '—'
+      : `<span class="prt-${condition.passed ? 'ok' : 'bad'}">${condition.passed ? '是' : '否'}</span>`
+    const sourceLabel = condition.source === 'runtime_event'
+      ? '运行事件'
+      : condition.source === 'request_snapshot'
+        ? '请求快照'
+        : condition.source === 'missing'
+          ? '缺失'
+          : tooltipValue(condition.source)
+    return `<tr>
+      <td class="prt-key" title="${escapeTooltipHtml(condition.key)}">${escapeTooltipHtml(condition.label || condition.key)}</td>
+      <td>${tooltipValue(condition.actualDisplay)}</td>
+      <td>${escapeTooltipHtml(condition.operator || '—')}</td>
+      <td>${thresholdCell}</td>
+      <td>${passedCell}</td>
+      <td>${sourceLabel}</td>
+    </tr>`
+  }).join('')
+  return `<div class="prt-table-wrap"><table class="prt-table"><thead><tr>
+    <th>条件</th><th>实际值</th><th>操作符</th><th>阈值</th><th>通过</th><th>来源</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`
+}
+
+export const buildFullMarkerTooltip = (event = {}, conditions = null) => {
+  if (!event || !event.event_id) return ''
   const side = event.side === 'buy' ? '买入' : event.side === 'sell' ? '卖出' : '订单'
-  const verdict = (event.review || {}).verdict || '未判定'
-  const signal = (event.signal || {}).label || '未关联信号'
+  const review = event.review || {}
+  const signal = event.signal || {}
   const execution = event.execution || {}
+  const order = event.order || {}
   const position = event.position_impact || {}
+  const dataQuality = event.data_quality || {}
   const positionText = position.position_before == null || position.position_after == null
     ? '待持仓证据'
     : `${position.position_before} → ${position.position_after}`
-  const conditions = event.conditions || {}
-  const conditionStatus = conditions.condition_snapshot_status === 'complete'
-    ? '条件完整'
-    : conditions.condition_snapshot_status === 'missing'
-      ? '历史阈值证据缺失'
-      : '条件部分缺失'
-  return [
-    `${side}订单 ${toText(event.event_id)}`,
-    `信号：${toText(signal)}（${verdict}）`,
-    `成交数量：${execution.actual_quantity ?? '--'} 股 / 均价：${execution.avg_filled_price ?? '--'}（${execution.fill_count ?? 0} 笔）`,
-    `持仓：${positionText}`,
-    `条件：${conditionStatus}`,
-    '点击固定订单查看完整证据',
-  ].filter(Boolean).join('<br/>')
+
+  const header = `<div class="prt-header">
+    <span class="prt-side prt-side-${event.side === 'sell' ? 'sell' : 'buy'}">${side}</span>
+    <span class="prt-id">${escapeTooltipHtml(event.event_id)}</span>
+    <span class="prt-verdict">${tooltipValue(review.verdict || '未判定')}</span>
+  </div>`
+
+  const signalBody = signal.id || signal.label
+    ? [
+        tooltipRow('信号类型', signal.type),
+        tooltipRow('信号族', signal.family),
+        tooltipRow('信号名称', signal.label),
+        tooltipRow('信号时间', signal.time),
+        tooltipRow('信号价格', signal.price),
+        tooltipRow('信号数量', signal.quantity),
+        tooltipRow('信号方向', signal.direction),
+        tooltipRow('信号来源', signal.source),
+        tooltipRow('关联方式', signal.association_method),
+        tooltipRow('trace_id', signal.trace_id),
+        tooltipRow('intent_id', signal.intent_id),
+        ...(signal.remark ? [tooltipRow('信号备注', signal.remark)] : []),
+      ].join('')
+    : '<div class="prt-muted">未关联信号（不按时间邻近补配）</div>'
+
+  const conditionsBody = conditions === null
+    ? '<div class="prt-muted">条件证据加载中…</div>'
+    : buildConditionsTooltipTable(conditions)
+
+  const executionBody = [
+    tooltipRow('请求数量', order.request_quantity),
+    tooltipRow('策略应有量', order.expected_quantity, '证据不足'),
+    tooltipRow('实际成交量', execution.actual_quantity),
+    tooltipRow('加权成交均价', execution.avg_filled_price),
+    tooltipRow('成交笔数', execution.fill_count),
+    tooltipRow('首笔成交', execution.first_fill_time),
+    tooltipRow('末笔成交', execution.last_fill_time),
+  ].join('')
+
+  const positionBody = [
+    tooltipRow('持仓前后', positionText),
+    tooltipRow('均价前后', `${position.cost_basis_before ?? '—'} → ${position.cost_basis_after ?? '—'}`),
+    tooltipRow('已实现盈亏影响', position.realized_pnl_impact),
+    tooltipRow('持仓周期', position.holding_cycle_id),
+    tooltipRow('成本口径', position.cost_basis_source),
+    tooltipRow('费用口径', `fees_included: ${position.fees_included ? 'true' : 'false'}`),
+  ].join('')
+
+  const warnings = Array.isArray(dataQuality.warnings)
+    ? dataQuality.warnings.map((warning) => warning?.message || warning?.code || '').filter(Boolean)
+    : []
+  const qualityBody = [
+    tooltipRow('关联质量', dataQuality.association_quality),
+    tooltipRow('条件状态', conditionStatusLabel(event)),
+    tooltipRow('证据置信度', review.confidence),
+    ...(warnings.length
+      ? [tooltipRow('数据质量提示', warnings.join('；'))]
+      : []),
+  ].join('')
+
+  return `<div class="prt">
+    ${header}
+    ${tooltipSection('触发信号', signalBody)}
+    ${tooltipSection('触发条件与全部阈值', conditionsBody)}
+    ${tooltipSection('订单与成交', executionBody)}
+    ${tooltipSection('仓位与成本影响', positionBody)}
+    ${tooltipSection('数据质量', qualityBody)}
+  </div>`
 }
+
+export const buildMarkerTooltip = (event = {}) => buildFullMarkerTooltip(event, null)
 
 export const normalizeConditions = (payload = {}) => {
   const conditions = toArray(payload.conditions).map((condition) => ({

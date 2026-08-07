@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildFullMarkerTooltip,
   buildMarkerTooltip,
   buildPortfolioEquityOption,
   buildSymbolReviewChartOption,
@@ -177,10 +178,55 @@ test('normalizeConditions keeps missing thresholds as null', () => {
   assert.equal(normalized.thresholdMissingCount, 1)
 })
 
-test('buildMarkerTooltip includes condition status and pinned hint', () => {
+test('buildMarkerTooltip renders the full signal and execution sections', () => {
   const html = buildMarkerTooltip(makeChart().order_events[0])
-  assert.match(html, /买入订单/)
+  assert.match(html, /买入/)
+  assert.match(html, /order-buy/)
   assert.match(html, /反转买点/)
-  assert.match(html, /条件：条件完整/)
-  assert.match(html, /点击固定订单查看完整证据/)
+  assert.match(html, /buy_v_reverse/)
+  assert.match(html, /触发信号/)
+  assert.match(html, /触发条件与全部阈值/)
+  assert.match(html, /订单与成交/)
+  assert.match(html, /仓位与成本影响/)
+  assert.match(html, /10000/)
+  assert.match(html, /10\.27/)
+  assert.match(html, /fees_included: false/)
+})
+
+test('buildFullMarkerTooltip renders every condition threshold once loaded', () => {
+  const event = makeChart().order_events[0]
+  const html = buildFullMarkerTooltip(event, {
+    conditions: [
+      {
+        condition_key: 'signal_price_reaches_grid',
+        label: '触发价格达到网格买入价',
+        actual_value: 10.25,
+        actual_display: '10.25',
+        operator: '<=',
+        threshold_value: 10.27,
+        threshold_display: '10.27',
+        passed: true,
+        source: 'request_snapshot',
+        observed_at: '2026-04-29T10:15:00+08:00',
+      },
+      {
+        condition_key: 'expected_quantity_achieved',
+        label: '策略应有量与真实成交一致',
+        actual_value: 10000,
+        actual_display: '10000',
+        operator: '==',
+        threshold_value: null,
+        threshold_display: '',
+        passed: null,
+        source: 'missing',
+        observed_at: null,
+      },
+    ],
+    data_quality: { threshold_missing_count: 1 },
+  })
+  assert.match(html, /触发价格达到网格买入价/)
+  assert.match(html, /10\.27/)
+  assert.match(html, /缺失/)
+  assert.doesNotMatch(html, /条件证据加载中/)
+  assert.doesNotMatch(html, /点击固定订单查看完整证据/)
 })
