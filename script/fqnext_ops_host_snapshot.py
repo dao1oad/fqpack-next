@@ -34,10 +34,14 @@ from typing import Any
 
 DEFAULT_RPC_URL = "http://127.0.0.1:10011/RPC2"
 DEFAULT_SNAPSHOT_PATH = "D:/fqpack/freshquant-2026.2.23/ops-snapshot/host-runtime.json"
-DEFAULT_EXPECTED_SUPERVISOR = 9
+DEFAULT_EXPECTED_SUPERVISOR = 10
 DEFAULT_EXPECTED_DOCKER = 10
 DEFAULT_COMPOSE_PROJECT = "fqnext_20260223"
 DEFAULT_INTERVAL_SECONDS = 300
+DOCKER_CLI_CANDIDATES = (
+    "C:/Program Files/Docker/Docker/resources/bin/docker.exe",
+    "C:/Program Files/Docker/Docker/resources/bin/docker",
+)
 
 SUPERVISOR_RUNNING_STATE = "RUNNING"
 DOCKER_RUNNING_STATE = "running"
@@ -78,11 +82,43 @@ def fetch_supervisor_programs(rpc_url: str) -> dict[str, Any]:
         }
 
 
+def resolve_docker_cli() -> str | None:
+    """定位 docker CLI：显式 env -> 常见安装路径 -> PATH。"""
+    explicit = os.environ.get("FQ_OPS_DOCKER_CLI", "").strip()
+    if explicit:
+        return explicit
+    for candidate in DOCKER_CLI_CANDIDATES:
+        if Path(candidate).exists():
+            return candidate
+    return os.environ.get("FQ_OPS_DOCKER_CLI") or (
+        "docker" if _command_on_path("docker") else None
+    )
+
+
+def _command_on_path(name: str) -> bool:
+    path_dirs = [
+        part
+        for part in os.environ.get("PATH", "").split(os.pathsep)
+        if part.strip()
+    ]
+    return any(
+        Path(directory, name).is_file() or Path(directory, f"{name}.exe").is_file()
+        for directory in path_dirs
+    )
+
+
 def fetch_docker_containers() -> dict[str, Any]:
     """只读执行 docker ps -a 并解析 JSON 行。"""
     try:
+        docker_cli = resolve_docker_cli()
+        if not docker_cli:
+            return {
+                "ok": False,
+                "error": "docker CLI 未找到（PATH 或常见安装路径均无 docker）",
+                "containers": [],
+            }
         result = subprocess.run(
-            ["docker", "ps", "-a", "--format", "{{json .}}"],
+            [docker_cli, "ps", "-a", "--format", "{{json .}}"],
             capture_output=True,
             text=True,
             encoding="utf-8",
