@@ -27,6 +27,7 @@ PROGRAM_NAMES = (
     "fqnext_xtquant_broker",
     "fqnext_xtdata_adj_refresh_worker",
     "fqnext_xtdata_qfq_worker",
+    "fqnext_ops_host_snapshot",
 )
 
 
@@ -166,6 +167,15 @@ command={python_executable} -m freshquant.market_data.xtdata.qfq_worker worker
 directory={root}
 stdout_logfile=D:/fqdata/log/fqnext_xtdata_qfq_worker.log
 stderr_logfile=D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log
+autostart=true
+autorestart=true
+startsecs=5
+
+[program:fqnext_ops_host_snapshot]
+command={python_executable} {root}/script/fqnext_ops_host_snapshot.py --daemon --interval 300
+directory={root}
+stdout_logfile=D:/fqdata/log/fqnext_ops_host_snapshot.log
+stderr_logfile=D:/fqdata/log/fqnext_ops_host_snapshot_err.log
 autostart=true
 autorestart=true
 startsecs=5
@@ -325,7 +335,8 @@ def inspect_supervisor_config(
         section_name = f"program:{program_name}"
         directory = parser[section_name].get("directory", "").strip()
         command = parser[section_name].get("command", "").strip()
-        python_executable = command.split(" -m ", 1)[0].strip() if command else ""
+        # 兼容两种命令形态：`python -m module ...` 与 `python /path/script.py ...`
+        python_executable = command.split()[0].strip() if command else ""
         program_directories[program_name] = directory
         program_python_executables[program_name] = python_executable
         if _normalize_path(directory) != _normalize_path(expected_root):

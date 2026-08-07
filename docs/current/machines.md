@@ -88,7 +88,9 @@ fqnext_xtquant_broker           Running
 
 - 引擎：Docker 29.3.1（服务 `com.docker.service` 显示 Stopped 但容器实际运行，勿依赖该服务状态）
 - Compose 文件：`docker/compose.parallel.yaml`（仓库内）
-- 容器（两机相同 11 个）：`fq_apiserver`、`fq_webui`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver`、`fq_mongodb`、`fq_redis`、`fq_runtime_clickhouse`、`fq_runtime_indexer`、`fq_tdxhq`、`ta_backend`
+- 容器（两机相同 10 个，compose 项目 `fqnext_20260223`）：`fq_apiserver`、`fq_webui`、`fq_dagster_webserver`、`fq_dagster_daemon`、`fq_qawebserver`、`fq_mongodb`、`fq_redis`、`fq_runtime_clickhouse`、`fq_runtime_indexer`、`fq_tdxhq`
+- 已废弃删除：`ta_backend` / `ta_frontend`（TradingAgents 退役残留，2026-08-08 已从 100/116 删除 `fqnext_20260223-ta_backend-1` 与 `fqnext_20260223-ta_frontend-1`）
+- 运维控制台宿主机快照：仓库 supervisor 常驻程序 `fqnext_ops_host_snapshot`（由 `script\fqnext_supervisor_config.py` 生成配置）执行 `script\fqnext_ops_host_snapshot.py --daemon --interval 300`，每 5 分钟循环采集输出 `D:\fqpack\freshquant-2026.2.23\ops-snapshot\host-runtime.json`；`fq_apiserver` 以只读卷挂载 `/freshquant/ops-snapshot`（env `FQ_OPS_SNAPSHOT_HOST_DIR`）。不依赖外部计划任务
 - 镜像：`fqnext_rear:2026.2.23`、`fqnext_webui:2026.2.23`
 
 ### 4.3 端口（两机相同）

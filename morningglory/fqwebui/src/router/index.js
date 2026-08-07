@@ -18,6 +18,7 @@ const ClxMarketEvaluation = () => import('../views/ClxMarketEvaluation.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
 const PositionReview = () => import('../views/PositionReview.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
+const OpsConsole = () => import('../views/OpsConsole.vue')
 const SystemSettings = () => import('../views/SystemSettings.vue')
 
 const withRouteTitle = (route) => ({
@@ -110,6 +111,11 @@ const routes = [
     path: '/runtime-observability',
     name: 'runtime-observability',
     component: RuntimeObservability
+  }),
+  withRouteTitle({
+    path: '/ops-console',
+    name: 'ops-console',
+    component: OpsConsole
   }),
   withRouteTitle({
     path: '/system-settings',

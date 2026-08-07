@@ -35,6 +35,7 @@ freshquant.txt
 /report/
 /output/
 /logs/
+/ops-snapshot/
 /nul
 /ticket/
 /.claude/ralph-loop.local.md

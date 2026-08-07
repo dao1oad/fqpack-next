@@ -84,6 +84,10 @@ services:
       - fqnext_trade_calendar_state:/freshquant/state/trade-calendar
       - ${FQ_RUNTIME_LOG_HOST_DIR:?Set FQ_RUNTIME_LOG_HOST_DIR to the host runtime log directory}:/freshquant/logs/runtime
       - type: bind
+        source: ${FQ_OPS_SNAPSHOT_HOST_DIR:-D:/fqpack/freshquant-2026.2.23/ops-snapshot}
+        target: /freshquant/ops-snapshot
+        read_only: true
+      - type: bind
         source: ${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}
         target: /opt/tdx
     depends_on:

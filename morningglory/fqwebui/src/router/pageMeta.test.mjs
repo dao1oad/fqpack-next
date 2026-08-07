@@ -52,6 +52,13 @@ test('header nav target returns label, route and tab title query', () => {
       tabTitle: '运行观测',
     },
   })
+  assert.deepEqual(getHeaderNavTarget('opsConsole'), {
+    label: '运维',
+    path: '/ops-console',
+    query: {
+      tabTitle: '运维',
+    },
+  })
   assert.equal(getHeaderNavTarget('subjectManagement'), null)
 })
 
@@ -76,7 +83,7 @@ test('resolveDocumentTitle prefers query title then route meta title', () => {
 test('header nav groups stay metadata-driven and preserve the expected workbench grouping order', () => {
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
-    ['klineSlim', 'positionManagement', 'positionReview', 'runtime'],
+    ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
     ['gantt', 'shouban30', 'dailyScreening', 'clxEvaluation'],
     ['stock', 'pool'],
   ])
@@ -88,6 +95,8 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.equal(groups[1][2].path, '/position-review')
   assert.equal(groups[1][2].query.tabTitle, '持仓复盘')
   assert.equal(groups[1][3].query.tabTitle, '运行观测')
+  assert.equal(groups[1][4].path, '/ops-console')
+  assert.equal(groups[1][4].query.tabTitle, '运维')
   assert.equal(groups[2][1].query.days, '30')
   assert.equal(groups[2][2].label, '每日选股')
   assert.equal(groups[2][2].path, '/daily-screening')
