@@ -1,0 +1,186 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+
+import {
+  buildMarkerTooltip,
+  buildPortfolioEquityOption,
+  buildSymbolReviewChartOption,
+  normalizeConditions,
+  normalizePortfolioContributions,
+  normalizePortfolioSummary,
+  normalizeSymbolChart,
+} from './positionReviewRefactor.mjs'
+
+const makeKline = () => ({
+  symbol: '002262',
+  name: '恩华药业',
+  date: [
+    '2026-03-16 09:30:00',
+    '2026-03-16 09:35:00',
+    '2026-03-16 09:40:00',
+    '2026-03-16 09:45:00',
+  ],
+  open: [10, 10.02, 10.04, 10.06],
+  close: [10.02, 10.04, 10.06, 10.08],
+  low: [9.98, 10, 10.02, 10.04],
+  high: [10.04, 10.06, 10.08, 10.1],
+})
+
+const makeChart = () => ({
+  order_events: [
+    {
+      event_id: 'order-buy',
+      side: 'buy',
+      event_type: 'filled_order',
+      signal: { label: '反转买点', type: 'buy_v_reverse', family: 'reversal' },
+      execution: {
+        actual_quantity: 10000,
+        avg_filled_price: 10.27,
+        fill_count: 3,
+        first_fill_time: '2026-03-16T09:35:00+08:00',
+        last_fill_time: '2026-03-16T09:40:00+08:00',
+      },
+      position_impact: { position_before: 0, position_after: 10000 },
+      review: { verdict: 'PASS' },
+      marker: { bar_time: '2026-03-16T09:35:00+08:00', price: 10.27, symbol: 'triangle' },
+      conditions: { count: 2, condition_snapshot_status: 'complete', threshold_missing_count: 0 },
+      data_quality: { warnings: [] },
+    },
+    {
+      event_id: 'order-sell',
+      side: 'sell',
+      event_type: 'filled_order',
+      signal: { label: '止盈卖点', type: 'sell_takeprofit', family: 'takeprofit' },
+      execution: {
+        actual_quantity: 4000,
+        avg_filled_price: 10.35,
+        fill_count: 1,
+        first_fill_time: '2026-03-16T09:45:00+08:00',
+        last_fill_time: '2026-03-16T09:45:00+08:00',
+      },
+      position_impact: { position_before: 10000, position_after: 6000 },
+      review: { verdict: 'FAIL' },
+      marker: { bar_time: '2026-03-16T09:45:00+08:00', price: 10.35, symbol: 'path://M0,18 L10,0 L-10,0 Z' },
+      conditions: { count: 6, condition_snapshot_status: 'complete', threshold_missing_count: 0 },
+      data_quality: { warnings: [] },
+    },
+  ],
+  cost_basis_series: [
+    { time: '2026-03-16T09:35:00+08:00', average_cost: 10.27 },
+    { time: '2026-03-16T09:45:00+08:00', average_cost: 10.27 },
+  ],
+})
+
+test('normalizePortfolioSummary maps kpis, verdicts and signal types', () => {
+  const normalized = normalizePortfolioSummary({
+    kpis: {
+      total_asset: 67100.9,
+      market_value: 62100.0,
+      remaining_cost: 61620.0,
+      floating_pnl: 480.0,
+      realized_pnl: -320.5,
+      position_ratio: 0.925,
+      cash: 5000.9,
+    },
+    monthly_turnover: [{ month: '2026-07', buy: 68965.0, sell: 46424.0 }],
+    verdict_counts: { PASS: 2, FAIL: 1 },
+    signal_type_counts: { buy_v_reverse: 1, unknown: 2 },
+    reviewable: 3,
+    pass_rate: 0.666667,
+    data_quality: {
+      equity_basis: 'broker_total_asset',
+      cost_basis: 'degraded',
+      warnings: [{ code: 'cost_basis_degraded_symbols' }],
+    },
+  })
+  assert.equal(normalized.kpis.find((item) => item.key === 'totalAsset').value, 67100.9)
+  assert.equal(normalized.kpis.find((item) => item.key === 'floatingPnl').kind, 'signedAmount')
+  assert.equal(normalized.verdictDistribution.length, 4)
+  assert.equal(normalized.signalTypeDistribution[0].label, '反转买点')
+  assert.equal(normalized.equityBasis, 'broker_total_asset')
+})
+
+test('buildPortfolioEquityOption renders real and estimated series', () => {
+  const option = buildPortfolioEquityOption({
+    label: '估算权益（信用资产快照重建）',
+    equity_basis: 'credit_snapshot_reconstructed',
+    series: [
+      { time: '2026-07-21T12:17', total_equity: 5196064.04, estimated_equity: 5196064.04 },
+      { time: '2026-07-21T13:00', total_equity: null, estimated_equity: 5200000.0 },
+    ],
+  })
+  assert.ok(option)
+  assert.equal(option.series.length, 2)
+  assert.equal(option.series[0].name, '账户总资产')
+  assert.equal(option.series[1].name, '估算权益')
+})
+
+test('normalizePortfolioContributions keeps sorted rows', () => {
+  const rows = normalizePortfolioContributions({
+    top: [
+      { symbol: '688772', name: '珠海冠宇', total_pnl: 615.3, realized_pnl: 615.3, is_holding: false },
+      { symbol: '002262', name: '恩华药业', total_pnl: -27300.26, is_holding: true },
+    ],
+  })
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0].symbol, '688772')
+  assert.equal(rows[1].isHolding, true)
+})
+
+test('buildSymbolReviewChartOption renders candles, markers, spans and cost line', () => {
+  const option = buildSymbolReviewChartOption({ kline: makeKline(), chart: makeChart() })
+  assert.ok(option)
+  const candles = option.series.find((item) => item.id === 'position-review-symbol-candles')
+  const markers = option.series.find((item) => item.id === 'position-review-symbol-markers')
+  const spans = option.series.find((item) => item.id === 'position-review-symbol-fill-spans')
+  const cost = option.series.find((item) => item.id === 'position-review-symbol-cost')
+  assert.equal(candles.data.length, 4)
+  assert.equal(markers.data.length, 2)
+  assert.equal(spans.data.length, 1)
+  assert.equal(cost.data.length, 2)
+  const buy = markers.data.find((item) => item.event.event_id === 'order-buy')
+  const sell = markers.data.find((item) => item.event.event_id === 'order-sell')
+  assert.equal(buy.itemStyle.color, '#ef4444')
+  assert.equal(buy.sideText, 'B')
+  assert.equal(buy.symbol, 'triangle')
+  assert.equal(buy.mark, false)
+  assert.equal(sell.itemStyle.color, '#22c55e')
+  assert.equal(sell.mark, true)
+})
+
+test('buildSymbolReviewChartOption returns null without bars', () => {
+  assert.equal(buildSymbolReviewChartOption({ kline: { date: [] }, chart: {} }), null)
+})
+
+test('normalizeSymbolChart exposes events and cost basis', () => {
+  const normalized = normalizeSymbolChart(makeChart())
+  assert.equal(normalized.hasEvents, true)
+  assert.equal(normalized.events.length, 2)
+  assert.equal(normalized.costSeries.length, 2)
+})
+
+test('normalizeConditions keeps missing thresholds as null', () => {
+  const normalized = normalizeConditions({
+    conditions: [
+      {
+        condition_key: 'signal_price_above_threshold',
+        label: '触发价格 >= 历史阈值',
+        actual_value: 22.41,
+        threshold_value: null,
+        passed: null,
+        source: 'missing',
+      },
+    ],
+    data_quality: { threshold_missing_count: 1 },
+  })
+  assert.equal(normalized.conditions[0].thresholdMissing, true)
+  assert.equal(normalized.thresholdMissingCount, 1)
+})
+
+test('buildMarkerTooltip includes condition status and pinned hint', () => {
+  const html = buildMarkerTooltip(makeChart().order_events[0])
+  assert.match(html, /买入订单/)
+  assert.match(html, /反转买点/)
+  assert.match(html, /条件：条件完整/)
+  assert.match(html, /点击固定订单查看完整证据/)
+})
