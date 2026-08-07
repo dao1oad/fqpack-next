@@ -318,9 +318,7 @@ class PositionReviewRepository:
         if collection is None:
             return []
         return _documents(
-            collection.find({})
-            .sort("queried_at", 1)
-            .limit(max(int(limit or 0), 0))
+            collection.find({}).sort("queried_at", 1).limit(max(int(limit or 0), 0))
         )
 
     def load_catalog_bundles(self) -> dict[str, dict[str, list[dict[str, Any]]]]:

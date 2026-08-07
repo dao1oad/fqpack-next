@@ -71,9 +71,7 @@ def _signal_type_counts(
 ) -> dict[str, int]:
     counts: dict[str, int] = defaultdict(int)
     for review in reviews_by_request.values():
-        signal_type = str(
-            (review.get("signal") or {}).get("type") or "unknown"
-        ).strip()
+        signal_type = str((review.get("signal") or {}).get("type") or "unknown").strip()
         if not signal_type:
             signal_type = "unknown"
         counts[signal_type] += 1
@@ -114,9 +112,7 @@ def _remaining_cost_and_pnl(
         return None, None, False
     remaining_cost = round(quantity * average_cost, 2)
     floating_pnl = (
-        round(market_value - remaining_cost, 2)
-        if market_value is not None
-        else None
+        round(market_value - remaining_cost, 2) if market_value is not None else None
     )
     return remaining_cost, floating_pnl, used_estimate
 
@@ -182,9 +178,7 @@ def build_portfolio_summary(
         sell_amount += _float(summary.get("sell_amount")) or 0.0
         cost_replay = cost_by_symbol.get(symbol) or {}
         realized_pnl += _float(cost_replay.get("realized_pnl")) or 0.0
-        cost_basis_quality = (
-            (cost_replay.get("data_quality") or {}).get("cost_basis")
-        )
+        cost_basis_quality = (cost_replay.get("data_quality") or {}).get("cost_basis")
         if cost_basis_quality == "degraded":
             degraded_cost_symbols += 1
 
@@ -220,7 +214,9 @@ def build_portfolio_summary(
     if xt_assets:
         latest = sorted(
             xt_assets,
-            key=lambda item: str(item.get("updated_at") or item.get("queried_at") or ""),
+            key=lambda item: str(
+                item.get("updated_at") or item.get("queried_at") or ""
+            ),
         )[-1]
         current_asset = _float(latest.get("total_asset"))
         cash = _float(latest.get("cash"))
@@ -252,15 +248,11 @@ def build_portfolio_summary(
         "signal_type_counts": dict(signal_type_counts),
         "reviewable": reviewable,
         "pass_rate": (
-            round(verdict_counts["PASS"] / reviewable, 6)
-            if reviewable > 0
-            else None
+            round(verdict_counts["PASS"] / reviewable, 6) if reviewable > 0 else None
         ),
         "data_quality": {
             "equity_basis": equity_basis,
-            "cost_basis": (
-                "full" if degraded_cost_symbols == 0 else "degraded"
-            ),
+            "cost_basis": ("full" if degraded_cost_symbols == 0 else "degraded"),
             "degraded_cost_symbol_count": degraded_cost_symbols,
             "estimated_cost_symbol_count": estimated_cost_symbols,
             "market_value_scope": "all_positions",
@@ -350,9 +342,7 @@ def build_portfolio_series(
                     "equity_basis": "credit_snapshot_reconstructed",
                     "data_quality": {"source": "pm_credit_asset_snapshots"},
                 }
-        credit_points = [
-            by_second[key] for key in sorted(by_second) if by_second[key]
-        ]
+        credit_points = [by_second[key] for key in sorted(by_second) if by_second[key]]
 
     if broker_points:
         series = broker_points
@@ -419,9 +409,7 @@ def build_portfolio_contributions(
                 "is_holding": _int((position or {}).get("volume")) > 0,
                 "realized_pnl": _round(realized_pnl),
                 "floating_pnl": _round(floating_pnl),
-                "total_pnl": _round(
-                    (realized_pnl or 0.0) + (floating_pnl or 0.0)
-                ),
+                "total_pnl": _round((realized_pnl or 0.0) + (floating_pnl or 0.0)),
                 "market_value": _round((position or {}).get("market_value")),
                 "quantity": _int((position or {}).get("volume")),
                 "verdict_counts": {

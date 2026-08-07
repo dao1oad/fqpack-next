@@ -458,16 +458,18 @@ class FakeLedgerSellRepository(FakeBuySellRepository):
                 "request_id": (
                     "buy_low"
                     if trade["traded_id"] == "trade_low"
-                    else "buy_high"
-                    if trade["traded_id"] == "trade_high"
-                    else "sell_low_first"
+                    else (
+                        "buy_high"
+                        if trade["traded_id"] == "trade_high"
+                        else "sell_low_first"
+                    )
                 ),
                 "internal_order_id": (
                     "ord_low"
                     if trade["traded_id"] == "trade_low"
-                    else "ord_high"
-                    if trade["traded_id"] == "trade_high"
-                    else "ord_sell"
+                    else (
+                        "ord_high" if trade["traded_id"] == "trade_high" else "ord_sell"
+                    )
                 ),
                 "broker_trade_id": trade["traded_id"],
                 "symbol": self.symbol,
@@ -585,24 +587,19 @@ def test_resolve_signal_type_new_open_buy_is_reversal():
         },
     }
     assert (
-        resolve_signal_type(request=request, signal=None, side="buy")
-        == "buy_v_reverse"
+        resolve_signal_type(request=request, signal=None, side="buy") == "buy_v_reverse"
     )
 
 
 def test_resolve_signal_type_manual_and_unknown():
     manual = {"source": "manual"}
     assert resolve_signal_type(request=manual, signal=None, side="sell") == "manual"
-    assert (
-        resolve_signal_type(request={}, signal=None, side=None) == "unknown"
-    )
+    assert resolve_signal_type(request={}, signal=None, side=None) == "unknown"
 
 
 def test_cost_basis_replay_uses_entry_unit_cost_and_tracks_realized():
     repo = FakeBuySellRepository()
-    requests_by_id = {
-        str(item.get("request_id") or ""): item for item in repo.requests
-    }
+    requests_by_id = {str(item.get("request_id") or ""): item for item in repo.requests}
     result = replay_cost_basis(
         symbol=repo.symbol,
         canonical_trades=_canonical_trades_from_xt(repo),
@@ -629,9 +626,7 @@ def test_cost_basis_replay_uses_entry_unit_cost_and_tracks_realized():
 
 def test_cost_basis_replay_selling_low_cost_slice_raises_remaining_average():
     repo = FakeLedgerSellRepository()
-    requests_by_id = {
-        str(item.get("request_id") or ""): item for item in repo.requests
-    }
+    requests_by_id = {str(item.get("request_id") or ""): item for item in repo.requests}
     result = replay_cost_basis(
         symbol=repo.symbol,
         canonical_trades=_canonical_trades_from_xt(repo),
@@ -655,9 +650,7 @@ def test_cost_basis_replay_degrades_when_entries_are_flatten_snapshots():
         entry["entry_type"] = "position_snapshot_flatten"
         entry["source"] = "order_ledger_rebuild"
         entry["arrange_mode"] = "position_snapshot_flatten"
-    requests_by_id = {
-        str(item.get("request_id") or ""): item for item in repo.requests
-    }
+    requests_by_id = {str(item.get("request_id") or ""): item for item in repo.requests}
     result = replay_cost_basis(
         symbol=repo.symbol,
         canonical_trades=_canonical_trades_from_xt(repo),
@@ -860,9 +853,7 @@ def test_get_symbol_chart_include_unfilled_filters_empty_orders():
     )
     with_unfilled = service.get_symbol_chart("002262", include_unfilled=True)
     without_unfilled = service.get_symbol_chart("002262", include_unfilled=False)
-    assert len(with_unfilled["order_events"]) >= len(
-        without_unfilled["order_events"]
-    )
+    assert len(with_unfilled["order_events"]) >= len(without_unfilled["order_events"])
 
 
 def test_get_symbol_chart_unknown_symbol_raises():
@@ -1067,9 +1058,7 @@ def test_position_review_refactor_routes(monkeypatch):
     chart = client.get("/api/position-review/symbols/002262/chart")
     assert chart.status_code == 200
     assert chart.get_json()["symbol"]["code"] == "002262"
-    conditions = client.get(
-        "/api/position-review/events/evt_1/conditions"
-    )
+    conditions = client.get("/api/position-review/events/evt_1/conditions")
     assert conditions.status_code == 200
     assert conditions.get_json()["event_id"] == "evt_1"
     missing = client.get("/api/position-review/events/missing/conditions")
