@@ -307,3 +307,128 @@ def test_arrange_entry_never_leaves_a_guardian_slice_above_50000():
         float(item["guardian_price"]) * int(item["original_quantity"]) <= 50000
         for item in slices
     )
+
+
+def test_arrange_entry_terminates_and_conserves_for_low_price_high_volume_position():
+    # 真实生产边界：512000 ETF 1,468,900 股 @ 0.568875，lot_amount=50000、
+    # grid_interval=1.2。旧的递归语义会在 100 股下限处无限膨胀价格，
+    # 导致 RecursionError 或产出 ¥10^14 级幻影切片。
+    entry = build_position_entry_from_trade_fact(
+        {
+            "trade_fact_id": "trade_entry_low_price_high_volume",
+            "symbol": "512000",
+            "side": "buy",
+            "quantity": 1468900,
+            "price": 0.568875,
+            "trade_time": 1775000000,
+            "date": None,
+            "time": None,
+        },
+        source_ref_type="position_snapshot_flatten",
+        source_ref_id="flatten:acct:512000:1775000000",
+        entry_type="position_snapshot_flatten",
+    )
+
+    slices = arrange_entry(entry, lot_amount=50000, grid_interval=1.2)
+
+    assert slices
+    assert sum(int(item["original_quantity"]) for item in slices) == 1468900
+    assert all(item["status"] == "OPEN" for item in slices)
+    # 价格必须是有界的（旧的错误行为会膨胀到 10^14 级）
+    assert max(float(item["guardian_price"]) for item in slices) < 10000
+    # 价格上限 = 买入价 × 20 = round(0.568875 * 20, 2) = 11.38
+    assert max(float(item["guardian_price"]) for item in slices) <= 11.38
+    # 最后一格（最高价格）为 10.56，吸收剩余数量
+    assert slices[0]["guardian_price"] == 10.56
+    assert sum(int(item["original_quantity"]) for item in slices) == 1468900
+
+
+def test_arrange_entry_conserves_quantity_for_002262_plan_example():
+    # 方案 v4 §5.3 的 002262 预期：17900 股 @ 23.41255，Σslice == 17900，
+    # 价格从 23.41 起 ×1.2 递增且必须有界（旧行为最高价膨胀到 10^7 级）。
+    entry = build_position_entry_from_trade_fact(
+        {
+            "trade_fact_id": "trade_entry_002262_flatten",
+            "symbol": "002262",
+            "side": "buy",
+            "quantity": 17900,
+            "price": 23.41255,
+            "trade_time": 1775000000,
+            "date": None,
+            "time": None,
+        },
+        source_ref_type="position_snapshot_flatten",
+        source_ref_id="flatten:acct:002262:1775000000",
+        entry_type="position_snapshot_flatten",
+    )
+
+    slices = arrange_entry(entry, lot_amount=50000, grid_interval=1.2)
+
+    assert sum(int(item["original_quantity"]) for item in slices) == 17900
+    # 价格上限 = 买入价 × 20 = round(23.41255 * 20, 2) = 468.25
+    assert max(float(item["guardian_price"]) for item in slices) <= 468.25
+    # 最后一格为 432.84，吸收剩余数量
+    assert slices[0]["guardian_price"] == 432.84
+    assert len(slices) == 17
+    assert min(float(item["guardian_price"]) for item in slices) == 23.41
+
+
+def test_arrange_entry_price_cap_20x_buy_price_002262_simulated_boundary():
+    # 用户模拟边界：entry_price=23.41 → cap=468.2；价格序列到 432.84（≤cap）后
+    # next=519.41 > cap → 剩余并入 432.84 格。约 17 格、最后一格 432.84、
+    # Σ=17900、无任何切片 > 468.2。
+    entry = build_position_entry_from_trade_fact(
+        {
+            "trade_fact_id": "trade_entry_cap_002262_sim",
+            "symbol": "002262",
+            "side": "buy",
+            "quantity": 17900,
+            "price": 23.41,
+            "trade_time": 1775000000,
+            "date": None,
+            "time": None,
+        },
+        source_ref_type="position_snapshot_flatten",
+        source_ref_id="flatten:acct:002262:sim",
+        entry_type="position_snapshot_flatten",
+    )
+
+    slices = arrange_entry(entry, lot_amount=50000, grid_interval=1.2)
+
+    prices = [float(item["guardian_price"]) for item in slices]
+    assert len(slices) == 17
+    assert sum(int(item["original_quantity"]) for item in slices) == 17900
+    assert max(prices) == 432.84
+    assert all(price <= 468.2 for price in prices)
+    assert slices[0]["guardian_price"] == 432.84
+    assert slices[0]["original_quantity"] == 6700
+
+
+def test_arrange_entry_price_cap_20x_buy_price_512000_simulated_boundary():
+    # 用户模拟边界：entry_price=0.57 → cap=11.4；价格序列到 10.56（≤cap）后
+    # next=12.67 > cap → 剩余（约 96.7 万股）并入 10.56 格。Σ=1470000、
+    # 无 RecursionError、无任何切片 > 11.4。
+    entry = build_position_entry_from_trade_fact(
+        {
+            "trade_fact_id": "trade_entry_cap_512000_sim",
+            "symbol": "512000",
+            "side": "buy",
+            "quantity": 1470000,
+            "price": 0.57,
+            "trade_time": 1775000000,
+            "date": None,
+            "time": None,
+        },
+        source_ref_type="position_snapshot_flatten",
+        source_ref_id="flatten:acct:512000:sim",
+        entry_type="position_snapshot_flatten",
+    )
+
+    slices = arrange_entry(entry, lot_amount=50000, grid_interval=1.2)
+
+    prices = [float(item["guardian_price"]) for item in slices]
+    assert sum(int(item["original_quantity"]) for item in slices) == 1470000
+    assert max(prices) == 10.56
+    assert all(price <= 11.4 for price in prices)
+    assert slices[0]["guardian_price"] == 10.56
+    assert slices[0]["original_quantity"] == 972000
