@@ -125,6 +125,22 @@ def _bars(*dates):
     )
 
 
+def _bars_with_sentinel(*dates, sentinel_dates=()):
+    sentinel = qfq_reader.BFQ_SENTINEL_VALUE
+    sentinel_set = set(sentinel_dates)
+    return pd.DataFrame(
+        {
+            "datetime": [pd.Timestamp(f"{value} 10:00:00") for value in dates],
+            "open": [10.0] * len(dates),
+            "high": [11.0] * len(dates),
+            "low": [9.0] * len(dates),
+            "close": [10.5] * len(dates),
+            "volume": [sentinel if value in sentinel_set else 100.0 for value in dates],
+            "amount": [sentinel if value in sentinel_set else 200.0 for value in dates],
+        }
+    )
+
+
 def test_reader_uses_only_marker_selected_active_slot():
     db = _Database(
         qfq_ready=[
@@ -323,6 +339,106 @@ def test_reader_fails_closed_on_factor_coverage_gap():
         )
 
     assert exc_info.value.missing_dates == ("2026-07-30", "2026-07-31")
+
+
+def test_reader_skips_sentinel_placeholder_bars_when_opt_in():
+    db = _Database(
+        qfq_ready=[_marker()],
+        stock_adj_qfq_a=[
+            {"code": "000001", "date": "2026-07-29", "adj": 0.5},
+            {"code": "000001", "date": "2026-07-31", "adj": 1.0},
+        ],
+    )
+
+    result, metadata = apply_qfq_to_bars(
+        _bars_with_sentinel(
+            "2026-07-29",
+            "2026-07-30",
+            "2026-07-31",
+            sentinel_dates=["2026-07-30"],
+        ),
+        scope="stock",
+        code="000001",
+        db=db,
+        skip_sentinel_placeholder_bars=True,
+    )
+
+    assert len(result) == 2
+    assert result["datetime"].dt.strftime("%Y-%m-%d").tolist() == [
+        "2026-07-29",
+        "2026-07-31",
+    ]
+    assert result["open"].tolist() == [5.0, 10.0]
+    assert result["close"].tolist() == [5.25, 10.5]
+    assert metadata.collection == "stock_adj_qfq_a"
+    assert metadata.snapshot_id == "snapshot-a"
+
+
+def test_reader_fails_closed_on_sentinel_gap_without_opt_in():
+    db = _Database(
+        qfq_ready=[_marker()],
+        stock_adj_qfq_a=[
+            {"code": "000001", "date": "2026-07-29", "adj": 0.5},
+            {"code": "000001", "date": "2026-07-31", "adj": 1.0},
+        ],
+    )
+
+    with pytest.raises(QFQDataNotReadyError) as exc_info:
+        apply_qfq_to_bars(
+            _bars_with_sentinel(
+                "2026-07-29",
+                "2026-07-30",
+                "2026-07-31",
+                sentinel_dates=["2026-07-30"],
+            ),
+            scope="stock",
+            code="000001",
+            db=db,
+        )
+
+    assert exc_info.value.missing_dates == ("2026-07-30",)
+
+
+def test_reader_fails_closed_when_missing_date_bar_is_not_sentinel():
+    db = _Database(
+        qfq_ready=[_marker()],
+        stock_adj_qfq_a=[
+            {"code": "000001", "date": "2026-07-29", "adj": 0.5},
+            {"code": "000001", "date": "2026-07-31", "adj": 1.0},
+        ],
+    )
+
+    with pytest.raises(QFQDataNotReadyError) as exc_info:
+        apply_qfq_to_bars(
+            _bars("2026-07-29", "2026-07-30", "2026-07-31"),
+            scope="stock",
+            code="000001",
+            db=db,
+            skip_sentinel_placeholder_bars=True,
+        )
+
+    assert exc_info.value.missing_dates == ("2026-07-30",)
+
+
+def test_reader_sentinel_opt_in_keeps_fully_covered_bars_unchanged():
+    db = _Database(
+        qfq_ready=[_marker()],
+        stock_adj_qfq_a=[
+            {"code": "000001", "date": "2026-07-30", "adj": 0.5},
+            {"code": "000001", "date": "2026-07-31", "adj": 1.0},
+        ],
+    )
+
+    result, _metadata = apply_qfq_to_bars(
+        _bars_with_sentinel("2026-07-30", "2026-07-31"),
+        scope="stock",
+        code="000001",
+        db=db,
+        skip_sentinel_placeholder_bars=True,
+    )
+
+    assert len(result) == 2
+    assert result["open"].tolist() == [5.0, 10.0]
 
 
 def test_reader_fails_closed_for_active_source_exclusion():

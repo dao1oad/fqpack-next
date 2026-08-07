@@ -36,7 +36,7 @@ ETF 当前前复权链路：
 
 - `ETF BFQ ready -> XTData preClose -> etf_adj_qfq_a/b inactive slot -> full audit -> qfq_ready active_slot -> freshquant.data.qfq_reader`
 - 页面、策略与共享 QuantAxis 适配层每次读取 active marker，严格校验 snapshot、coverage、正因子、重复键、source exclusion 与 snapshot-bound intraday override
-- 合同不满足时返回 `QFQ_DATA_NOT_READY`；Stock/ETF Kline HTTP 路由映射为 503，不回退 `adj=1.0` 或 legacy 集合
+- 合同不满足时返回 `QFQ_DATA_NOT_READY`；Stock/ETF Kline HTTP 路由映射为 503，不回退 `adj=1.0` 或 legacy 集合。源 bar 中的 QASU sentinel 占位行（`vol/volume` 与 `amount` 均为 `5.877471754e-39`）与快照构建同一语义：K 线读取路径在缺失因子日期全部可证明为占位行时剔除这些行后继续返回（如 512600 历史占位日期），不整体 503
 - `quantaxis.etf_xdxr` / `quantaxis.etf_adj` 不在正常 schedule，也不是在线 reader 真值；相关 CLI/asset 仅用于 legacy 人工诊断
 
 ## 当前排查

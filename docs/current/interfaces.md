@@ -172,7 +172,7 @@ python -m freshquant.rear.api_server --port 5000
   - `events[].signal` 只在存在 `request_id / internal_order_id / trace_id / intent_id` 等明确关联键时返回；不以时间邻近规则伪造信号与订单关联
 - `/api/stock_data`、`/api/stock_data_v2`、`/api/stock_data_chanlun_structure`
   - 当前分钟周期参数兼容 `1min / 5min / 15min / 30min` 与 `1m / 5m / 15m / 30m`，进入服务前统一归一到前端/缠论服务使用的 `1m / 5m / 15m / 30m`
-  - `/api/stock_data?realtimeCache=1` 优先读取实时 K 线缓存；若仅实时 QFQ 当日覆盖未就绪，则记录 warning 并回退历史 K 线读取，避免行情图表左侧列表标的出现主图空白
+  - `/api/stock_data?realtimeCache=1` 优先读取实时 K 线缓存；若 QFQ 覆盖缺口（含历史无效/占位缺口，不再限定为当日）未就绪，则记录 warning 并回退历史 K 线读取，避免行情图表左侧列表标的出现主图空白
   - 非实时历史读取或结构读取遇到 QFQ 未就绪时仍返回 `QFQ_DATA_NOT_READY` 对应 HTTP 状态
 - `POST /api/sync_stock_pools_from_tdx_self_select`
   - 从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 读取通达信自选股，解码为 6 位标的代码，排除当前 `xt_positions` 持仓后，以结果覆盖 `freshquant.stock_pools`

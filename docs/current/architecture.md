@@ -102,7 +102,7 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
   - ETF：`etf_adj_qfq_a` / `etf_adj_qfq_b`
   - `quantaxis.qfq_ready` 以每个 `scope` 的单文档保存 `active_slot` 与两个槽位的快照元数据。
 - writer 只构建 inactive slot，审计通过后再原子切换 `active_slot`；`worker`、人工 `build` 与 `rollback` 共用 `qfq_writer_locks` 的 scope 唯一 lease。回滚会先将仍需生效的 intraday override 重新绑定到目标 snapshot，再以 CAS 切换 marker；factor A/B 集合本身不改写。
-- reader 要求 active slot 为 `ready`，并严格校验请求 bar 的日期覆盖、正因子、重复键、source exclusion 和 snapshot-bound intraday override；证明失败统一抛出 `QFQ_DATA_NOT_READY`，三条 Stock Kline API 统一返回 HTTP 503。
+- reader 要求 active slot 为 `ready`，并严格校验请求 bar 的日期覆盖、正因子、重复键、source exclusion 和 snapshot-bound intraday override；证明失败统一抛出 `QFQ_DATA_NOT_READY`，三条 Stock Kline API 统一返回 HTTP 503。K 线读取路径（`quote/etf.py`、`quote/stock.py`、`data/stock.py`）对源 bar 中与快照构建同一语义的 QASU sentinel 占位行（`vol/volume` 与 `amount` 均为 `5.877471754e-39`）按可跳过处理：缺失因子日期若全部可证明为占位行，则剔除这些行后继续返回，不回退 `adj=1.0`；其余日期缺口仍 fail closed。
 - Redis Kline key/payload 与 StrategyConsumer 常驻窗口绑定 effective adjustment version（active `snapshot_id` 加匹配的 override version）；版本变化时旧 cache miss、常驻窗口重载。
 - 旧 `stock_adj` / `etf_adj` 不再是线上 reader 真值。
 - 真实 Index 的日线、分钟线和实时合并固定使用 BFQ；Index 路径不读取 Stock / ETF 因子，实时数据读取 `freshquant.index_realtime`。
