@@ -60,7 +60,6 @@ def _build_projection(service, symbol, *, start=None, end=None):
     )
 
 
-
 class FakePositionReviewRepository:
     def __init__(self):
         self.symbol = "002262"
@@ -835,7 +834,6 @@ def test_order_timeline_does_not_cross_attach_an_order_specific_signal_via_reque
     assert events["ord_split"]["signal"] is None
     assert events["ord_split"]["data_quality"]["signal_association"] == "none"
     assert all(item["expected_quantity"] is None for item in events.values())
-
 
 
 def test_reused_broker_trade_id_with_zero_score_does_not_attach_wrong_fill():
@@ -2008,7 +2006,10 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
             self.calls.append(
                 ("chart", symbol, period, account_partition, include_unfilled, refresh)
             )
-            return {"symbol": {"code": "002262", "name": "恩华药业"}, "order_events": []}
+            return {
+                "symbol": {"code": "002262", "name": "恩华药业"},
+                "order_events": [],
+            }
 
         def get_event_conditions(self, event_id, *, refresh=False):
             if event_id == "missing":
@@ -2056,7 +2057,9 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
     )
     conditions = client.get("/api/position-review/events/evt_1/conditions").get_json()
     assert conditions["event_id"] == "evt_1"
-    assert client.get("/api/position-review/events/missing/conditions").status_code == 404
+    assert (
+        client.get("/api/position-review/events/missing/conditions").status_code == 404
+    )
     assert (
         client.get("/api/position-review/portfolio/summary?refresh=1").status_code
         == 200
