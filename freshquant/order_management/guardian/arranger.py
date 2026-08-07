@@ -159,9 +159,15 @@ def _arrange_entry_remaining(
         return
 
     guardian_price = float(f"{current_price:.2f}")
+    price_cap = _guardian_slice_price_cap(entry.get("entry_price"))
+    next_price = float(f"{(guardian_price * grid_interval):.2f}")
     current_amount = guardian_price * remaining_quantity
 
-    if current_amount > lot_amount:
+    if price_cap is not None and next_price > price_cap:
+        # 价格上限规则：下一档价格将超过买入价 × 20，剩余量全部并入当前格并终止，
+        # 不再生成任何超过上限的切片。
+        quantity = remaining_quantity
+    elif current_amount > lot_amount:
         quantity = int(lot_amount / guardian_price / 100) * 100
         if quantity == 0:
             # 整手（100 股）金额已超过 lot_amount：网格不再有意义的细分粒度，
@@ -192,7 +198,6 @@ def _arrange_entry_remaining(
     if next_quantity <= 0:
         return
 
-    next_price = float(f"{(guardian_price * grid_interval):.2f}")
     next_amount = next_quantity * next_price
     _arrange_entry_remaining(
         slices=slices,
@@ -265,9 +270,13 @@ def _arrange_remaining(
         return
 
     guardian_price = float(f"{current_price:.2f}")
+    price_cap = _guardian_slice_price_cap(buy_lot.get("buy_price_real"))
+    next_price = float(f"{(guardian_price * grid_interval):.2f}")
     current_amount = guardian_price * remaining_quantity
 
-    if current_amount > lot_amount:
+    if price_cap is not None and next_price > price_cap:
+        quantity = remaining_quantity
+    elif current_amount > lot_amount:
         quantity = int(lot_amount / guardian_price / 100) * 100
         if quantity == 0:
             quantity = remaining_quantity
@@ -296,7 +305,6 @@ def _arrange_remaining(
     if next_quantity <= 0:
         return
 
-    next_price = float(f"{(guardian_price * grid_interval):.2f}")
     next_amount = next_quantity * next_price
     _arrange_remaining(
         slices=slices,
@@ -308,6 +316,21 @@ def _arrange_remaining(
         grid_interval=grid_interval,
         slice_seq=slice_seq + 1,
     )
+
+
+def _guardian_slice_price_cap(base_price):
+    """切片价格上限 = 买入价 × 20（保留两位小数）。
+
+    返回 None 表示无法解析基准价（调用方忽略该规则）。
+    """
+
+    try:
+        base = float(base_price)
+    except (TypeError, ValueError):
+        return None
+    if base <= 0:
+        return None
+    return round(base * 20, 2)
 
 
 def _insert_slice_desc(slices, slice_document):

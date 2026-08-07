@@ -81,6 +81,10 @@
     金额已超过 `lot_amount`（价格过高、网格不再有意义的细分粒度）时，剩余量
     全部并入最后一格，保证 `Σslice == entry` 守恒、价格有界且终止（避免低价
     高量持仓产生 ¥10^7~10^14 级幻影切片或 RecursionError）
+  - 切片价格上限固定为 `round(entry_price * 20, 2)`（买入价 × 20）：当
+    `grid_interval` 算出的下一档价格将超过该上限时，剩余数量全部并入当前格并
+    终止递归，不再生成任何超过 20 倍买入价的切片；该上限与“整手金额超过
+    `lot_amount` 即并入”规则独立，任一命中都执行 tail-merge
 - `om_exit_allocations`
   - 卖出对 entry / slice 的分摊结果
 - `om_reconciliation_gaps`
