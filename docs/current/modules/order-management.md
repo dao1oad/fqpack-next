@@ -76,6 +76,11 @@
   - 系统持仓入口真值，供 TPSL/Subject/Kline/持仓解释层消费；当前 buy 侧默认落为保守聚合后的 `buy_cluster`
 - `om_entry_slices`
   - entry 的 Guardian 切片；当前按聚合后的 entry 重新按 `50000` 口径切片
+  - `arrange_entry` 按 `price × grid_interval` 乘法递增、单格股数
+    `int(lot_amount / price / 100) * 100`（最小 100 股）切分；当整手（100 股）
+    金额已超过 `lot_amount`（价格过高、网格不再有意义的细分粒度）时，剩余量
+    全部并入最后一格，保证 `Σslice == entry` 守恒、价格有界且终止（避免低价
+    高量持仓产生 ¥10^7~10^14 级幻影切片或 RecursionError）
 - `om_exit_allocations`
   - 卖出对 entry / slice 的分摊结果
 - `om_reconciliation_gaps`
