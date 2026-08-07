@@ -98,16 +98,68 @@
           <div class="ops-layer-card">
             <div class="ops-layer-card__head">
               <strong>宿主机进程</strong>
-              <StatusChip variant="skipped">S3 占位</StatusChip>
+              <StatusChip :variant="hostSection.available ? (hostSection.supervisorDegraded ? 'warning' : 'success') : 'danger'">
+                {{ hostSection.supervisorLabel }}
+              </StatusChip>
             </div>
-            <p class="ops-placeholder-note">未接入宿主机桥</p>
+            <el-alert
+              v-if="!hostSection.available || hostSection.supervisorError"
+              class="ops-alert ops-alert--compact"
+              type="error"
+              :title="hostSection.supervisorError || hostSection.reason"
+              show-icon
+              :closable="false"
+            />
+            <div v-else class="ops-host-table">
+              <div
+                v-for="row in supervisorRows"
+                :key="row.name"
+                class="ops-host-row"
+                :class="{ 'ops-host-row--error': row.state !== 'Running' }"
+              >
+                <span class="ops-host-row__name" :title="row.name">{{ row.name }}</span>
+                <StatusChip :variant="row.state === 'Running' ? 'success' : 'danger'">
+                  {{ row.state }}
+                </StatusChip>
+                <span class="ops-host-row__meta">PID {{ row.pid }}</span>
+              </div>
+              <div v-if="!supervisorRows.length" class="ops-empty-panel">
+                <strong>暂无 Supervisor 程序</strong>
+              </div>
+            </div>
           </div>
           <div class="ops-layer-card">
             <div class="ops-layer-card__head">
               <strong>Docker 容器</strong>
-              <StatusChip variant="skipped">S3 占位</StatusChip>
+              <StatusChip :variant="hostSection.available ? (hostSection.dockerDegraded ? 'warning' : 'success') : 'danger'">
+                {{ hostSection.dockerLabel }}
+              </StatusChip>
             </div>
-            <p class="ops-placeholder-note">未接入宿主机桥</p>
+            <el-alert
+              v-if="!hostSection.available || hostSection.dockerError"
+              class="ops-alert ops-alert--compact"
+              type="error"
+              :title="hostSection.dockerError || hostSection.reason"
+              show-icon
+              :closable="false"
+            />
+            <div v-else class="ops-host-table">
+              <div
+                v-for="row in dockerRows"
+                :key="row.name"
+                class="ops-host-row"
+                :class="{ 'ops-host-row--error': row.state !== 'running' }"
+              >
+                <span class="ops-host-row__name" :title="row.name">{{ row.name }}</span>
+                <StatusChip :variant="row.state === 'running' ? 'success' : 'danger'">
+                  {{ row.state }}
+                </StatusChip>
+                <span class="ops-host-row__meta">{{ row.status }}</span>
+              </div>
+              <div v-if="!dockerRows.length" class="ops-empty-panel">
+                <strong>暂无 Docker 容器</strong>
+              </div>
+            </div>
           </div>
           <div class="ops-layer-card">
             <div class="ops-layer-card__head">
@@ -241,12 +293,15 @@ import {
   buildKpiCards,
   buildRuntimeLogLink,
   buildSegments,
+  buildSupervisorRows,
+  buildDockerRows,
   countDegradedKpis,
   countIssueEvents,
   deriveOverallHealth,
   deriveSessionLabel,
   deriveToneVariant,
-  formatTimestamp
+  formatTimestamp,
+  hostSectionMeta
 } from './opsConsole.mjs'
 
 const router = useRouter()
@@ -306,6 +361,11 @@ const dependencyRows = computed(() => {
 })
 
 const segmentRows = computed(() => buildSegments(kline.value?.segments))
+
+const hostData = computed(() => overview.value?.host || {})
+const hostSection = computed(() => hostSectionMeta(hostData.value))
+const supervisorRows = computed(() => buildSupervisorRows(hostData.value))
+const dockerRows = computed(() => buildDockerRows(hostData.value))
 
 const normalizeIssueRange = (value) => {
   if (!Array.isArray(value) || value.length !== 2) return null
@@ -549,6 +609,48 @@ onBeforeUnmount(stopPolling)
 }
 
 .ops-dep-latency {
+  font-size: var(--fq-font-dense);
+  color: var(--fq-text-muted);
+}
+
+.ops-alert--compact {
+  margin-bottom: var(--fq-space-2);
+}
+
+.ops-host-table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fq-space-1);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.ops-host-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fq-space-2);
+  padding: var(--fq-space-1) var(--fq-space-2);
+  border: 1px solid var(--fq-border-soft);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-panel-bg);
+}
+
+.ops-host-row--error {
+  border-color: var(--fq-chip-border-danger);
+  background: var(--fq-chip-bg-danger);
+}
+
+.ops-host-row__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fq-font-dense);
+  color: var(--fq-text-primary);
+}
+
+.ops-host-row__meta {
+  flex: none;
   font-size: var(--fq-font-dense);
   color: var(--fq-text-muted);
 }

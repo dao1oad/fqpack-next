@@ -179,3 +179,56 @@ export const buildRuntimeLogLink = (component) => ({
   path: '/runtime-observability',
   query: component ? { component } : {}
 })
+
+export const buildSupervisorRows = (host = {}) => {
+  const programs = host?.supervisor?.programs || []
+  return programs.map((program) => ({
+    name: program.name || '-',
+    state: program.state || 'unknown',
+    pid: program.pid,
+    uptime_s: program.uptime_s,
+    description: program.description || ''
+  }))
+}
+
+export const buildDockerRows = (host = {}) => {
+  const containers = host?.docker?.containers || []
+  return containers.map((container) => ({
+    name: container.name || '-',
+    service: container.compose_service || '-',
+    state: container.state || 'unknown',
+    status: container.status || '',
+    image: container.image || ''
+  }))
+}
+
+export const hostSectionMeta = (host = {}) => {
+  if (!host?.available) {
+    return {
+      available: false,
+      tone: 'degraded',
+      reason: host?.reason || '宿主快照不可用',
+      supervisorLabel: '未接入宿主机桥',
+      dockerLabel: '未接入宿主机桥',
+      supervisorDegraded: true,
+      dockerDegraded: true,
+      supervisorError: null,
+      dockerError: null
+    }
+  }
+  const supervisor = host.supervisor || {}
+  const docker = host.docker || {}
+  const supervisorDegraded = !supervisor.ok
+  const dockerDegraded = !docker.ok
+  return {
+    available: true,
+    tone: supervisorDegraded || dockerDegraded ? 'warn' : 'ok',
+    reason: null,
+    supervisorLabel: `Running ${supervisor.running_count ?? '-'}/${supervisor.expected_count ?? '-'}`,
+    dockerLabel: `Up ${docker.running_count ?? '-'}/${docker.expected_count ?? '-'}`,
+    supervisorDegraded,
+    dockerDegraded,
+    supervisorError: supervisor.error || null,
+    dockerError: docker.error || null
+  }
+}

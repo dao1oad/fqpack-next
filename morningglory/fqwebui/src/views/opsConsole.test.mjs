@@ -8,12 +8,15 @@ import {
   buildKpiCards,
   buildRuntimeLogLink,
   buildSegments,
+  buildSupervisorRows,
+  buildDockerRows,
   countDegradedKpis,
   countIssueEvents,
   deriveOverallHealth,
   deriveSessionLabel,
   deriveToneVariant,
   formatAge,
+  hostSectionMeta,
   formatTimestamp
 } from './opsConsole.mjs'
 
@@ -162,4 +165,70 @@ test('buildRuntimeLogLink jumps to runtime observability with component filter',
     path: '/runtime-observability',
     query: {}
   })
+})
+
+test('buildSupervisorRows flattens snapshot programs', () => {
+  const host = {
+    supervisor: {
+      programs: [
+        { name: 'fqnext_guardian_event', state: 'Running', pid: 42, uptime_s: 60, description: 'desc' },
+        { name: 'fqnext_tpsl_worker', state: 'FATAL', pid: 43, uptime_s: 0, description: 'err' }
+      ]
+    }
+  }
+  assert.deepEqual(buildSupervisorRows(host), [
+    { name: 'fqnext_guardian_event', state: 'Running', pid: 42, uptime_s: 60, description: 'desc' },
+    { name: 'fqnext_tpsl_worker', state: 'FATAL', pid: 43, uptime_s: 0, description: 'err' }
+  ])
+  assert.deepEqual(buildSupervisorRows({}), [])
+})
+
+test('buildDockerRows flattens snapshot containers', () => {
+  const host = {
+    docker: {
+      containers: [
+        { name: 'fqnext_20260223-fq_apiserver-1', compose_service: 'fq_apiserver', state: 'running', status: 'Up 1h', image: 'img' }
+      ]
+    }
+  }
+  assert.deepEqual(buildDockerRows(host), [
+    { name: 'fqnext_20260223-fq_apiserver-1', service: 'fq_apiserver', state: 'running', status: 'Up 1h', image: 'img' }
+  ])
+})
+
+test('hostSectionMeta reports unavailable snapshot with degraded reason', () => {
+  const meta = hostSectionMeta({ available: false, reason: '宿主快照不可用（缺失/过期）' })
+  assert.equal(meta.available, false)
+  assert.equal(meta.supervisorLabel, '未接入宿主机桥')
+  assert.equal(meta.dockerLabel, '未接入宿主机桥')
+  assert.equal(meta.supervisorDegraded, true)
+  assert.equal(meta.dockerDegraded, true)
+  assert.equal(meta.reason, '宿主快照不可用（缺失/过期）')
+})
+
+test('hostSectionMeta reports ok when both sources healthy', () => {
+  const meta = hostSectionMeta({
+    available: true,
+    supervisor: { ok: true, running_count: 9, expected_count: 9, error: null },
+    docker: { ok: true, running_count: 10, expected_count: 10, error: null }
+  })
+  assert.equal(meta.available, true)
+  assert.equal(meta.tone, 'ok')
+  assert.equal(meta.supervisorLabel, 'Running 9/9')
+  assert.equal(meta.dockerLabel, 'Up 10/10')
+  assert.equal(meta.supervisorDegraded, false)
+  assert.equal(meta.dockerDegraded, false)
+})
+
+test('hostSectionMeta surfaces per-source degradation independently', () => {
+  const meta = hostSectionMeta({
+    available: true,
+    supervisor: { ok: false, running_count: 7, expected_count: 9, error: 'supervisor 失败' },
+    docker: { ok: true, running_count: 10, expected_count: 10, error: null }
+  })
+  assert.equal(meta.tone, 'warn')
+  assert.equal(meta.supervisorDegraded, true)
+  assert.equal(meta.supervisorError, 'supervisor 失败')
+  assert.equal(meta.dockerDegraded, false)
+  assert.equal(meta.dockerLabel, 'Up 10/10')
 })
