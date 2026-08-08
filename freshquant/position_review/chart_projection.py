@@ -620,6 +620,9 @@ def build_order_event_contract(
     review_block = _review_block(review)
     return {
         "event_id": _first_text(timeline_event.get("id")),
+        "occurred_at": _first_text(
+            timeline_event.get("time") or timeline_event.get("occurred_at")
+        ),
         "account_partition": account_partition,
         "symbol": symbol,
         "side": side,
