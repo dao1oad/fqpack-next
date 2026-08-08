@@ -680,22 +680,25 @@ export const buildSymbolCostChartOption = ({
     if (startIndex === null || endIndex === null || startIndex > endIndex) {
       continue
     }
-    markAreas.push({
-      name: cycle.cycle_id,
-      itemStyle: {
-        color: cycle.status === 'open'
-          ? 'rgba(96,165,250,0.06)'
-          : 'rgba(156,163,175,0.05)',
+    markAreas.push([
+      {
+        coord: [startIndex, 'min'],
+        name: cycle.cycle_id,
+        itemStyle: {
+          color: cycle.status === 'open'
+            ? 'rgba(96,165,250,0.06)'
+            : 'rgba(156,163,175,0.05)',
+        },
+        label: {
+          show: true,
+          position: 'insideTop',
+          color: '#9ca3af',
+          fontSize: 9,
+          formatter: `持仓周期 ${startIndex === endIndex ? startIndex + 1 : `${startIndex + 1}–${endIndex + 1}`}`,
+        },
       },
-      label: {
-        show: true,
-        position: 'insideTop',
-        color: '#9ca3af',
-        fontSize: 9,
-        formatter: `持仓周期 ${startIndex === endIndex ? startIndex + 1 : `${startIndex + 1}–${endIndex + 1}`}`,
-      },
-      data: [[{ coord: [startIndex, 'min'] }, { coord: [endIndex, 'max'] }]],
-    })
+      { coord: [endIndex, 'max'] },
+    ])
   }
 
   const costLineSeries = points.length
