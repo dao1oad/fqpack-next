@@ -174,6 +174,7 @@ def build_portfolio_summary(
     cost_by_symbol: dict[str, dict[str, Any]],
     position_by_symbol: dict[str, dict[str, Any]],
     xt_assets: list[dict[str, Any]],
+    credit_snapshots: list[dict[str, Any]] | None = None,
     generated_at: str,
 ) -> dict[str, Any]:
     market_value = 0.0
@@ -266,19 +267,42 @@ def build_portfolio_summary(
         realized_pnl += _float(cost_replay.get("realized_pnl")) or 0.0
 
     current_asset = None
+    current_net_value = None
     cash = None
     equity_basis = "estimated"
+    latest_broker = None
     if xt_assets:
-        latest = sorted(
+        latest_broker = sorted(
             xt_assets,
             key=lambda item: str(
                 item.get("updated_at") or item.get("queried_at") or ""
             ),
         )[-1]
+    # 忽略零值/缺时间的券商快照（例如初始化占位记录），否则会把总资产误算为 0。
+    if (
+        latest_broker is not None
+        and (_float(latest_broker.get("total_asset")) or 0.0) > 0
+    ):
+        latest = latest_broker
         current_asset = _float(latest.get("total_asset"))
+        current_net_value = current_asset
         cash = _float(latest.get("cash"))
-        if current_asset is not None:
-            equity_basis = "broker_total_asset"
+        equity_basis = "broker_total_asset"
+    elif credit_snapshots:
+        latest_credit = sorted(
+            credit_snapshots,
+            key=lambda item: str(item.get("queried_at") or ""),
+        )[-1]
+        total_asset = _float(latest_credit.get("total_asset"))
+        total_debt = _float(latest_credit.get("total_debt"))
+        current_asset = total_asset
+        current_net_value = (
+            _round(total_asset - total_debt)
+            if total_asset is not None and total_debt is not None
+            else _round(total_asset)
+        )
+        cash = _float(latest_credit.get("available_amount"))
+        equity_basis = "credit_snapshot_reconstructed"
 
     position_ratio = (
         round(market_value / current_asset, 6)
@@ -289,6 +313,7 @@ def build_portfolio_summary(
         "generated_at": generated_at,
         "kpis": {
             "total_asset": _round(current_asset),
+            "net_value": _round(current_net_value),
             "market_value": _round(market_value),
             "remaining_cost": _round(remaining_cost),
             "floating_pnl": _round(floating_pnl),

@@ -422,15 +422,20 @@ class PositionReviewService:
         raise ValueError("event not found")
 
     def get_portfolio_summary(self, *, refresh=False) -> dict[str, Any]:
-        detail_by_symbol, cost_by_symbol, position_by_symbol, xt_assets, _ = (
-            self._build_portfolio_inputs(refresh=bool(refresh))
-        )
+        (
+            detail_by_symbol,
+            cost_by_symbol,
+            position_by_symbol,
+            xt_assets,
+            credit_snapshots,
+        ) = self._build_portfolio_inputs(refresh=bool(refresh))
         return build_portfolio_summary(
             catalog_rows=list(detail_by_symbol),
             detail_by_symbol=detail_by_symbol,
             cost_by_symbol=cost_by_symbol,
             position_by_symbol=position_by_symbol,
             xt_assets=xt_assets,
+            credit_snapshots=credit_snapshots,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -521,7 +526,7 @@ class PositionReviewService:
         detail_by_symbol.update(holding_only_details)
         cost_by_symbol.update(holding_only_costs)
         xt_assets = self.repository.list_xt_assets()
-        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=20_000)
+        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=200_000)
         return (
             detail_by_symbol,
             cost_by_symbol,

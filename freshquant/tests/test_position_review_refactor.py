@@ -1118,6 +1118,39 @@ def test_build_portfolio_summary_kpis_and_basis():
     assert summary["monthly_turnover"][0]["buy"] == 102500.0
 
 
+def test_build_portfolio_summary_falls_back_to_credit_snapshot_when_xt_assets_zero():
+    """零值/缺时间的 xt_assets 不应把总资产误算为 0，改用信用资产快照净资产。"""
+
+    summary = build_portfolio_summary(
+        catalog_rows=[],
+        detail_by_symbol={},
+        cost_by_symbol={},
+        position_by_symbol={},
+        xt_assets=[
+            {
+                "cash": 0.0,
+                "market_value": 0.0,
+                "total_asset": 0.0,
+                "updated_at": None,
+            }
+        ],
+        credit_snapshots=[
+            {
+                "queried_at": "2026-08-08T00:15:52+00:00",
+                "total_asset": 5363982.2,
+                "market_value": 5358981.3,
+                "total_debt": 1744421.96,
+                "available_amount": 5000.9,
+            }
+        ],
+        generated_at="2026-08-08T00:00:00+00:00",
+    )
+    assert summary["data_quality"]["equity_basis"] == "credit_snapshot_reconstructed"
+    assert summary["kpis"]["total_asset"] == 5363982.2
+    assert summary["kpis"]["net_value"] == round(5363982.2 - 1744421.96, 2)
+    assert summary["kpis"]["cash"] == 5000.9
+
+
 def test_build_portfolio_series_credit_rebuild_net_value_default_day():
     series = build_portfolio_series(
         xt_assets=[],

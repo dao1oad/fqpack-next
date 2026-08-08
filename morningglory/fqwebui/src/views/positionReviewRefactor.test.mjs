@@ -78,6 +78,7 @@ test('normalizePortfolioSummary maps kpis, verdicts and signal types', () => {
   const normalized = normalizePortfolioSummary({
     kpis: {
       total_asset: 67100.9,
+      net_value: 65400.0,
       market_value: 62100.0,
       remaining_cost: 61620.0,
       floating_pnl: 480.0,
@@ -97,6 +98,7 @@ test('normalizePortfolioSummary maps kpis, verdicts and signal types', () => {
     },
   })
   assert.equal(normalized.kpis.find((item) => item.key === 'totalAsset').value, 67100.9)
+  assert.equal(normalized.kpis.find((item) => item.key === 'netValue').value, 65400.0)
   assert.equal(normalized.kpis.find((item) => item.key === 'floatingPnl').kind, 'signedAmount')
   assert.equal(normalized.verdictDistribution.length, 4)
   assert.equal(normalized.signalTypeDistribution[0].label, '反转买点')

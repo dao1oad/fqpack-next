@@ -57,6 +57,7 @@ export const normalizePortfolioSummary = (payload = {}) => {
   const signalTypeCounts = payload.signal_type_counts || {}
   const kpis = [
     { key: 'totalAsset', label: '总资产', value: round2(kpisRaw.total_asset), kind: 'amount' },
+    { key: 'netValue', label: '账户净资产', value: round2(kpisRaw.net_value), kind: 'amount' },
     { key: 'marketValue', label: '持仓市值', value: round2(kpisRaw.market_value), kind: 'amount' },
     { key: 'remainingCost', label: '持仓成本', value: round2(kpisRaw.remaining_cost), kind: 'amount' },
     { key: 'floatingPnl', label: '浮动盈亏', value: round2(kpisRaw.floating_pnl), kind: 'signedAmount' },
