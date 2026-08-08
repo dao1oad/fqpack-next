@@ -213,7 +213,8 @@
   `om_execution_history_archive` 与 `position_review_evidence_archive` 只作为重建前
   历史留存的写入侧，持仓复盘读模型不再读取归档。
 - flatten 重建后，每个当前持仓会有一条 `rebuilt_open=true` 的重建买入订单（见上文），
-  持仓复盘与仓位管理“相关订单”均读取同一份当前 `om_orders`，两边订单一致。
+  重建订单同时写入 `om_order_requests / om_orders / om_broker_orders` 三个集合：
+  持仓复盘读取 `om_orders`，仓位管理“相关订单”读取 `om_broker_orders`，两边订单一致。
   `broker_order_id` 和 `broker_trade_id` 都不能作为跨历史记录的单键关联依据。
 - 页面与 API 只显示不可逆 `account_partition`，不返回原始券商账户号；多账户冲突或
   `unknown` 分区通过 `data_quality` 明示。
