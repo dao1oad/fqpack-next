@@ -610,11 +610,13 @@ def build_order_event_contract(
         timeline_actual=timeline_event.get("actual"),
         fill_rows=fill_rows,
     )
-    event_type = (
-        "filled_order"
-        if timeline_event.get("type") != "unassociated_execution"
-        else "unassociated_execution"
-    )
+    rebuilt = bool(timeline_event.get("rebuilt"))
+    if rebuilt:
+        event_type = "rebuilt_open_order"
+    elif timeline_event.get("type") != "unassociated_execution":
+        event_type = "filled_order"
+    else:
+        event_type = "unassociated_execution"
     review_block = _review_block(review)
     return {
         "event_id": _first_text(timeline_event.get("id")),
@@ -622,6 +624,8 @@ def build_order_event_contract(
         "symbol": symbol,
         "side": side,
         "event_type": event_type,
+        "rebuilt": rebuilt,
+        "rebuild_source": _first_text(timeline_event.get("rebuild_source")),
         "request_id": request_id,
         "internal_order_id": internal_order_id,
         "broker_order_id": _first_text(
@@ -773,6 +777,9 @@ def replay_cost_basis(
         entries=entries or [],
         slices=slices or [],
         canonical_trades=trades,
+    )
+    flatten_only = bool(entries) and all(
+        _entry_is_flatten_snapshot(entry) for entry in entries
     )
     entry_by_id = {
         str(entry.get("entry_id") or "").strip(): entry for entry in entries or []
@@ -980,19 +987,68 @@ def replay_cost_basis(
                 "realized_pnl_impact": realized_impact,
                 "holding_cycle_id": current_cycle_id,
                 "cost_basis_source": (
-                    "entry_slice_allocation"
-                    if ledger_available
-                    else "estimated_moving_average"
+                    "broker_snapshot_estimate"
+                    if flatten_only
+                    else (
+                        "entry_slice_allocation"
+                        if ledger_available
+                        else "estimated_moving_average"
+                    )
                 ),
                 "fees_included": False,
                 "unrealized_pnl_after": None,
             }
 
+    # 账本重建（flatten）entry 直接代表当前持仓成本快照：即使没有规范成交，
+    # 也按 entry 的券商均价在重建时点产出成本点，保证成本曲线有数据。
+    for entry in entries or []:
+        if not _entry_is_flatten_snapshot(entry):
+            continue
+        entry_time = (
+            _int(entry.get("trade_time"))
+            or _int(entry.get("created_at"))
+            or 0
+        )
+        quantity = max(
+            _int(entry.get("remaining_quantity")),
+            _int(entry.get("original_quantity")),
+        )
+        price = _float(entry.get("entry_price")) or _float(
+            entry.get("buy_price_real")
+        )
+        if entry_time <= 0 or quantity <= 0 or price is None:
+            continue
+        series.append(
+            {
+                "time": _epoch_iso(entry_time),
+                "position_quantity": quantity,
+                "remaining_cost": round(quantity * price, 2),
+                "average_cost": round(price, 6),
+                "realized_pnl": _round(realized_pnl, 2),
+                "point_type": "rebuilt_open",
+                "cost_basis_source": "broker_snapshot_estimate",
+                "fees_included": False,
+            }
+        )
+
     total_quantity = sum(_int(share["quantity"]) for share in shares)
     cost_basis_quality = (
-        "full" if ledger_available and not ledger_buy_missing else "degraded"
+        "full"
+        if ledger_available and not ledger_buy_missing
+        else "degraded"
     )
     warnings: list[dict[str, Any]] = []
+    if flatten_only:
+        warnings.append(
+            {
+                "code": "cost_basis_broker_snapshot",
+                "message": (
+                    "账本为成本价拍平重建，成本使用券商持仓均价快照估算，"
+                    "不作为逐笔成交成本真值。"
+                ),
+                "flatten_entry_count": len(entries),
+            }
+        )
     if not ledger_available:
         warnings.append(
             {
@@ -1025,7 +1081,13 @@ def replay_cost_basis(
         "event_cost_context": event_cost_context,
         "realized_pnl": _round(realized_pnl, 2),
         "cost_basis_source": (
-            "entry_slice_allocation" if ledger_available else "estimated_moving_average"
+            "broker_snapshot_estimate"
+            if flatten_only
+            else (
+                "entry_slice_allocation"
+                if ledger_available
+                else "estimated_moving_average"
+            )
         ),
         "fees_included": False,
         "data_quality": data_quality,

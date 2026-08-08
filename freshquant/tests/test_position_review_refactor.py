@@ -583,6 +583,155 @@ class FakeLedgerSellRepository(FakeBuySellRepository):
         self.allocations = []
 
 
+class FakeFlattenRebuildRepository:
+    """Cost-price flatten ledger with a reconstructed buy request + order."""
+
+    symbol = "600917"
+
+    def __init__(self):
+        self.entry = {
+            "entry_id": "entry_flatten_600917",
+            "source_ref_type": "position_snapshot_flatten",
+            "entry_type": "position_snapshot_flatten",
+            "symbol": self.symbol,
+            "stock_code": self.symbol,
+            "entry_price": 5.527529,
+            "buy_price_real": 5.527529,
+            "original_quantity": 20000,
+            "remaining_quantity": 20000,
+            "trade_time": _epoch("2026-08-07T12:31:52"),
+            "date": 20260807,
+            "time": "12:31:52",
+            "source": "order_ledger_rebuild",
+            "arrange_mode": "position_snapshot_flatten",
+            "status": "OPEN",
+            "account_id": "068000076370",
+        }
+        self.request = {
+            "request_id": "req_rebuilt_entry_flatten_600917",
+            "action": "buy",
+            "side": "buy",
+            "symbol": self.symbol,
+            "stock_code": self.symbol,
+            "price": 5.527529,
+            "quantity": 20000,
+            "status": "FILLED",
+            "state": "FILLED",
+            "source": "order_ledger_rebuild",
+            "rebuild_source": "position_snapshot_flatten",
+            "rebuilt_open": True,
+            "data_quality": "reconstructed",
+            "entry_id": self.entry["entry_id"],
+            "created_at": "2026-08-07T12:31:52+08:00",
+            "trade_time": self.entry["trade_time"],
+        }
+        self.order = {
+            "internal_order_id": "ord_rebuilt_entry_flatten_600917",
+            "request_id": self.request["request_id"],
+            "broker_order_id": None,
+            "symbol": self.symbol,
+            "side": "buy",
+            "state": "FILLED",
+            "status": "FILLED",
+            "price": 5.527529,
+            "quantity": 20000,
+            "filled_quantity": 20000,
+            "source": "order_ledger_rebuild",
+            "rebuild_source": "position_snapshot_flatten",
+            "rebuilt_open": True,
+            "data_quality": "reconstructed",
+            "entry_id": self.entry["entry_id"],
+            "submitted_at": "2026-08-07T12:31:52+08:00",
+            "trade_time": self.entry["trade_time"],
+        }
+        self.slice = {
+            "entry_slice_id": "slice_flatten_600917",
+            "entry_id": self.entry["entry_id"],
+            "symbol": self.symbol,
+            "guardian_price": 5.527529,
+            "original_quantity": 20000,
+            "remaining_quantity": 20000,
+            "status": "OPEN",
+        }
+        self.position = {
+            "stock_code": "600917.SH",
+            "volume": 20000,
+            "avg_price": 5.527529,
+            "market_value": 96400.0,
+            "last_price": 0.0,
+        }
+
+    def list_symbols(self):
+        return [self.symbol]
+
+    def load_catalog_bundles(self):
+        return {
+            symbol: {
+                "requests": self.list_order_requests(symbol),
+                "orders": self.list_orders(symbol),
+                "fills": self.list_execution_fills(symbol),
+                "trade_facts": self.list_trade_facts(symbol),
+                "entries": self.list_position_entries(symbol),
+                "slices": self.list_entry_slices(symbol),
+                "allocations": self.list_exit_allocations(entry_ids=[]),
+                "xt_trades": self.list_xt_trades(symbol),
+                "positions": self.list_xt_positions(symbol),
+                "signals": self.list_stock_signals(symbol),
+                "pm_decisions": self.list_pm_decisions(symbol),
+            }
+            for symbol in self.list_symbols()
+        }
+
+    def list_xt_trades(self, symbol=None):
+        return []
+
+    def list_xt_positions(self, symbol=None):
+        if symbol and str(symbol).strip() != self.symbol:
+            return []
+        return [deepcopy(self.position)]
+
+    def list_stock_signals(self, symbol=None):
+        return []
+
+    def list_order_requests(self, symbol=None):
+        if symbol and str(symbol).strip() != self.symbol:
+            return []
+        return [deepcopy(self.request)]
+
+    def list_orders(self, symbol=None, *, request_ids=None):
+        if symbol and str(symbol).strip() != self.symbol:
+            return []
+        return [deepcopy(self.order)]
+
+    def list_execution_fills(self, symbol, *, request_ids=None):
+        return []
+
+    def list_trade_facts(self, symbol, *, internal_order_ids=None):
+        return []
+
+    def list_position_entries(self, symbol):
+        if symbol and str(symbol).strip() != self.symbol:
+            return []
+        return [deepcopy(self.entry)]
+
+    def list_entry_slices(self, symbol):
+        if symbol and str(symbol).strip() != self.symbol:
+            return []
+        return [deepcopy(self.slice)]
+
+    def list_exit_allocations(self, *, entry_ids, trade_fact_ids=None):
+        return []
+
+    def list_pm_decisions(self, symbol):
+        return []
+
+    def list_xt_assets(self):
+        return []
+
+    def list_credit_asset_snapshots(self, *, limit=20_000):
+        return []
+
+
 def test_signal_type_registry_is_stable_and_serializable():
     payload = signal_type_registry_payload()
     assert set(payload) == {
@@ -686,10 +835,11 @@ def test_cost_basis_replay_degrades_when_entries_are_flatten_snapshots():
         initial_position_quantity=0,
         initial_position_source="test",
     )
-    assert result["cost_basis_source"] == "estimated_moving_average"
+    assert result["cost_basis_source"] == "broker_snapshot_estimate"
     assert result["data_quality"]["cost_basis"] == "degraded"
     assert any(
-        warning.get("code") in {"cost_basis_estimated", "ledger_incomplete_for_buys"}
+        warning.get("code")
+        in {"cost_basis_estimated", "ledger_incomplete_for_buys", "cost_basis_broker_snapshot"}
         for warning in result["data_quality"]["warnings"]
     )
 
@@ -964,7 +1114,7 @@ def test_build_portfolio_summary_kpis_and_basis():
     assert summary["monthly_turnover"][0]["buy"] == 102500.0
 
 
-def test_build_portfolio_series_credit_rebuild_is_labelled_estimate():
+def test_build_portfolio_series_credit_rebuild_net_value_default_day():
     series = build_portfolio_series(
         xt_assets=[],
         credit_snapshots=[
@@ -990,15 +1140,99 @@ def test_build_portfolio_series_credit_rebuild_is_labelled_estimate():
                 "available_amount": 5000.04,
             },
         ],
+        trade_events=[
+            {
+                "time": "2026-07-21T13:00:00+00:00",
+                "symbol": "002262",
+                "name": "恩华药业",
+                "side": "buy",
+                "quantity": 4000,
+                "price": 10.26,
+                "amount": 41040.0,
+                "request_id": "buy_req",
+            },
+            {
+                "time": "2026-07-22T02:00:00+00:00",
+                "symbol": "512000",
+                "name": "券商ETF",
+                "side": "sell",
+                "quantity": 1000,
+                "price": 0.57,
+                "amount": 570.0,
+                "request_id": "sell_req",
+            },
+        ],
         generated_at="2026-08-08T00:00:00+00:00",
     )
     assert series["equity_basis"] == "credit_snapshot_reconstructed"
-    assert "估算" in series["label"]
+    assert "净资产" in series["label"]
+    assert series["period"] == "day"
     assert series["data_quality"]["interpolated"] is False
-    assert len(series["series"]) == 2
-    assert series["series"][0]["time"] == "2026-07-21T12:17"
-    assert series["series"][1]["time"] == "2026-07-21T13:00"
-    assert series["series"][0]["estimated_equity"] == 5196064.04
+    assert series["data_quality"]["net_value_formula"] == (
+        "net_value = total_asset - total_debt"
+    )
+    # 三条分钟快照同属北京 2026-07-21，聚合为一个日点（保留末笔）。
+    assert len(series["series"]) == 1
+    point = series["series"][0]
+    assert point["period_key"] == "2026-07-21"
+    assert point["total_asset"] == 5200000.0
+    assert point["net_value"] == round(5200000.0 - 1637725.17, 2)
+    assert point["estimated_equity"] == point["net_value"]
+    assert point["trade_count"] == 1
+    assert point["trades"][0]["symbol"] == "002262"
+
+
+def test_build_portfolio_series_period_week_and_month_buckets():
+    snapshots = [
+        {"queried_at": "2026-07-20T03:00:00+00:00", "total_asset": 1000.0},
+        {"queried_at": "2026-07-21T03:00:00+00:00", "total_asset": 1100.0},
+        {"queried_at": "2026-07-22T03:00:00+00:00", "total_asset": 1200.0},
+        {"queried_at": "2026-08-01T03:00:00+00:00", "total_asset": 1300.0},
+    ]
+    for item in snapshots:
+        item.setdefault("total_debt", 0.0)
+        item.setdefault("market_value", 0.0)
+        item.setdefault("available_amount", 0.0)
+    month = build_portfolio_series(
+        xt_assets=[],
+        credit_snapshots=snapshots,
+        period="month",
+        generated_at="2026-08-08T00:00:00+00:00",
+    )
+    assert [point["period_key"] for point in month["series"]] == [
+        "2026-07",
+        "2026-08",
+    ]
+    assert month["series"][0]["total_asset"] == 1200.0
+    week = build_portfolio_series(
+        xt_assets=[],
+        credit_snapshots=snapshots,
+        period="week",
+        generated_at="2026-08-08T00:00:00+00:00",
+    )
+    keys = [point["period_key"] for point in week["series"]]
+    assert keys == ["2026-07-20", "2026-07-27"]
+    assert week["series"][0]["total_asset"] == 1200.0
+    day = build_portfolio_series(
+        xt_assets=[],
+        credit_snapshots=snapshots,
+        period="day",
+        generated_at="2026-08-08T00:00:00+00:00",
+    )
+    assert len(day["series"]) == 4
+
+
+def test_build_portfolio_series_rejects_invalid_period():
+    try:
+        build_portfolio_series(
+            xt_assets=[],
+            credit_snapshots=[],
+            period="hour",
+            generated_at="2026-08-08T00:00:00+00:00",
+        )
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
 
 
 def test_build_portfolio_contributions_sorts_by_total_pnl():
@@ -1048,8 +1282,12 @@ def test_position_review_refactor_routes(monkeypatch):
         def get_portfolio_summary(self, *, refresh=False):
             return {"kpis": {"total_asset": 1.0}, "data_quality": {}}
 
-        def get_portfolio_series(self, *, refresh=False):
-            return {"equity_basis": "estimated", "series": []}
+        def get_portfolio_series(self, *, refresh=False, period="day"):
+            return {
+                "equity_basis": "estimated",
+                "period": period,
+                "series": [],
+            }
 
         def get_portfolio_contributions(self, *, refresh=False, top_n=10):
             return {"top": [], "total": 0}
@@ -1076,6 +1314,9 @@ def test_position_review_refactor_routes(monkeypatch):
     )
     assert client.get("/api/position-review/portfolio/summary").status_code == 200
     assert client.get("/api/position-review/portfolio/series").status_code == 200
+    series_period = client.get("/api/position-review/portfolio/series?period=week")
+    assert series_period.status_code == 200
+    assert series_period.get_json()["period"] == "week"
     assert (
         client.get("/api/position-review/portfolio/contributions?top_n=5").status_code
         == 200
@@ -1167,3 +1408,106 @@ def test_portfolio_contributions_include_holding_only_symbols_with_broker_estima
     assert holding_row["cost_basis_source"] == "broker_snapshot_estimate"
     assert holding_row["quantity"] == 1468900
     assert holding_row["market_value"] == 769703.6
+
+
+def test_get_symbol_detail_and_chart_work_for_holding_only_symbol():
+    repo = FakeBuySellRepository()
+    # 增加一只没有成交记录的当前持仓（对应 600917 场景）。
+    repo.xt_positions = [
+        {
+            "stock_code": "600917.SH",
+            "volume": 20000,
+            "avg_price": 5.527529,
+            "market_value": 96400.0,
+            "last_price": 0.0,
+        },
+    ]
+    service = PositionReviewService(
+        repository=repo,
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    detail = service.get_symbol_detail("600917")
+    assert detail["symbol"]["code"] == "600917"
+    assert detail["symbol"]["is_holding"] is True
+    assert detail["data_quality"]["no_execution_history"] is True
+    assert detail["executions"] == []
+
+    chart = service.get_symbol_chart("600917")
+    assert chart["symbol"]["code"] == "600917"
+    assert chart["order_events"] == []
+    assert chart["range"]["period"] is None
+    assert chart["cost_basis"]["source"] == "broker_snapshot_estimate"
+    assert chart["cost_basis"]["fees_included"] is False
+    assert len(chart["cost_basis_series"]) == 1
+    point = chart["cost_basis_series"][0]
+    assert point["average_cost"] == 5.527529
+    assert point["position_quantity"] == 20000
+    assert point["point_type"] == "broker_snapshot_estimate"
+
+
+def test_get_symbol_detail_unknown_symbol_still_raises():
+    repo = FakeBuySellRepository()
+    service = PositionReviewService(
+        repository=repo,
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    try:
+        service.get_symbol_detail("999999")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_flatten_rebuild_symbol_chart_shows_rebuilt_open_order_and_cost_point():
+    """账本重建对账后：图表默认可见重建买入事件，成本曲线有重建成本点。"""
+
+    service = PositionReviewService(
+        repository=FakeFlattenRebuildRepository(),
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    chart = service.get_symbol_chart("600917")
+    assert chart["symbol"]["code"] == "600917"
+    assert chart["cost_basis"]["source"] == "broker_snapshot_estimate"
+    assert chart["cost_basis"]["fees_included"] is False
+
+    rebuilt_events = [
+        event for event in chart["order_events"] if event["event_type"] == "rebuilt_open_order"
+    ]
+    assert len(rebuilt_events) == 1
+    rebuilt = rebuilt_events[0]
+    assert rebuilt["rebuilt"] is True
+    assert rebuilt["rebuild_source"] == "position_snapshot_flatten"
+    assert rebuilt["side"] == "buy"
+    assert rebuilt["order"]["status"] == "FILLED"
+
+    rebuilt_points = [
+        point
+        for point in chart["cost_basis_series"]
+        if point["point_type"] == "rebuilt_open"
+    ]
+    assert len(rebuilt_points) == 1
+    point = rebuilt_points[0]
+    assert point["average_cost"] == 5.527529
+    assert point["position_quantity"] == 20000
+    assert point["cost_basis_source"] == "broker_snapshot_estimate"
+    assert point["fees_included"] is False
+
+
+def test_flatten_rebuild_request_review_is_not_applicable():
+    """重建买入请求无策略上下文，复盘结论为 NOT_APPLICABLE，不污染 PASS/FAIL。"""
+
+    service = PositionReviewService(
+        repository=FakeFlattenRebuildRepository(),
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    detail = service.get_symbol_detail("600917")
+    reviews = detail.get("reviews") or []
+    assert len(reviews) == 1
+    review = reviews[0]
+    assert review["request_id"] == "req_rebuilt_entry_flatten_600917"
+    assert review["verdict"] == "NOT_APPLICABLE"
+    assert "non_guardian_request" in review["reason_codes"]

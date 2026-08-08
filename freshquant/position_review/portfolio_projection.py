@@ -18,8 +18,11 @@ so the UI cannot present an estimate as a real asset figure.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+
+_BEIJING_TZ = timezone(timedelta(hours=8))
+_PERIODS = ("day", "week", "month")
 
 
 def _int(value) -> int:
@@ -50,6 +53,53 @@ def _iso_time(value) -> str | None:
     if not text or text in {"None", "0", ""}:
         return None
     return text
+
+
+def _beijing_datetime(value) -> datetime | None:
+    """Parse an ISO-ish timestamp into an Asia/Shanghai datetime."""
+
+    text = _iso_time(value)
+    if text is None:
+        return None
+    normalized = str(text).strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    if " " in normalized and "T" not in normalized:
+        normalized = normalized.replace(" ", "T")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_BEIJING_TZ)
+    return parsed.astimezone(_BEIJING_TZ)
+
+
+def _period_bucket_key(time_text: str, period: str) -> tuple[str, str] | None:
+    """Return (bucket_key, period_label) for day/week/month buckets.
+
+    Buckets follow Beijing time so trading days and calendar weeks match the
+    account's local calendar.
+    """
+
+    parsed = _beijing_datetime(time_text)
+    if parsed is None:
+        return None
+    if period == "week":
+        monday = parsed - timedelta(days=parsed.weekday())
+        return (
+            monday.strftime("%Y-%m-%d"),
+            monday.strftime("%Y-%m-%d"),
+        )
+    if period == "month":
+        return (
+            parsed.strftime("%Y-%m"),
+            parsed.strftime("%Y-%m"),
+        )
+    return (
+        parsed.strftime("%Y-%m-%d"),
+        parsed.strftime("%Y-%m-%d"),
+    )
 
 
 def _verdict_counts(reviews_by_request: dict[str, dict[str, Any]]) -> dict[str, int]:
@@ -158,6 +208,13 @@ def build_portfolio_summary(
             signal_type_counts[signal_type] += count
         for review in reviews_by_request.values():
             request = review.get("request") or {}
+            if (
+                str(request.get("source") or "").strip() == "order_ledger_rebuild"
+                or str(request.get("source") or "").strip() == "external_inferred"
+            ):
+                # 账本重建/外部推断的请求不是真实策略成交，不计入月度成交额，
+                # 避免与真实成交重复计数。
+                continue
             requested = _int(request.get("quantity"))
             side = str(review.get("side") or "").strip().lower()
             price = _float(request.get("price"))
@@ -279,14 +336,32 @@ def build_portfolio_series(
     *,
     xt_assets: list[dict[str, Any]],
     credit_snapshots: list[dict[str, Any]],
+    trade_events: list[dict[str, Any]] | None = None,
+    period: str = "day",
     generated_at: str,
 ) -> dict[str, Any]:
-    """Build the equity / estimated-equity curve with an explicit basis.
+    """Build the account net-value curve with an explicit basis.
 
     Priority: broker total-asset snapshots, then credit snapshot rebuild,
     then a current single-point estimate.  Missing ranges are never
-    interpolated.
+    interpolated.  Net value follows the QMT formula:
+
+    - 单位净值 = (基金资产总值 - 基金负债) / 基金总份额
+    - 账户层面：净资产 = 总资产 - 总负债
+
+    ``pm_credit_asset_snapshots`` carries both ``total_asset`` and
+    ``total_debt``, so each point reports ``net_value = total_asset -
+    total_debt``.  The curve is bucketed by Beijing calendar period
+    (``day`` / ``week`` / ``month``, default ``day``) and each bucket keeps
+    the last observed snapshot.  Trades that occurred inside a bucket are
+    attached to its point so the UI can render trade markers and their
+    full detail on hover.
     """
+
+    normalized_period = str(period or "day").strip().lower()
+    if normalized_period not in _PERIODS:
+        raise ValueError("period must be one of day, week, month")
+    trade_events = list(trade_events or [])
 
     broker_points = []
     for item in xt_assets or []:
@@ -301,6 +376,7 @@ def build_portfolio_series(
                 "cash": _round(item.get("cash")),
                 "market_value": _round(item.get("market_value")),
                 "estimated_equity": None,
+                "net_value": _round(total_asset),
                 "net_external_flow": None,
                 "position_ratio": _round(item.get("position_pct")),
                 "drawdown": None,
@@ -325,13 +401,20 @@ def build_portfolio_series(
             available = _float(item.get("available_amount"))
             existing = by_second.get(key)
             if existing is None:
+                net_value = (
+                    _round(total_asset - total_debt)
+                    if total_asset is not None and total_debt is not None
+                    else _round(total_asset)
+                )
                 by_second[key] = {
                     "time": key,
+                    "total_asset": _round(total_asset),
                     "total_equity": _round(total_asset),
                     "market_value": _round(market_value),
                     "total_debt": _round(total_debt),
                     "cash": _round(available),
-                    "estimated_equity": _round(total_asset),
+                    "estimated_equity": net_value,
+                    "net_value": net_value,
                     "net_external_flow": None,
                     "position_ratio": (
                         round(market_value / total_asset, 6)
@@ -345,33 +428,53 @@ def build_portfolio_series(
         credit_points = [by_second[key] for key in sorted(by_second) if by_second[key]]
 
     if broker_points:
-        series = broker_points
+        raw_series = broker_points
         equity_basis = "broker_total_asset"
         label = "账户总资产（券商历史快照）"
     elif credit_points:
-        series = credit_points
+        raw_series = credit_points
         equity_basis = "credit_snapshot_reconstructed"
-        label = "估算权益（信用资产快照重建）"
+        label = "账户净资产（信用资产快照重建）"
     else:
-        series = []
+        raw_series = []
         equity_basis = "estimated"
-        label = "估算权益（证据不足）"
+        label = "账户净资产（证据不足）"
+
+    series = _bucket_series(
+        raw_series,
+        trade_events=trade_events,
+        period=normalized_period,
+    )
+    period_label = {
+        "day": "日",
+        "week": "周",
+        "month": "月",
+    }.get(normalized_period, "日")
 
     return {
         "label": label,
         "equity_basis": equity_basis,
+        "period": normalized_period,
+        "period_label": period_label,
         "series": series,
         "generated_at": generated_at,
         "data_quality": {
             "equity_basis": equity_basis,
             "interpolated": False,
             "point_count": len(series),
+            "net_value_formula": "net_value = total_asset - total_debt",
+            "qmt_reference": (
+                "单位净值=(基金资产总值-基金负债)/基金总份额；账户净资产=总资产-总负债"
+            ),
+            "trade_point_count": sum(
+                len(point.get("trades") or []) for point in series
+            ),
             "warnings": (
                 [
                     {
                         "code": "equity_evidence_limited",
                         "message": (
-                            "缺少券商历史总资产快照，权益曲线为估算口径，"
+                            "缺少券商历史总资产快照，权益曲线为信用资产快照重建口径，"
                             "缺失区间不插值。"
                         ),
                     }
@@ -381,6 +484,61 @@ def build_portfolio_series(
             ),
         },
     }
+
+
+def _bucket_series(
+    points: list[dict[str, Any]],
+    *,
+    trade_events: list[dict[str, Any]],
+    period: str,
+) -> list[dict[str, Any]]:
+    """Aggregate minute-level points to Beijing calendar buckets.
+
+    Each bucket keeps the last observed snapshot (no interpolation).  Trade
+    events are attached to the bucket whose day/week/month matches their
+    timestamp.
+    """
+
+    buckets: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for point in points or []:
+        bucket = _period_bucket_key(str(point.get("time") or ""), period)
+        if bucket is None:
+            continue
+        key, label = bucket
+        previous_trades = list((buckets.get(key) or {}).get("trades") or [])
+        buckets[key] = dict(point)
+        buckets[key]["period_key"] = key
+        buckets[key]["period_label"] = label
+        buckets[key]["trades"] = previous_trades
+        buckets[key]["trade_count"] = len(previous_trades)
+        if key not in order:
+            order.append(key)
+
+    for trade in trade_events:
+        bucket = _period_bucket_key(str(trade.get("time") or ""), period)
+        if bucket is None:
+            continue
+        key = bucket[0]
+        target = buckets.get(key)
+        if target is None:
+            continue
+        trades = list(target.get("trades") or [])
+        trades.append(dict(trade))
+        target["trades"] = trades
+        target["trade_count"] = len(trades)
+
+    result = []
+    for key in order:
+        point = buckets[key]
+        trades = sorted(
+            list(point.get("trades") or []),
+            key=lambda item: str(item.get("time") or ""),
+        )
+        point["trades"] = trades
+        point["trade_count"] = len(trades)
+        result.append(point)
+    return result
 
 
 def build_portfolio_contributions(
