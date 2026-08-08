@@ -143,6 +143,33 @@ test('buildPortfolioEquityOption renders net value with period buckets and trade
   assert.equal(tradeSeries.data[0].trades[0].symbol, '002262')
 })
 
+test('buildPortfolioEquityOption splits net and total-asset modes with own y-axis data', () => {
+  const payload = {
+    period: 'day',
+    series: [
+      { time: '2026-07-21', period_label: '2026-07-21', total_equity: 5196064.04, net_value: 3558338.87 },
+      { time: '2026-07-22', period_label: '2026-07-22', total_equity: 5200000.0, net_value: 3600000.0 },
+    ],
+  }
+  const net = buildPortfolioEquityOption(payload, 'net')
+  const asset = buildPortfolioEquityOption(payload, 'asset')
+  assert.ok(net)
+  assert.ok(asset)
+  // 净资产模式：只有一条主曲线 + 交易点，无总资产线。
+  assert.equal(net.series[0].name, '账户净资产')
+  assert.deepEqual(net.series[0].data, [3558338.87, 3600000.0])
+  assert.equal(net.series.some((item) => item.name === '总资产'), false)
+  // 总资产模式：只有总资产曲线，不渲染交易点。
+  assert.equal(asset.series[0].name, '总资产')
+  assert.deepEqual(asset.series[0].data, [5196064.04, 5200000.0])
+  assert.equal(asset.series.length, 1)
+  // 各自 Y 轴独立（min/max 数据自适应）。
+  assert.equal(net.yAxis.min, 'dataMin')
+  assert.equal(net.yAxis.max, 'dataMax')
+  assert.equal(asset.yAxis.min, 'dataMin')
+  assert.equal(asset.yAxis.max, 'dataMax')
+})
+
 test('buildPortfolioTradeTooltip renders every trade at the point', () => {
   const html = buildPortfolioTradeTooltip({
     trades: [
