@@ -1721,6 +1721,45 @@ def test_update_excludes_primary_history_prefix_no_progress():
     assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
 
 
+def test_update_counts_source_invalid_close_exclusion():
+    dates = ["2026-01-02", "2026-01-05"]
+    codes = ("000001", "000002")
+    db = _DB(
+        stock_list=[{"code": code} for code in codes],
+        stock_day=[{"code": code, "date": dates[0]} for code in codes],
+    )
+    invalid_close = False
+
+    def loader(code, **_kwargs):
+        if invalid_close and code == "000002":
+            raise qfq.QFQSyncError(
+                "invalid close value",
+                stats={"failure": "source_invalid_close"},
+            )
+        return _bars(
+            [(value, 10.0, 0.0 if value == dates[0] else 10.0) for value in dates]
+        )
+
+    qfq.sync_stock_adj_all(target_date=dates[0], db=db, bars_loader=loader)
+    db["stock_day"].rows.extend({"code": code, "date": dates[1]} for code in codes)
+    invalid_close = True
+
+    result = qfq.sync_stock_adj_all(
+        target_date=dates[-1],
+        db=db,
+        bars_loader=loader,
+        min_grace_seconds=0,
+    )
+
+    exclusion = {"code": "000002", "reason": "source_invalid_close"}
+    scope = result["by_scope"]["stock"]
+    assert scope["stats"]["source_invalid_close_excluded"] == 1
+    assert scope["coverage"]["source_invalid_close"] == [exclusion]
+    assert scope["marker"]["slots"]["a"]["source_exclusions"] == []
+    assert scope["marker"]["slots"]["b"]["source_exclusions"] == [exclusion]
+    assert {row["code"] for row in db["stock_adj_qfq_b"].rows} == {"000001"}
+
+
 def test_update_rejects_snapshot_when_all_codes_are_source_excluded():
     dates = ["2026-01-02", "2026-01-05"]
     codes = ("000001", "000002")

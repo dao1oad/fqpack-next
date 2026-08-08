@@ -2793,7 +2793,8 @@ def _update_scope(
                 source_exclusions.append(
                     {"code": normalize_code(code), "reason": exclusion_reason}
                 )
-                stats[f"{exclusion_reason}_excluded"] += 1
+                stats_key = f"{exclusion_reason}_excluded"
+                stats[stats_key] = stats.get(stats_key, 0) + 1
                 _record_source_exclusion(
                     coverage_summary, code=code, reason=exclusion_reason
                 )

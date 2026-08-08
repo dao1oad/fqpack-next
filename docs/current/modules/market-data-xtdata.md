@@ -79,6 +79,7 @@ consumer 会在启动时做历史 prewarm，并在 backlog 很高时进入 catch
 - `front_ratio` 只证明缺口未跨公司行为，不参与 canonical 因子计算。若有界内部缺口两端比率变化，writer 不推断缺失日因子，而是删除该 code 在本轮 slot 的残留并记录 `{code, reason=source_adjustment_gap_unproven}`；其他 code 审计通过时 marker 仍可 ready。前后缀缺口、proof 缺失、none/front_ratio 日期轴不一致及其他 proof 错误仍中止整个 scope。
 - 完整 source 区间下载后仍无 `none` bars 的 code 同样不生成空因子或 `1.0`，并记录 `{code, reason=source_empty_bars}`。A/B 各自保留自己的 `source_exclusions[]`，rollback 随 slot 一起恢复。tail 请求为空必须先用完整 BFQ 区间复核；`front_ratio` proof 为空不属于该分类，继续 fail closed。
 - primary `none` loader 完成单调前缀分页后仍报告 `history_prefix_no_progress` 时，该 code 记录 `{code, reason=source_prefix_unavailable}` 并从本轮 slot 隔离；同一错误来自 `front_ratio` proof loader 时仍中止 scope。普通 unbounded prefix/suffix、proof 缺失和日期轴不一致不进入该分类。
+- 无效收盘数据（`failure=source_invalid_close`，如收盘价缺失或非法）的 code 同样从本轮 slot 隔离并记录 `{code, reason=source_invalid_close}`；`qfq_worker build` 的 scope stats 按 `{reason}_excluded` 键动态统计全部排除原因（含 `source_invalid_close_excluded`），其余 code 审计通过时 marker 仍可 ready。
 - XTData 长区间下载只返回近期后缀时，QFQ client 会以当前最早缓存日的前一日为边界继续向前分页，直至覆盖请求起点；任一页未把最早日期向前推进时立即报错，不发布不完整快照。
 - Stock / ETF 在线 reader 统一使用 `freshquant.data.qfq_reader`：每个请求重新解析 marker 指向的 active slot，严格验证 snapshot、请求日期覆盖、正因子、重复键、source exclusion 与 snapshot-bound override；失败统一为 `QFQ_DATA_NOT_READY`，Stock Kline API 映射 HTTP 503。K 线读取路径对源 bar 中的 QASU sentinel 占位行（`vol/volume` 与 `amount` 均为 `5.877471754e-39`）按快照构建同一语义跳过：缺失因子日期全部可证明为占位行时剔除这些行后继续返回，不回退 `adj=1.0`。
 - StrategyConsumer 先落 raw realtime bar，再执行严格 QFQ 派生；Redis Kline key/payload 和常驻窗口绑定 effective adjustment version，版本变化后旧缓存 miss、窗口 reload。
