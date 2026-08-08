@@ -186,9 +186,10 @@
   - `GET /api/position-review/portfolio/contributions`
   - `GET /api/position-review/symbols/<symbol>/chart`
   - `GET /api/position-review/events/<event_id>/conditions`
-- 页面为单页左右栏结构：左栏是组合总览与标的复盘共用的持仓列表（当前持仓 + 已清仓标的，含
-  `no_execution_history=true` 的当前持仓），右栏按纵向顺序展示“组合总览”与“标的复盘”，
-  点击左栏列表或组合贡献表行联动到对应标的复盘。
+- 页面为工作台式结构：左栏是组合总览与标的复盘共用的持仓列表（当前持仓 + 已清仓标的，含
+  `no_execution_history=true` 的当前持仓），右栏用标签页组织“组合总览”与“标的复盘”；
+  页面主体不出现页面级滚动条，滚动只发生在组件内部（持仓列表、组合总览内容、账本、
+  证据面板各自滚动）。点击左栏列表或组合贡献表行自动切换到“标的复盘”标签并选中对应标的。
 - 组合总览的账户净资产曲线按 QMT 口径计算：单位净值 =（基金资产总值 − 基金负债）/ 基金总份额，
   账户层面净资产 = 总资产 − 总负债；数据来自 `pm_credit_asset_snapshots` 的
   `total_asset / total_debt`。曲线支持日/周/月多周期切换（默认日），按北京日历桶聚合取各周期
