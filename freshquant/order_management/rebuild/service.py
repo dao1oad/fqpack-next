@@ -246,6 +246,7 @@ class OrderLedgerV2RebuildService:
         slice_documents: list[dict] = []
         order_request_documents: list[dict] = []
         order_documents: list[dict] = []
+        broker_order_documents: list[dict] = []
         entries_by_symbol: dict[str, list[dict]] = {}
         slices_by_symbol: dict[str, list[dict]] = {}
         invariant_checks: list[dict] = []
@@ -287,6 +288,7 @@ class OrderLedgerV2RebuildService:
             )
             order_request_documents.append(rebuilt_order["order_request"])
             order_documents.append(rebuilt_order["order"])
+            broker_order_documents.append(rebuilt_order["broker_order"])
             entries_by_symbol.setdefault(symbol, []).append(entry)
             slices_by_symbol.setdefault(symbol, []).extend(slices)
 
@@ -326,7 +328,7 @@ class OrderLedgerV2RebuildService:
             "auto_close_allocations": 0,
             "ingest_rejections": 0,
             "rebuilt_open_order_requests": len(order_request_documents),
-            "broker_order_documents": [],
+            "broker_order_documents": broker_order_documents,
             "execution_fill_documents": [],
             "position_entry_documents": entry_documents,
             "entry_slice_documents": slice_documents,
@@ -1219,7 +1221,45 @@ def _build_rebuilt_open_order_pair(*, entry, rebuild_ts):
         "time": time_value,
         "trade_time": int(rebuild_ts),
     }
-    return {"order_request": order_request, "order": order}
+    broker_order = {
+        "broker_order_key": f"rebuilt:{entry_id}",
+        "internal_order_id": internal_order_id,
+        "request_id": request_id,
+        "broker_order_id": None,
+        "account_type": None,
+        "trace_id": None,
+        "intent_id": None,
+        "symbol": symbol,
+        "stock_code": symbol,
+        "side": "buy",
+        "state": "FILLED",
+        "status": "FILLED",
+        "source_type": "order_ledger_rebuild",
+        "source": "order_ledger_rebuild",
+        "rebuild_source": POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE,
+        "rebuilt_open": True,
+        "data_quality": "reconstructed",
+        "submitted_at": submitted_at,
+        "updated_at": submitted_at,
+        "requested_quantity": quantity,
+        "filled_quantity": quantity,
+        "avg_filled_price": price,
+        "fill_count": 0,
+        "first_fill_time": int(rebuild_ts),
+        "last_fill_time": int(rebuild_ts),
+        "price": price,
+        "quantity": quantity,
+        "entry_id": entry_id,
+        "account_id": entry.get("account_id"),
+        "date": date_value,
+        "time": time_value,
+        "trade_time": int(rebuild_ts),
+    }
+    return {
+        "order_request": order_request,
+        "order": order,
+        "broker_order": broker_order,
+    }
 
 
 def _assert_flatten_symbol_invariants(

@@ -91,10 +91,11 @@ def test_flatten_builder_reconciles_rebuilt_open_buy_orders_per_holding():
     assert result["rebuilt_open_order_requests"] == 2
     requests = result["order_request_documents"]
     orders = result["order_documents"]
-    assert len(requests) == len(orders) == 2
-    by_symbol = {item["symbol"]: item for item in orders}
+    broker_orders = result["broker_order_documents"]
+    assert len(requests) == len(orders) == len(broker_orders) == 2
+    by_symbol = {item["symbol"]: item for item in broker_orders}
     assert set(by_symbol) == {"600917", "002262"}
-    for order in orders:
+    for order in broker_orders:
         assert order["side"] == "buy"
         assert order["state"] == "FILLED"
         assert order["filled_quantity"] == order["quantity"]
@@ -102,6 +103,9 @@ def test_flatten_builder_reconciles_rebuilt_open_buy_orders_per_holding():
         assert order["rebuilt_open"] is True
         assert order["broker_order_id"] is None
         assert order["data_quality"] == "reconstructed"
+        assert order["broker_order_key"].startswith("rebuilt:")
+        assert order["updated_at"] is not None
+        assert order["first_fill_time"] == order["trade_time"]
     entry = next(
         item
         for item in result["position_entry_documents"]
