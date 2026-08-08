@@ -364,8 +364,14 @@ export const normalizePositionReviewSymbolRows = (response = {}) => {
   const rows = rawRows
     .map((row) => {
       const counts = readReviewCounts(row)
-      const status = resolvePrimaryStatus(row, counts)
-      const statusMeta = getPositionReviewStatusMeta(status)
+      const noExecutionHistory = Boolean(pickFirst(row.no_execution_history, row.noExecutionHistory))
+      const explicitVerdict = pickFirst(row.verdict, row.review_status, row.status)
+      const status = noExecutionHistory && !explicitVerdict
+        ? 'NO_EXECUTION'
+        : resolvePrimaryStatus(row, counts)
+      const statusMeta = status === 'NO_EXECUTION'
+        ? { label: '暂无成交记录', chipVariant: 'muted' }
+        : getPositionReviewStatusMeta(status)
       const reviewable = counts.COMPLIANT + counts.ANOMALY
       const computedPassRate = reviewable > 0 ? (counts.COMPLIANT / reviewable) * 100 : null
       const passRate = normalizeRatePercent(pickFirst(row.pass_rate, row.compliance_rate, computedPassRate))
@@ -377,6 +383,7 @@ export const normalizePositionReviewSymbolRows = (response = {}) => {
         name: resolveSymbolName(row),
         currentQuantity: toInteger(pickFirst(row.current_quantity, row.currentQuantity)),
         isHolding: Boolean(pickFirst(row.is_holding, row.isHolding, toInteger(row.current_quantity) > 0)),
+        noExecutionHistory,
         firstTradeAt,
         firstTradeAtLabel: firstTradeAt ? formatBeijingTimestamp(firstTradeAt) : '-',
         lastTradeAt,
@@ -397,7 +404,7 @@ export const normalizePositionReviewSymbolRows = (response = {}) => {
     })
     .filter((row) => row.symbol)
     .sort((left, right) => {
-      const severityOrder = { ANOMALY: 0, UNVERIFIABLE: 1, COMPLIANT: 2, NOT_APPLICABLE: 3 }
+      const severityOrder = { ANOMALY: 0, UNVERIFIABLE: 1, COMPLIANT: 2, NOT_APPLICABLE: 3, NO_EXECUTION: 4 }
       const statusDiff = (severityOrder[left.status] ?? 4) - (severityOrder[right.status] ?? 4)
       if (statusDiff !== 0) return statusDiff
       return (parseTimestampMs(right.lastTradeAt) || 0) - (parseTimestampMs(left.lastTradeAt) || 0)

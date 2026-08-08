@@ -129,6 +129,23 @@ test('normalizePositionReviewSymbolRows prioritizes anomalies and keeps cleared 
   assert.equal(result.rows[1].currentQuantity, 0)
 })
 
+test('catalog marks current holdings without execution history', () => {
+  const result = normalizePositionReviewSymbolRows({
+    rows: [
+      {
+        symbol: '512000',
+        name: '券商ETF',
+        current_quantity: 1468900,
+        is_holding: true,
+        no_execution_history: true,
+      },
+    ],
+  })
+  assert.equal(result.rows[0].noExecutionHistory, true)
+  assert.equal(result.rows[0].status, 'NO_EXECUTION')
+  assert.equal(result.rows[0].statusLabel, '暂无成交记录')
+})
+
 test('normalizePositionReviewDetail reconstructs the full April 29 review contract', () => {
   const detail = normalizePositionReviewDetail({
     symbol: {

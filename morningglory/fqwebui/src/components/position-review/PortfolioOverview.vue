@@ -273,7 +273,9 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
                       ? '账本'
                       : row.costBasisSource === 'estimated_moving_average'
                         ? '估算'
-                        : '—'
+                        : row.costBasisSource === 'broker_snapshot_estimate'
+                          ? '券商均价估算'
+                          : '—'
                   }}
                 </span>
               </template>

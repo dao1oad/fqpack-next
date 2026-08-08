@@ -1491,6 +1491,9 @@ def test_catalog_uses_one_batch_snapshot_and_one_global_runtime_scan():
                 for symbol in ("002262", "600000")
             }
 
+        def list_xt_positions(self):
+            return []
+
         def __getattr__(self, name):
             raise AssertionError(f"unexpected per-symbol repository call: {name}")
 
