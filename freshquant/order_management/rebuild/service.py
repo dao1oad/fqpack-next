@@ -1166,7 +1166,9 @@ def _build_rebuilt_open_order_pair(*, entry, rebuild_ts):
     request_id = f"req_rebuilt_{entry_id}"
     internal_order_id = f"ord_rebuilt_{entry_id}"
     price = float(entry.get("entry_price") or entry.get("buy_price_real") or 0.0)
-    quantity = int(entry.get("original_quantity") or entry.get("remaining_quantity") or 0)
+    quantity = int(
+        entry.get("original_quantity") or entry.get("remaining_quantity") or 0
+    )
     date_value, time_value = _flatten_beijing_date_time_from_epoch(rebuild_ts)
     submitted_at = datetime.fromtimestamp(
         int(rebuild_ts),

@@ -107,9 +107,7 @@ def test_flatten_builder_reconciles_rebuilt_open_buy_orders_per_holding():
         for item in result["position_entry_documents"]
         if item["symbol"] == "600917"
     )
-    request = next(
-        item for item in requests if item["entry_id"] == entry["entry_id"]
-    )
+    request = next(item for item in requests if item["entry_id"] == entry["entry_id"])
     assert request["request_id"] == f"req_rebuilt_{entry['entry_id']}"
     assert request["action"] == "buy"
     assert request["price"] == pytest.approx(5.527529)

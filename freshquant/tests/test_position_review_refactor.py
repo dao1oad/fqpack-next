@@ -839,7 +839,11 @@ def test_cost_basis_replay_degrades_when_entries_are_flatten_snapshots():
     assert result["data_quality"]["cost_basis"] == "degraded"
     assert any(
         warning.get("code")
-        in {"cost_basis_estimated", "ledger_incomplete_for_buys", "cost_basis_broker_snapshot"}
+        in {
+            "cost_basis_estimated",
+            "ledger_incomplete_for_buys",
+            "cost_basis_broker_snapshot",
+        }
         for warning in result["data_quality"]["warnings"]
     )
 
@@ -1474,7 +1478,9 @@ def test_flatten_rebuild_symbol_chart_shows_rebuilt_open_order_and_cost_point():
     assert chart["cost_basis"]["fees_included"] is False
 
     rebuilt_events = [
-        event for event in chart["order_events"] if event["event_type"] == "rebuilt_open_order"
+        event
+        for event in chart["order_events"]
+        if event["event_type"] == "rebuilt_open_order"
     ]
     assert len(rebuilt_events) == 1
     rebuilt = rebuilt_events[0]

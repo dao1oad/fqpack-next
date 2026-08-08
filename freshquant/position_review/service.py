@@ -3393,9 +3393,8 @@ def _portfolio_trade_events(detail_by_symbol):
             price = _float(execution.get("price"))
             events.append(
                 {
-                    "time": execution.get("time") or _epoch_iso(
-                        _int(execution.get("trade_time"))
-                    ),
+                    "time": execution.get("time")
+                    or _epoch_iso(_int(execution.get("trade_time"))),
                     "symbol": symbol,
                     "name": name,
                     "side": str(execution.get("side") or "").strip().lower(),
