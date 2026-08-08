@@ -335,14 +335,75 @@
                     </span>
                   </template>
                 </el-table-column>
+                <el-table-column label="信号类型" min-width="128">
+                  <template #default="{ row }">
+                    <template v-if="row.signal.label">
+                      <span class="position-review-signal-label">
+                        {{ row.signal.label }}
+                      </span>
+                      <span class="position-review-signal-type">
+                        {{ row.signal.type || '—' }}
+                      </span>
+                      <span
+                        v-if="row.signal.remark"
+                        class="position-review-signal-remark"
+                        :title="row.signal.remark"
+                      >
+                        {{ row.signal.remark }}
+                      </span>
+                    </template>
+                    <StatusChip v-else class="position-review-inline-chip" variant="muted">
+                      未关联信号
+                    </StatusChip>
+                  </template>
+                </el-table-column>
                 <el-table-column label="信号/委托价" min-width="104" align="right">
                   <template #default="{ row }">
                     <span class="workbench-code">{{ formatPrice(row.requestPrice) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="策略阈值" min-width="100" align="right">
+                <el-table-column label="阈值判断" min-width="150">
                   <template #default="{ row }">
-                    <span class="workbench-code">{{ formatPrice(row.thresholdPrice) }}</span>
+                    <div v-if="row.thresholdPrice !== null" class="position-review-process-cell">
+                      <span class="workbench-code">
+                        {{ formatPrice(row.thresholdPrice) }}
+                        <template v-if="row.thresholdMode">
+                          （{{ row.thresholdMode === 'percent' ? '百分比' : row.thresholdMode === 'atr' ? 'ATR' : row.thresholdMode }}）
+                        </template>
+                      </span>
+                      <span v-if="row.thresholdRatio !== null" class="position-review-process-sub">
+                        比率 {{ row.thresholdRatio }}
+                      </span>
+                      <span v-if="row.thresholdDelta !== null" class="position-review-process-sub">
+                        Δ{{ formatPrice(row.thresholdDelta) }}
+                      </span>
+                    </div>
+                    <div v-else-if="row.conditionSnapshotStatus === 'missing'" class="position-review-process-cell">
+                      <StatusChip class="position-review-inline-chip" variant="warning">
+                        历史阈值缺失
+                      </StatusChip>
+                    </div>
+                    <span v-else class="position-review-process-cell">—</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="条件判断" min-width="180">
+                  <template #default="{ row }">
+                    <div class="position-review-process-cell" :title="conditionSummaryTitle(row)">
+                      <span v-if="row.conditions.length" class="position-review-condition-badges">
+                        <StatusChip v-if="row.conditionPassedCount" class="position-review-inline-chip" variant="success">
+                          通过 {{ row.conditionPassedCount }}
+                        </StatusChip>
+                        <StatusChip v-if="row.conditionFailedCount" class="position-review-inline-chip" variant="danger">
+                          失败 {{ row.conditionFailedCount }}
+                        </StatusChip>
+                        <StatusChip v-if="row.conditionMissingCount" class="position-review-inline-chip" variant="warning">
+                          缺失 {{ row.conditionMissingCount }}
+                        </StatusChip>
+                      </span>
+                      <span v-else class="position-review-process-sub">
+                        {{ row.conditionSnapshotStatus === 'complete' ? '无条件' : '待证据' }}
+                      </span>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="请求量" min-width="86" align="right">
@@ -358,6 +419,24 @@
                     <StatusChip v-else class="position-review-inline-chip" variant="warning">
                       证据不足
                     </StatusChip>
+                  </template>
+                </el-table-column>
+                <el-table-column label="数量判断" min-width="160">
+                  <template #default="{ row }">
+                    <div class="position-review-process-cell">
+                      <span class="position-review-process-sub">
+                        原始应有量 {{ row.rawQuantity === null ? '—' : formatInteger(row.rawQuantity) }}
+                      </span>
+                      <span class="position-review-process-sub">
+                        可卖上限 {{ row.canUseVolume === null ? '—' : formatInteger(row.canUseVolume) }}
+                      </span>
+                      <span
+                        v-if="row.tracedRawQuantity !== null"
+                        class="position-review-process-sub"
+                      >
+                        追踪应有量 {{ formatInteger(row.tracedRawQuantity) }}
+                      </span>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="实际成交量" min-width="98" align="right">
@@ -1061,6 +1140,20 @@ const formatTimestamp = (value) => formatBeijingTimestamp(value)
 const formatSignedInteger = (value) => formatPositionReviewSignedInteger(value)
 const isFiniteNonZero = (value) => isPositionReviewFiniteNonZero(value)
 const prettyJson = (value) => JSON.stringify(value ?? {}, null, 2)
+const conditionSummaryTitle = (row) => {
+  const rows = (row.conditions || []).map((item) => {
+    const threshold = item.thresholdMissing ? '缺失' : (item.thresholdDisplay || '—')
+    const passed = item.passed === null ? '待定' : (item.passed ? '通过' : '失败')
+    return [
+      item.label || item.key || '条件',
+      `实际 ${item.actualDisplay || '—'}`,
+      item.operator || '—',
+      `阈值 ${threshold}`,
+      passed,
+    ].join(' | ')
+  })
+  return rows.join('\n') || '无可用条件证据'
+}
 const confidenceVariant = (value) => {
   const text = String(value || '').toUpperCase()
   if (text === 'HIGH') return 'success'
@@ -1686,6 +1779,55 @@ onMounted(async () => {
 .position-review-reason {
   display: block;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-process-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.position-review-process-sub {
+  color: var(--fq-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.position-review-condition-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.position-review-signal-label {
+  display: block;
+  overflow: hidden;
+  color: var(--fq-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-signal-type {
+  display: block;
+  overflow: hidden;
+  color: var(--fq-text-secondary);
+  font-family: Consolas, Monaco, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-signal-remark {
+  display: block;
+  overflow: hidden;
+  color: var(--fq-text-muted);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

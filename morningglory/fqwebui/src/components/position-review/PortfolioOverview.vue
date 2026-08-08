@@ -191,34 +191,35 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
       </span>
     </section>
 
-    <section class="portfolio-overview__grid">
-      <div class="portfolio-overview__panel portfolio-overview__panel--wide">
-        <div class="portfolio-overview__panel-head">
-          <div class="portfolio-overview__panel-title">账户净资产曲线（QMT 口径）</div>
-          <div class="portfolio-overview__period-switch">
-            <button
-              v-for="option in [{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]"
-              :key="option.value"
-              type="button"
-              class="portfolio-overview__period-btn"
-              :class="{ 'portfolio-overview__period-btn--active': equityPeriod === option.value }"
-              @click="switchEquityPeriod(option.value)"
-            >
-              {{ option.label }}
-            </button>
-          </div>
+    <section class="portfolio-overview__hero">
+      <div class="portfolio-overview__panel-head">
+        <div class="portfolio-overview__panel-title">账户净资产曲线（QMT 口径）</div>
+        <div class="portfolio-overview__period-switch">
+          <button
+            v-for="option in [{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]"
+            :key="option.value"
+            type="button"
+            class="portfolio-overview__period-btn"
+            :class="{ 'portfolio-overview__period-btn--active': equityPeriod === option.value }"
+            @click="switchEquityPeriod(option.value)"
+          >
+            {{ option.label }}
+          </button>
         </div>
-        <p class="portfolio-overview__panel-note">
-          净资产 = 总资产 − 总负债；日/周/月聚合取各周期末笔快照，缺失区间不插值；交易发生的周期会标注交易点。
-        </p>
-        <PositionReviewChart
-          class="portfolio-overview__panel-chart"
-          :option="equityOption || {}"
-          :loading="loading"
-          :empty="!equityOption"
-          empty-text="缺少资产快照，暂无可绘制的权益曲线"
-        />
       </div>
+      <p class="portfolio-overview__panel-note">
+        净资产 = 总资产 − 总负债；Y 轴从净资产区间内放大（min/max 自适应），使波动更明显；日/周/月聚合取各周期末笔快照，缺失区间不插值；交易发生的周期标注交易点。
+      </p>
+      <PositionReviewChart
+        class="portfolio-overview__hero-chart"
+        :option="equityOption || {}"
+        :loading="loading"
+        :empty="!equityOption"
+        empty-text="缺少资产快照，暂无可绘制的权益曲线"
+      />
+    </section>
+
+    <section class="portfolio-overview__grid">
       <div class="portfolio-overview__panel">
         <div class="portfolio-overview__panel-title">月度成交额</div>
         <PositionReviewChart
@@ -387,6 +388,24 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   min-height: 0;
+}
+
+.portfolio-overview__hero {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 360px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #d8dee9;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+
+.portfolio-overview__hero-chart {
+  flex: 1 1 auto;
+  min-height: 300px;
 }
 
 .portfolio-overview__panel {

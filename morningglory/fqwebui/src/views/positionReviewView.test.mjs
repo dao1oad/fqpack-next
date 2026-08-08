@@ -115,3 +115,18 @@ test('strategy review ledger ranks above order fill ledger', async () => {
     '逐单策略复盘必须位于订单成交明细之前',
   )
 })
+
+test('strategy review table exposes guardian execution process columns', async () => {
+  const source = await readFile(viewPath, 'utf8')
+  const reviewsBlock = source.slice(source.indexOf('name="ledger-reviews"'), source.indexOf('name="ledger-executions"'))
+
+  // 执行过程列：信号类型 / 阈值判断 / 条件判断 / 数量判断。
+  assert.match(reviewsBlock, /label="信号类型"/)
+  assert.match(reviewsBlock, /label="阈值判断"/)
+  assert.match(reviewsBlock, /label="条件判断"/)
+  assert.match(reviewsBlock, /label="数量判断"/)
+  assert.match(reviewsBlock, /row\.conditionPassedCount/)
+  assert.match(reviewsBlock, /row\.signal\.label/)
+  assert.match(reviewsBlock, /row\.canUseVolume/)
+  assert.match(reviewsBlock, /conditionSummaryTitle/)
+})

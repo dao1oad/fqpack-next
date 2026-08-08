@@ -18,12 +18,14 @@ from freshquant.order_management.execution_archive import (
     build_execution_key,
 )
 from freshquant.position_review.chart_projection import (
+    build_conditions,
     build_event_conditions_payload,
     build_holding_cycles,
     build_order_event_contract,
     build_position_series_from_fills,
     build_symbol_chart_payload,
     replay_cost_basis,
+    resolve_signal_type,
     signal_type_registry_payload,
 )
 from freshquant.position_review.portfolio_projection import (
@@ -1008,6 +1010,20 @@ class PositionReviewService:
             sell_constraints=sell_constraints,
             pm_decisions=bundle["pm_decisions"],
         )
+        requests_by_id_detail = {
+            str(item.get("request_id") or "").strip(): item
+            for item in bundle["requests"]
+            if str(item.get("request_id") or "").strip()
+        }
+        reviews = [
+            _attach_review_execution_detail(
+                review,
+                requests_by_id=requests_by_id_detail,
+                signals=bundle["signals"],
+                runtime_items=runtime_result.get("items") or [],
+            )
+            for review in reviews
+        ]
         review_by_request = {
             item["request_id"]: item for item in reviews if item.get("request_id")
         }
@@ -3227,6 +3243,105 @@ def _serialize_timeline_signal(signal):
         "strategy": strategy,
         "remark": str(signal.get("remark") or "").strip() or None,
     }
+
+
+def _review_signal_keys(review, request):
+    keys = []
+    request_id = str(review.get("request_id") or "").strip()
+    trace_id = str((request or {}).get("trace_id") or "").strip()
+    intent_id = str((request or {}).get("intent_id") or "").strip()
+    if request_id:
+        keys.append(("request", request_id))
+    if trace_id:
+        keys.append(("trace", trace_id))
+    if intent_id:
+        keys.append(("intent", intent_id))
+    return keys
+
+
+def _direct_review_signal(review, request, signals):
+    """Resolve the single directly-linked signal for one review.
+
+    Same strong-association rule as the timeline: only explicit
+    request / trace / intent keys match; no time-neighbour inference.
+    Ambiguous or missing matches return None.
+    """
+
+    index = _index_direct_timeline_signals(signals)
+    keys = _review_signal_keys(review, request)
+    candidates = {}
+    for key in keys:
+        for signal_id, signal in (index.get(key) or {}).items():
+            candidates[signal_id] = signal
+    if len(candidates) != 1:
+        return None
+    signal = next(iter(candidates.values()))
+    signal_keys = set(_timeline_signal_links(signal))
+    matched = [key for key in keys if key in signal_keys]
+    if not matched:
+        return None
+    serialized = _serialize_timeline_signal(signal)
+    serialized["type"] = resolve_signal_type(
+        request=request,
+        signal=signal,
+        side=str(review.get("side") or "").strip().lower() or None,
+    )
+    serialized["family"] = (
+        (signal_type_registry_payload() or {}).get(serialized["type"]) or {}
+    ).get("family")
+    return serialized
+
+
+def _attach_review_execution_detail(
+    review,
+    *,
+    requests_by_id,
+    signals,
+    runtime_items,
+):
+    """Attach signal + full condition evidence to a strategy review row.
+
+    This makes the "execution process" visible on the ledger table: which
+    signal fired, what conditions were evaluated (threshold / price / quantity
+    checks), the observed values and the historical thresholds (kept as null
+    when missing).  Strong-association rules are preserved; no neighbour
+    inference is applied.
+    """
+
+    enriched = dict(review or {})
+    request_id = str(review.get("request_id") or "").strip()
+    request = requests_by_id.get(request_id) or {}
+    enriched["signal"] = _direct_review_signal(review, request, signals)
+    runtime_event = None
+    trace_id = str((request or {}).get("trace_id") or "").strip()
+    if trace_id:
+        runtime_event = next(
+            (
+                event
+                for event in runtime_items or []
+                if str(event.get("trace_id") or "").strip() == trace_id
+            ),
+            None,
+        )
+    conditions_payload = build_conditions(
+        review=enriched,
+        request=request,
+        runtime_event=runtime_event,
+        side=str(review.get("side") or "").strip().lower() or None,
+    )
+    conditions = list(conditions_payload.get("conditions") or [])
+    enriched["conditions"] = {
+        "count": len(conditions),
+        "passed_count": sum(1 for item in conditions if item.get("passed") is True),
+        "failed_count": sum(1 for item in conditions if item.get("passed") is False),
+        "missing_count": sum(1 for item in conditions if item.get("passed") is None),
+        "condition_snapshot_status": (conditions_payload.get("data_quality") or {}).get(
+            "condition_snapshot_status"
+        ),
+        "expression": conditions_payload.get("expression"),
+        "conditions": conditions,
+    }
+    return enriched
 
 
 def _first_timeline_text(*values):
