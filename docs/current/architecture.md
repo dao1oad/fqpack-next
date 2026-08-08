@@ -245,7 +245,9 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 - positions-only initialize 和 destructive order-ledger rebuild 在删除易失集合前先写两个历史档案；归档失败时清理中止。
 - API 只返回不可逆账户分区，不返回原始券商账户号；无账户证据仅在唯一分区可确认时归并，多分区候选保持歧义而不伪造额外成交。
 - 持仓复盘 API 不写入订单、持仓、策略配置或运行观测数据。
-- 单一 K 线主图是标的交易复盘的唯一核心图表；不复用第二套成本收益图，也不在 K 线下方绘制策略应有量/实际成交量/连续持仓三轨附图。
+- K 线主图（含订单 marker）是 `/kline-slim` 行情图的唯一交易标识承载；`/position-review`
+  标的复盘不再展示 K 线，改为持仓成本价曲线（Y 轴 = 成本价，X 轴从首个持仓/订单点开始），
+  也不在 K 线下方绘制策略应有量/实际成交量/连续持仓三轨附图。
 - 订单 marker 唯一口径：X=首次成交时间所在 K 线 bar，Y=订单全部 canonical fill 的加权成交均价；跨 bar 成交从首次成交 bar 到末次成交 bar 绘制同方向颜色细区间线。
 - 颜色只表达订单方向；形状只表达标准化 `signal_type`；verdict 只以边框/虚线/透明度轻量编码。`evidence_confidence` 与 `association_quality` 只进入 Hover、徽标与详情，不增加图形编码。
 - 持仓均价严格优先使用 `om_position_entries / om_entry_slices / om_exit_allocations` 剩余成本重建：
