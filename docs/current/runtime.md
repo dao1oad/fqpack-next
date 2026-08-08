@@ -207,9 +207,13 @@
   `broker_order_id=null`、`data_quality=reconstructed`），使“有持仓却没有对应买入订单”的
   现象消失；这类重建订单无 `strategy_context`，复盘判定为 `NOT_APPLICABLE`，不进入 PASS/FAIL
   合规率，也不计入月度成交额。
-- 当前交易快照来自 `xt_trades`，持久历史成交由
-  `om_execution_history_archive` 补齐；订单请求、实际成交数量和持仓变化合并
-  当前 OM 账本与 `position_review_evidence_archive` 交叉核对。
+- 当前交易快照来自 `xt_trades`；订单请求、订单、成交、持仓 entry/slice/allocation
+  全部只读当前 OM 账本（`om_order_requests / om_orders / om_execution_fills /
+  om_trade_facts / om_position_entries / om_entry_slices / om_exit_allocations`）。
+  `om_execution_history_archive` 与 `position_review_evidence_archive` 只作为重建前
+  历史留存的写入侧，持仓复盘读模型不再读取归档。
+- flatten 重建后，每个当前持仓会有一条 `rebuilt_open=true` 的重建买入订单（见上文），
+  持仓复盘与仓位管理“相关订单”均读取同一份当前 `om_orders`，两边订单一致。
   `broker_order_id` 和 `broker_trade_id` 都不能作为跨历史记录的单键关联依据。
 - 页面与 API 只显示不可逆 `account_partition`，不返回原始券商账户号；多账户冲突或
   `unknown` 分区通过 `data_quality` 明示。

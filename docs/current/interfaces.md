@@ -156,10 +156,12 @@ python -m freshquant.rear.api_server --port 5000
   - 每行包含首末成交时间、请求与逐笔成交数量、买卖数量与金额、复盘计数、汇总结论和可判定订单合规率
 - `/api/position-review/symbols/<symbol>`
   - 当前返回单标的 `summary / executions / charts / reviews / data_quality`
-  - `executions` 是按账户分区稳定标识的 canonical 逐笔成交台账；同账户迟到或更正的 XT 真值不会与旧 OM/XT 归档重复计数
-  - 合并当前 `xt_trades / OM ledger` 与
-    `om_execution_history_archive / position_review_evidence_archive`；
-    initialize 或 order-ledger rebuild 后已归档历史仍可查询
+  - `executions` 是按账户分区稳定标识的 canonical 逐笔成交台账；同账户迟到或更正的 XT 真值不会与旧 OM/XT 记录重复计数
+  - 只读当前库：合并 `freshquant.xt_trades` 与当前 OM 账本
+    （`om_order_requests / om_orders / om_execution_fills / om_trade_facts /
+    om_position_entries / om_entry_slices / om_exit_allocations`）；
+    `om_execution_history_archive / position_review_evidence_archive` 仅作为
+    重建前历史留存的写入侧，复盘读模型不再读取归档
   - `charts` 包含 `cumulative_quantity / traded_amount / trade_price / verdict_distribution / request_quantity_compare`
   - `reviews` 以订单请求为单位返回 `request / expected / actual / verdict / reasons / evidence`
   - `verdict` 固定为 `PASS / FAIL / INSUFFICIENT_EVIDENCE / NOT_APPLICABLE`

@@ -127,7 +127,12 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 
 ### 当前持仓复盘链
 
-`current xt_trades / OM ledger + om_execution_history_archive / position_review_evidence_archive -> position-review read model -> /api/position-review/* -> PositionReview / KlineSlim`
+`current xt_trades / OM ledger（含 flatten 重建订单）-> position-review read model -> /api/position-review/* -> PositionReview / KlineSlim`
+
+持仓复盘读模型只读取当前库（`freshquant.xt_trades` 与 `freshquant_order_management` 的
+`om_order_requests / om_orders / om_execution_fills / om_trade_facts / om_position_entries /
+om_entry_slices / om_exit_allocations`）；`om_execution_history_archive` 与
+`position_review_evidence_archive` 仅作为重建前的历史留存写入侧，复盘不再读取归档。
 
 ## 当前订单账本边界
 
