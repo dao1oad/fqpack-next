@@ -1004,26 +1004,22 @@ def replay_cost_basis(
     for entry in entries or []:
         if not _entry_is_flatten_snapshot(entry):
             continue
-        entry_time = (
-            _int(entry.get("trade_time"))
-            or _int(entry.get("created_at"))
-            or 0
-        )
+        entry_time = _int(entry.get("trade_time")) or _int(entry.get("created_at")) or 0
         quantity = max(
             _int(entry.get("remaining_quantity")),
             _int(entry.get("original_quantity")),
         )
-        price = _float(entry.get("entry_price")) or _float(
+        entry_price = _float(entry.get("entry_price")) or _float(
             entry.get("buy_price_real")
         )
-        if entry_time <= 0 or quantity <= 0 or price is None:
+        if entry_time <= 0 or quantity <= 0 or entry_price is None:
             continue
         series.append(
             {
                 "time": _epoch_iso(entry_time),
                 "position_quantity": quantity,
-                "remaining_cost": round(quantity * price, 2),
-                "average_cost": round(price, 6),
+                "remaining_cost": round(quantity * entry_price, 2),
+                "average_cost": round(entry_price, 6),
                 "realized_pnl": _round(realized_pnl, 2),
                 "point_type": "rebuilt_open",
                 "cost_basis_source": "broker_snapshot_estimate",
@@ -1033,9 +1029,7 @@ def replay_cost_basis(
 
     total_quantity = sum(_int(share["quantity"]) for share in shares)
     cost_basis_quality = (
-        "full"
-        if ledger_available and not ledger_buy_missing
-        else "degraded"
+        "full" if ledger_available and not ledger_buy_missing else "degraded"
     )
     warnings: list[dict[str, Any]] = []
     if flatten_only:
