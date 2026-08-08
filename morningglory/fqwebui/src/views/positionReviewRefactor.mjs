@@ -583,7 +583,11 @@ export const buildSymbolCostChartOption = ({
     .map((event) => {
       const execution = event.execution || {}
       const marker = event.marker || {}
-      const targetMs = parseBarTimeMs(marker.bar_time || execution.first_fill_time)
+      const targetMs = parseBarTimeMs(
+        marker.bar_time
+        || execution.first_fill_time
+        || event.occurred_at,
+      )
       const index = resolveCostIndex(targetMs, points)
       if (index === null) return null
       const costValue = points[index]?.averageCost ?? null
@@ -690,7 +694,7 @@ export const buildSymbolCostChartOption = ({
         fontSize: 9,
         formatter: `持仓周期 ${startIndex === endIndex ? startIndex + 1 : `${startIndex + 1}–${endIndex + 1}`}`,
       },
-      data: [[startIndex, 'min'], [endIndex, 'max']],
+      data: [[{ coord: [startIndex, 'min'] }, { coord: [endIndex, 'max'] }]],
     })
   }
 
@@ -700,7 +704,7 @@ export const buildSymbolCostChartOption = ({
         name: '持仓成本价',
         type: 'line',
         step: 'end',
-        showSymbol: false,
+        showSymbol: points.length <= 1,
         animation: false,
         z: 6,
         lineStyle: { color: positionReviewChartColors.cost, width: 2 },
