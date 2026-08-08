@@ -101,7 +101,7 @@
   - 同步只写 `stock_pools`，不写 `must_pool`，不触发下单；左侧 `stock_pools` 分组仍会过滤已在“持仓股”分组出现的标的
 - KlineSlim 从通达信「待买」分组导入 `must_pool`
   - `/kline-slim` 左侧 `must_pool` 分组的 `同步待买` 按钮调用 `POST /api/sync_must_pool_from_tdx_self_select?days=30`
-  - 后端读取当前 TDX home 下的 `T0002/blocknew/待买.blk`，解码通达信前缀代码，排除当前 `xt_positions` 持仓后，增量导入 `must_pool`
+  - 后端先解析 `T0002/blocknew/blocknew.cfg`，按显示名「待买」找到真实 BLK 文件名（当前宿主机为 `DM.blk`），cfg 缺失或未登记时回退 `T0002/blocknew/待买.blk`；读取后解码通达信前缀代码，排除当前 `xt_positions` 持仓后，增量导入 `must_pool`
   - 导入为增量合并：已存在 `must_pool` 记录保留 `stop_loss_price / initial_lot_amount / lot_amount` 交易参数，仅合并 `tdx_must_pool` 来源 provenance；不在「待买」分组中的既有 `must_pool` 记录不会被删除
   - 新增记录 `stop_loss_price` 保持未配置（`None`），`lot_amount / initial_lot_amount` 走 `get_trade_amount` 默认值；`forever` 固定为 `true`
   - 导入只写 `must_pool`，不写 `stock_pools`，不触发下单

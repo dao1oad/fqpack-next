@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from freshquant import stock_service
+from freshquant.clx_daily_selection.tdx_export import _encode_blocknew_cfg_group
 
 
 class FakeStockPoolsCollection:
@@ -39,6 +40,23 @@ class FakeStockPoolsCollection:
 
     def find(self, query=None, projection=None):
         return list(self.docs)
+
+
+def _write_blocknew_cfg(tmp_path, pairs):
+    """Write a TDX blocknew.cfg using the shared 120-byte record encoder.
+
+    Each record is 120 bytes: 50-byte GBK display name + 70-byte file name
+    prefix (without the ``.blk`` extension), matching the canonical encoder in
+    ``freshquant.clx_daily_selection.tdx_export``.
+    """
+    cfg_path = Path(tmp_path) / "T0002" / "blocknew" / "blocknew.cfg"
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    raw = b"".join(
+        _encode_blocknew_cfg_group(display_name, file_name)
+        for display_name, file_name in pairs
+    )
+    cfg_path.write_bytes(raw)
+    return cfg_path
 
 
 def test_decode_tdx_self_select_code_accepts_tdx_and_plain_codes():
@@ -282,3 +300,80 @@ def test_sync_must_pool_from_tdx_self_select_skips_current_holdings(
     assert result["synced_codes"] == ["000002"]
     assert result["skipped_holding_codes"] == ["300127"]
     assert [call["code"] for call in calls] == ["000002"]
+
+
+def test_read_tdx_blocknew_cfg_mapping_maps_display_to_file(tmp_path):
+    _write_blocknew_cfg(tmp_path, [("待买", "DM"), ("clx_18", "CLX_18")])
+
+    assert stock_service.read_tdx_blocknew_cfg_mapping(tdx_home=tmp_path) == {
+        "待买": "DM",
+        "clx_18": "CLX_18",
+    }
+
+
+def test_read_tdx_blocknew_cfg_mapping_missing_cfg_returns_empty(tmp_path):
+    assert stock_service.read_tdx_blocknew_cfg_mapping(tdx_home=tmp_path) == {}
+
+
+def test_resolve_tdx_block_filename_maps_display_to_file(tmp_path):
+    _write_blocknew_cfg(tmp_path, [("待买", "DM")])
+
+    assert stock_service.resolve_tdx_block_filename(tdx_home=tmp_path) == "DM.blk"
+
+
+def test_resolve_tdx_block_filename_falls_back_without_cfg(tmp_path):
+    assert stock_service.resolve_tdx_block_filename(tdx_home=tmp_path) == "待买.blk"
+
+
+def test_sync_must_pool_reads_dai_mai_group_by_mapped_file(monkeypatch, tmp_path):
+    _write_blocknew_cfg(tmp_path, [("待买", "DM")])
+    target = Path(tmp_path) / "T0002" / "blocknew" / "DM.blk"
+    target.write_text("0300127\n000001\n113000\n", encoding="gbk")
+    fake_db = {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": FakeStockPoolsCollection(),
+        "xt_positions": FakeStockPoolsCollection(),
+    }
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    calls = []
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert result["file_name"] == "DM.blk"
+    assert result["category"] == "待买"
+    assert result["source"] == "tdx_must_pool"
+    assert result["synced_codes"] == ["300127", "000001"]
+    assert result["skipped_invalid_codes"] == ["113000"]
+    assert [call["code"] for call in calls] == ["300127", "000001"]
+    assert calls[0]["provenance"]["memberships"][0]["extra"]["file_name"] == "DM.blk"
+
+
+def test_sync_must_pool_accepts_explicit_filename_override(monkeypatch, tmp_path):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "other.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("0300127\n", encoding="gbk")
+    fake_db = {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": FakeStockPoolsCollection(),
+        "xt_positions": FakeStockPoolsCollection(),
+    }
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    calls = []
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(
+        tdx_home=tmp_path,
+        filename="other.blk",
+    )
+
+    assert result["file_name"] == "other.blk"
+    assert result["synced_codes"] == ["300127"]

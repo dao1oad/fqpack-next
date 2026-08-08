@@ -13,6 +13,7 @@
   - `/api/stock_data_v2`
   - `/api/stock_data_chanlun_structure`
   - `POST /api/sync_stock_pools_from_tdx_self_select`
+  - `POST /api/sync_must_pool_from_tdx_self_select`（按 `blocknew.cfg` 解析「待买」分组真实文件名，回退 `待买.blk`）
   - `/api/subject-management/<symbol>`
   - `/api/subject-management/<symbol>/guardian-buy-grid`
   - `/api/order-management/stoploss/bind`

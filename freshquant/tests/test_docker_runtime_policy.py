@@ -64,7 +64,7 @@ def test_compose_builds_rear_image_once() -> None:
 
 def test_compose_apiserver_mounts_tdx_sync_dir() -> None:
     text = Path("docker/compose.parallel.yaml").read_text(encoding="utf-8")
-    assert "${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}" in text
+    assert "${FQPACK_TDX_SYNC_DIR:-D:/new_tdx}" in text
     assert "target: /opt/tdx" in text
 
 

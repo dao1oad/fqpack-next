@@ -72,6 +72,7 @@ python -m freshquant.rear.api_server --port 5000
   - `/api/get_stock_pools_list`
 - `POST /api/sync_stock_pools_from_tdx_self_select`
   - `POST /api/sync_must_pool_from_tdx_self_select`
+  - `must_pool` 同步从 `blocknew.cfg` 按显示名「待买」解析真实 BLK 文件名（如 `DM.blk`），解析失败回退 `待买.blk`
   - `/api/get_stock_pre_pools_list`
   - `/api/get_stock_must_pools_list`
 - `/api/add_to_stock_pools_by_code`
