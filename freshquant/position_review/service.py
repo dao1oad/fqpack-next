@@ -51,8 +51,8 @@ _VERDICT_PRIORITY = {
     "PASS": 2,
     "NOT_APPLICABLE": 1,
 }
-_CANONICAL_TRADE_SOURCE = "execution_history_archive_then_current_xt_om_union"
-_CATALOG_SCOPE = "symbols_with_archived_or_current_executions"
+_CANONICAL_TRADE_SOURCE = "current_xt_trades_and_om_stores_only"
+_CATALOG_SCOPE = "symbols_with_current_executions_or_holdings"
 _INITIAL_POSITION_SOURCE = "derived_from_current_position_and_execution_history"
 _INITIAL_POSITION_ASSUMPTION = (
     "期初仓位按“当前持仓－历史买入＋历史卖出”推导，代表首笔规范成交前的"
@@ -150,7 +150,7 @@ class PositionReviewService:
             "verdict_counts": verdict_counts,
             "data_quality": {
                 "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
-                "canonical_trade_source_label": "历史成交档案 + 当前 XT/OM",
+                "canonical_trade_source_label": "当前 XT/OM 真值",
                 "catalog_scope": _CATALOG_SCOPE,
                 "catalog_snapshot_cache": snapshot,
                 "association_rule": (
@@ -1122,7 +1122,7 @@ class PositionReviewService:
             "reviews": reviews,
             "data_quality": {
                 "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
-                "canonical_trade_source_label": "历史成交档案 + 当前 XT/OM",
+                "canonical_trade_source_label": "当前 XT/OM 真值",
                 "initial_position_quantity": summary["initial_position_quantity"],
                 "initial_position_source": summary["initial_position_source"],
                 "initial_position_formula": (
@@ -1142,7 +1142,6 @@ class PositionReviewService:
                 "canonical_trade_count": len(canonical_trades),
                 "execution_detail_count": len(canonical_trades),
                 "execution_source_precedence": [
-                    "om_execution_history_archive",
                     "xt_trades_current",
                     "om_execution_fills_current",
                 ],

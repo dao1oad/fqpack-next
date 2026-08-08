@@ -56,10 +56,10 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
   - `xt_positions`
 - 券商成交与持仓复盘历史真值
   - 当前快照：`xt_trades`
-  - 持久历史：`om_execution_history_archive`
+  - 持久历史（仅写入侧留存，复盘读模型不读取）：`om_execution_history_archive`
 - 内部执行交叉核对真值
   - 当前 `om_execution_fills / om_trade_facts`
-  - 持久策略与持仓证据：`position_review_evidence_archive`
+  - 持久策略与持仓证据（仅写入侧留存，复盘读模型不读取）：`position_review_evidence_archive`
 - 内部持仓解释真值
   - `om_position_entries`
 
