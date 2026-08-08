@@ -130,20 +130,26 @@ export const buildPortfolioTradeTooltip = (point = {}) => {
   return `<div class="prt">${header}${rows}</div>`
 }
 
-export const buildPortfolioEquityOption = (payload = {}) => {
+export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
   const series = toArray(payload.series)
   if (!series.length) {
     return null
   }
   const period = toText(payload.period) || 'day'
+  const equityMode = mode === 'asset' ? 'asset' : 'net'
   const labels = series.map((item) => formatPeriodTick(item.period_label || item.time, period))
-  const hasNetValue = series.some((item) => (
-    item.net_value != null || item.estimated_equity != null
-  ))
-  const hasTotalAsset = series.some((item) => item.total_equity != null)
-  const netValueSeries = []
-  if (hasNetValue) {
-    netValueSeries.push({
+  const primarySeries = []
+  if (equityMode === 'asset') {
+    primarySeries.push({
+      name: '总资产',
+      type: 'line',
+      showSymbol: false,
+      smooth: false,
+      lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
+      data: series.map((item) => item.total_equity),
+    })
+  } else {
+    primarySeries.push({
       name: '账户净资产',
       type: 'line',
       showSymbol: false,
@@ -154,32 +160,20 @@ export const buildPortfolioEquityOption = (payload = {}) => {
       )),
     })
   }
-  const assetSeries = []
-  if (hasTotalAsset && series.some((item) => {
-    const netValue = toFiniteNumber(item.net_value) ?? toFiniteNumber(item.estimated_equity)
-    return item.total_equity != null && netValue !== null && Math.abs(item.total_equity - netValue) > 0.01
-  })) {
-    assetSeries.push({
-      name: '总资产',
-      type: 'line',
-      showSymbol: false,
-      smooth: false,
-      lineStyle: { color: positionReviewChartColors.text, width: 1.2, type: 'dashed', opacity: 0.7 },
-      data: series.map((item) => item.total_equity),
-    })
-  }
-  const tradeSeriesData = series
-    .map((point, index) => {
-      const trades = toArray(point.trades)
-      if (!trades.length) return null
-      return {
-        value: [index, netValueOf(point)],
-        point,
-        trades,
-        count: trades.length,
-      }
-    })
-    .filter(Boolean)
+  const tradeSeriesData = equityMode === 'net'
+    ? series
+        .map((point, index) => {
+          const trades = toArray(point.trades)
+          if (!trades.length) return null
+          return {
+            value: [index, netValueOf(point)],
+            point,
+            trades,
+            count: trades.length,
+          }
+        })
+        .filter(Boolean)
+    : []
   const tradeSeries = tradeSeriesData.length
     ? [{
         id: 'position-review-portfolio-trades',
@@ -213,8 +207,7 @@ export const buildPortfolioEquityOption = (payload = {}) => {
       top: 4,
       textStyle: { color: positionReviewChartColors.text },
       data: [
-        ...(netValueSeries.length ? ['账户净资产'] : []),
-        ...(assetSeries.length ? ['总资产'] : []),
+        ...(primarySeries.length ? [primarySeries[0].name] : []),
         ...(tradeSeries.length ? ['交易点'] : []),
       ],
     },
@@ -237,7 +230,7 @@ export const buildPortfolioEquityOption = (payload = {}) => {
       },
       splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
     },
-    series: [...netValueSeries, ...assetSeries, ...tradeSeries],
+    series: [...primarySeries, ...tradeSeries],
   }
 }
 

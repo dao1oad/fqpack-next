@@ -18,10 +18,11 @@ const contributions = ref(null)
 const loading = ref(false)
 const error = ref('')
 const equityPeriod = ref('day')
+const equityMode = ref('net')
 
 const normalizedSummary = computed(() => normalizePortfolioSummary(summary.value || {}))
 const normalizedContributions = computed(() => normalizePortfolioContributions(contributions.value || {}))
-const equityOption = computed(() => buildPortfolioEquityOption(series.value || {}))
+const equityOption = computed(() => buildPortfolioEquityOption(series.value || {}, equityMode.value))
 
 const equityBasisLabel = computed(() => {
   const basis = normalizedSummary.value.equityBasis
@@ -29,40 +30,6 @@ const equityBasisLabel = computed(() => {
   if (basis === 'credit_snapshot_reconstructed') return '信用资产快照重建（估算）'
   if (basis === 'estimated') return '估算权益（证据不足）'
   return basis || '—'
-})
-
-const monthlyOption = computed(() => {
-  const monthly = normalizedSummary.value.monthly
-  if (!monthly.length) return null
-  return {
-    backgroundColor: 'transparent',
-    animation: false,
-    tooltip: {
-      trigger: 'axis',
-      valueFormatter: (value) => Number(value).toLocaleString('zh-CN'),
-    },
-    legend: {
-      top: 4,
-      textStyle: { color: '#374151' },
-      data: ['买入', '卖出'],
-    },
-    grid: { left: 60, right: 16, top: 36, bottom: 26 },
-    xAxis: {
-      type: 'category',
-      data: monthly.map((item) => item.month),
-      axisLabel: { color: '#6b7280' },
-      axisLine: { lineStyle: { color: '#d1d5db' } },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#6b7280' },
-      splitLine: { lineStyle: { color: 'rgba(15,23,42,0.08)' } },
-    },
-    series: [
-      { name: '买入', type: 'bar', data: monthly.map((item) => item.buy), itemStyle: { color: '#ef4444' } },
-      { name: '卖出', type: 'bar', data: monthly.map((item) => item.sell), itemStyle: { color: '#22c55e' } },
-    ],
-  }
 })
 
 const verdictOption = computed(() => {
@@ -130,6 +97,10 @@ const switchEquityPeriod = (period) => {
   loadPortfolio()
 }
 
+const switchEquityMode = (mode) => {
+  equityMode.value = mode === 'asset' ? 'asset' : 'net'
+}
+
 const formatKpi = (kpi) => {
   const formatter = positionReviewRefactorFormatters[kpi.kind] || positionReviewRefactorFormatters.amount
   return formatter(kpi.value)
@@ -192,125 +163,143 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
     </section>
 
     <section class="portfolio-overview__hero">
-      <div class="portfolio-overview__panel-head">
-        <div class="portfolio-overview__panel-title">账户净资产曲线（QMT 口径）</div>
-        <div class="portfolio-overview__period-switch">
-          <button
-            v-for="option in [{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]"
-            :key="option.value"
-            type="button"
-            class="portfolio-overview__period-btn"
-            :class="{ 'portfolio-overview__period-btn--active': equityPeriod === option.value }"
-            @click="switchEquityPeriod(option.value)"
-          >
-            {{ option.label }}
-          </button>
+      <div class="portfolio-overview__hero-left">
+        <div class="portfolio-overview__panel-head">
+          <div class="portfolio-overview__panel-title">
+            {{ equityMode === 'asset' ? '账户总资产曲线' : '账户净资产曲线（QMT 口径）' }}
+          </div>
+          <div class="portfolio-overview__mode-switch">
+            <button
+              type="button"
+              class="portfolio-overview__period-btn"
+              :class="{ 'portfolio-overview__period-btn--active': equityMode === 'net' }"
+              @click="switchEquityMode('net')"
+            >
+              净资产
+            </button>
+            <button
+              type="button"
+              class="portfolio-overview__period-btn"
+              :class="{ 'portfolio-overview__period-btn--active': equityMode === 'asset' }"
+              @click="switchEquityMode('asset')"
+            >
+              总资产
+            </button>
+          </div>
         </div>
+        <div class="portfolio-overview__hero-toolbar">
+          <div class="portfolio-overview__period-switch">
+            <button
+              v-for="option in [{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]"
+              :key="option.value"
+              type="button"
+              class="portfolio-overview__period-btn"
+              :class="{ 'portfolio-overview__period-btn--active': equityPeriod === option.value }"
+              @click="switchEquityPeriod(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+          <p class="portfolio-overview__panel-note">
+            {{
+              equityMode === 'asset'
+                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；Y 轴按总资产区间自适应（min/max），波动更明显。'
+                : '净资产 = 总资产 − 总负债；Y 轴从净资产区间内放大（min/max 自适应），波动更明显；交易发生的周期标注交易点。'
+            }}
+          </p>
+        </div>
+        <PositionReviewChart
+          class="portfolio-overview__hero-chart"
+          :option="equityOption || {}"
+          :loading="loading"
+          :empty="!equityOption"
+          empty-text="缺少资产快照，暂无可绘制的曲线"
+        />
       </div>
-      <p class="portfolio-overview__panel-note">
-        净资产 = 总资产 − 总负债；Y 轴从净资产区间内放大（min/max 自适应），使波动更明显；日/周/月聚合取各周期末笔快照，缺失区间不插值；交易发生的周期标注交易点。
-      </p>
-      <PositionReviewChart
-        class="portfolio-overview__hero-chart"
-        :option="equityOption || {}"
-        :loading="loading"
-        :empty="!equityOption"
-        empty-text="缺少资产快照，暂无可绘制的权益曲线"
-      />
-    </section>
 
-    <section class="portfolio-overview__grid">
-      <div class="portfolio-overview__panel">
-        <div class="portfolio-overview__panel-title">月度成交额</div>
-        <PositionReviewChart
-          class="portfolio-overview__panel-chart"
-          :option="monthlyOption || {}"
-          :loading="loading"
-          :empty="!monthlyOption"
-          empty-text="暂无月度成交数据"
-        />
-      </div>
-      <div class="portfolio-overview__panel">
-        <div class="portfolio-overview__panel-title">复盘结论分布</div>
-        <PositionReviewChart
-          class="portfolio-overview__panel-chart"
-          :option="verdictOption || {}"
-          :loading="loading"
-          :empty="!verdictOption"
-          empty-text="暂无复盘结论"
-        />
-      </div>
-      <div class="portfolio-overview__panel portfolio-overview__panel--wide">
-        <div class="portfolio-overview__panel-title">标的贡献 Top {{ normalizedContributions.length || 10 }}</div>
-        <div class="portfolio-overview__table-wrap">
-          <el-table
-            v-if="normalizedContributions.length"
-            :data="normalizedContributions"
-            stripe
-            border
-            height="100%"
-            @row-click="handleContributionClick"
-          >
-            <el-table-column label="标的" min-width="130">
-              <template #default="{ row }">
-                <span class="workbench-code">{{ row.symbol }}</span>
-                <span class="portfolio-overview__symbol-name">{{ row.name }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="86">
-              <template #default="{ row }">
-                <span :class="`position-review-side position-review-side--${row.isHolding ? 'holding' : 'closed'}`">
-                  {{ row.isHolding ? '持仓' : '已清仓' }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column label="市值" min-width="110" align="right">
-              <template #default="{ row }">
-                <span class="workbench-code">{{ positionReviewRefactorFormatters.amount(row.marketValue) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="已实现盈亏" min-width="116" align="right">
-              <template #default="{ row }">
-                <span class="workbench-code" :class="{ 'position-review-delta--anomaly': row.realizedPnl < 0 }">
-                  {{ positionReviewRefactorFormatters.signedAmount(row.realizedPnl) }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column label="浮动盈亏" min-width="116" align="right">
-              <template #default="{ row }">
-                <span class="workbench-code" :class="{ 'position-review-delta--anomaly': row.floatingPnl < 0 }">
-                  {{ positionReviewRefactorFormatters.signedAmount(row.floatingPnl) }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column label="合计盈亏" min-width="116" align="right">
-              <template #default="{ row }">
-                <strong
-                  class="workbench-code"
-                  :class="{ 'position-review-delta--anomaly': row.totalPnl < 0 }"
-                >
-                  {{ positionReviewRefactorFormatters.signedAmount(row.totalPnl) }}
-                </strong>
-              </template>
-            </el-table-column>
-            <el-table-column label="成本口径" min-width="140">
-              <template #default="{ row }">
-                <span class="portfolio-overview__badge">
-                  {{
-                    row.costBasisSource === 'entry_slice_allocation'
-                      ? '账本'
-                      : row.costBasisSource === 'estimated_moving_average'
-                        ? '估算'
-                        : row.costBasisSource === 'broker_snapshot_estimate'
-                          ? '券商均价估算'
-                          : '—'
-                  }}
-                </span>
-              </template>
-            </el-table-column>
-          </el-table>
-          <div v-else class="workbench-empty">
-            <el-empty description="暂无标的贡献数据" :image-size="72" />
+      <div class="portfolio-overview__hero-right">
+        <div class="portfolio-overview__panel portfolio-overview__panel--shrink">
+          <div class="portfolio-overview__panel-title">复盘结论分布</div>
+          <PositionReviewChart
+            class="portfolio-overview__panel-chart portfolio-overview__verdict-chart"
+            :option="verdictOption || {}"
+            :loading="loading"
+            :empty="!verdictOption"
+            empty-text="暂无复盘结论"
+          />
+        </div>
+        <div class="portfolio-overview__panel portfolio-overview__panel--grow">
+          <div class="portfolio-overview__panel-title">标的贡献 Top {{ normalizedContributions.length || 10 }}</div>
+          <div class="portfolio-overview__table-wrap">
+            <el-table
+              v-if="normalizedContributions.length"
+              :data="normalizedContributions"
+              stripe
+              border
+              height="100%"
+              @row-click="handleContributionClick"
+            >
+              <el-table-column label="标的" min-width="120">
+                <template #default="{ row }">
+                  <span class="workbench-code">{{ row.symbol }}</span>
+                  <span class="portfolio-overview__symbol-name">{{ row.name }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="76">
+                <template #default="{ row }">
+                  <span :class="`position-review-side position-review-side--${row.isHolding ? 'holding' : 'closed'}`">
+                    {{ row.isHolding ? '持仓' : '已清仓' }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="市值" min-width="104" align="right">
+                <template #default="{ row }">
+                  <span class="workbench-code">{{ positionReviewRefactorFormatters.amount(row.marketValue) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="已实现盈亏" min-width="104" align="right">
+                <template #default="{ row }">
+                  <span class="workbench-code" :class="{ 'position-review-delta--anomaly': row.realizedPnl < 0 }">
+                    {{ positionReviewRefactorFormatters.signedAmount(row.realizedPnl) }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="浮动盈亏" min-width="104" align="right">
+                <template #default="{ row }">
+                  <span class="workbench-code" :class="{ 'position-review-delta--anomaly': row.floatingPnl < 0 }">
+                    {{ positionReviewRefactorFormatters.signedAmount(row.floatingPnl) }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="合计盈亏" min-width="104" align="right">
+                <template #default="{ row }">
+                  <strong
+                    class="workbench-code"
+                    :class="{ 'position-review-delta--anomaly': row.totalPnl < 0 }"
+                  >
+                    {{ positionReviewRefactorFormatters.signedAmount(row.totalPnl) }}
+                  </strong>
+                </template>
+              </el-table-column>
+              <el-table-column label="成本口径" min-width="118">
+                <template #default="{ row }">
+                  <span class="portfolio-overview__badge">
+                    {{
+                      row.costBasisSource === 'entry_slice_allocation'
+                        ? '账本'
+                        : row.costBasisSource === 'estimated_moving_average'
+                          ? '估算'
+                          : row.costBasisSource === 'broker_snapshot_estimate'
+                            ? '券商均价估算'
+                            : '—'
+                    }}
+                  </span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div v-else class="workbench-empty">
+              <el-empty description="暂无标的贡献数据" :image-size="72" />
+            </div>
           </div>
         </div>
       </div>
@@ -383,19 +372,13 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   color: #92400e;
 }
 
-.portfolio-overview__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  min-height: 0;
-}
-
 .portfolio-overview__hero {
   display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 360px;
+  flex: 1 1 auto;
+  flex-direction: row;
+  gap: 12px;
+  min-height: 0;
+  min-width: 0;
   padding: 14px 16px;
   border-radius: 12px;
   background: #ffffff;
@@ -403,9 +386,56 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
 }
 
+.portfolio-overview__hero-left {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.portfolio-overview__hero-right {
+  display: flex;
+  flex: 0 0 560px;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.portfolio-overview__hero-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .portfolio-overview__hero-chart {
   flex: 1 1 auto;
-  min-height: 300px;
+  min-height: 0;
+}
+
+.portfolio-overview__mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+
+.portfolio-overview__panel--grow {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.portfolio-overview__panel--shrink {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.portfolio-overview__verdict-chart {
+  min-height: 120px;
 }
 
 .portfolio-overview__panel {
@@ -418,10 +448,6 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   background: #ffffff;
   border: 1px solid #e5e7eb;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-
-.portfolio-overview__panel--wide {
-  grid-column: span 2;
 }
 
 .portfolio-overview__panel-title {
