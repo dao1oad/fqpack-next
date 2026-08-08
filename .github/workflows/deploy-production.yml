@@ -13,7 +13,14 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, windows, production]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [prod-101, prod-100, prod-116]
+    runs-on:
+      - self-hosted
+      - windows
+      - ${{ matrix.runner }}
     env:
       FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23
       FQ_DOCKER_FORCE_LOCAL_BUILD: "1"
