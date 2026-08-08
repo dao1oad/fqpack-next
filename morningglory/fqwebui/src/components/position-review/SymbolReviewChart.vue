@@ -160,8 +160,9 @@ defineExpose({ reload: () => loadChart({ force: true }) })
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #d1d5db;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
   font-size: 12px;
   line-height: 18px;
 }
@@ -173,7 +174,7 @@ defineExpose({ reload: () => loadChart({ force: true }) })
 
 .symbol-review-chart__hint {
   margin: 0;
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 12px;
   line-height: 16px;
 }

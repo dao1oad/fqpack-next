@@ -42,12 +42,12 @@ export const positionReviewChartColors = Object.freeze({
   buy: '#ef4444',
   sell: '#22c55e',
   cost: '#f59e0b',
-  equity: '#60a5fa',
+  equity: '#2563eb',
   estimated: '#f59e0b',
   up: '#ef232a',
   down: '#14b143',
-  grid: 'rgba(255,255,255,0.08)',
-  text: '#d1d5db',
+  grid: 'rgba(15,23,42,0.08)',
+  text: '#606266',
 })
 
 export const normalizePortfolioSummary = (payload = {}) => {
@@ -222,13 +222,13 @@ export const buildPortfolioEquityOption = (payload = {}) => {
     xAxis: {
       type: 'category',
       data: labels,
-      axisLabel: { color: '#9ca3af' },
-      axisLine: { lineStyle: { color: '#4b5563' } },
+      axisLabel: { color: '#6b7280' },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
     },
     yAxis: {
       type: 'value',
       scale: true,
-      axisLabel: { color: '#9ca3af' },
+      axisLabel: { color: '#6b7280' },
       splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
     },
     series: [...netValueSeries, ...assetSeries, ...tradeSeries],
@@ -397,7 +397,7 @@ export const buildSymbolReviewChartOption = ({
             if (params?.data?.mark) return '!'
             return params?.data?.sideText || ''
           },
-          color: '#f3f4f6',
+          color: '#1f2937',
           fontSize: 9,
           fontWeight: 'bold',
         },
@@ -487,7 +487,7 @@ export const buildSymbolReviewChartOption = ({
       text: `${toText(normalized.symbol.code)} ${toText(normalized.symbol.name)}`.trim(),
       left: 8,
       top: 6,
-      textStyle: { color: '#f3f4f6', fontSize: 14, fontWeight: 'normal' },
+      textStyle: { color: '#1f2937', fontSize: 14, fontWeight: 'normal' },
     },
     tooltip: {
       trigger: 'item',
@@ -497,7 +497,7 @@ export const buildSymbolReviewChartOption = ({
     legend: {
       top: 8,
       right: 12,
-      textStyle: { color: '#d1d5db' },
+      textStyle: { color: '#374151' },
       data: [
         ...(markerSeries.length ? ['订单成交'] : []),
         ...(costSeries.length ? ['持仓均价'] : []),
@@ -507,13 +507,13 @@ export const buildSymbolReviewChartOption = ({
     xAxis: {
       type: 'category',
       data: bars.map((bar) => bar.label),
-      axisLabel: { color: '#9ca3af' },
-      axisLine: { lineStyle: { color: '#4b5563' } },
+      axisLabel: { color: '#6b7280' },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
     },
     yAxis: {
       type: 'value',
       scale: true,
-      axisLabel: { color: '#9ca3af' },
+      axisLabel: { color: '#6b7280' },
       splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
     },
     dataZoom: [
@@ -632,7 +632,7 @@ export const buildSymbolCostChartOption = ({
             if (params?.data?.rebuilt) return '账'
             return params?.data?.sideText || ''
           },
-          color: '#f3f4f6',
+          color: '#1f2937',
           fontSize: 9,
           fontWeight: 'bold',
         },
@@ -692,7 +692,7 @@ export const buildSymbolCostChartOption = ({
         label: {
           show: true,
           position: 'insideTop',
-          color: '#9ca3af',
+          color: '#6b7280',
           fontSize: 9,
           formatter: `持仓周期 ${startIndex === endIndex ? startIndex + 1 : `${startIndex + 1}–${endIndex + 1}`}`,
         },
@@ -742,7 +742,7 @@ export const buildSymbolCostChartOption = ({
       text: `${toText(normalized.symbol.code)} ${toText(normalized.symbol.name)}`.trim(),
       left: 8,
       top: 6,
-      textStyle: { color: '#f3f4f6', fontSize: 14, fontWeight: 'normal' },
+      textStyle: { color: '#1f2937', fontSize: 14, fontWeight: 'normal' },
     },
     tooltip: {
       trigger: 'item',
@@ -752,7 +752,7 @@ export const buildSymbolCostChartOption = ({
     legend: {
       top: 8,
       right: 12,
-      textStyle: { color: '#d1d5db' },
+      textStyle: { color: '#374151' },
       data: [
         ...(costLineSeries.length ? ['持仓成本价'] : []),
         ...(markerSeries.length ? ['订单事件'] : []),
@@ -762,16 +762,16 @@ export const buildSymbolCostChartOption = ({
     xAxis: {
       type: 'category',
       data: times,
-      axisLabel: { color: '#9ca3af' },
-      axisLine: { lineStyle: { color: '#4b5563' } },
+      axisLabel: { color: '#6b7280' },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
     },
     yAxis: {
       type: 'value',
       scale: true,
-      axisLabel: { color: '#9ca3af', formatter: (value) => Number(value).toFixed(2) },
+      axisLabel: { color: '#6b7280', formatter: (value) => Number(value).toFixed(2) },
       splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
       name: '成本价',
-      nameTextStyle: { color: '#9ca3af' },
+      nameTextStyle: { color: '#6b7280' },
     },
     dataZoom: [
       { type: 'inside', xAxisIndex: 0, start: 0, end: 100 },
