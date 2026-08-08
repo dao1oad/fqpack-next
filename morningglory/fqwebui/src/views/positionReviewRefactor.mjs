@@ -228,7 +228,13 @@ export const buildPortfolioEquityOption = (payload = {}) => {
     yAxis: {
       type: 'value',
       scale: true,
-      axisLabel: { color: '#6b7280' },
+      min: 'dataMin',
+      max: 'dataMax',
+      splitNumber: 6,
+      axisLabel: {
+        color: '#6b7280',
+        formatter: (value) => `${(Number(value) / 10000).toFixed(2)}万`,
+      },
       splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
     },
     series: [...netValueSeries, ...assetSeries, ...tradeSeries],

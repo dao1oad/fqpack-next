@@ -218,13 +218,56 @@ test('normalizePositionReviewDetail reconstructs the full April 29 review contra
         request_id: 'req-first',
         time: '2026-04-29T10:14:00+08:00',
         side: 'sell',
+        signal: {
+          type: 'sell_takeprofit',
+          family: 'takeprofit',
+          label: '止盈卖点',
+          price: 22.41,
+          time: '2026-04-29T10:14:00+08:00',
+        },
         request: { price: 22.41, quantity: 2300 },
         expected: {
           quantity: 2300,
           threshold_price: 21.5332,
+          threshold_mode: 'percent',
+          threshold_ratio: 1.0097,
+          raw_quantity: 2300,
+          can_use_volume: 2300,
+          per_slice_thresholds: [
+            { entry_slice_id: 'slice-apr23', threshold_price: 21.5332 },
+          ],
           lowest_guardian_price: 21.32,
           formula: 'floor100(min(2300, 29100))',
           source_entries: [{ entry_id: 'entry-apr23', quantity: 2300 }],
+        },
+        conditions: {
+          count: 4,
+          passed_count: 4,
+          failed_count: 0,
+          missing_count: 0,
+          condition_snapshot_status: 'complete',
+          conditions: [
+            {
+              condition_key: 'signal_price_above_threshold',
+              label: '触发价格 >= 历史阈值',
+              actual_display: '22.41',
+              operator: '>=',
+              threshold_value: 21.5332,
+              threshold_display: '21.5332',
+              passed: true,
+              source: 'runtime_event',
+            },
+            {
+              condition_key: 'sellable_volume_cap',
+              label: '可卖数量上限',
+              actual_display: '2300',
+              operator: '<=',
+              threshold_value: 2300,
+              threshold_display: '2300',
+              passed: true,
+              source: 'request_snapshot',
+            },
+          ],
         },
         actual: {
           filled_quantity: 2300,
@@ -273,6 +316,20 @@ test('normalizePositionReviewDetail reconstructs the full April 29 review contra
   assert.equal(detail.reviews[1].actualQuantity, 4500)
   assert.equal(detail.reviews[1].quantityDelta, 4500)
   assert.equal(detail.reviews[1].thresholdPrice, 22.6341)
+  const first = detail.reviews[0]
+  assert.equal(first.signal.label, '止盈卖点')
+  assert.equal(first.signal.type, 'sell_takeprofit')
+  assert.equal(first.thresholdMode, 'percent')
+  assert.equal(first.thresholdRatio, 1.0097)
+  assert.equal(first.rawQuantity, 2300)
+  assert.equal(first.canUseVolume, 2300)
+  assert.equal(first.perSliceThresholds.length, 1)
+  assert.equal(first.conditions.length, 2)
+  assert.equal(first.conditionPassedCount, 4)
+  assert.equal(first.conditionFailedCount, 0)
+  assert.equal(first.conditionSnapshotStatus, 'complete')
+  assert.equal(first.conditions[0].thresholdMissing, false)
+  assert.equal(first.conditions[0].passed, true)
   assert.equal(detail.counts.COMPLIANT, 14)
   assert.equal(detail.counts.ANOMALY, 1)
   assert.equal(detail.monthlyActivity[0].month, '2026-04')

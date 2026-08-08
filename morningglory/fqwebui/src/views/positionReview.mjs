@@ -521,6 +521,25 @@ const normalizeReviewRow = (review = {}, index = 0) => {
   const rawFormula = toText(pickFirst(expected.formula, review.formula))
   const evidence = review.evidence && typeof review.evidence === 'object' ? review.evidence : {}
   const sourceEntries = toArray(expected.source_entries || expected.entries || review.source_entries)
+  const signal = review.signal && typeof review.signal === 'object' ? review.signal : {}
+  const conditionsPayload = (
+    review.conditions && typeof review.conditions === 'object'
+      ? review.conditions
+      : {}
+  )
+  const conditions = toArray(conditionsPayload.conditions).map((condition) => ({
+    key: toText(condition.condition_key || condition.key),
+    label: toText(condition.label || condition.condition_key),
+    actualDisplay: toText(condition.actual_display),
+    operator: toText(condition.operator),
+    thresholdDisplay: toText(condition.threshold_display),
+    thresholdMissing: condition.threshold_value === null || condition.threshold_value === undefined,
+    passed: condition.passed,
+    source: toText(condition.source),
+  }))
+  const conditionPassedCount = toInteger(conditionsPayload.passed_count, conditions.filter((item) => item.passed === true).length)
+  const conditionFailedCount = toInteger(conditionsPayload.failed_count, conditions.filter((item) => item.passed === false).length)
+  const conditionMissingCount = toInteger(conditionsPayload.missing_count, conditions.filter((item) => item.passed === null).length)
 
   return {
     ...review,
@@ -545,11 +564,35 @@ const normalizeReviewRow = (review = {}, index = 0) => {
       expected.top_river_price,
       review.threshold_price,
     )),
+    thresholdMode: toText(expected.threshold_mode),
+    thresholdRatio: toFiniteNumber(expected.threshold_ratio),
+    thresholdDelta: toFiniteNumber(expected.threshold_delta),
+    rawQuantity: toNullableInteger(expected.raw_quantity),
+    canUseVolume: toNullableInteger(expected.can_use_volume),
+    tracedRawQuantity: toNullableInteger(expected.traced_raw_quantity),
+    perSliceThresholds: toArray(expected.per_slice_thresholds),
     lowestGuardianPrice: toFiniteNumber(pickFirst(
       expected.lowest_guardian_price,
       expected.guardian_price,
       review.lowest_guardian_price,
     )),
+    signal: {
+      type: toText(signal.type),
+      family: toText(signal.family),
+      label: toText(signal.label),
+      side: toText(signal.side),
+      price: toFiniteNumber(signal.price),
+      quantity: toNullableInteger(signal.quantity),
+      time: toText(signal.time),
+      strategy: toText(signal.strategy),
+      remark: toText(signal.remark),
+    },
+    conditions,
+    conditionPassedCount,
+    conditionFailedCount,
+    conditionMissingCount,
+    conditionSnapshotStatus: toText(conditionsPayload.condition_snapshot_status),
+    conditionExpression: toText(conditionsPayload.expression),
     formula: formulaLabel(rawFormula),
     rawFormula,
     actualPrice: toFiniteNumber(pickFirst(

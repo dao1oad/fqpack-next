@@ -1024,6 +1024,50 @@ def test_get_symbol_chart_contract_has_markers_fills_and_registry():
     assert buy["conditions"]["condition_snapshot_status"] == "complete"
 
 
+def test_symbol_detail_review_attaches_signal_and_condition_process():
+    """逐单复盘行应带信号摘要与完整条件判断（阈值/价格/数量）。"""
+
+    service = PositionReviewService(
+        repository=FakeBuySellRepository(),
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    detail = service.get_symbol_detail("002262")
+    by_request = {item["request_id"]: item for item in detail["reviews"]}
+    buy = by_request["buy_req"]
+    assert buy["signal"] is not None
+    assert buy["signal"]["type"] == "buy_v_reverse"
+    assert buy["signal"]["side"] == "buy"
+    assert buy["conditions"]["count"] >= 1
+    assert buy["conditions"]["condition_snapshot_status"] in {
+        "complete",
+        "partial",
+        "missing",
+    }
+    keys = {item["condition_key"] for item in buy["conditions"]["conditions"]}
+    assert "expected_quantity_achieved" in keys
+    threshold_condition = next(
+        item
+        for item in buy["conditions"]["conditions"]
+        if item["condition_key"] == "expected_quantity_achieved"
+    )
+    assert threshold_condition["threshold_value"] == 10000
+
+    sell = by_request["sell_req"]
+    assert sell["conditions"]["count"] >= 1
+    sell_keys = {item["condition_key"] for item in sell["conditions"]["conditions"]}
+    assert "signal_price_above_threshold" in sell_keys
+    sell_threshold = next(
+        item
+        for item in sell["conditions"]["conditions"]
+        if item["condition_key"] == "signal_price_above_threshold"
+    )
+    assert sell_threshold["actual_value"] == 10.35
+    # 该 fixture 缺少历史阈值证据 → 保持 null（不伪造阈值判断）。
+    assert sell_threshold["threshold_value"] is None
+    assert sell_threshold["passed"] is None
+
+
 def test_get_symbol_chart_include_unfilled_filters_empty_orders():
     service = PositionReviewService(
         repository=FakeBuySellRepository(),
