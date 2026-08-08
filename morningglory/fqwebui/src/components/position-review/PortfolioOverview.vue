@@ -43,20 +43,20 @@ const monthlyOption = computed(() => {
     },
     legend: {
       top: 4,
-      textStyle: { color: '#d1d5db' },
+      textStyle: { color: '#374151' },
       data: ['买入', '卖出'],
     },
     grid: { left: 60, right: 16, top: 36, bottom: 26 },
     xAxis: {
       type: 'category',
       data: monthly.map((item) => item.month),
-      axisLabel: { color: '#9ca3af' },
-      axisLine: { lineStyle: { color: '#4b5563' } },
+      axisLabel: { color: '#6b7280' },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: '#9ca3af' },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      axisLabel: { color: '#6b7280' },
+      splitLine: { lineStyle: { color: 'rgba(15,23,42,0.08)' } },
     },
     series: [
       { name: '买入', type: 'bar', data: monthly.map((item) => item.buy), itemStyle: { color: '#ef4444' } },
@@ -80,7 +80,7 @@ const verdictOption = computed(() => {
     tooltip: { trigger: 'item' },
     legend: {
       bottom: 0,
-      textStyle: { color: '#d1d5db' },
+      textStyle: { color: '#374151' },
       formatter: (name) => ({
         PASS: 'PASS 合规',
         FAIL: 'FAIL 偏离',
@@ -322,6 +322,7 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100%;
   min-height: 0;
 }
 
@@ -337,23 +338,24 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   gap: 4px;
   padding: 12px 14px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .portfolio-overview__kpi-label {
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 12px;
 }
 
 .portfolio-overview__kpi-value {
-  color: #f3f4f6;
-  font-size: 18px;
+  color: #111827;
+  font-size: 20px;
   font-weight: 600;
 }
 
 .portfolio-overview__kpi--signed .portfolio-overview__kpi-value {
-  color: #93c5fd;
+  color: #1d4ed8;
 }
 
 .portfolio-overview__quality {
@@ -367,15 +369,17 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #d1d5db;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
   font-size: 12px;
   line-height: 18px;
 }
 
 .portfolio-overview__badge--warning {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
 }
 
 .portfolio-overview__grid {
@@ -392,8 +396,9 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   min-height: 220px;
   padding: 12px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .portfolio-overview__panel--wide {
@@ -401,7 +406,7 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
 }
 
 .portfolio-overview__panel-title {
-  color: #e5e7eb;
+  color: #1f2937;
   font-size: 13px;
   font-weight: 600;
 }
@@ -418,7 +423,7 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: #f1f5f9;
 }
 
 .portfolio-overview__period-btn {
@@ -427,25 +432,25 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #9ca3af;
+  color: #64748b;
   font-size: 12px;
   line-height: 16px;
   cursor: pointer;
 }
 
 .portfolio-overview__period-btn:hover {
-  color: #e5e7eb;
+  color: #0f172a;
 }
 
 .portfolio-overview__period-btn--active {
-  background: rgba(96, 165, 250, 0.22);
-  color: #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
   font-weight: 600;
 }
 
 .portfolio-overview__panel-note {
   margin: 0;
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 12px;
   line-height: 16px;
 }
@@ -463,7 +468,7 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
 
 .portfolio-overview__symbol-name {
   margin-left: 6px;
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 12px;
 }
 </style>

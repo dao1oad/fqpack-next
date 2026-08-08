@@ -187,27 +187,20 @@
             show-icon
           />
 
-          <section class="position-review-section position-review-portfolio-section">
-            <div class="position-review-section__head">
-              <div class="workbench-panel__title">组合总览</div>
-              <p class="workbench-panel__desc">
-                与左侧持仓列表联动：账户净资产曲线（QMT 口径：净资产 = 总资产 − 总负债；日/周/月可切换，交易发生的周期标注交易点）、月度成交额、复盘结论与标的贡献。
-              </p>
-            </div>
-            <PortfolioOverview @drill-symbol="drillToSymbol" />
-          </section>
-
-          <section
-            ref="symbolSectionRef"
-            class="position-review-section position-review-symbol-section"
+          <el-tabs
+            v-model="activeWorkbenchTab"
+            class="position-review-tabs"
+            type="border-card"
           >
-            <div class="position-review-section__head">
-              <div class="workbench-panel__title">标的复盘</div>
-              <p class="workbench-panel__desc">
-                成本价曲线（Y 轴 = 持仓成本价，X 轴从首个持仓/订单点开始）与订单证据；点击左侧持仓列表或贡献表行联动到对应标的。
-              </p>
-            </div>
-            <div class="position-review-symbol-grid">
+            <el-tab-pane label="组合总览" name="portfolio">
+              <div class="position-review-portfolio-tab">
+                <PortfolioOverview @drill-symbol="drillToSymbol" />
+              </div>
+            </el-tab-pane>
+
+            <el-tab-pane label="标的复盘" name="symbol">
+              <div class="position-review-symbol-tab">
+              <div class="position-review-symbol-grid">
               <div class="position-review-center">
           <WorkbenchDetailPanel
             class="position-review-subject-panel"
@@ -300,111 +293,6 @@
             v-model="ledgerCollapse"
             class="position-review-ledger-collapse"
           >
-            <el-collapse-item name="ledger-executions" title="订单成交明细">
-          <WorkbenchLedgerPanel
-            v-if="selectedDetail"
-            class="position-review-ledger-panel"
-          >
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">订单成交明细</div>
-                <p class="workbench-panel__desc">
-                  只展示与当前订单账本关联的真实成交（{{ selectedDetail.dataQuality.canonicalTradeSourceLabel }}）；账本重建初始化订单为虚拟订单，尚无真实成交，后续真实订单的成交将在此展示。
-                </p>
-              </div>
-              <div class="workbench-panel__meta position-review-ledger-counts">
-                <span>共 {{ selectedDetail.executions.length }} 笔</span>
-                <StatusChip
-                  v-if="selectedDetail.unassociatedExecutionCount"
-                  variant="danger"
-                >
-                  未关联 {{ selectedDetail.unassociatedExecutionCount }} 笔
-                </StatusChip>
-              </div>
-            </div>
-
-            <div class="workbench-table-wrap position-review-table-wrap">
-              <el-table
-                v-if="selectedDetail.executions.length"
-                :data="selectedDetail.executions"
-                row-key="id"
-                stripe
-                border
-                height="100%"
-                highlight-current-row
-                :row-class-name="executionRowClassName"
-                @row-click="openExecutionDrawer"
-              >
-                <el-table-column label="成交时间" min-width="168">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ row.timeLabel }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="方向" width="72" align="center">
-                  <template #default="{ row }">
-                    <span :class="`position-review-side position-review-side--${row.side}`">
-                      {{ row.sideLabel }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="成交价" min-width="96" align="right">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ formatPrice(row.price) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="成交量" min-width="92" align="right">
-                  <template #default="{ row }">
-                    <strong class="workbench-code">{{ formatInteger(row.quantity) }}</strong>
-                  </template>
-                </el-table-column>
-                <el-table-column label="成交 ID" min-width="188">
-                  <template #default="{ row }">
-                    <span
-                      class="workbench-code position-review-ellipsis"
-                      :title="row.brokerTradeId"
-                    >
-                      {{ row.brokerTradeId || '—' }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="关联请求" min-width="188">
-                  <template #default="{ row }">
-                    <span
-                      v-if="row.isAssociated"
-                      class="workbench-code position-review-ellipsis"
-                      :title="row.requestId"
-                    >
-                      {{ row.requestId }}
-                    </span>
-                    <StatusChip v-else class="position-review-inline-chip" variant="danger">
-                      未关联
-                    </StatusChip>
-                  </template>
-                </el-table-column>
-                <el-table-column label="关联质量" min-width="116">
-                  <template #default="{ row }">
-                    <StatusChip
-                      class="position-review-inline-chip"
-                      :variant="row.associationChipVariant"
-                    >
-                      {{ row.associationLabel }}
-                    </StatusChip>
-                  </template>
-                </el-table-column>
-                <el-table-column label="关联方式" min-width="136">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ row.associationMethod || '—' }}</span>
-                  </template>
-                </el-table-column>
-              </el-table>
-
-              <div v-else class="workbench-empty">
-                <el-empty description="当前为账本重建初始化订单（虚拟），暂无真实成交；后续真实订单的成交将在此展示。" :image-size="72" />
-              </div>
-            </div>
-          </WorkbenchLedgerPanel>
-            </el-collapse-item>
-
             <el-collapse-item name="ledger-reviews" title="逐单策略复盘">
           <WorkbenchLedgerPanel
             v-if="selectedDetail"
@@ -508,6 +396,110 @@
 
               <div v-else class="workbench-empty">
                 <el-empty description="当前标的没有策略请求复盘记录" :image-size="72" />
+              </div>
+            </div>
+          </WorkbenchLedgerPanel>
+            </el-collapse-item>
+            <el-collapse-item name="ledger-executions" title="订单成交明细">
+          <WorkbenchLedgerPanel
+            v-if="selectedDetail"
+            class="position-review-ledger-panel"
+          >
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">订单成交明细</div>
+                <p class="workbench-panel__desc">
+                  只展示与当前订单账本关联的真实成交（{{ selectedDetail.dataQuality.canonicalTradeSourceLabel }}）；账本重建初始化订单为虚拟订单，尚无真实成交，后续真实订单的成交将在此展示。
+                </p>
+              </div>
+              <div class="workbench-panel__meta position-review-ledger-counts">
+                <span>共 {{ selectedDetail.executions.length }} 笔</span>
+                <StatusChip
+                  v-if="selectedDetail.unassociatedExecutionCount"
+                  variant="danger"
+                >
+                  未关联 {{ selectedDetail.unassociatedExecutionCount }} 笔
+                </StatusChip>
+              </div>
+            </div>
+
+            <div class="workbench-table-wrap position-review-table-wrap">
+              <el-table
+                v-if="selectedDetail.executions.length"
+                :data="selectedDetail.executions"
+                row-key="id"
+                stripe
+                border
+                height="100%"
+                highlight-current-row
+                :row-class-name="executionRowClassName"
+                @row-click="openExecutionDrawer"
+              >
+                <el-table-column label="成交时间" min-width="168">
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ row.timeLabel }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="方向" width="72" align="center">
+                  <template #default="{ row }">
+                    <span :class="`position-review-side position-review-side--${row.side}`">
+                      {{ row.sideLabel }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="成交价" min-width="96" align="right">
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ formatPrice(row.price) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="成交量" min-width="92" align="right">
+                  <template #default="{ row }">
+                    <strong class="workbench-code">{{ formatInteger(row.quantity) }}</strong>
+                  </template>
+                </el-table-column>
+                <el-table-column label="成交 ID" min-width="188">
+                  <template #default="{ row }">
+                    <span
+                      class="workbench-code position-review-ellipsis"
+                      :title="row.brokerTradeId"
+                    >
+                      {{ row.brokerTradeId || '—' }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="关联请求" min-width="188">
+                  <template #default="{ row }">
+                    <span
+                      v-if="row.isAssociated"
+                      class="workbench-code position-review-ellipsis"
+                      :title="row.requestId"
+                    >
+                      {{ row.requestId }}
+                    </span>
+                    <StatusChip v-else class="position-review-inline-chip" variant="danger">
+                      未关联
+                    </StatusChip>
+                  </template>
+                </el-table-column>
+                <el-table-column label="关联质量" min-width="116">
+                  <template #default="{ row }">
+                    <StatusChip
+                      class="position-review-inline-chip"
+                      :variant="row.associationChipVariant"
+                    >
+                      {{ row.associationLabel }}
+                    </StatusChip>
+                  </template>
+                </el-table-column>
+                <el-table-column label="关联方式" min-width="136">
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ row.associationMethod || '—' }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <div v-else class="workbench-empty">
+                <el-empty description="当前为账本重建初始化订单（虚拟），暂无真实成交；后续真实订单的成交将在此展示。" :image-size="72" />
               </div>
             </div>
           </WorkbenchLedgerPanel>
@@ -893,7 +885,9 @@
           </div>
         </WorkbenchDetailPanel>
         </div>
-        </section>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
       </div>
     </div>
 
@@ -970,7 +964,7 @@ const summary = ref(normalizePositionReviewSummary({}))
 const symbolResult = ref(normalizePositionReviewSymbolRows({ rows: [], total: 0, page: 1, size: 100 }))
 const selectedSymbol = ref('')
 const selectedDetail = ref(null)
-const symbolSectionRef = ref(null)
+const activeWorkbenchTab = ref('portfolio')
 const activeReview = ref(null)
 const activeExecution = ref(null)
 const activeFixedEvent = ref(null)
@@ -1092,10 +1086,8 @@ const errorMessage = (fallback, error) => {
 const drillToSymbol = (symbol) => {
   const normalized = String(symbol || '').trim()
   if (!normalized) return
+  activeWorkbenchTab.value = 'symbol'
   selectSymbol(normalized)
-  nextTick(() => {
-    symbolSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  })
 }
 
 const openFixedEvent = async (event) => {
@@ -1234,8 +1226,12 @@ const loadInitialData = async () => {
 
 const selectSymbol = async (symbol) => {
   const normalizedSymbol = String(symbol || '').trim()
-  if (!normalizedSymbol || normalizedSymbol === selectedSymbol.value) return
+  if (!normalizedSymbol) return
+  if (normalizedSymbol === selectedSymbol.value && activeWorkbenchTab.value === 'symbol') {
+    return
+  }
   selectedSymbol.value = normalizedSymbol
+  activeWorkbenchTab.value = 'symbol'
   activeReview.value = null
   activeExecution.value = null
   activeFixedEvent.value = null
@@ -1371,40 +1367,44 @@ onMounted(async () => {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: var(--fq-space-3);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-review-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--fq-panel-bg);
+}
+
+.position-review-tabs :deep(.el-tabs__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--fq-space-3);
+}
+
+.position-review-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+
+.position-review-portfolio-tab {
+  height: 100%;
   min-height: 0;
   overflow-y: auto;
   padding-right: 3px;
   scrollbar-gutter: stable;
 }
 
-.position-review-section {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: var(--fq-space-3);
-  min-width: 0;
-}
-
-.position-review-section__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.position-review-section__head .workbench-panel__title {
-  flex: 0 0 auto;
-}
-
-.position-review-section__head p {
-  margin: 0;
-  color: #9ca3af;
-  font-size: 12px;
-  line-height: 1.55;
+.position-review-symbol-tab {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .position-review-symbol-grid {
@@ -1414,6 +1414,8 @@ onMounted(async () => {
   align-items: stretch;
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .position-review-error-stack {
@@ -1576,16 +1578,17 @@ onMounted(async () => {
 
 .position-review-ledger-collapse {
   flex: 0 0 auto;
-  max-height: 34%;
+  height: 38%;
+  min-height: 220px;
   overflow: auto;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--fq-border-soft);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--fq-panel-bg);
 }
 
 .position-review-ledger-collapse :deep(.el-collapse-item__header) {
   background: transparent;
-  color: #e5e7eb;
+  color: var(--fq-text-primary);
   font-weight: 600;
   padding-left: 12px;
 }
@@ -1777,6 +1780,16 @@ onMounted(async () => {
     display: flex;
     flex: 0 0 auto;
     flex-direction: column;
+    overflow: visible;
+  }
+
+  .position-review-tabs {
+    overflow: visible;
+  }
+
+  .position-review-tabs :deep(.el-tabs__content),
+  .position-review-symbol-tab,
+  .position-review-portfolio-tab {
     overflow: visible;
   }
 
