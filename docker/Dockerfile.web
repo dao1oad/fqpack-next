@@ -5,8 +5,12 @@ ARG FQ_IMAGE_GIT_SHA=unknown
 LABEL org.opencontainers.image.revision="${FQ_IMAGE_GIT_SHA}"
 LABEL io.freshquant.git_sha="${FQ_IMAGE_GIT_SHA}"
 
-RUN npm config set registry https://registry.npmmirror.com
-RUN npm install -g pnpm
+# 依赖下载首选国内镜像；网络抖动导致下载失败时自动回退官方 registry，
+# 避免单点 registry 不稳定阻塞前端镜像构建。lockfile v9 不绑定 registry 域名，
+# 切换 registry 不会破坏依赖锁定。
+RUN npm config set registry https://registry.npmmirror.com && \
+    (npm install -g pnpm || (npm config set registry https://registry.npmjs.org && npm install -g pnpm)) && \
+    pnpm config set registry "$(npm config get registry)"
 
 RUN pnpm config set fetch-retries 5 && \
     pnpm config set fetch-retry-mintimeout 20000 && \
@@ -14,7 +18,9 @@ RUN pnpm config set fetch-retries 5 && \
 
 WORKDIR /fqwebui
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm install --prefer-offline --fetch-timeout 100000 --loglevel warn
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --prefer-offline --fetch-timeout 100000 --loglevel warn || \
+    pnpm install --registry https://registry.npmjs.org --fetch-timeout 120000 --loglevel warn
 
 COPY .browserslistrc jsconfig.json index.html vite.config.js ./
 COPY public ./public
