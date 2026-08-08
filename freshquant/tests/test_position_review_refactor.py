@@ -1550,3 +1550,28 @@ def test_flatten_rebuild_request_review_is_not_applicable():
     assert review["request_id"] == "req_rebuilt_entry_flatten_600917"
     assert review["verdict"] == "NOT_APPLICABLE"
     assert "non_guardian_request" in review["reason_codes"]
+
+
+def test_ledger_only_rebuild_has_one_order_event_and_no_legacy_fills():
+    """订单唯一来源=当前账本：每标的一笔重建订单事件，无历史成交事件。"""
+
+    service = PositionReviewService(
+        repository=FakeFlattenRebuildRepository(),
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    chart = service.get_symbol_chart("600917")
+    events = chart["order_events"]
+    assert len(events) == 1
+    assert events[0]["event_type"] == "rebuilt_open_order"
+    assert events[0]["rebuilt"] is True
+    assert not any(event["event_type"] == "unassociated_execution" for event in events)
+    detail = service.get_symbol_detail("600917")
+    assert detail["executions"] == []
+    assert detail["summary"]["fill_count"] == 0
+    assert detail["data_quality"]["canonical_trade_source"] == (
+        "current_order_ledger_only"
+    )
+    assert detail["data_quality"]["canonical_trade_source_label"] == (
+        "当前订单账本（重建 + 真实订单）"
+    )

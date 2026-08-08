@@ -438,7 +438,7 @@ def test_backfill_writes_archive_but_repository_reads_current_stores_only():
     ]
 
 
-def test_repository_includes_current_om_only_execution_without_double_counting():
+def test_repository_reads_om_fills_only_and_ignores_xt_trades():
     business = MemoryDatabase(
         {
             "xt_trades": MemoryCollection(),
@@ -447,7 +447,15 @@ def test_repository_includes_current_om_only_execution_without_double_counting()
         }
     )
     order = MemoryDatabase(
-        {"om_execution_fills": MemoryCollection([_fill(account_id="acct-A")])}
+        {
+            "om_order_requests": MemoryCollection(
+                [{"request_id": "request-A", "symbol": "002262"}]
+            ),
+            "om_orders": MemoryCollection(
+                [{"internal_order_id": "order-A", "symbol": "002262"}]
+            ),
+            "om_execution_fills": MemoryCollection([_fill(account_id="acct-A")]),
+        }
     )
     repository = PositionReviewRepository(
         business_database=business,
@@ -461,13 +469,14 @@ def test_repository_includes_current_om_only_execution_without_double_counting()
     assert executions[0]["execution_source"] == "om_execution_fills_current"
     assert executions[0]["account_partition"] == build_account_partition("acct-A")
 
+    # xt_trades 是重建前券商历史，持仓复盘读模型不读取：不会改变成交结果。
     business["xt_trades"].documents = [_execution()]
     executions = repository.list_xt_trades("002262")
     assert len(executions) == 1
-    assert executions[0]["execution_source"] == "xt_trades_current"
+    assert executions[0]["execution_source"] == "om_execution_fills_current"
 
 
-def test_repository_exposes_current_side_conflict_without_double_counting():
+def test_repository_exposes_om_fill_side_conflict_against_broker_truth():
     business = MemoryDatabase(
         {
             "xt_trades": MemoryCollection([_execution(side="sell")]),
@@ -487,7 +496,8 @@ def test_repository_exposes_current_side_conflict_without_double_counting():
     canonical = repository.list_xt_trades("002262")
     fills = repository.list_execution_fills("002262")
     assert len(canonical) == 1
-    assert canonical[0]["side"] == "sell"
+    # canonical 成交只来自当前 OM 账本（om_execution_fills），xt_trades 不参与。
+    assert canonical[0]["side"] == "buy"
     assert len(fills) == 1
     assert fills[0]["canonical_conflict"] == "side_mismatch_with_xt"
 
@@ -507,7 +517,7 @@ def test_repository_exposes_current_side_conflict_without_double_counting():
     assert fills == []
 
 
-def test_current_xt_truth_replaces_om_fill_with_side_conflict():
+def test_xt_trades_do_not_override_om_ledger_fills():
     business = MemoryDatabase(
         {
             "xt_trades": MemoryCollection(),
@@ -534,11 +544,12 @@ def test_current_xt_truth_replaces_om_fill_with_side_conflict():
     )
     assert [item["side"] for item in repository.list_xt_trades("002262")] == ["buy"]
 
+    # xt_trades 不再是成交来源：即使存在反向历史成交也不改变 canonical。
     business["xt_trades"].documents = [_execution(account_id="acct-A", side="sell")]
     canonical = repository.list_xt_trades("002262")
     fills = repository.list_execution_fills("002262")
     assert len(canonical) == 1
-    assert canonical[0]["side"] == "sell"
+    assert canonical[0]["side"] == "buy"
     assert fills[0]["canonical_conflict"] == "side_mismatch_with_xt"
     detail = PositionReviewService(
         repository=repository,
@@ -552,18 +563,8 @@ def test_current_xt_truth_replaces_om_fill_with_side_conflict():
         name_resolver=lambda symbol: "恩华药业",
     ).get_symbol_detail("002262")
     assert len(detail["executions"]) == 1
-    assert detail["summary"]["buy_quantity"] == 0
-    assert detail["summary"]["sell_quantity"] == 2300
-    assert (
-        len(
-            [
-                item
-                for item in detail["data_quality"]["warnings"]
-                if item["code"] == "execution_side_conflict"
-            ]
-        )
-        == 1
-    )
+    assert detail["summary"]["buy_quantity"] == 2300
+    assert detail["summary"]["sell_quantity"] == 0
 
     late_xt_backfill = backfill_position_review_history(
         business_database=business,
@@ -579,155 +580,3 @@ def test_current_xt_truth_replaces_om_fill_with_side_conflict():
     fills = repository.list_execution_fills("002262")
     assert canonical == []
     assert fills == []
-
-
-def test_current_xt_revision_wins_over_older_current_while_stores_present():
-    business = MemoryDatabase(
-        {
-            "xt_trades": MemoryCollection(
-                [_execution(account_id="acct-A", side="buy")]
-            ),
-            "xt_positions": MemoryCollection(),
-            "stock_signals": MemoryCollection(),
-        }
-    )
-    order = MemoryDatabase()
-    repository = PositionReviewRepository(
-        business_database=business,
-        order_database=order,
-        position_database=MemoryDatabase(),
-    )
-
-    backfill_position_review_history(
-        business_database=business,
-        order_database=order,
-    )
-    business["xt_trades"].documents = [_execution(account_id="acct-A", side="sell")]
-    backfill_position_review_history(
-        business_database=business,
-        order_database=order,
-    )
-    assert [item["side"] for item in repository.list_xt_trades("002262")] == ["sell"]
-
-    # 当前库仍有数据时，最新 XT 成交直接胜出（superseded 修订仅来自归档，
-    # 持仓复盘不再读归档，因此当前库路径不产生 revision 元数据）。
-    canonical = repository.list_xt_trades("002262")
-    assert len(canonical) == 1
-    assert canonical[0]["side"] == "sell"
-    assert canonical[0].get("superseded_xt_revisions") is None
-    assert (
-        len(
-            [
-                item
-                for item in order["om_execution_history_archive"].documents
-                if "xt_trades" in item["sources"]
-            ]
-        )
-        == 2
-    )
-
-    # purge 后只读当前库：不再从归档恢复成交，也不恢复 superseded 修订。
-    business["xt_trades"].delete_many({})
-    canonical = repository.list_xt_trades("002262")
-    assert canonical == []
-
-
-def test_current_multiple_xt_order_candidates_stay_ambiguous_without_archive():
-    business = MemoryDatabase(
-        {
-            "xt_trades": MemoryCollection(
-                [
-                    _execution(account_id="acct-A", order_id="broker-A"),
-                    _execution(account_id="acct-A", order_id="broker-B"),
-                ]
-            ),
-            "xt_positions": MemoryCollection(),
-            "stock_signals": MemoryCollection(),
-        }
-    )
-    order = MemoryDatabase(
-        {
-            "om_order_requests": MemoryCollection(
-                [
-                    {
-                        "request_id": "request-A",
-                        "symbol": "002262",
-                        "action": "sell",
-                        "source": "strategy",
-                        "price": 22.41,
-                        "quantity": 2300,
-                        "created_at": "2026-04-29T10:14:04+08:00",
-                    },
-                    {
-                        "request_id": "request-B",
-                        "symbol": "002262",
-                        "action": "sell",
-                        "source": "strategy",
-                        "price": 22.41,
-                        "quantity": 2300,
-                        "created_at": "2026-04-29T10:14:04+08:00",
-                    },
-                ]
-            ),
-            "om_orders": MemoryCollection(
-                [
-                    {
-                        "internal_order_id": "order-A",
-                        "request_id": "request-A",
-                        "broker_order_id": "broker-A",
-                        "symbol": "002262",
-                        "side": "sell",
-                        "submitted_at": "2026-04-29T10:14:05+08:00",
-                    },
-                    {
-                        "internal_order_id": "order-B",
-                        "request_id": "request-B",
-                        "broker_order_id": "broker-B",
-                        "symbol": "002262",
-                        "side": "sell",
-                        "submitted_at": "2026-04-29T10:14:05+08:00",
-                    },
-                ]
-            ),
-        }
-    )
-    repository = PositionReviewRepository(
-        business_database=business,
-        order_database=order,
-        position_database=MemoryDatabase({"pm_strategy_decisions": MemoryCollection()}),
-    )
-    canonical = repository.list_xt_trades("002262")
-    assert len(canonical) == 1
-    assert canonical[0]["broker_order_id_candidates"] == [
-        "broker-A",
-        "broker-B",
-    ]
-    assert canonical[0]["broker_order_id_candidate_count"] == 2
-    assert canonical[0]["xt_snapshot_candidate_count"] == 2
-    assert canonical[0]["order_id"] is None
-
-    detail = PositionReviewService(
-        repository=repository,
-        runtime_repository=SimpleNamespace(
-            list_guardian_events=lambda symbol: {
-                "available": True,
-                "error": None,
-                "items": [],
-            }
-        ),
-        name_resolver=lambda symbol: "恩华药业",
-    ).get_symbol_detail("002262")
-    assert len(detail["executions"]) == 1
-    assert detail["executions"][0]["association_method"] == "ambiguous_order_candidates"
-    assert detail["executions"][0]["request_id"] is None
-    assert {
-        item["request_id"]: item["actual"]["filled_quantity"]
-        for item in detail["reviews"]
-    } == {
-        "request-A": 0,
-        "request-B": 0,
-    }
-    assert any(
-        item["code"] == "ambiguous_xt_order_candidates"
-        for item in detail["data_quality"]["warnings"]
-    )

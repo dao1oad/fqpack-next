@@ -62,7 +62,7 @@ test('normalizePositionReviewSummary keeps insufficient evidence outside pass ra
 test('structured data quality warnings render readable code and message text', () => {
   const summary = normalizePositionReviewSummary({
     data_quality: {
-      canonical_trade_source: 'current_xt_trades_and_om_stores_only',
+      canonical_trade_source: 'current_order_ledger_only',
       warnings: [
         {
           code: 'runtime_evidence_unavailable',
@@ -86,7 +86,7 @@ test('structured data quality warnings render readable code and message text', (
     '成交关联质量下降（broker_trade_id=trade-55，association_quality=low）',
     '部分标的数据质量存在告警：部分标的数据质量存在告警，请进入详情核查。',
   ])
-  assert.equal(summary.dataQuality.canonicalTradeSourceLabel, '当前 XT/OM 真值')
+  assert.equal(summary.dataQuality.canonicalTradeSourceLabel, '当前订单账本（重建 + 真实订单）')
   assert.equal(summary.dataQuality.warningDetails[0].code, 'runtime_evidence_unavailable')
   assert.equal(summary.dataQuality.warnings.some((item) => item.includes('[object Object]')), false)
 })

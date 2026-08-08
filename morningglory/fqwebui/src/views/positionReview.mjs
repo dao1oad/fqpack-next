@@ -117,7 +117,7 @@ const WARNING_CODE_LABELS = Object.freeze({
 
 const CANONICAL_TRADE_SOURCE_LABELS = Object.freeze({
   xt_trades: 'XT 真实成交',
-  current_xt_trades_and_om_stores_only: '当前 XT/OM 真值',
+  current_order_ledger_only: '当前订单账本（重建 + 真实订单）',
 })
 
 const normalizeWarning = (warning) => {

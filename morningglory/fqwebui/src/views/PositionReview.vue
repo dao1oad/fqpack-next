@@ -282,10 +282,10 @@
             class="position-review-timeline-panel"
           >
             <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">K 线统一复盘主图</div>
+            <div class="workbench-title-group">
+                <div class="workbench-panel__title">订单与成本价复盘主图</div>
                 <p class="workbench-panel__desc">
-                  单一 K 线主图：颜色表达买卖方向、形状表达信号类型、边框/透明度表达复盘结论；跨 bar 成交用同色细区间线；点击 marker 固定订单并查看完整条件证据。
+                  Y 轴 = 持仓成本价，X 轴从首个持仓/订单点开始；订单事件来自当前订单账本（重建订单 + 真实订单），颜色表达买卖方向、形状表达信号类型；点击 marker 固定订单并查看完整条件证据。
                 </p>
               </div>
             </div>
@@ -300,16 +300,16 @@
             v-model="ledgerCollapse"
             class="position-review-ledger-collapse"
           >
-            <el-collapse-item name="ledger-executions" title="成交明细（真实成交）">
+            <el-collapse-item name="ledger-executions" title="订单成交明细">
           <WorkbenchLedgerPanel
             v-if="selectedDetail"
             class="position-review-ledger-panel"
           >
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">成交明细（真实成交）</div>
+                <div class="workbench-panel__title">订单成交明细</div>
                 <p class="workbench-panel__desc">
-                  完整展示 {{ selectedDetail.dataQuality.canonicalTradeSourceLabel }} 成交真值；关联状态仅描述证据链质量，不伪造策略结论。
+                  只展示与当前订单账本关联的真实成交（{{ selectedDetail.dataQuality.canonicalTradeSourceLabel }}）；账本重建初始化订单为虚拟订单，尚无真实成交，后续真实订单的成交将在此展示。
                 </p>
               </div>
               <div class="workbench-panel__meta position-review-ledger-counts">
@@ -399,7 +399,7 @@
               </el-table>
 
               <div v-else class="workbench-empty">
-                <el-empty description="当前标的没有真实成交记录" :image-size="72" />
+                <el-empty description="当前为账本重建初始化订单（虚拟），暂无真实成交；后续真实订单的成交将在此展示。" :image-size="72" />
               </div>
             </div>
           </WorkbenchLedgerPanel>
