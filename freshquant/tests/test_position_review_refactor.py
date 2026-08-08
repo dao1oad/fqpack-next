@@ -278,19 +278,7 @@ class FakeBuySellRepository:
                 "fire_time": datetime.fromisoformat("2026-04-29T10:15:00+08:00"),
             }
         ]
-
-    def list_symbols(self):
-        return [self.symbol]
-
-    def list_xt_trades(self, symbol=None):
-        if symbol and str(symbol).strip() != self.symbol:
-            return []
-        return deepcopy(self.xt_trades)
-
-    def list_xt_positions(self, symbol=None):
-        if symbol and str(symbol).strip() != self.symbol:
-            return []
-        return [
+        self.xt_positions = [
             {
                 "stock_code": "002262.SZ",
                 "volume": 6000,
@@ -299,6 +287,43 @@ class FakeBuySellRepository:
                 "last_price": 10.35,
             }
         ]
+
+    def list_symbols(self):
+        return [self.symbol]
+
+    def load_catalog_bundles(self):
+        return {
+            symbol: {
+                "requests": self.list_order_requests(symbol),
+                "orders": self.list_orders(symbol),
+                "fills": self.list_execution_fills(symbol),
+                "trade_facts": self.list_trade_facts(symbol),
+                "entries": self.list_position_entries(symbol),
+                "slices": self.list_entry_slices(symbol),
+                "allocations": self.list_exit_allocations(entry_ids=[]),
+                "xt_trades": self.list_xt_trades(symbol),
+                "positions": self.list_xt_positions(symbol),
+                "signals": self.list_stock_signals(symbol),
+                "pm_decisions": self.list_pm_decisions(symbol),
+            }
+            for symbol in self.list_symbols()
+        }
+
+    def list_xt_trades(self, symbol=None):
+        if symbol and str(symbol).strip() != self.symbol:
+            return []
+        return deepcopy(self.xt_trades)
+
+    def list_xt_positions(self, symbol=None):
+        items = deepcopy(self.xt_positions)
+        if symbol:
+            normalized = str(symbol).strip()
+            items = [
+                item
+                for item in items
+                if str(item.get("stock_code") or "").split(".", 1)[0] == normalized
+            ]
+        return items
 
     def list_stock_signals(self, symbol=None):
         if symbol and str(symbol).strip() != self.symbol:
@@ -1065,3 +1090,80 @@ def test_position_review_refactor_routes(monkeypatch):
     assert missing.status_code == 404
     invalid = client.get("/api/position-review/portfolio/contributions?top_n=0")
     assert invalid.status_code == 400
+
+
+def test_catalog_appends_current_holdings_without_execution_history():
+    repo = FakeBuySellRepository()
+    # 增加两只没有成交记录的当前持仓（ETF 风格）
+    repo.xt_positions = [
+        {
+            "stock_code": "002262.SZ",
+            "volume": 6000,
+            "avg_price": 10.27,
+            "market_value": 62100.0,
+            "last_price": 10.35,
+        },
+        {
+            "stock_code": "512000.SH",
+            "volume": 1468900,
+            "avg_price": 0.568875,
+            "market_value": 769703.6,
+            "last_price": 0.5238,
+        },
+        {
+            "stock_code": "513180.SH",
+            "volume": 756700,
+            "avg_price": 0.6131,
+            "market_value": 463857.1,
+            "last_price": 0.613,
+        },
+    ]
+    service = PositionReviewService(
+        repository=repo,
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    rows, detail_by_symbol = service._build_symbol_rows()
+    symbols = {row["symbol"] for row in rows}
+    assert "002262" in symbols
+    assert "512000" in symbols
+    assert "513180" in symbols
+    holding_only = [row for row in rows if row.get("no_execution_history")]
+    assert sorted(row["symbol"] for row in holding_only) == ["512000", "513180"]
+    assert all(row["is_holding"] for row in holding_only)
+    assert all(row["verdict"] is None for row in holding_only)
+    assert detail_by_symbol["512000"]["data_quality"]["no_execution_history"] is True
+
+
+def test_portfolio_contributions_include_holding_only_symbols_with_broker_estimate():
+    repo = FakeBuySellRepository()
+    repo.xt_positions = [
+        {
+            "stock_code": "002262.SZ",
+            "volume": 6000,
+            "avg_price": 10.27,
+            "market_value": 62100.0,
+            "last_price": 10.35,
+        },
+        {
+            "stock_code": "512000.SH",
+            "volume": 1468900,
+            "avg_price": 0.568875,
+            "market_value": 769703.6,
+            "last_price": 0.5238,
+        },
+    ]
+    service = PositionReviewService(
+        repository=repo,
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    contributions = service.get_portfolio_contributions(refresh=True, top_n=10)
+    symbols = {row["symbol"] for row in contributions["top"]}
+    assert "002262" in symbols
+    assert "512000" in symbols
+    holding_row = next(row for row in contributions["top"] if row["symbol"] == "512000")
+    assert holding_row["is_holding"] is True
+    assert holding_row["cost_basis_source"] == "broker_snapshot_estimate"
+    assert holding_row["quantity"] == 1468900
+    assert holding_row["market_value"] == 769703.6

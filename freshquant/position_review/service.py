@@ -491,6 +491,14 @@ class PositionReviewService:
             )
             detail_by_symbol[symbol] = detail
             cost_by_symbol[symbol] = cost_replay
+        holding_only_details, holding_only_costs = (
+            self._append_holding_only_portfolio_rows(
+                detail_by_symbol,
+                positions,
+            )
+        )
+        detail_by_symbol.update(holding_only_details)
+        cost_by_symbol.update(holding_only_costs)
         xt_assets = self.repository.list_xt_assets()
         credit_snapshots = self.repository.list_credit_asset_snapshots(limit=20_000)
         return (
@@ -500,6 +508,84 @@ class PositionReviewService:
             xt_assets,
             credit_snapshots,
         )
+
+    def _append_holding_only_portfolio_rows(
+        self,
+        detail_by_symbol,
+        positions,
+    ):
+        """Add broker-estimated cost for current holdings without executions."""
+
+        detail_result = {}
+        cost_result = {}
+        for symbol, position in positions.items():
+            if symbol in detail_by_symbol:
+                continue
+            quantity = _int(position.get("volume"))
+            if quantity <= 0:
+                continue
+            avg_price = _float(position.get("avg_price"))
+            name = _symbol_name(
+                symbol,
+                signals=[],
+                resolver=self.name_resolver,
+            )
+            market_value = _float(position.get("market_value")) or (
+                round(quantity * avg_price, 2) if avg_price else None
+            )
+            detail_result[symbol] = {
+                "symbol": {
+                    "code": symbol,
+                    "name": name,
+                    "current_quantity": quantity,
+                    "is_holding": True,
+                },
+                "summary": {
+                    "request_count": 0,
+                    "fill_count": 0,
+                    "signal_count": 0,
+                    "buy_quantity": 0,
+                    "sell_quantity": 0,
+                    "initial_position_quantity": quantity,
+                    "initial_position_source": _INITIAL_POSITION_SOURCE,
+                    "buy_amount": 0.0,
+                    "sell_amount": 0.0,
+                    "first_trade_at": None,
+                    "last_trade_at": None,
+                    "review_counts": _empty_verdict_counts(),
+                    "pass_rate": None,
+                },
+                "reviews": [],
+                "executions": [],
+                "charts": {},
+                "data_quality": {
+                    "no_execution_history": True,
+                    "warnings": [
+                        {
+                            "code": "no_execution_history",
+                            "message": "当前持仓标的暂无历史成交记录，仅展示券商持仓快照。",
+                        }
+                    ],
+                },
+            }
+            cost_result[symbol] = {
+                "cost_basis_source": "broker_snapshot_estimate",
+                "realized_pnl": 0.0,
+                "fees_included": False,
+                "cost_basis_series": [],
+                "data_quality": {
+                    "cost_basis": "degraded",
+                    "ledger_available": False,
+                    "fees_included": False,
+                    "warnings": [
+                        {
+                            "code": "cost_basis_broker_snapshot",
+                            "message": "无成交记录，成本使用券商当前均价快照估算。",
+                        }
+                    ],
+                },
+            }
+        return detail_result, cost_result
 
     def _get_catalog_snapshot(self, *, refresh):
         observed_generation = self._catalog_generation
@@ -614,6 +700,122 @@ class PositionReviewService:
                     "review_counts": summary["review_counts"],
                     "verdict": _rollup_verdict(summary["review_counts"]),
                     "pass_rate": summary["pass_rate"],
+                }
+            )
+        rows, detail_by_symbol = self._append_holding_only_symbols(
+            rows, detail_by_symbol
+        )
+        return rows, detail_by_symbol
+
+    def _append_holding_only_symbols(self, rows, detail_by_symbol):
+        """Append current holdings without any execution history.
+
+        The review catalog intentionally lists "symbols with trusted execution
+        history".  Current holdings that never produced a canonical execution
+        (for example ETF positions or recently opened positions without XT
+        trade records) would otherwise be invisible, making the catalog look
+        smaller than the broker position truth.  They are appended with an
+        explicit ``no_execution_history`` marker instead of fabricated trades.
+        """
+
+        positions = self.repository.list_xt_positions()
+        holding_symbols = sorted(
+            {
+                _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+                for item in positions
+                if _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+            }
+        )
+        position_by_symbol = {}
+        for item in positions:
+            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+            if symbol:
+                position_by_symbol[symbol] = item
+        missing = [
+            symbol for symbol in holding_symbols if symbol not in detail_by_symbol
+        ]
+        for symbol in missing:
+            position = position_by_symbol.get(symbol) or {}
+            current_quantity = _int(position.get("volume"))
+            name = _symbol_name(
+                symbol,
+                signals=[],
+                resolver=self.name_resolver,
+            )
+            detail = {
+                "symbol": {
+                    "code": symbol,
+                    "name": name,
+                    "current_quantity": current_quantity,
+                    "is_holding": current_quantity > 0,
+                },
+                "summary": {
+                    "request_count": 0,
+                    "fill_count": 0,
+                    "signal_count": 0,
+                    "buy_quantity": 0,
+                    "sell_quantity": 0,
+                    "initial_position_quantity": current_quantity,
+                    "initial_position_source": _INITIAL_POSITION_SOURCE,
+                    "buy_amount": 0.0,
+                    "sell_amount": 0.0,
+                    "first_trade_at": None,
+                    "last_trade_at": None,
+                    "review_counts": _empty_verdict_counts(),
+                    "pass_rate": None,
+                },
+                "reviews": [],
+                "executions": [],
+                "charts": {
+                    "cumulative_quantity": [],
+                    "traded_amount": [],
+                    "trade_price": [],
+                    "verdict_distribution": [
+                        {"name": verdict, "value": 0} for verdict in VERDICTS
+                    ],
+                    "request_quantity_compare": [],
+                },
+                "data_quality": {
+                    "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
+                    "no_execution_history": True,
+                    "warnings": [
+                        {
+                            "code": "no_execution_history",
+                            "message": (
+                                "当前持仓标的暂无历史成交记录，仅展示券商持仓快照，"
+                                "不参与交易复盘判定。"
+                            ),
+                        }
+                    ],
+                },
+            }
+            detail_by_symbol[symbol] = detail
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "current_quantity": current_quantity,
+                    "is_holding": True,
+                    "no_execution_history": True,
+                    "first_trade_at": None,
+                    "last_trade_at": None,
+                    "request_count": 0,
+                    "fill_count": 0,
+                    "signal_count": 0,
+                    "buy_quantity": 0,
+                    "sell_quantity": 0,
+                    "buy_amount": 0.0,
+                    "sell_amount": 0.0,
+                    "initial_position_quantity": current_quantity,
+                    "initial_position_source": _INITIAL_POSITION_SOURCE,
+                    "data_quality_warning_count": 1,
+                    "data_quality_degraded": True,
+                    "unassociated_trade_count": 0,
+                    "runtime_evidence_available": False,
+                    "runtime_evidence_truncated": False,
+                    "review_counts": _empty_verdict_counts(),
+                    "verdict": None,
+                    "pass_rate": None,
                 }
             )
         return rows, detail_by_symbol

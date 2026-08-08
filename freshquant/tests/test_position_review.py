@@ -60,7 +60,6 @@ def _build_projection(service, symbol, *, start=None, end=None):
     )
 
 
-
 class FakePositionReviewRepository:
     def __init__(self):
         self.symbol = "002262"
@@ -837,7 +836,6 @@ def test_order_timeline_does_not_cross_attach_an_order_specific_signal_via_reque
     assert all(item["expected_quantity"] is None for item in events.values())
 
 
-
 def test_reused_broker_trade_id_with_zero_score_does_not_attach_wrong_fill():
     trade_time = _epoch("2026-05-01T10:00:00")
     results, warnings = _associate_canonical_trades(
@@ -1493,6 +1491,9 @@ def test_catalog_uses_one_batch_snapshot_and_one_global_runtime_scan():
                 for symbol in ("002262", "600000")
             }
 
+        def list_xt_positions(self):
+            return []
+
         def __getattr__(self, name):
             raise AssertionError(f"unexpected per-symbol repository call: {name}")
 
@@ -2008,7 +2009,10 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
             self.calls.append(
                 ("chart", symbol, period, account_partition, include_unfilled, refresh)
             )
-            return {"symbol": {"code": "002262", "name": "恩华药业"}, "order_events": []}
+            return {
+                "symbol": {"code": "002262", "name": "恩华药业"},
+                "order_events": [],
+            }
 
         def get_event_conditions(self, event_id, *, refresh=False):
             if event_id == "missing":
@@ -2056,7 +2060,9 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
     )
     conditions = client.get("/api/position-review/events/evt_1/conditions").get_json()
     assert conditions["event_id"] == "evt_1"
-    assert client.get("/api/position-review/events/missing/conditions").status_code == 404
+    assert (
+        client.get("/api/position-review/events/missing/conditions").status_code == 404
+    )
     assert (
         client.get("/api/position-review/portfolio/summary?refresh=1").status_code
         == 200

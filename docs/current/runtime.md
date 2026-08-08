@@ -187,6 +187,9 @@
   - `GET /api/position-review/symbols/<symbol>/chart`
   - `GET /api/position-review/events/<event_id>/conditions`
 - 历史成交标的集合包含当前仍持仓和已经清仓的标的。全局统计、标的列表、图表和订单明细使用同一套账户、标的与时间范围口径。
+- 标的目录除“有可信历史成交的标的”外，还会把当前持仓中暂无成交记录的标的（例如无成交档案的 ETF 或新开仓标的）以
+  `no_execution_history=true` 标记追加展示，使目录数量与券商持仓（`xt_positions`）一致；这些标的不参与交易复盘判定，
+  组合贡献使用券商当前均价快照估算成本（`cost_basis_source=broker_snapshot_estimate`、`data_quality.cost_basis=degraded`）。
 - 当前交易快照来自 `xt_trades`，持久历史成交由
   `om_execution_history_archive` 补齐；订单请求、实际成交数量和持仓变化合并
   当前 OM 账本与 `position_review_evidence_archive` 交叉核对。
