@@ -88,7 +88,7 @@ services:
         target: /freshquant/ops-snapshot
         read_only: true
       - type: bind
-        source: ${FQPACK_TDX_SYNC_DIR:-D:/tdx_biduan}
+        source: ${FQPACK_TDX_SYNC_DIR:-D:/new_tdx}
         target: /opt/tdx
     depends_on:
       fq_mongodb:

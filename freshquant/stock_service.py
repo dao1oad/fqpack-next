@@ -11,6 +11,10 @@ import pymongo
 import freshquant.util.df_helper as df_helper
 from freshquant.bootstrap_config import bootstrap_config
 from freshquant.carnation.enum_instrument import InstrumentType
+from freshquant.clx_daily_selection.tdx_export import (
+    BLOCKNEW_CFG_NAME,
+    _parse_blocknew_cfg_groups,
+)
 from freshquant.data.astock import must_pool
 from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_type
@@ -40,6 +44,7 @@ TDX_SELF_SELECT_SUPPORTED_INSTRUMENT_TYPES = {
     InstrumentType.ETF_CN,
 }
 TDX_MUST_POOL_FILENAME = "待买.blk"
+TDX_MUST_POOL_DISPLAY_NAME = "待买"
 TDX_MUST_POOL_CATEGORY = "待买"
 TDX_MUST_POOL_SOURCE = "tdx_must_pool"
 
@@ -90,6 +95,48 @@ def _require_tdx_home(tdx_home=None):
 
 def _tdx_self_select_path(tdx_home=None, filename=TDX_SELF_SELECT_FILENAME):
     return _require_tdx_home(tdx_home) / "T0002" / "blocknew" / filename
+
+
+def read_tdx_blocknew_cfg_mapping(tdx_home=None):
+    """Parse ``T0002/blocknew/blocknew.cfg`` into ``{display_name: file_name}``.
+
+    TDX stores block groups under arbitrary file names: ``blocknew.cfg`` maps
+    each display name (e.g. ``待买``) to its actual file name (e.g. ``DM``).
+    Reuses the shared parser from ``freshquant.clx_daily_selection.tdx_export``
+    (each record is 120 bytes: 50-byte GBK display name + 70-byte file name
+    prefix, stored without the ``.blk`` extension). Returns an empty dict when
+    the cfg file is absent or unreadable.
+    """
+    cfg_path = _require_tdx_home(tdx_home) / "T0002" / "blocknew" / BLOCKNEW_CFG_NAME
+    if not cfg_path.exists():
+        return {}
+    mapping = {}
+    for display_name, block_key in _parse_blocknew_cfg_groups(cfg_path.read_bytes()):
+        display_name = display_name.strip()
+        block_key = block_key.strip()
+        if display_name and block_key:
+            mapping[display_name] = block_key
+    return mapping
+
+
+def resolve_tdx_block_filename(
+    tdx_home=None,
+    display_name=TDX_MUST_POOL_DISPLAY_NAME,
+    fallback_filename=TDX_MUST_POOL_FILENAME,
+):
+    """Resolve the actual ``.blk`` file name for a TDX block display name.
+
+    The group file cannot be assumed to share its display name: ``blocknew.cfg``
+    maps ``待买 -> DM`` on the current host, so the hardcoded ``待买.blk`` would
+    not exist. Falls back to ``fallback_filename`` when the cfg is missing or
+    the display name is not registered.
+    """
+    file_name = read_tdx_blocknew_cfg_mapping(tdx_home=tdx_home).get(display_name)
+    if not file_name:
+        return fallback_filename
+    if not str(file_name).lower().endswith(".blk"):
+        return f"{file_name}.blk"
+    return file_name
 
 
 def decode_tdx_self_select_code(line):
@@ -267,23 +314,34 @@ def sync_must_pool_from_tdx_self_select(
     days=30,
     *,
     tdx_home=None,
-    filename=TDX_MUST_POOL_FILENAME,
+    filename=None,
     category=TDX_MUST_POOL_CATEGORY,
     source=TDX_MUST_POOL_SOURCE,
 ):
     """Import freshquant.must_pool from the TDX ``待买`` self-select group.
 
     Reuses the same TDX ``.blk`` reading/decoding chain as
-    ``sync_stock_pools_from_tdx_self_select``: it reads the group file
-    (default ``T0002/blocknew/待买.blk``), decodes prefixed codes, skips
-    current ``xt_positions`` holdings, and upserts every valid code into
-    ``must_pool`` with a ``tdx_must_pool`` membership.
+    ``sync_stock_pools_from_tdx_self_select``: it reads the 待买 group file,
+    decodes prefixed codes, skips current ``xt_positions`` holdings, and
+    upserts every valid code into ``must_pool`` with a ``tdx_must_pool``
+    membership.
+
+    The group file name is resolved from ``T0002/blocknew/blocknew.cfg`` by the
+    display name ``待买`` (TDX may store it as e.g. ``DM.blk``); when the cfg
+    is missing or the display name is not registered, it falls back to
+    ``T0002/blocknew/待买.blk``.
 
     Unlike the stock_pools overwrite sync, this is an additive import:
     existing ``must_pool`` records keep their trading parameters
     (``stop_loss_price`` / ``initial_lot_amount`` / ``lot_amount``) and are
     never deleted when they are absent from the TDX group.
     """
+    if not filename:
+        filename = resolve_tdx_block_filename(
+            tdx_home=tdx_home,
+            display_name=TDX_MUST_POOL_DISPLAY_NAME,
+            fallback_filename=TDX_MUST_POOL_FILENAME,
+        )
     codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
     now = pendulum.now()
     expire_at = now.add(days=int(days or 30))

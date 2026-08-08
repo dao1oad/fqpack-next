@@ -37,7 +37,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 canonical main sync、`uv sync` 和 `run_formal_deploy.py`。
-- `deploy-production.yml` 的 job env 显式设置 `FQPACK_TDX_SYNC_DIR=D:/new_tdx`，保证后续 Compose 插值把正式通达信目录挂载到 API 容器；仓库 Compose 内的 `D:/tdx_biduan` 兼容回退不作为 production 真值。
+- `deploy-production.yml` 的 job env 显式设置 `FQPACK_TDX_SYNC_DIR=D:/new_tdx`，保证后续 Compose 插值把正式通达信目录挂载到 API 容器；仓库 Compose 默认值也已是 `D:/new_tdx`（可用 `FQPACK_TDX_SYNC_DIR` 覆盖），不再使用空的 `D:/tdx_biduan` 回退。
 - `deploy-production.yml` 当前只要求 canonical repo root 能 fetch 到最新 `origin/main`；它不再要求 canonical repo root 本身先 `pull --ff-only` 到远程 main。
 - `deploy-production.yml` 会先创建或 reset `D:\fqpack\freshquant-2026.2.23` 这个 local main sync root 到目标 SHA，再直接执行那里的最新 `script/ci/run_production_deploy.ps1`。
 - `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 local main sync root 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
