@@ -174,6 +174,33 @@ test('buildSymbolCostChartOption renders cost line and order markers without kli
   assert.equal(sell.itemStyle.color, '#22c55e')
 })
 
+test('buildSymbolCostChartOption markArea uses ECharts point-array format', () => {
+  const chart = makeChart()
+  const option = buildSymbolCostChartOption({
+    chart: {
+      ...chart,
+      holding_cycles: [
+        {
+          cycle_id: '002262:cycle:1',
+          status: 'open',
+          open_time: '2026-03-16T09:35:00+08:00',
+          close_time: null,
+        },
+      ],
+    },
+  })
+  const costLine = option.series.find((item) => item.id === 'position-review-symbol-cost-line')
+  const markAreas = costLine.markArea?.data || []
+  assert.ok(markAreas.length > 0)
+  for (const area of markAreas) {
+    assert.ok(Array.isArray(area), 'markArea item must be [start, end] pair')
+    assert.ok(area.length === 2, 'markArea item must have two points')
+    assert.ok('coord' in area[0] && 'coord' in area[1], 'each point must carry coord')
+    assert.ok(Array.isArray(area[0].coord) && Array.isArray(area[1].coord))
+    assert.ok(area[0].coord[1] === 'min' && area[1].coord[1] === 'max')
+  }
+})
+
 test('buildSymbolCostChartOption returns null without cost points or events', () => {
   assert.equal(buildSymbolCostChartOption({ chart: {} }), null)
 })
