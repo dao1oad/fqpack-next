@@ -17,6 +17,7 @@ const series = ref(null)
 const contributions = ref(null)
 const loading = ref(false)
 const error = ref('')
+const equityPeriod = ref('day')
 
 const normalizedSummary = computed(() => normalizePortfolioSummary(summary.value || {}))
 const normalizedContributions = computed(() => normalizePortfolioContributions(contributions.value || {}))
@@ -106,7 +107,10 @@ const loadPortfolio = async ({ force = false } = {}) => {
   try {
     const [summaryResult, seriesResult, contributionResult] = await Promise.allSettled([
       positionReviewApi.getPortfolioSummary({ ...(force ? { refresh: 1 } : {}) }),
-      positionReviewApi.getPortfolioSeries({ ...(force ? { refresh: 1 } : {}) }),
+      positionReviewApi.getPortfolioSeries({
+        period: equityPeriod.value,
+        ...(force ? { refresh: 1 } : {}),
+      }),
       positionReviewApi.getPortfolioContributions({ top_n: 10 }),
     ])
     summary.value = summaryResult.status === 'fulfilled' ? (summaryResult.value || null) : null
@@ -118,6 +122,12 @@ const loadPortfolio = async ({ force = false } = {}) => {
   } finally {
     loading.value = false
   }
+}
+
+const switchEquityPeriod = (period) => {
+  if (equityPeriod.value === period) return
+  equityPeriod.value = period
+  loadPortfolio()
 }
 
 const formatKpi = (kpi) => {
@@ -183,7 +193,24 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
 
     <section class="portfolio-overview__grid">
       <div class="portfolio-overview__panel portfolio-overview__panel--wide">
-        <div class="portfolio-overview__panel-title">账户资产 / 估算权益曲线</div>
+        <div class="portfolio-overview__panel-head">
+          <div class="portfolio-overview__panel-title">账户净资产曲线（QMT 口径）</div>
+          <div class="portfolio-overview__period-switch">
+            <button
+              v-for="option in [{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]"
+              :key="option.value"
+              type="button"
+              class="portfolio-overview__period-btn"
+              :class="{ 'portfolio-overview__period-btn--active': equityPeriod === option.value }"
+              @click="switchEquityPeriod(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+        <p class="portfolio-overview__panel-note">
+          净资产 = 总资产 − 总负债；日/周/月聚合取各周期末笔快照，缺失区间不插值；交易发生的周期会标注交易点。
+        </p>
         <PositionReviewChart
           class="portfolio-overview__panel-chart"
           :option="equityOption || {}"
@@ -377,6 +404,50 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   color: #e5e7eb;
   font-size: 13px;
   font-weight: 600;
+}
+
+.portfolio-overview__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.portfolio-overview__period-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.portfolio-overview__period-btn {
+  min-width: 28px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.portfolio-overview__period-btn:hover {
+  color: #e5e7eb;
+}
+
+.portfolio-overview__period-btn--active {
+  background: rgba(96, 165, 250, 0.22);
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.portfolio-overview__panel-note {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .portfolio-overview__panel-chart {

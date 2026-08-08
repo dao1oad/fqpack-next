@@ -62,7 +62,10 @@ def get_position_review_portfolio_series():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return _service_response(
-        lambda service: service.get_portfolio_series(refresh=refresh)
+        lambda service: service.get_portfolio_series(
+            refresh=refresh,
+            period=str(request.args.get("period") or "").strip() or "day",
+        )
     )
 
 

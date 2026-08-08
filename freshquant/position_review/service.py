@@ -223,6 +223,9 @@ class PositionReviewService:
                 return cached_detail
         bundle = self._load_symbol_bundle(normalized_symbol)
         if not bundle["requests"] and not bundle["xt_trades"]:
+            holding_only = self._holding_only_detail_from_positions(normalized_symbol)
+            if holding_only is not None:
+                return holding_only
             raise ValueError("symbol not found")
         return self._build_detail(normalized_symbol, bundle)
 
@@ -249,6 +252,15 @@ class PositionReviewService:
             raise ValueError("symbol not found")
         bundle = self._load_symbol_bundle(normalized_symbol)
         if not bundle["requests"] and not bundle["xt_trades"]:
+            holding_only = self._holding_only_detail_from_positions(normalized_symbol)
+            if holding_only is not None:
+                return self._build_holding_only_chart(
+                    normalized_symbol,
+                    holding_only,
+                    period=str(period or "").strip() or None,
+                    account_partition=str(account_partition or "").strip() or None,
+                    include_unfilled=bool(include_unfilled),
+                )
             raise ValueError("symbol not found")
         detail = self._build_detail(normalized_symbol, bundle)
         canonical_trades = list(detail.get("executions") or [])
@@ -314,7 +326,8 @@ class PositionReviewService:
                 event
                 for event in timeline_events
                 if (
-                    event.get("type") == "unassociated_execution"
+                    event.get("rebuilt")
+                    or event.get("type") == "unassociated_execution"
                     or _int(((event.get("actual") or {}).get("filled_quantity"))) > 0
                 )
             ]
@@ -409,25 +422,38 @@ class PositionReviewService:
         raise ValueError("event not found")
 
     def get_portfolio_summary(self, *, refresh=False) -> dict[str, Any]:
-        detail_by_symbol, cost_by_symbol, position_by_symbol, xt_assets, _ = (
-            self._build_portfolio_inputs(refresh=bool(refresh))
-        )
+        (
+            detail_by_symbol,
+            cost_by_symbol,
+            position_by_symbol,
+            xt_assets,
+            credit_snapshots,
+        ) = self._build_portfolio_inputs(refresh=bool(refresh))
         return build_portfolio_summary(
             catalog_rows=list(detail_by_symbol),
             detail_by_symbol=detail_by_symbol,
             cost_by_symbol=cost_by_symbol,
             position_by_symbol=position_by_symbol,
             xt_assets=xt_assets,
+            credit_snapshots=credit_snapshots,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
-    def get_portfolio_series(self, *, refresh=False) -> dict[str, Any]:
-        _, _, _, xt_assets, credit_snapshots = self._build_portfolio_inputs(
-            refresh=bool(refresh)
+    def get_portfolio_series(
+        self,
+        *,
+        refresh=False,
+        period="day",
+    ) -> dict[str, Any]:
+        detail_by_symbol, _, _, xt_assets, credit_snapshots = (
+            self._build_portfolio_inputs(refresh=bool(refresh))
         )
+        trade_events = _portfolio_trade_events(detail_by_symbol)
         return build_portfolio_series(
             xt_assets=xt_assets,
             credit_snapshots=credit_snapshots,
+            trade_events=trade_events,
+            period=period,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -500,7 +526,7 @@ class PositionReviewService:
         detail_by_symbol.update(holding_only_details)
         cost_by_symbol.update(holding_only_costs)
         xt_assets = self.repository.list_xt_assets()
-        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=20_000)
+        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=200_000)
         return (
             detail_by_symbol,
             cost_by_symbol,
@@ -524,50 +550,10 @@ class PositionReviewService:
             quantity = _int(position.get("volume"))
             if quantity <= 0:
                 continue
-            avg_price = _float(position.get("avg_price"))
-            name = _symbol_name(
+            detail_result[symbol] = self._build_holding_only_detail(
                 symbol,
-                signals=[],
-                resolver=self.name_resolver,
+                position,
             )
-            market_value = _float(position.get("market_value")) or (
-                round(quantity * avg_price, 2) if avg_price else None
-            )
-            detail_result[symbol] = {
-                "symbol": {
-                    "code": symbol,
-                    "name": name,
-                    "current_quantity": quantity,
-                    "is_holding": True,
-                },
-                "summary": {
-                    "request_count": 0,
-                    "fill_count": 0,
-                    "signal_count": 0,
-                    "buy_quantity": 0,
-                    "sell_quantity": 0,
-                    "initial_position_quantity": quantity,
-                    "initial_position_source": _INITIAL_POSITION_SOURCE,
-                    "buy_amount": 0.0,
-                    "sell_amount": 0.0,
-                    "first_trade_at": None,
-                    "last_trade_at": None,
-                    "review_counts": _empty_verdict_counts(),
-                    "pass_rate": None,
-                },
-                "reviews": [],
-                "executions": [],
-                "charts": {},
-                "data_quality": {
-                    "no_execution_history": True,
-                    "warnings": [
-                        {
-                            "code": "no_execution_history",
-                            "message": "当前持仓标的暂无历史成交记录，仅展示券商持仓快照。",
-                        }
-                    ],
-                },
-            }
             cost_result[symbol] = {
                 "cost_basis_source": "broker_snapshot_estimate",
                 "realized_pnl": 0.0,
@@ -586,6 +572,163 @@ class PositionReviewService:
                 },
             }
         return detail_result, cost_result
+
+    def _holding_only_detail_from_positions(self, symbol):
+        """Return a holding-only detail when the symbol is a current holding."""
+
+        for item in self.repository.list_xt_positions(symbol):
+            if _int(item.get("volume")) <= 0:
+                continue
+            return self._build_holding_only_detail(symbol, item)
+        return None
+
+    def _build_holding_only_detail(self, symbol, position):
+        """Build the read-model detail for a current holding without executions."""
+
+        current_quantity = _int(position.get("volume"))
+        name = _symbol_name(
+            symbol,
+            signals=[],
+            resolver=self.name_resolver,
+        )
+        return {
+            "symbol": {
+                "code": symbol,
+                "name": name,
+                "current_quantity": current_quantity,
+                "is_holding": current_quantity > 0,
+            },
+            "summary": {
+                "request_count": 0,
+                "fill_count": 0,
+                "signal_count": 0,
+                "buy_quantity": 0,
+                "sell_quantity": 0,
+                "initial_position_quantity": current_quantity,
+                "initial_position_source": _INITIAL_POSITION_SOURCE,
+                "buy_amount": 0.0,
+                "sell_amount": 0.0,
+                "first_trade_at": None,
+                "last_trade_at": None,
+                "review_counts": _empty_verdict_counts(),
+                "pass_rate": None,
+            },
+            "reviews": [],
+            "executions": [],
+            "charts": {
+                "cumulative_quantity": [],
+                "traded_amount": [],
+                "trade_price": [],
+                "verdict_distribution": [
+                    {"name": verdict, "value": 0} for verdict in VERDICTS
+                ],
+                "request_quantity_compare": [],
+            },
+            "data_quality": {
+                "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
+                "no_execution_history": True,
+                "warnings": [
+                    {
+                        "code": "no_execution_history",
+                        "message": (
+                            "当前持仓标的暂无历史成交记录，仅展示券商持仓快照，"
+                            "不参与交易复盘判定。"
+                        ),
+                    }
+                ],
+            },
+        }
+
+    def _build_holding_only_chart(
+        self,
+        symbol,
+        detail,
+        *,
+        period,
+        account_partition,
+        include_unfilled,
+    ):
+        """Project a single-point broker-snapshot chart for a holding-only symbol."""
+
+        position = None
+        for item in self.repository.list_xt_positions(symbol):
+            if _int(item.get("volume")) > 0:
+                position = item
+                break
+        quantity = _int((position or {}).get("volume"))
+        avg_price = _float((position or {}).get("avg_price"))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        name = str((detail.get("symbol") or {}).get("name") or "") or symbol
+        cost_series = []
+        if avg_price is not None:
+            cost_series.append(
+                {
+                    "time": now_iso,
+                    "average_cost": avg_price,
+                    "position_quantity": quantity,
+                    "remaining_cost": (
+                        round(quantity * avg_price, 2) if quantity else None
+                    ),
+                    "realized_pnl": 0.0,
+                    "point_type": "broker_snapshot_estimate",
+                    "cost_basis_source": "broker_snapshot_estimate",
+                    "fees_included": False,
+                }
+            )
+        cost_replay = {
+            "cost_basis_source": "broker_snapshot_estimate",
+            "realized_pnl": 0.0,
+            "fees_included": False,
+            "cost_basis_series": cost_series,
+            "data_quality": {
+                "cost_basis": "degraded",
+                "ledger_available": False,
+                "fees_included": False,
+                "warnings": [
+                    {
+                        "code": "cost_basis_broker_snapshot",
+                        "message": "无成交记录，成本使用券商当前均价快照估算。",
+                    }
+                ],
+            },
+        }
+        position_series = []
+        if quantity > 0:
+            position_series.append(
+                {
+                    "time": now_iso,
+                    "value": quantity,
+                    "point_type": "broker_snapshot_estimate",
+                    "assumption": True,
+                    "source": "broker_position_snapshot",
+                }
+            )
+        data_quality = dict(detail.get("data_quality") or {})
+        data_quality["cost_basis"] = cost_replay["data_quality"]
+        payload = build_symbol_chart_payload(
+            symbol=symbol,
+            name=name,
+            timeline_events=[],
+            canonical_trades=[],
+            reviews_by_request={},
+            requests_by_id={},
+            runtime_items=[],
+            cost_replay=cost_replay,
+            cost_context_by_execution={},
+            position_series=position_series,
+            holding_cycles=[],
+            data_quality=data_quality,
+            generated_at=now_iso,
+        )
+        payload["range"] = {
+            "start": None,
+            "end": None,
+            "period": period,
+            "account_partition": account_partition,
+            "include_unfilled": include_unfilled,
+        }
+        payload["signal_type_registry"] = signal_type_registry_payload()
+        return payload
 
     def _get_catalog_snapshot(self, *, refresh):
         observed_generation = self._catalog_generation
@@ -737,58 +880,8 @@ class PositionReviewService:
         for symbol in missing:
             position = position_by_symbol.get(symbol) or {}
             current_quantity = _int(position.get("volume"))
-            name = _symbol_name(
-                symbol,
-                signals=[],
-                resolver=self.name_resolver,
-            )
-            detail = {
-                "symbol": {
-                    "code": symbol,
-                    "name": name,
-                    "current_quantity": current_quantity,
-                    "is_holding": current_quantity > 0,
-                },
-                "summary": {
-                    "request_count": 0,
-                    "fill_count": 0,
-                    "signal_count": 0,
-                    "buy_quantity": 0,
-                    "sell_quantity": 0,
-                    "initial_position_quantity": current_quantity,
-                    "initial_position_source": _INITIAL_POSITION_SOURCE,
-                    "buy_amount": 0.0,
-                    "sell_amount": 0.0,
-                    "first_trade_at": None,
-                    "last_trade_at": None,
-                    "review_counts": _empty_verdict_counts(),
-                    "pass_rate": None,
-                },
-                "reviews": [],
-                "executions": [],
-                "charts": {
-                    "cumulative_quantity": [],
-                    "traded_amount": [],
-                    "trade_price": [],
-                    "verdict_distribution": [
-                        {"name": verdict, "value": 0} for verdict in VERDICTS
-                    ],
-                    "request_quantity_compare": [],
-                },
-                "data_quality": {
-                    "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
-                    "no_execution_history": True,
-                    "warnings": [
-                        {
-                            "code": "no_execution_history",
-                            "message": (
-                                "当前持仓标的暂无历史成交记录，仅展示券商持仓快照，"
-                                "不参与交易复盘判定。"
-                            ),
-                        }
-                    ],
-                },
-            }
+            detail = self._build_holding_only_detail(symbol, position)
+            name = str((detail.get("symbol") or {}).get("name") or "") or symbol
             detail_by_symbol[symbol] = detail
             rows.append(
                 {
@@ -2321,6 +2414,17 @@ def _build_order_timeline_projection(
                 }
             )
         event_id = _timeline_event_id(group)
+        rebuilt = bool(
+            str((group.get("order") or {}).get("source") or "").strip()
+            == "order_ledger_rebuild"
+            or str((group.get("request") or {}).get("source") or "").strip()
+            == "order_ledger_rebuild"
+        )
+        rebuild_source = (
+            str((group.get("order") or {}).get("rebuild_source") or "").strip()
+            or str((group.get("request") or {}).get("rebuild_source") or "").strip()
+            or None
+        )
         events.append(
             {
                 "id": event_id,
@@ -2335,6 +2439,8 @@ def _build_order_timeline_projection(
                 "request_id": group.get("request_id"),
                 "internal_order_id": group.get("internal_order_id"),
                 "side": _timeline_group_side(group, request=request),
+                "rebuilt": rebuilt,
+                "rebuild_source": rebuild_source,
                 "signal": signal,
                 "expected_quantity": expected_quantity,
                 "request_quantity": request_quantity,
@@ -3278,6 +3384,39 @@ def _ratio(numerator, denominator):
 def _normalize_symbol(value):
     normalized = normalize_to_base_code(str(value or "").strip())
     return normalized or ""
+
+
+def _portfolio_trade_events(detail_by_symbol):
+    """Flatten canonical executions into portfolio trade-point events."""
+
+    events = []
+    for symbol in sorted(detail_by_symbol):
+        detail = detail_by_symbol[symbol] or {}
+        name = str((detail.get("symbol") or {}).get("name") or "") or symbol
+        for execution in detail.get("executions") or []:
+            quantity = _int(execution.get("quantity"))
+            price = _float(execution.get("price"))
+            events.append(
+                {
+                    "time": execution.get("time")
+                    or _epoch_iso(_int(execution.get("trade_time"))),
+                    "symbol": symbol,
+                    "name": name,
+                    "side": str(execution.get("side") or "").strip().lower(),
+                    "quantity": quantity,
+                    "price": price,
+                    "amount": round(price * quantity, 2) if price is not None else None,
+                    "request_id": execution.get("request_id") or None,
+                    "broker_trade_id": execution.get("broker_trade_id") or None,
+                    "account_partition": (
+                        execution.get("account_partition") or "unknown"
+                    ),
+                    "association_quality": (
+                        execution.get("association_quality") or None
+                    ),
+                }
+            )
+    return events
 
 
 def _timestamp(value):

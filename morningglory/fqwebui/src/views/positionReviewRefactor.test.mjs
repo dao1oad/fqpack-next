@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import {
   buildFullMarkerTooltip,
   buildMarkerTooltip,
+  buildPortfolioTradeTooltip,
   buildPortfolioEquityOption,
+  buildSymbolCostChartOption,
   buildSymbolReviewChartOption,
   normalizeConditions,
   normalizePortfolioContributions,
@@ -76,6 +78,7 @@ test('normalizePortfolioSummary maps kpis, verdicts and signal types', () => {
   const normalized = normalizePortfolioSummary({
     kpis: {
       total_asset: 67100.9,
+      net_value: 65400.0,
       market_value: 62100.0,
       remaining_cost: 61620.0,
       floating_pnl: 480.0,
@@ -95,25 +98,84 @@ test('normalizePortfolioSummary maps kpis, verdicts and signal types', () => {
     },
   })
   assert.equal(normalized.kpis.find((item) => item.key === 'totalAsset').value, 67100.9)
+  assert.equal(normalized.kpis.find((item) => item.key === 'netValue').value, 65400.0)
   assert.equal(normalized.kpis.find((item) => item.key === 'floatingPnl').kind, 'signedAmount')
   assert.equal(normalized.verdictDistribution.length, 4)
   assert.equal(normalized.signalTypeDistribution[0].label, '反转买点')
   assert.equal(normalized.equityBasis, 'broker_total_asset')
 })
 
-test('buildPortfolioEquityOption renders real and estimated series', () => {
+test('buildPortfolioEquityOption renders net value with period buckets and trade points', () => {
   const option = buildPortfolioEquityOption({
-    label: '估算权益（信用资产快照重建）',
+    label: '账户净资产（信用资产快照重建）',
     equity_basis: 'credit_snapshot_reconstructed',
+    period: 'day',
     series: [
-      { time: '2026-07-21T12:17', total_equity: 5196064.04, estimated_equity: 5196064.04 },
-      { time: '2026-07-21T13:00', total_equity: null, estimated_equity: 5200000.0 },
+      {
+        time: '2026-07-21T12:17',
+        period_label: '2026-07-21',
+        total_equity: 5196064.04,
+        net_value: 3558338.87,
+        estimated_equity: 3558338.87,
+        trades: [
+          { time: '2026-07-21T13:00+08:00', symbol: '002262', name: '恩华药业', side: 'buy', quantity: 4000, price: 10.26, amount: 41040.0 },
+        ],
+        trade_count: 1,
+      },
+      {
+        time: '2026-07-22T13:00',
+        period_label: '2026-07-22',
+        total_equity: null,
+        net_value: 3600000.0,
+        estimated_equity: 3600000.0,
+        trades: [],
+        trade_count: 0,
+      },
     ],
   })
   assert.ok(option)
-  assert.equal(option.series.length, 2)
-  assert.equal(option.series[0].name, '账户总资产')
-  assert.equal(option.series[1].name, '估算权益')
+  assert.equal(option.series[0].name, '账户净资产')
+  assert.equal(option.xAxis.data.length, 2)
+  assert.equal(option.xAxis.data[0], '07-21')
+  const tradeSeries = option.series.find((item) => item.id === 'position-review-portfolio-trades')
+  assert.ok(tradeSeries)
+  assert.equal(tradeSeries.data.length, 1)
+  assert.equal(tradeSeries.data[0].trades[0].symbol, '002262')
+})
+
+test('buildPortfolioTradeTooltip renders every trade at the point', () => {
+  const html = buildPortfolioTradeTooltip({
+    trades: [
+      { time: '2026-07-21T13:00+08:00', symbol: '002262', name: '恩华药业', side: 'buy', quantity: 4000, price: 10.26, amount: 41040.0 },
+      { time: '2026-07-21T13:05+08:00', symbol: '512000', name: '券商ETF', side: 'sell', quantity: 1000, price: 0.57, amount: 570.0 },
+    ],
+  })
+  assert.match(html, /2 笔成交/)
+  assert.match(html, /002262/)
+  assert.match(html, /买入/)
+  assert.match(html, /卖出/)
+  assert.match(html, /41,040/)
+})
+
+test('buildSymbolCostChartOption renders cost line and order markers without kline', () => {
+  const chart = makeChart()
+  const option = buildSymbolCostChartOption({ chart })
+  assert.ok(option)
+  assert.equal(option.xAxis.name, undefined)
+  assert.equal(option.yAxis.name, '成本价')
+  const costLine = option.series.find((item) => item.id === 'position-review-symbol-cost-line')
+  const markers = option.series.find((item) => item.id === 'position-review-symbol-cost-markers')
+  assert.ok(costLine)
+  assert.ok(markers)
+  assert.equal(markers.data.length, 2)
+  const buy = markers.data.find((item) => item.event.event_id === 'order-buy')
+  assert.equal(buy.itemStyle.color, '#ef4444')
+  const sell = markers.data.find((item) => item.event.event_id === 'order-sell')
+  assert.equal(sell.itemStyle.color, '#22c55e')
+})
+
+test('buildSymbolCostChartOption returns null without cost points or events', () => {
+  assert.equal(buildSymbolCostChartOption({ chart: {} }), null)
 })
 
 test('normalizePortfolioContributions keeps sorted rows', () => {

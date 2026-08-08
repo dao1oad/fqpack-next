@@ -2,9 +2,8 @@
 import { computed, ref, watch } from 'vue'
 
 import { positionReviewApi } from '../../api/positionReviewApi.js'
-import { stockApi } from '../../api/stockApi.js'
 import {
-  buildSymbolReviewChartOption,
+  buildSymbolCostChartOption,
   normalizeSymbolChart,
   positionReviewRefactorFormatters,
 } from '../../views/positionReviewRefactor.mjs'
@@ -23,7 +22,6 @@ const props = defineProps({
 
 const emit = defineEmits(['fix-event'])
 
-const kline = ref(null)
 const chartPayload = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -33,8 +31,7 @@ let requestId = 0
 const normalized = computed(() => normalizeSymbolChart(chartPayload.value || {}))
 
 const chartOption = computed(() => (
-  buildSymbolReviewChartOption({
-    kline: kline.value || {},
+  buildSymbolCostChartOption({
     chart: chartPayload.value || {},
     conditionsResolver: (eventId) => conditionsCache.value.get(eventId) || null,
   })
@@ -52,7 +49,6 @@ const feesIncluded = computed(() => Boolean(normalized.value.costBasis.fees_incl
 const loadChart = async ({ force = false } = {}) => {
   const symbol = String(props.symbol || '').trim()
   if (!symbol) {
-    kline.value = null
     chartPayload.value = null
     return
   }
@@ -60,22 +56,18 @@ const loadChart = async ({ force = false } = {}) => {
   loading.value = true
   error.value = ''
   try {
-    const [klinePayload, chartResult] = await Promise.allSettled([
-      stockApi.stockData({
-        symbol,
-        period: props.period,
-        ...(force ? {} : {}),
-      }),
-      positionReviewApi.getSymbolChart(symbol, { period: props.period }),
-    ])
+    const chartResult = await positionReviewApi.getSymbolChart(
+      symbol,
+      { period: props.period },
+    )
     if (requestIdValue !== requestId) return
-    kline.value = klinePayload.status === 'fulfilled' ? (klinePayload.value || null) : null
-    chartPayload.value = chartResult.status === 'fulfilled' ? (chartResult.value || null) : null
-    if (chartResult.status === 'rejected') {
-      error.value = Number(chartResult.reason?.response?.status) === 404
-        ? '标的复盘投影暂不可用'
-        : '标的复盘加载失败'
-    }
+    chartPayload.value = chartResult || null
+    error.value = ''
+  } catch (loadError) {
+    if (requestIdValue !== requestId) return
+    error.value = Number(loadError?.response?.status) === 404
+      ? '标的复盘投影暂不可用'
+      : '标的复盘加载失败'
   } finally {
     if (requestIdValue === requestId) {
       loading.value = false
@@ -143,7 +135,7 @@ defineExpose({ reload: () => loadChart({ force: true }) })
       @chart-hover="handleChartHover"
     />
     <p class="symbol-review-chart__hint">
-      红色 = 买入 / 绿色 = 卖出；形状 = 信号类型；边框/透明度 = 复盘结论；点击 marker 固定订单并查看完整证据。
+      Y 轴 = 持仓成本价；X 轴从首个持仓/订单点开始；红色 = 买入 / 绿色 = 卖出；形状 = 信号类型；「账」= 账本重建买入；点击 marker 固定订单并查看完整证据。
     </p>
   </div>
 </template>

@@ -182,14 +182,31 @@
   - `GET /api/position-review/symbols`
   - `GET /api/position-review/symbols/<symbol>`
   - `GET /api/position-review/portfolio/summary`
-  - `GET /api/position-review/portfolio/series`
+  - `GET /api/position-review/portfolio/series?period=day|week|month`（默认 `day`）
   - `GET /api/position-review/portfolio/contributions`
   - `GET /api/position-review/symbols/<symbol>/chart`
   - `GET /api/position-review/events/<event_id>/conditions`
+- 页面为单页左右栏结构：左栏是组合总览与标的复盘共用的持仓列表（当前持仓 + 已清仓标的，含
+  `no_execution_history=true` 的当前持仓），右栏按纵向顺序展示“组合总览”与“标的复盘”，
+  点击左栏列表或组合贡献表行联动到对应标的复盘。
+- 组合总览的账户净资产曲线按 QMT 口径计算：单位净值 =（基金资产总值 − 基金负债）/ 基金总份额，
+  账户层面净资产 = 总资产 − 总负债；数据来自 `pm_credit_asset_snapshots` 的
+  `total_asset / total_debt`。曲线支持日/周/月多周期切换（默认日），按北京日历桶聚合取各周期
+  末笔快照、缺失区间不插值；交易发生的周期在图上标注交易点，悬浮展示该周期全部交易的
+  时间、标的、方向、数量、价格、金额与请求 ID。
+- 标的复盘的“按标的展示图表”不再展示 K 线（K 线交易标识已由 `/kline-slim` 行情图承载），
+  改为持仓成本价曲线：Y 轴为持仓成本价，X 轴从首个持仓或订单点开始；订单事件（含
+  `rebuilt_open_order` 账本重建买入事件）仍以颜色/形状/边框编码并支持一次性展示全部
+  信号与条件证据的悬浮框。
 - 历史成交标的集合包含当前仍持仓和已经清仓的标的。全局统计、标的列表、图表和订单明细使用同一套账户、标的与时间范围口径。
 - 标的目录除“有可信历史成交的标的”外，还会把当前持仓中暂无成交记录的标的（例如无成交档案的 ETF 或新开仓标的）以
   `no_execution_history=true` 标记追加展示，使目录数量与券商持仓（`xt_positions`）一致；这些标的不参与交易复盘判定，
   组合贡献使用券商当前均价快照估算成本（`cost_basis_source=broker_snapshot_estimate`、`data_quality.cost_basis=degraded`）。
+- 账本重建（`flatten-cost-price`）会按持仓对账补单：每个 `position_snapshot_flatten` entry
+  生成一条显式标记的重建买入请求与订单（`source=order_ledger_rebuild`、`rebuilt_open=true`、
+  `broker_order_id=null`、`data_quality=reconstructed`），使“有持仓却没有对应买入订单”的
+  现象消失；这类重建订单无 `strategy_context`，复盘判定为 `NOT_APPLICABLE`，不进入 PASS/FAIL
+  合规率，也不计入月度成交额。
 - 当前交易快照来自 `xt_trades`，持久历史成交由
   `om_execution_history_archive` 补齐；订单请求、实际成交数量和持仓变化合并
   当前 OM 账本与 `position_review_evidence_archive` 交叉核对。

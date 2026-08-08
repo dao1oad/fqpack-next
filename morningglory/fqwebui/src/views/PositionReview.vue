@@ -77,61 +77,7 @@
         </WorkbenchSummaryRow>
       </WorkbenchToolbar>
 
-      <div class="position-review-view-switch">
-        <el-radio-group v-model="activeView" size="small" @change="switchView">
-          <el-radio-button value="portfolio">组合总览</el-radio-button>
-          <el-radio-button value="symbol">标的复盘</el-radio-button>
-        </el-radio-group>
-        <span class="position-review-view-switch__hint">
-          组合总览聚焦账户权益、盈亏与标的贡献；标的复盘聚焦单一 K 线主图与逐单证据。
-        </span>
-      </div>
-
-      <PortfolioOverview
-        v-if="activeView === 'portfolio'"
-        class="position-review-portfolio"
-        @drill-symbol="drillToSymbol"
-      />
-
-      <div v-else class="position-review-symbol-view">
-      <div
-        v-if="activeLoadErrors.length"
-        class="position-review-error-stack"
-      >
-        <div
-          v-for="item in activeLoadErrors"
-          :key="item.scope"
-          class="position-review-error-row"
-        >
-          <el-alert
-            class="workbench-alert"
-            type="error"
-            :title="item.message"
-            :closable="false"
-            show-icon
-          />
-          <el-button
-            type="danger"
-            plain
-            :loading="loading[item.scope]"
-            @click="retryLoadError(item.scope)"
-          >
-            重试
-          </el-button>
-        </div>
-      </div>
-
-      <el-alert
-        v-if="activeDataQualityWarnings.length"
-        class="workbench-alert position-review-quality-alert"
-        type="warning"
-        title="当前复盘存在数据口径提示"
-        :description="activeDataQualityWarnings.join('；')"
-        :closable="false"
-        show-icon
-      />
-
-      <div class="position-review-main-grid">
+      <div class="position-review-layout">
         <WorkbenchSidebarPanel
           class="position-review-symbol-panel"
           v-loading="loading.symbols"
@@ -203,7 +149,66 @@
           />
         </WorkbenchSidebarPanel>
 
-        <div class="position-review-center">
+        <div class="position-review-main">
+          <div
+            v-if="activeLoadErrors.length"
+            class="position-review-error-stack"
+          >
+            <div
+              v-for="item in activeLoadErrors"
+              :key="item.scope"
+              class="position-review-error-row"
+            >
+              <el-alert
+                class="workbench-alert"
+                type="error"
+                :title="item.message"
+                :closable="false"
+                show-icon
+              />
+              <el-button
+                type="danger"
+                plain
+                :loading="loading[item.scope]"
+                @click="retryLoadError(item.scope)"
+              >
+                重试
+              </el-button>
+            </div>
+          </div>
+
+          <el-alert
+            v-if="activeDataQualityWarnings.length"
+            class="workbench-alert position-review-quality-alert"
+            type="warning"
+            title="当前复盘存在数据口径提示"
+            :description="activeDataQualityWarnings.join('；')"
+            :closable="false"
+            show-icon
+          />
+
+          <section class="position-review-section position-review-portfolio-section">
+            <div class="position-review-section__head">
+              <div class="workbench-panel__title">组合总览</div>
+              <p class="workbench-panel__desc">
+                与左侧持仓列表联动：账户净资产曲线（QMT 口径：净资产 = 总资产 − 总负债；日/周/月可切换，交易发生的周期标注交易点）、月度成交额、复盘结论与标的贡献。
+              </p>
+            </div>
+            <PortfolioOverview @drill-symbol="drillToSymbol" />
+          </section>
+
+          <section
+            ref="symbolSectionRef"
+            class="position-review-section position-review-symbol-section"
+          >
+            <div class="position-review-section__head">
+              <div class="workbench-panel__title">标的复盘</div>
+              <p class="workbench-panel__desc">
+                成本价曲线（Y 轴 = 持仓成本价，X 轴从首个持仓/订单点开始）与订单证据；点击左侧持仓列表或贡献表行联动到对应标的。
+              </p>
+            </div>
+            <div class="position-review-symbol-grid">
+              <div class="position-review-center">
           <WorkbenchDetailPanel
             class="position-review-subject-panel"
             v-loading="loading.detail"
@@ -887,6 +892,8 @@
             />
           </div>
         </WorkbenchDetailPanel>
+        </div>
+        </section>
       </div>
     </div>
 
@@ -961,9 +968,9 @@ const loadErrors = reactive({
 })
 const summary = ref(normalizePositionReviewSummary({}))
 const symbolResult = ref(normalizePositionReviewSymbolRows({ rows: [], total: 0, page: 1, size: 100 }))
-const activeView = ref(String(route.query.view || 'portfolio').trim() === 'symbol' ? 'symbol' : 'portfolio')
 const selectedSymbol = ref('')
 const selectedDetail = ref(null)
+const symbolSectionRef = ref(null)
 const activeReview = ref(null)
 const activeExecution = ref(null)
 const activeFixedEvent = ref(null)
@@ -1082,17 +1089,13 @@ const errorMessage = (fallback, error) => {
   return detail ? `${fallback}：${detail}` : fallback
 }
 
-const switchView = (view) => {
-  activeView.value = String(view || '').trim() === 'symbol' ? 'symbol' : 'portfolio'
-  syncRouteQuery()
-}
-
 const drillToSymbol = (symbol) => {
   const normalized = String(symbol || '').trim()
   if (!normalized) return
-  activeView.value = 'symbol'
-  syncRouteQuery()
   selectSymbol(normalized)
+  nextTick(() => {
+    symbolSectionRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  })
 }
 
 const openFixedEvent = async (event) => {
@@ -1135,7 +1138,6 @@ const buildSymbolParams = () => ({
 const syncRouteQuery = () => {
   const nextQuery = {
     ...route.query,
-    view: activeView.value === 'symbol' ? 'symbol' : undefined,
     symbol: selectedSymbol.value || undefined,
     status: filters.status || undefined,
     q: filters.query.trim() || undefined,
@@ -1356,14 +1358,62 @@ onMounted(async () => {
   width: 154px;
 }
 
-.position-review-main-grid {
-  display: grid;
+.position-review-layout {
+  display: flex;
   flex: 1 1 auto;
-  grid-template-columns: 260px minmax(0, 1fr) 400px;
   gap: var(--fq-space-3);
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+.position-review-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--fq-space-3);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+
+.position-review-section {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--fq-space-3);
+  min-width: 0;
+}
+
+.position-review-section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.position-review-section__head .workbench-panel__title {
+  flex: 0 0 auto;
+}
+
+.position-review-section__head p {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.position-review-symbol-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: var(--fq-space-3);
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
 }
 
 .position-review-error-stack {
@@ -1389,6 +1439,8 @@ onMounted(async () => {
 }
 
 .position-review-symbol-panel {
+  flex: 0 0 280px;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -1522,26 +1574,6 @@ onMounted(async () => {
   min-height: 0;
 }
 
-.position-review-view-switch {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 0 0;
-}
-
-.position-review-view-switch__hint {
-  color: #9ca3af;
-  font-size: 12px;
-}
-
-.position-review-portfolio {
-  margin-top: 12px;
-  min-height: 0;
-  flex: 1 1 auto;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-}
-
 .position-review-ledger-collapse {
   flex: 0 0 auto;
   max-height: 34%;
@@ -1576,6 +1608,7 @@ onMounted(async () => {
 
 .position-review-evidence-panel {
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1711,8 +1744,12 @@ onMounted(async () => {
 }
 
 @media (max-width: 1280px) {
-  .position-review-main-grid {
-    grid-template-columns: 240px minmax(0, 1fr) 360px;
+  .position-review-symbol-grid {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+
+  .position-review-symbol-panel {
+    flex-basis: 250px;
   }
 }
 
@@ -1736,7 +1773,7 @@ onMounted(async () => {
     width: 100%;
   }
 
-  .position-review-main-grid {
+  .position-review-layout {
     display: flex;
     flex: 0 0 auto;
     flex-direction: column;
@@ -1744,8 +1781,19 @@ onMounted(async () => {
   }
 
   .position-review-symbol-panel {
+    flex: 0 0 auto;
     min-height: 360px;
     max-height: 52vh;
+  }
+
+  .position-review-main {
+    overflow: visible;
+  }
+
+  .position-review-symbol-grid {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
   }
 
   .position-review-center {

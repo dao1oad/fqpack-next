@@ -64,6 +64,58 @@ def test_flatten_builder_generates_one_cost_price_entry_for_002262():
     assert all(item["passed"] for item in result["flatten"]["invariant_checks"])
 
 
+def test_flatten_builder_reconciles_rebuilt_open_buy_orders_per_holding():
+    """账本重建应对账：每个持仓都应有对应的重建买入订单（而非只有 entry）。"""
+
+    service = _flatten_service()
+    result = service.build_flatten_from_positions(
+        xt_positions=[
+            {
+                "account_id": "068000076370",
+                "stock_code": "600917.SH",
+                "volume": 20000,
+                "avg_price": 5.527529,
+            },
+            {
+                "account_id": "068000076370",
+                "stock_code": "002262.SZ",
+                "volume": 6000,
+                "avg_price": 10.27,
+            },
+        ],
+        now_ts=1786105912,
+        lot_amount_lookup=lambda _symbol: 50000,
+        grid_interval_lookup=lambda _symbol: 1.2,
+    )
+
+    assert result["rebuilt_open_order_requests"] == 2
+    requests = result["order_request_documents"]
+    orders = result["order_documents"]
+    assert len(requests) == len(orders) == 2
+    by_symbol = {item["symbol"]: item for item in orders}
+    assert set(by_symbol) == {"600917", "002262"}
+    for order in orders:
+        assert order["side"] == "buy"
+        assert order["state"] == "FILLED"
+        assert order["filled_quantity"] == order["quantity"]
+        assert order["source"] == "order_ledger_rebuild"
+        assert order["rebuilt_open"] is True
+        assert order["broker_order_id"] is None
+        assert order["data_quality"] == "reconstructed"
+    entry = next(
+        item
+        for item in result["position_entry_documents"]
+        if item["symbol"] == "600917"
+    )
+    request = next(item for item in requests if item["entry_id"] == entry["entry_id"])
+    assert request["request_id"] == f"req_rebuilt_{entry['entry_id']}"
+    assert request["action"] == "buy"
+    assert request["price"] == pytest.approx(5.527529)
+    assert request["quantity"] == 20000
+    # 与 entry 保持同一时点，使成本曲线在重建时点有对应买入点。
+    assert request["trade_time"] == entry["trade_time"]
+
+
 def test_flatten_builder_splits_accounts_into_separate_entries():
     service = _flatten_service()
     result = service.build_flatten_from_positions(

@@ -37,7 +37,7 @@ python -m freshquant.rear.api_server --port 5000
 - `GET /api/position-review/symbols`
 - `GET /api/position-review/symbols/<symbol>`
 - `GET /api/position-review/portfolio/summary`
-- `GET /api/position-review/portfolio/series`
+- `GET /api/position-review/portfolio/series`（`period=day|week|month`，默认 `day`）
 - `GET /api/position-review/portfolio/contributions`
 - `GET /api/position-review/symbols/<symbol>/chart`
 - `GET /api/position-review/events/<event_id>/conditions`

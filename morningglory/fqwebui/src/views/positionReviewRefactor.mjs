@@ -57,6 +57,7 @@ export const normalizePortfolioSummary = (payload = {}) => {
   const signalTypeCounts = payload.signal_type_counts || {}
   const kpis = [
     { key: 'totalAsset', label: '总资产', value: round2(kpisRaw.total_asset), kind: 'amount' },
+    { key: 'netValue', label: '账户净资产', value: round2(kpisRaw.net_value), kind: 'amount' },
     { key: 'marketValue', label: '持仓市值', value: round2(kpisRaw.market_value), kind: 'amount' },
     { key: 'remainingCost', label: '持仓成本', value: round2(kpisRaw.remaining_cost), kind: 'amount' },
     { key: 'floatingPnl', label: '浮动盈亏', value: round2(kpisRaw.floating_pnl), kind: 'signedAmount' },
@@ -88,35 +89,119 @@ export const normalizePortfolioSummary = (payload = {}) => {
   }
 }
 
+const netValueOf = (point) => (
+  toFiniteNumber(point?.net_value)
+  ?? toFiniteNumber(point?.estimated_equity)
+  ?? toFiniteNumber(point?.total_equity)
+)
+
+const formatPeriodTick = (label, period) => {
+  const text = toText(label)
+  if (!text) return ''
+  if (period === 'month') return text
+  if (period === 'week') return text.slice(5)
+  return text.slice(5)
+}
+
+const tradeSideText = (side) => (side === 'sell' ? '卖出' : '买入')
+
+export const buildPortfolioTradeTooltip = (point = {}) => {
+  const trades = toArray(point.trades)
+  if (!trades.length) return '<div class="prt-muted">该周期内没有交易</div>'
+  const rows = trades.map((trade) => {
+    const amount = trade.amount == null
+      ? '—'
+      : Number(trade.amount).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+    return `<div class="prt-row">
+      <span class="prt-label">${escapeTooltipHtml(trade.time || '—')}</span>
+      <span class="prt-value">
+        <span class="prt-side prt-side-${trade.side === 'sell' ? 'sell' : 'buy'}">${tradeSideText(trade.side)}</span>
+        ${escapeTooltipHtml(trade.symbol)} ${escapeTooltipHtml(trade.name || '')}
+        · ${tooltipValue(trade.quantity)} 股
+        · ${tooltipValue(trade.price)} 元
+        · ${amount} 元
+      </span>
+    </div>`
+  }).join('')
+  const header = `<div class="prt-header">
+    <span class="prt-side prt-side-buy">交易</span>
+    <span class="prt-id">${trades.length} 笔成交</span>
+  </div>`
+  return `<div class="prt">${header}${rows}</div>`
+}
+
 export const buildPortfolioEquityOption = (payload = {}) => {
   const series = toArray(payload.series)
   if (!series.length) {
     return null
   }
-  const times = series.map((item) => toText(item.time))
-  const hasReal = series.some((item) => item.total_equity != null)
-  const hasEstimated = series.some((item) => item.estimated_equity != null)
-  const equitySeries = []
-  if (hasReal) {
-    equitySeries.push({
-      name: '账户总资产',
+  const period = toText(payload.period) || 'day'
+  const labels = series.map((item) => formatPeriodTick(item.period_label || item.time, period))
+  const hasNetValue = series.some((item) => (
+    item.net_value != null || item.estimated_equity != null
+  ))
+  const hasTotalAsset = series.some((item) => item.total_equity != null)
+  const netValueSeries = []
+  if (hasNetValue) {
+    netValueSeries.push({
+      name: '账户净资产',
       type: 'line',
       showSymbol: false,
       smooth: false,
-      lineStyle: { color: positionReviewChartColors.equity, width: 1.6 },
+      lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
+      data: series.map((item) => (
+        toFiniteNumber(item.net_value) ?? toFiniteNumber(item.estimated_equity)
+      )),
+    })
+  }
+  const assetSeries = []
+  if (hasTotalAsset && series.some((item) => {
+    const netValue = toFiniteNumber(item.net_value) ?? toFiniteNumber(item.estimated_equity)
+    return item.total_equity != null && netValue !== null && Math.abs(item.total_equity - netValue) > 0.01
+  })) {
+    assetSeries.push({
+      name: '总资产',
+      type: 'line',
+      showSymbol: false,
+      smooth: false,
+      lineStyle: { color: positionReviewChartColors.text, width: 1.2, type: 'dashed', opacity: 0.7 },
       data: series.map((item) => item.total_equity),
     })
   }
-  if (hasEstimated) {
-    equitySeries.push({
-      name: '估算权益',
-      type: 'line',
-      showSymbol: false,
-      smooth: false,
-      lineStyle: { color: positionReviewChartColors.estimated, width: 1.4, type: 'dashed' },
-      data: series.map((item) => item.estimated_equity),
+  const tradeSeriesData = series
+    .map((point, index) => {
+      const trades = toArray(point.trades)
+      if (!trades.length) return null
+      return {
+        value: [index, netValueOf(point)],
+        point,
+        trades,
+        count: trades.length,
+      }
     })
-  }
+    .filter(Boolean)
+  const tradeSeries = tradeSeriesData.length
+    ? [{
+        id: 'position-review-portfolio-trades',
+        name: '交易点',
+        type: 'scatter',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        symbol: 'circle',
+        symbolSize: (value, params) => 5 + Math.min(7, (params?.data?.count || 1) * 1.6),
+        animation: false,
+        z: 10,
+        itemStyle: { color: '#fbbf24', borderColor: '#111827', borderWidth: 1 },
+        tooltip: {
+          show: true,
+          className: 'prt-tooltip',
+          confine: true,
+          extraCssText: 'max-width:520px;max-height:320px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          formatter: (params) => buildPortfolioTradeTooltip(params?.data?.point || {}),
+        },
+        data: tradeSeriesData,
+      }]
+    : []
   return {
     backgroundColor: 'transparent',
     animation: false,
@@ -127,11 +212,16 @@ export const buildPortfolioEquityOption = (payload = {}) => {
     legend: {
       top: 4,
       textStyle: { color: positionReviewChartColors.text },
+      data: [
+        ...(netValueSeries.length ? ['账户净资产'] : []),
+        ...(assetSeries.length ? ['总资产'] : []),
+        ...(tradeSeries.length ? ['交易点'] : []),
+      ],
     },
     grid: { left: 70, right: 24, top: 44, bottom: 30 },
     xAxis: {
       type: 'category',
-      data: times,
+      data: labels,
       axisLabel: { color: '#9ca3af' },
       axisLine: { lineStyle: { color: '#4b5563' } },
     },
@@ -141,7 +231,7 @@ export const buildPortfolioEquityOption = (payload = {}) => {
       axisLabel: { color: '#9ca3af' },
       splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
     },
-    series: equitySeries,
+    series: [...netValueSeries, ...assetSeries, ...tradeSeries],
   }
 }
 
@@ -453,6 +543,234 @@ export const buildSymbolReviewChartOption = ({
       ...costSeries,
       ...markerSeries,
     ],
+  }
+}
+
+const resolveCostIndex = (targetMs, points) => {
+  if (!Number.isFinite(targetMs) || !points.length) return null
+  let best = -1
+  points.forEach((point, index) => {
+    if (parseBarTimeMs(point.time) <= targetMs) {
+      best = index
+    }
+  })
+  return best >= 0 ? best : 0
+}
+
+export const buildSymbolCostChartOption = ({
+  chart,
+  conditionsResolver = () => null,
+} = {}) => {
+  const normalized = normalizeSymbolChart(chart || {})
+  const points = normalized.costSeries
+    .map((point, index) => ({
+      index,
+      time: toText(point.time),
+      timeMs: parseBarTimeMs(point.time),
+      averageCost: toFiniteNumber(point.average_cost),
+      quantity: toInteger(point.position_quantity),
+      pointType: toText(point.point_type),
+      costBasisSource: toText(point.cost_basis_source),
+    }))
+    .filter((point) => point.timeMs != null && Number.isFinite(point.timeMs))
+  const events = normalized.events
+  if (!points.length && !events.length) {
+    return null
+  }
+  const times = points.map((point) => point.time)
+
+  const markers = events
+    .map((event) => {
+      const execution = event.execution || {}
+      const marker = event.marker || {}
+      const targetMs = parseBarTimeMs(marker.bar_time || execution.first_fill_time)
+      const index = resolveCostIndex(targetMs, points)
+      if (index === null) return null
+      const costValue = points[index]?.averageCost ?? null
+      const price = toFiniteNumber(marker.price)
+        ?? toFiniteNumber(execution.avg_filled_price)
+        ?? costValue
+      if (price === null) return null
+      return {
+        event,
+        eventId: toText(event.event_id),
+        side: toText(event.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+        index,
+        price,
+        symbol: toText(marker.symbol) || 'circle',
+        verdict: toText((event.review || {}).verdict).toUpperCase() || null,
+        rebuilt: Boolean(event.rebuilt),
+      }
+    })
+    .filter(Boolean)
+  const offsets = assignMarkerOffsets(markers.map((marker) => ({
+    eventId: marker.eventId,
+    barIndex: marker.index,
+  })))
+
+  const markerSeries = markers.length
+    ? [{
+        id: 'position-review-symbol-cost-markers',
+        name: '订单事件',
+        type: 'scatter',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        symbol: (value, params) => params?.data?.symbol || 'circle',
+        symbolSize: (value, params) => (params?.data?.rebuilt ? 10 : 13),
+        animation: false,
+        z: 12,
+        label: {
+          show: true,
+          position: 'top',
+          distance: 2,
+          formatter: (params) => {
+            if (params?.data?.mark) return '!'
+            if (params?.data?.rebuilt) return '账'
+            return params?.data?.sideText || ''
+          },
+          color: '#f3f4f6',
+          fontSize: 9,
+          fontWeight: 'bold',
+        },
+        data: markers.map((marker) => {
+          const style = verdictMarkerStyle(marker.verdict)
+          return {
+            value: [marker.index + (offsets.get(marker.eventId) || 0), marker.price],
+            event: marker.event,
+            symbol: marker.symbol,
+            sideText: marker.side === 'buy' ? 'B' : 'S',
+            mark: style.mark,
+            rebuilt: marker.rebuilt,
+            itemStyle: {
+              color: marker.side === 'buy'
+                ? positionReviewChartColors.buy
+                : positionReviewChartColors.sell,
+              borderColor: style.borderColor,
+              borderWidth: style.borderWidth,
+              opacity: style.opacity,
+            },
+          }
+        }),
+        tooltip: {
+          show: true,
+          className: 'prt-tooltip',
+          confine: true,
+          extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          formatter: (params) => {
+            const event = params?.data?.event
+            if (!event) return ''
+            return buildFullMarkerTooltip(event, conditionsResolver(event.event_id))
+          },
+        },
+      }]
+    : []
+
+  const markAreas = []
+  for (const cycle of normalized.holdingCycles) {
+    const startIndex = cycle.open_time == null
+      ? 0
+      : resolveCostIndex(parseBarTimeMs(cycle.open_time), points)
+    const endIndex = cycle.close_time == null
+      ? points.length - 1
+      : resolveCostIndex(parseBarTimeMs(cycle.close_time), points)
+    if (startIndex === null || endIndex === null || startIndex > endIndex) {
+      continue
+    }
+    markAreas.push({
+      name: cycle.cycle_id,
+      itemStyle: {
+        color: cycle.status === 'open'
+          ? 'rgba(96,165,250,0.06)'
+          : 'rgba(156,163,175,0.05)',
+      },
+      label: {
+        show: true,
+        position: 'insideTop',
+        color: '#9ca3af',
+        fontSize: 9,
+        formatter: `持仓周期 ${startIndex === endIndex ? startIndex + 1 : `${startIndex + 1}–${endIndex + 1}`}`,
+      },
+      data: [[startIndex, 'min'], [endIndex, 'max']],
+    })
+  }
+
+  const costLineSeries = points.length
+    ? [{
+        id: 'position-review-symbol-cost-line',
+        name: '持仓成本价',
+        type: 'line',
+        step: 'end',
+        showSymbol: false,
+        animation: false,
+        z: 6,
+        lineStyle: { color: positionReviewChartColors.cost, width: 2 },
+        markArea: markAreas.length ? { silent: true, data: markAreas } : undefined,
+        data: points.map((point) => point.averageCost),
+      }]
+    : []
+
+  const costPointSeries = points.length
+    ? [{
+        id: 'position-review-symbol-cost-points',
+        name: '成本采样点',
+        type: 'scatter',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        symbol: 'circle',
+        symbolSize: 5,
+        animation: false,
+        z: 7,
+        silent: true,
+        itemStyle: { color: positionReviewChartColors.cost, opacity: 0.9 },
+        data: points.map((point, index) => (
+          point.averageCost === null ? null : [index, point.averageCost]
+        )).filter(Boolean),
+      }]
+    : []
+
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    title: {
+      text: `${toText(normalized.symbol.code)} ${toText(normalized.symbol.name)}`.trim(),
+      left: 8,
+      top: 6,
+      textStyle: { color: '#f3f4f6', fontSize: 14, fontWeight: 'normal' },
+    },
+    tooltip: {
+      trigger: 'item',
+      triggerOn: 'mousemove|click',
+      confine: true,
+    },
+    legend: {
+      top: 8,
+      right: 12,
+      textStyle: { color: '#d1d5db' },
+      data: [
+        ...(costLineSeries.length ? ['持仓成本价'] : []),
+        ...(markerSeries.length ? ['订单事件'] : []),
+      ],
+    },
+    grid: { left: 58, right: 20, top: 44, bottom: 40 },
+    xAxis: {
+      type: 'category',
+      data: times,
+      axisLabel: { color: '#9ca3af' },
+      axisLine: { lineStyle: { color: '#4b5563' } },
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      axisLabel: { color: '#9ca3af', formatter: (value) => Number(value).toFixed(2) },
+      splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
+      name: '成本价',
+      nameTextStyle: { color: '#9ca3af' },
+    },
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0, start: 0, end: 100 },
+      { type: 'slider', xAxisIndex: 0, start: 0, end: 100, bottom: 8, height: 18 },
+    ],
+    series: [...costLineSeries, ...costPointSeries, ...markerSeries],
   }
 }
 
