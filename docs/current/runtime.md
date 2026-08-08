@@ -207,11 +207,14 @@
   `broker_order_id=null`、`data_quality=reconstructed`），使“有持仓却没有对应买入订单”的
   现象消失；这类重建订单无 `strategy_context`，复盘判定为 `NOT_APPLICABLE`，不进入 PASS/FAIL
   合规率，也不计入月度成交额。
-- 当前交易快照来自 `xt_trades`；订单请求、订单、成交、持仓 entry/slice/allocation
-  全部只读当前 OM 账本（`om_order_requests / om_orders / om_execution_fills /
-  om_trade_facts / om_position_entries / om_entry_slices / om_exit_allocations`）。
-  `om_execution_history_archive` 与 `position_review_evidence_archive` 只作为重建前
-  历史留存的写入侧，持仓复盘读模型不再读取归档。
+- 订单与成交的唯一来源是当前 OM 账本（`om_order_requests / om_orders /
+  om_broker_orders / om_execution_fills / om_trade_facts / om_position_entries /
+  om_entry_slices / om_exit_allocations`）：重建订单与后续真实订单进入同一账本，
+  真实订单的成交经 `om_execution_fills` 展示。`freshquant.xt_trades`（重建前券商
+  历史成交）与 `om_execution_history_archive / position_review_evidence_archive`
+  只作历史留存，持仓复盘读模型一律不读取。
+- 持仓复盘目录 = 当前账本有订单的标的 ∪ 当前持仓（`xt_positions`）；重建后为 10 个
+  当前持仓，每标的一笔 `rebuilt_open=true` 初始化虚拟订单，图表事件只来自账本订单。
 - flatten 重建后，每个当前持仓会有一条 `rebuilt_open=true` 的重建买入订单（见上文），
   重建订单同时写入 `om_order_requests / om_orders / om_broker_orders` 三个集合：
   持仓复盘读取 `om_orders`，仓位管理“相关订单”读取 `om_broker_orders`，两边订单一致。

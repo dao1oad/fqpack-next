@@ -39,39 +39,39 @@ class PositionReviewRepository:
         )
 
     def list_symbols(self) -> list[str]:
-        # The review catalog is a history of actual executions. A strategy
-        # request that never reached XT must remain directly inspectable, but
-        # it must not make a symbol look "historically traded" in the catalog.
-        # After the flatten ledger rebuild the catalog reads current stores
-        # only (broker truth + current OM fills); archived evidence is never
-        # read back.
+        # The review catalog is the current order ledger: symbols that have a
+        # current ledger order (rebuilt init orders or future real orders)
+        # plus current broker holdings.  Historical xt_trades are never read
+        # back as catalog entries; archived evidence is write-only.
         values = set()
-        for value in self.business_database["xt_trades"].distinct("stock_code"):
-            symbol = _normalize_symbol(value)
-            if symbol:
-                values.add(symbol)
-        current_fill_collection = _optional_collection(
-            self.order_database,
-            "om_execution_fills",
+        for collection_name in ("om_order_requests", "om_orders"):
+            collection = _optional_collection(self.order_database, collection_name)
+            if collection is None or not hasattr(collection, "distinct"):
+                continue
+            for value in collection.distinct("symbol"):
+                symbol = _normalize_symbol(value)
+                if symbol:
+                    values.add(symbol)
+        position_collection = _optional_collection(
+            self.business_database,
+            "xt_positions",
         )
-        if current_fill_collection is not None:
-            for value in current_fill_collection.distinct("symbol"):
+        if position_collection is not None and hasattr(position_collection, "distinct"):
+            for value in position_collection.distinct("stock_code"):
                 symbol = _normalize_symbol(value)
                 if symbol:
                     values.add(symbol)
         return sorted(values)
 
     def list_xt_trades(self, symbol: str | None = None) -> list[dict[str, Any]]:
-        query = {}
-        if symbol:
-            normalized = _normalize_symbol(symbol)
-            query["stock_code"] = re.compile(
-                rf"^{re.escape(normalized)}(?:\.|$)",
-                re.IGNORECASE,
-            )
-        current = _documents(
-            self.business_database["xt_trades"].find(query).sort("traded_time", 1)
-        )
+        """Canonical fills come from the current order ledger only.
+
+        ``freshquant.xt_trades`` is broker history before the ledger rebuild and
+        is never read back by the review read-model.  Rebuilt init orders have
+        no fills yet; future real orders will attach their ``om_execution_fills``
+        here.
+        """
+
         fill_query = {"symbol": _normalize_symbol(symbol)} if symbol else {}
         current_om = _find_documents(
             _optional_collection(
@@ -82,7 +82,7 @@ class PositionReviewRepository:
             sort=("trade_time", 1),
         )
         return _union_execution_truth(
-            current=current,
+            current=[],
             current_om=current_om,
             archived=[],
         )
@@ -224,13 +224,7 @@ class PositionReviewRepository:
         """Read every catalog collection once and group the snapshot in memory."""
 
         xt_trades = self.list_xt_trades()
-        symbols = sorted(
-            {
-                _normalize_symbol(item.get("stock_code") or item.get("symbol"))
-                for item in xt_trades
-                if _normalize_symbol(item.get("stock_code") or item.get("symbol"))
-            }
-        )
+        symbols = self.list_symbols()
         grouped: dict[str, dict[str, list[dict[str, Any]]]] = {
             symbol: {
                 "requests": [],

@@ -1430,7 +1430,7 @@ def test_catalog_cache_single_flights_parallel_summary_and_symbol_requests():
     assert repository.catalog_calls == 2
 
 
-def test_catalog_contains_only_symbols_with_actual_xt_trades():
+def test_catalog_contains_only_symbols_with_current_orders_or_holdings():
     class Collection:
         def __init__(self, values):
             self.values = values
@@ -1439,17 +1439,26 @@ def test_catalog_contains_only_symbols_with_actual_xt_trades():
             return list(self.values)
 
     repository = PositionReviewRepository(
-        business_database={"xt_trades": Collection(["002262.SZ", "600000.SH"])},
+        business_database={
+            "xt_positions": Collection(["002262.SZ", "600000.SH", "600917.SH"])
+        },
         order_database={
             "om_order_requests": Collection(
                 ["002262", "600000", "request_only_symbol"]
             ),
+            "om_orders": Collection(["002262"]),
             "om_execution_history_archive": Collection([]),
         },
         position_database={},
     )
 
-    assert repository.list_symbols() == ["002262", "600000"]
+    # 目录 = 当前订单符号 ∪ 当前持仓符号（历史 xt_trades 不参与）。
+    assert repository.list_symbols() == [
+        "002262",
+        "600000",
+        "600917",
+        "REQUEST_ONLY_SYMBOL",
+    ]
 
 
 def test_catalog_uses_one_batch_snapshot_and_one_global_runtime_scan():

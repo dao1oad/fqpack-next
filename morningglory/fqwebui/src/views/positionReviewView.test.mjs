@@ -8,7 +8,7 @@ const chartPath = new URL('../components/position-review/PositionReviewChart.vue
 test('position review view keeps canonical executions and strategy reviews as separate ledgers', async () => {
   const source = await readFile(viewPath, 'utf8')
 
-  assert.match(source, /成交明细（真实成交）/)
+  assert.match(source, /订单成交明细/)
   assert.match(source, /:data="selectedDetail\.executions"/)
   assert.match(source, /逐单策略复盘/)
   assert.match(source, /:data="selectedDetail\.reviews"/)
