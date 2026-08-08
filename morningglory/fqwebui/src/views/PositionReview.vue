@@ -77,44 +77,7 @@
         </WorkbenchSummaryRow>
       </WorkbenchToolbar>
 
-      <div
-        v-if="activeLoadErrors.length"
-        class="position-review-error-stack"
-      >
-        <div
-          v-for="item in activeLoadErrors"
-          :key="item.scope"
-          class="position-review-error-row"
-        >
-          <el-alert
-            class="workbench-alert"
-            type="error"
-            :title="item.message"
-            :closable="false"
-            show-icon
-          />
-          <el-button
-            type="danger"
-            plain
-            :loading="loading[item.scope]"
-            @click="retryLoadError(item.scope)"
-          >
-            重试
-          </el-button>
-        </div>
-      </div>
-
-      <el-alert
-        v-if="activeDataQualityWarnings.length"
-        class="workbench-alert position-review-quality-alert"
-        type="warning"
-        title="当前复盘存在数据口径提示"
-        :description="activeDataQualityWarnings.join('；')"
-        :closable="false"
-        show-icon
-      />
-
-      <div class="position-review-main-grid">
+      <div class="position-review-layout">
         <WorkbenchSidebarPanel
           class="position-review-symbol-panel"
           v-loading="loading.symbols"
@@ -186,45 +149,59 @@
           />
         </WorkbenchSidebarPanel>
 
-        <div class="position-review-detail-stack">
-          <div class="position-review-overview-grid">
-            <WorkbenchPanel class="position-review-overview-panel">
-              <div class="workbench-panel__header">
-                <div class="workbench-title-group">
-                  <div class="workbench-panel__title">全局复盘结论</div>
-                  <p class="workbench-panel__desc">
-                    “证据不足”不会被计入符合率，也不会被默认为符合。
-                  </p>
-                </div>
-              </div>
-              <PositionReviewChart
-                class="position-review-overview-chart"
-                :option="statusDonutOption"
-                :loading="loading.summary"
-                :empty="summaryStatusTotal === 0"
-                empty-text="暂无可复盘请求"
+        <div class="position-review-main">
+          <div
+            v-if="activeLoadErrors.length"
+            class="position-review-error-stack"
+          >
+            <div
+              v-for="item in activeLoadErrors"
+              :key="item.scope"
+              class="position-review-error-row"
+            >
+              <el-alert
+                class="workbench-alert"
+                type="error"
+                :title="item.message"
+                :closable="false"
+                show-icon
               />
-            </WorkbenchPanel>
-
-            <WorkbenchPanel class="position-review-overview-panel">
-              <div class="workbench-panel__header">
-                <div class="workbench-title-group">
-                  <div class="workbench-panel__title">月度成交额</div>
-                  <p class="workbench-panel__desc">
-                    {{ selectedDetail?.displayName || '选择标的后展示' }}，按成交日聚合。
-                  </p>
-                </div>
-              </div>
-              <PositionReviewChart
-                class="position-review-overview-chart"
-                :option="monthlyTradeOption"
-                :loading="loading.detail"
-                :empty="!selectedDetail?.monthlyActivity?.length"
-                empty-text="选择有成交记录的标的后展示"
-              />
-            </WorkbenchPanel>
+              <el-button
+                type="danger"
+                plain
+                :loading="loading[item.scope]"
+                @click="retryLoadError(item.scope)"
+              >
+                重试
+              </el-button>
+            </div>
           </div>
 
+          <el-alert
+            v-if="activeDataQualityWarnings.length"
+            class="workbench-alert position-review-quality-alert"
+            type="warning"
+            title="当前复盘存在数据口径提示"
+            :description="activeDataQualityWarnings.join('；')"
+            :closable="false"
+            show-icon
+          />
+
+          <el-tabs
+            v-model="activeWorkbenchTab"
+            class="position-review-tabs"
+            type="border-card"
+          >
+            <el-tab-pane label="组合总览" name="portfolio">
+              <div class="position-review-portfolio-tab">
+                <PortfolioOverview @drill-symbol="drillToSymbol" />
+              </div>
+            </el-tab-pane>
+
+            <el-tab-pane label="标的复盘" name="symbol">
+              <div class="position-review-symbol-tab">
+              <div class="position-review-symbol-grid">
+              <div class="position-review-center">
           <WorkbenchDetailPanel
             class="position-review-subject-panel"
             v-loading="loading.detail"
@@ -298,32 +275,220 @@
             class="position-review-timeline-panel"
           >
             <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">订单复盘 · 信号关联 · 持仓联动</div>
+            <div class="workbench-title-group">
+                <div class="workbench-panel__title">订单与成本价复盘主图</div>
                 <p class="workbench-panel__desc">
-                  每个节点代表一笔订单的聚合成交：关联信号、策略应有量、实际成交量和持仓前后变化使用同一时间轴；不展示逐笔成交，也不把信号或委托价连成价格线。
+                  Y 轴 = 持仓成本价，X 轴从首个持仓/订单点开始；订单事件来自当前订单账本（重建订单 + 真实订单），颜色表达买卖方向、形状表达信号类型；点击 marker 固定订单并查看完整条件证据。
                 </p>
               </div>
             </div>
-            <PositionReviewChart
-              class="position-review-timeline-chart"
-              :option="timelineOption"
-              :loading="loading.detail || loading.timeline"
-              :empty="!hasTimelineData"
-              empty-text="当前标的暂无可绘制的交易时间轴"
-              @chart-click="handleChartClick"
+            <SymbolReviewChart
+              :symbol="selectedSymbol"
+              :period="'5m'"
+              @fix-event="openFixedEvent"
             />
           </WorkbenchPanel>
 
+          <el-collapse
+            v-model="ledgerCollapse"
+            class="position-review-ledger-collapse"
+          >
+            <el-collapse-item name="ledger-reviews" title="逐单策略复盘">
           <WorkbenchLedgerPanel
             v-if="selectedDetail"
             class="position-review-ledger-panel"
           >
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">成交明细（真实成交）</div>
+                <div class="workbench-panel__title">逐单策略复盘</div>
                 <p class="workbench-panel__desc">
-                  完整展示 {{ selectedDetail.dataQuality.canonicalTradeSourceLabel }} 成交真值；关联状态仅描述证据链质量，不伪造策略结论。
+                  实际成交量与策略应有量分别展示；点击任一行查看公式、来源切片与完整证据 ID。
+                </p>
+              </div>
+              <div class="workbench-panel__meta">
+                共 {{ selectedDetail.reviews.length }} 笔
+              </div>
+            </div>
+
+            <div class="workbench-table-wrap position-review-table-wrap">
+              <el-table
+                v-if="selectedDetail.reviews.length"
+                ref="reviewTableRef"
+                :data="selectedDetail.reviews"
+                row-key="id"
+                stripe
+                border
+                height="100%"
+                highlight-current-row
+                :row-class-name="reviewRowClassName"
+                @row-click="openReviewDrawer"
+              >
+                <el-table-column label="时间" min-width="168">
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ row.timeLabel }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="方向" width="72" align="center">
+                  <template #default="{ row }">
+                    <span :class="`position-review-side position-review-side--${row.side}`">
+                      {{ row.sideLabel }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="信号类型" min-width="128">
+                  <template #default="{ row }">
+                    <template v-if="row.signal.label">
+                      <span class="position-review-signal-label">
+                        {{ row.signal.label }}
+                      </span>
+                      <span class="position-review-signal-type">
+                        {{ row.signal.type || '—' }}
+                      </span>
+                      <span
+                        v-if="row.signal.remark"
+                        class="position-review-signal-remark"
+                        :title="row.signal.remark"
+                      >
+                        {{ row.signal.remark }}
+                      </span>
+                    </template>
+                    <StatusChip v-else class="position-review-inline-chip" variant="muted">
+                      未关联信号
+                    </StatusChip>
+                  </template>
+                </el-table-column>
+                <el-table-column label="信号/委托价" min-width="104" align="right">
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ formatPrice(row.requestPrice) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="阈值判断" min-width="150">
+                  <template #default="{ row }">
+                    <div v-if="row.thresholdPrice !== null" class="position-review-process-cell">
+                      <span class="workbench-code">
+                        {{ formatPrice(row.thresholdPrice) }}
+                        <template v-if="row.thresholdMode">
+                          （{{ row.thresholdMode === 'percent' ? '百分比' : row.thresholdMode === 'atr' ? 'ATR' : row.thresholdMode }}）
+                        </template>
+                      </span>
+                      <span v-if="row.thresholdRatio !== null" class="position-review-process-sub">
+                        比率 {{ row.thresholdRatio }}
+                      </span>
+                      <span v-if="row.thresholdDelta !== null" class="position-review-process-sub">
+                        Δ{{ formatPrice(row.thresholdDelta) }}
+                      </span>
+                    </div>
+                    <div v-else-if="row.conditionSnapshotStatus === 'missing'" class="position-review-process-cell">
+                      <StatusChip class="position-review-inline-chip" variant="warning">
+                        历史阈值缺失
+                      </StatusChip>
+                    </div>
+                    <span v-else class="position-review-process-cell">—</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="条件判断" min-width="180">
+                  <template #default="{ row }">
+                    <div class="position-review-process-cell" :title="conditionSummaryTitle(row)">
+                      <span v-if="row.conditions.length" class="position-review-condition-badges">
+                        <StatusChip v-if="row.conditionPassedCount" class="position-review-inline-chip" variant="success">
+                          通过 {{ row.conditionPassedCount }}
+                        </StatusChip>
+                        <StatusChip v-if="row.conditionFailedCount" class="position-review-inline-chip" variant="danger">
+                          失败 {{ row.conditionFailedCount }}
+                        </StatusChip>
+                        <StatusChip v-if="row.conditionMissingCount" class="position-review-inline-chip" variant="warning">
+                          缺失 {{ row.conditionMissingCount }}
+                        </StatusChip>
+                      </span>
+                      <span v-else class="position-review-process-sub">
+                        {{ row.conditionSnapshotStatus === 'complete' ? '无条件' : '待证据' }}
+                      </span>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="请求量" min-width="86" align="right">
+                  <template #default="{ row }">
+                    <span class="workbench-code">{{ formatInteger(row.requestQuantity) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="策略应有量" min-width="98" align="right">
+                  <template #default="{ row }">
+                    <strong v-if="row.expectedQuantity !== null" class="workbench-code">
+                      {{ formatInteger(row.expectedQuantity) }}
+                    </strong>
+                    <StatusChip v-else class="position-review-inline-chip" variant="warning">
+                      证据不足
+                    </StatusChip>
+                  </template>
+                </el-table-column>
+                <el-table-column label="数量判断" min-width="160">
+                  <template #default="{ row }">
+                    <div class="position-review-process-cell">
+                      <span class="position-review-process-sub">
+                        原始应有量 {{ row.rawQuantity === null ? '—' : formatInteger(row.rawQuantity) }}
+                      </span>
+                      <span class="position-review-process-sub">
+                        可卖上限 {{ row.canUseVolume === null ? '—' : formatInteger(row.canUseVolume) }}
+                      </span>
+                      <span
+                        v-if="row.tracedRawQuantity !== null"
+                        class="position-review-process-sub"
+                      >
+                        追踪应有量 {{ formatInteger(row.tracedRawQuantity) }}
+                      </span>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="实际成交量" min-width="98" align="right">
+                  <template #default="{ row }">
+                    <strong class="workbench-code">{{ formatInteger(row.actualQuantity) }}</strong>
+                  </template>
+                </el-table-column>
+                <el-table-column label="数量偏差" min-width="88" align="right">
+                  <template #default="{ row }">
+                    <span
+                      class="workbench-code"
+                      :class="{ 'position-review-delta--anomaly': isFiniteNonZero(row.quantityDelta) }"
+                    >
+                      {{ formatSignedInteger(row.quantityDelta) }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="复盘结论" min-width="108">
+                  <template #default="{ row }">
+                    <StatusChip
+                      class="position-review-inline-chip"
+                      :variant="row.statusChipVariant"
+                    >
+                      {{ row.statusLabel }}
+                    </StatusChip>
+                  </template>
+                </el-table-column>
+                <el-table-column label="原因" min-width="220">
+                  <template #default="{ row }">
+                    <span class="position-review-reason" :title="row.reasonText">
+                      {{ row.reasonText }}
+                    </span>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <div v-else class="workbench-empty">
+                <el-empty description="当前标的没有策略请求复盘记录" :image-size="72" />
+              </div>
+            </div>
+          </WorkbenchLedgerPanel>
+            </el-collapse-item>
+            <el-collapse-item name="ledger-executions" title="订单成交明细">
+          <WorkbenchLedgerPanel
+            v-if="selectedDetail"
+            class="position-review-ledger-panel"
+          >
+            <div class="workbench-panel__header">
+              <div class="workbench-title-group">
+                <div class="workbench-panel__title">订单成交明细</div>
+                <p class="workbench-panel__desc">
+                  只展示与当前订单账本关联的真实成交（{{ selectedDetail.dataQuality.canonicalTradeSourceLabel }}）；账本重建初始化订单为虚拟订单，尚无真实成交，后续真实订单的成交将在此展示。
                 </p>
               </div>
               <div class="workbench-panel__meta position-review-ledger-counts">
@@ -413,127 +578,23 @@
               </el-table>
 
               <div v-else class="workbench-empty">
-                <el-empty description="当前标的没有真实成交记录" :image-size="72" />
+                <el-empty description="当前为账本重建初始化订单（虚拟），暂无真实成交；后续真实订单的成交将在此展示。" :image-size="72" />
               </div>
             </div>
           </WorkbenchLedgerPanel>
-
-          <WorkbenchLedgerPanel
-            v-if="selectedDetail"
-            class="position-review-ledger-panel"
-          >
-            <div class="workbench-panel__header">
-              <div class="workbench-title-group">
-                <div class="workbench-panel__title">逐单策略复盘</div>
-                <p class="workbench-panel__desc">
-                  实际成交量与策略应有量分别展示；点击任一行查看公式、来源切片与完整证据 ID。
-                </p>
-              </div>
-              <div class="workbench-panel__meta">
-                共 {{ selectedDetail.reviews.length }} 笔
-              </div>
-            </div>
-
-            <div class="workbench-table-wrap position-review-table-wrap">
-              <el-table
-                v-if="selectedDetail.reviews.length"
-                ref="reviewTableRef"
-                :data="selectedDetail.reviews"
-                row-key="id"
-                stripe
-                border
-                height="100%"
-                highlight-current-row
-                :row-class-name="reviewRowClassName"
-                @row-click="openReviewDrawer"
-              >
-                <el-table-column label="时间" min-width="168">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ row.timeLabel }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="方向" width="72" align="center">
-                  <template #default="{ row }">
-                    <span :class="`position-review-side position-review-side--${row.side}`">
-                      {{ row.sideLabel }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="信号/委托价" min-width="104" align="right">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ formatPrice(row.requestPrice) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="策略阈值" min-width="100" align="right">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ formatPrice(row.thresholdPrice) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="请求量" min-width="86" align="right">
-                  <template #default="{ row }">
-                    <span class="workbench-code">{{ formatInteger(row.requestQuantity) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="策略应有量" min-width="98" align="right">
-                  <template #default="{ row }">
-                    <strong v-if="row.expectedQuantity !== null" class="workbench-code">
-                      {{ formatInteger(row.expectedQuantity) }}
-                    </strong>
-                    <StatusChip v-else class="position-review-inline-chip" variant="warning">
-                      证据不足
-                    </StatusChip>
-                  </template>
-                </el-table-column>
-                <el-table-column label="实际成交量" min-width="98" align="right">
-                  <template #default="{ row }">
-                    <strong class="workbench-code">{{ formatInteger(row.actualQuantity) }}</strong>
-                  </template>
-                </el-table-column>
-                <el-table-column label="数量偏差" min-width="88" align="right">
-                  <template #default="{ row }">
-                    <span
-                      class="workbench-code"
-                      :class="{ 'position-review-delta--anomaly': isFiniteNonZero(row.quantityDelta) }"
-                    >
-                      {{ formatSignedInteger(row.quantityDelta) }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="复盘结论" min-width="108">
-                  <template #default="{ row }">
-                    <StatusChip
-                      class="position-review-inline-chip"
-                      :variant="row.statusChipVariant"
-                    >
-                      {{ row.statusLabel }}
-                    </StatusChip>
-                  </template>
-                </el-table-column>
-                <el-table-column label="原因" min-width="220">
-                  <template #default="{ row }">
-                    <span class="position-review-reason" :title="row.reasonText">
-                      {{ row.reasonText }}
-                    </span>
-                  </template>
-                </el-table-column>
-              </el-table>
-
-              <div v-else class="workbench-empty">
-                <el-empty description="当前标的没有策略请求复盘记录" :image-size="72" />
-              </div>
-            </div>
-          </WorkbenchLedgerPanel>
+            </el-collapse-item>
+          </el-collapse>
         </div>
-      </div>
-    </div>
 
-    <el-drawer
-      v-model="drawerVisible"
-      class="position-review-drawer"
-      :title="drawerTitle"
-      size="720px"
-      destroy-on-close
-    >
+        <WorkbenchDetailPanel
+          class="position-review-evidence-panel"
+        >
+          <template v-if="activeReview || activeExecution || activeFixedEvent">
+            <div class="position-review-evidence-panel__header">
+              <div class="position-review-evidence-panel__title">{{ drawerTitle }}</div>
+              <el-button size="small" @click="closeEvidence">关闭</el-button>
+            </div>
+            <div class="position-review-evidence-panel__body">
       <template v-if="activeReview">
         <div class="position-review-drawer__summary">
           <StatusChip :variant="activeReview.statusChipVariant">
@@ -712,7 +773,204 @@
           <pre class="position-review-json">{{ prettyJson(activeExecution.raw) }}</pre>
         </section>
       </template>
-    </el-drawer>
+
+      <template v-else-if="activeFixedEvent">
+        <div class="position-review-drawer__summary">
+          <StatusChip :variant="activeFixedEvent.side === 'buy' ? 'danger' : 'success'">
+            {{ activeFixedEvent.side === 'buy' ? '买入' : '卖出' }}
+            <strong>{{ activeFixedEvent.event_id }}</strong>
+          </StatusChip>
+          <StatusChip :variant="activeFixedEvent.review?.verdict === 'PASS' ? 'success' : 'warning'">
+            复盘结论 <strong>{{ activeFixedEvent.review?.verdict || '未判定' }}</strong>
+          </StatusChip>
+          <StatusChip variant="muted">
+            信号 {{ activeFixedEvent.signal?.label || '未关联信号' }}
+          </StatusChip>
+        </div>
+
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="请求数量">
+            {{ activeFixedEvent.order?.request_quantity ?? '—' }} 股
+          </el-descriptions-item>
+          <el-descriptions-item label="策略应有数量">
+            {{ activeFixedEvent.order?.expected_quantity ?? '证据不足' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="实际成交数量">
+            {{ activeFixedEvent.execution?.actual_quantity ?? '—' }} 股
+          </el-descriptions-item>
+          <el-descriptions-item label="加权成交均价">
+            {{ formatPrice(activeFixedEvent.execution?.avg_filled_price) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="成交笔数 / 跨度">
+            {{ activeFixedEvent.execution?.fill_count ?? '—' }} 笔
+            <template v-if="activeFixedEvent.execution?.first_fill_time && activeFixedEvent.execution?.last_fill_time">
+              / {{ formatTimestamp(activeFixedEvent.execution.first_fill_time) }} ~ {{ formatTimestamp(activeFixedEvent.execution.last_fill_time) }}
+            </template>
+          </el-descriptions-item>
+          <el-descriptions-item label="持仓前后">
+            {{ activeFixedEvent.position_impact?.position_before ?? '—' }} → {{ activeFixedEvent.position_impact?.position_after ?? '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="持仓均价前后">
+            {{ formatPrice(activeFixedEvent.position_impact?.cost_basis_before) }} → {{ formatPrice(activeFixedEvent.position_impact?.cost_basis_after) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="已实现盈亏影响">
+            {{ formatSignedInteger(activeFixedEvent.position_impact?.realized_pnl_impact) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="成本口径">
+            {{ activeFixedEvent.position_impact?.cost_basis_source || '—' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="费用口径">
+            fees_included: {{ activeFixedEvent.position_impact?.fees_included ? 'true' : 'false' }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <section class="position-review-drawer__section">
+          <div class="position-review-drawer__section-head">
+            <h3>触发信号与关联</h3>
+            <el-button type="primary" link @click="closeFixedEvent">关闭</el-button>
+          </div>
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="信号类型">
+              {{ activeFixedEvent.signal?.type || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="信号族">
+              {{ activeFixedEvent.signal?.family || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="信号时间">
+              {{ formatTimestamp(activeFixedEvent.signal?.time) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="信号价格">
+              {{ formatPrice(activeFixedEvent.signal?.price) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="关联方式">
+              {{ activeFixedEvent.signal?.association_method || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="trace / intent">
+              {{ activeFixedEvent.signal?.trace_id || '—' }} / {{ activeFixedEvent.signal?.intent_id || '—' }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </section>
+
+        <section class="position-review-drawer__section">
+          <div class="position-review-drawer__section-head">
+            <h3>触发条件与全部阈值</h3>
+            <el-button
+              size="small"
+              :loading="fixedEventLoading"
+              @click="openFixedEvent(activeFixedEvent)"
+            >
+              重新加载
+            </el-button>
+          </div>
+          <el-alert
+            v-if="fixedEventNormalized.thresholdMissingCount"
+            class="position-review-drawer__alert"
+            type="warning"
+            :title="`${fixedEventNormalized.thresholdMissingCount} 个条件的历史阈值证据缺失（保持 null）`"
+            :closable="false"
+            show-icon
+          />
+          <el-table
+            v-if="fixedEventNormalized.conditions.length"
+            :data="fixedEventNormalized.conditions"
+            stripe
+            border
+            size="small"
+            max-height="320"
+          >
+            <el-table-column label="条件" min-width="150">
+              <template #default="{ row }">
+                <span class="workbench-code" :title="row.key">{{ row.label }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="实际值" min-width="96" align="right">
+              <template #default="{ row }">
+                <span class="workbench-code">{{ row.actualDisplay || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作符" width="64" align="center">
+              <template #default="{ row }">
+                {{ row.operator || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="阈值" min-width="96" align="right">
+              <template #default="{ row }">
+                <template v-if="row.thresholdMissing">
+                  <StatusChip class="position-review-inline-chip" variant="warning">缺失</StatusChip>
+                </template>
+                <span v-else class="workbench-code">{{ row.thresholdDisplay }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="通过" width="76" align="center">
+              <template #default="{ row }">
+                <template v-if="row.passed === null">—</template>
+                <StatusChip v-else :variant="row.passed ? 'success' : 'danger'">
+                  {{ row.passed ? '是' : '否' }}
+                </StatusChip>
+              </template>
+            </el-table-column>
+            <el-table-column label="来源" min-width="120">
+              <template #default="{ row }">
+                {{ row.source === 'runtime_event' ? '运行事件' : row.source === 'request_snapshot' ? '请求快照' : row.source === 'missing' ? '缺失' : row.source || '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="观测时间" min-width="150">
+              <template #default="{ row }">
+                <span class="workbench-code">{{ formatTimestamp(row.observedAt) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty
+            v-else-if="!fixedEventLoading"
+            description="该订单暂无可用条件证据"
+            :image-size="64"
+          />
+        </section>
+
+        <section class="position-review-drawer__section">
+          <h3>配置快照与证据</h3>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="表达式">
+              {{ fixedEventNormalized.expression || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="策略版本">
+              {{ fixedEventNormalized.strategyVersion || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="配置快照 hash">
+              <span class="workbench-code position-review-break-all">
+                {{ fixedEventNormalized.configSnapshotHash || '—' }}
+              </span>
+            </el-descriptions-item>
+            <el-descriptions-item label="trace_id">
+              <span class="workbench-code position-review-break-all">
+                {{ fixedEventNormalized.evidence.trace_id || '—' }}
+              </span>
+            </el-descriptions-item>
+          </el-descriptions>
+          <pre
+            v-if="fixedEventNormalized.triggerSnapshot"
+            class="position-review-json"
+          >{{ prettyJson(fixedEventNormalized.triggerSnapshot) }}</pre>
+        </section>
+      </template>
+            </div>
+          </template>
+
+          <div v-else class="workbench-empty position-review-evidence-panel__empty">
+            <el-empty
+              description="点击主图 marker 固定订单，或点击账本行查看完整证据"
+              :image-size="72"
+            />
+          </div>
+        </WorkbenchDetailPanel>
+        </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+      </div>
+    </div>
+
+    </div>
   </WorkbenchPage>
 </template>
 
@@ -730,7 +988,12 @@ import WorkbenchDetailPanel from '../components/workbench/WorkbenchDetailPanel.v
 import WorkbenchSummaryRow from '../components/workbench/WorkbenchSummaryRow.vue'
 import StatusChip from '../components/workbench/StatusChip.vue'
 import PositionReviewChart from '../components/position-review/PositionReviewChart.vue'
+import PortfolioOverview from '../components/position-review/PortfolioOverview.vue'
+import SymbolReviewChart from '../components/position-review/SymbolReviewChart.vue'
 import { positionReviewApi } from '../api/positionReviewApi.js'
+import {
+  normalizeConditions,
+} from './positionReviewRefactor.mjs'
 import {
   buildPositionReviewDetailKpis,
   buildPositionReviewSummaryKpis,
@@ -745,14 +1008,6 @@ import {
   runPositionReviewCatalogFilter,
   runPositionReviewRefresh,
 } from './positionReview.mjs'
-import {
-  buildPositionReviewMonthlyTradeOption,
-  buildPositionReviewStatusDonutOption,
-} from './positionReviewCharts.mjs'
-import {
-  buildOrderReviewTimelineOption,
-  normalizeOrderReviewTimeline,
-} from './orderReviewTimeline.mjs'
 import {
   normalizePositionReviewStatus,
   POSITION_REVIEW_FILTER_OPTIONS,
@@ -778,28 +1033,28 @@ const loading = reactive({
   summary: false,
   symbols: false,
   detail: false,
-  timeline: false,
 })
 const loadErrors = reactive({
   summary: '',
   symbols: '',
   detail: '',
-  timeline: '',
 })
 const summary = ref(normalizePositionReviewSummary({}))
 const symbolResult = ref(normalizePositionReviewSymbolRows({ rows: [], total: 0, page: 1, size: 100 }))
 const selectedSymbol = ref('')
 const selectedDetail = ref(null)
-const selectedTimeline = ref(null)
+const activeWorkbenchTab = ref('portfolio')
 const activeReview = ref(null)
 const activeExecution = ref(null)
-const drawerVisible = ref(false)
+const activeFixedEvent = ref(null)
+const fixedEventConditions = ref(null)
+const fixedEventLoading = ref(false)
+const ledgerCollapse = ref(['ledger-executions', 'ledger-reviews'])
 const reviewTableRef = ref(null)
 
 let summaryRequestId = 0
 let symbolRequestId = 0
 let detailRequestId = 0
-let timelineRequestId = 0
 
 const summaryKpis = computed(() => buildPositionReviewSummaryKpis(summary.value))
 const detailKpis = computed(() => buildPositionReviewDetailKpis(selectedDetail.value || {}))
@@ -813,22 +1068,6 @@ const summaryDataQualityTitle = computed(() => (
     )),
   ].filter(Boolean).join('\n')
 ))
-const summaryStatusTotal = computed(() => (
-  summary.value.statusDistribution.reduce((sum, item) => sum + Number(item.value || 0), 0)
-))
-const statusDonutOption = computed(() => (
-  buildPositionReviewStatusDonutOption(summary.value.statusDistribution)
-))
-const monthlyTradeOption = computed(() => (
-  buildPositionReviewMonthlyTradeOption(selectedDetail.value?.monthlyActivity || [])
-))
-const orderTimeline = computed(() => (
-  normalizeOrderReviewTimeline(selectedTimeline.value || selectedDetail.value || {})
-))
-const timelineOption = computed(() => (
-  buildOrderReviewTimelineOption(orderTimeline.value)
-))
-const hasTimelineData = computed(() => orderTimeline.value.hasData)
 const selectedOutsideCatalog = computed(() => Boolean(
   selectedSymbol.value &&
   !loading.symbols &&
@@ -839,7 +1078,6 @@ const activeLoadErrors = computed(() => (
     { scope: 'summary', message: loadErrors.summary },
     { scope: 'symbols', message: loadErrors.symbols },
     { scope: 'detail', message: loadErrors.detail },
-    { scope: 'timeline', message: loadErrors.timeline },
   ].filter((item) => item.message)
 ))
 const activeDataQualityWarnings = computed(() => {
@@ -850,6 +1088,10 @@ const activeDataQualityWarnings = computed(() => {
   return [...new Set(warnings.filter(Boolean))]
 })
 const drawerTitle = computed(() => {
+  if (activeFixedEvent.value) {
+    const side = activeFixedEvent.value.side === 'buy' ? '买入' : '卖出'
+    return `固定订单证据 · ${side} ${activeFixedEvent.value.event_id || ''}`
+  }
   if (activeReview.value) {
     return `${activeReview.value.sideLabel}请求复盘 · ${activeReview.value.timeLabel}`
   }
@@ -888,6 +1130,9 @@ const associatedReview = computed(() => {
   if (!requestId) return null
   return selectedDetail.value?.reviews?.find((item) => item.requestId === requestId) || null
 })
+const fixedEventNormalized = computed(() => (
+  normalizeConditions(fixedEventConditions.value || {})
+))
 
 const formatInteger = (value) => formatPositionReviewInteger(value)
 const formatPrice = (value) => formatPositionReviewPrice(value)
@@ -895,6 +1140,20 @@ const formatTimestamp = (value) => formatBeijingTimestamp(value)
 const formatSignedInteger = (value) => formatPositionReviewSignedInteger(value)
 const isFiniteNonZero = (value) => isPositionReviewFiniteNonZero(value)
 const prettyJson = (value) => JSON.stringify(value ?? {}, null, 2)
+const conditionSummaryTitle = (row) => {
+  const rows = (row.conditions || []).map((item) => {
+    const threshold = item.thresholdMissing ? '缺失' : (item.thresholdDisplay || '—')
+    const passed = item.passed === null ? '待定' : (item.passed ? '通过' : '失败')
+    return [
+      item.label || item.key || '条件',
+      `实际 ${item.actualDisplay || '—'}`,
+      item.operator || '—',
+      `阈值 ${threshold}`,
+      passed,
+    ].join(' | ')
+  })
+  return rows.join('\n') || '无可用条件证据'
+}
 const confidenceVariant = (value) => {
   const text = String(value || '').toUpperCase()
   if (text === 'HIGH') return 'success'
@@ -915,6 +1174,43 @@ const errorMessage = (fallback, error) => {
     '',
   ).trim()
   return detail ? `${fallback}：${detail}` : fallback
+}
+
+const drillToSymbol = (symbol) => {
+  const normalized = String(symbol || '').trim()
+  if (!normalized) return
+  activeWorkbenchTab.value = 'symbol'
+  selectSymbol(normalized)
+}
+
+const openFixedEvent = async (event) => {
+  const normalized = String(event?.event_id || '').trim()
+  if (!normalized) return
+  activeReview.value = null
+  activeExecution.value = null
+  activeFixedEvent.value = event
+  fixedEventConditions.value = null
+  fixedEventLoading.value = true
+  try {
+    const response = await positionReviewApi.getEventConditions(normalized)
+    fixedEventConditions.value = response || null
+  } catch (error) {
+    fixedEventConditions.value = null
+  } finally {
+    fixedEventLoading.value = false
+  }
+}
+
+const closeFixedEvent = () => {
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
+}
+
+const closeEvidence = () => {
+  activeReview.value = null
+  activeExecution.value = null
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
 }
 
 const buildSymbolParams = () => ({
@@ -954,50 +1250,16 @@ const loadSummary = async ({ refresh = false } = {}) => {
   }
 }
 
-const isTimelineEndpointUnavailable = (error) => Number(error?.response?.status) === 404
-
-const loadSymbolTimeline = async (symbol) => {
-  const normalizedSymbol = String(symbol || '').trim()
-  const requestId = ++timelineRequestId
-  if (!normalizedSymbol) {
-    selectedTimeline.value = null
-    loadErrors.timeline = ''
-    loading.timeline = false
-    return
-  }
-  loading.timeline = true
-  loadErrors.timeline = ''
-  selectedTimeline.value = null
-  try {
-    const response = await positionReviewApi.getSymbolTimeline(normalizedSymbol)
-    if (requestId !== timelineRequestId) return
-    selectedTimeline.value = response
-    loadErrors.timeline = ''
-  } catch (error) {
-    if (requestId !== timelineRequestId) return
-    selectedTimeline.value = null
-    // Old API deployments do not yet expose the projection. The detail payload
-    // remains a compatible timeline fallback until that endpoint is available.
-    loadErrors.timeline = isTimelineEndpointUnavailable(error)
-      ? ''
-      : errorMessage(`加载 ${normalizedSymbol} 订单复盘时间轴失败`, error)
-  } finally {
-    if (requestId === timelineRequestId) loading.timeline = false
-  }
-}
-
 const loadSymbolDetail = async (symbol) => {
   const normalizedSymbol = String(symbol || '').trim()
   const requestId = ++detailRequestId
   if (!normalizedSymbol) {
     selectedDetail.value = null
-    await loadSymbolTimeline('')
     loading.detail = false
     return
   }
   loading.detail = true
   loadErrors.detail = ''
-  void loadSymbolTimeline(normalizedSymbol)
   try {
     const response = await positionReviewApi.getSymbolReview(normalizedSymbol)
     if (requestId !== detailRequestId) return
@@ -1057,11 +1319,16 @@ const loadInitialData = async () => {
 
 const selectSymbol = async (symbol) => {
   const normalizedSymbol = String(symbol || '').trim()
-  if (!normalizedSymbol || normalizedSymbol === selectedSymbol.value) return
+  if (!normalizedSymbol) return
+  if (normalizedSymbol === selectedSymbol.value && activeWorkbenchTab.value === 'symbol') {
+    return
+  }
   selectedSymbol.value = normalizedSymbol
+  activeWorkbenchTab.value = 'symbol'
   activeReview.value = null
   activeExecution.value = null
-  drawerVisible.value = false
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
   syncRouteQuery()
   await loadSymbolDetail(normalizedSymbol)
 }
@@ -1095,16 +1362,18 @@ const changeSymbolPage = async (page) => {
 const openReviewDrawer = (row) => {
   if (!row) return
   activeExecution.value = null
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
   activeReview.value = row
-  drawerVisible.value = true
   reviewTableRef.value?.setCurrentRow?.(row)
 }
 
 const openExecutionDrawer = (row) => {
   if (!row) return
   activeReview.value = null
+  activeFixedEvent.value = null
+  fixedEventConditions.value = null
   activeExecution.value = row
-  drawerVisible.value = true
 }
 
 const openAssociatedReview = async () => {
@@ -1112,26 +1381,6 @@ const openAssociatedReview = async () => {
   if (!review) return
   await nextTick()
   openReviewDrawer(review)
-}
-
-const handleChartClick = async (params) => {
-  const eventId = String(
-    params?.data?.eventId ||
-    params?.data?.requestId ||
-    params?.data?.internalOrderId ||
-    params?.data?.orderKey ||
-    '',
-  ).trim()
-  if (!eventId || !selectedDetail.value) return
-  const row = selectedDetail.value.reviews.find((item) => (
-    item.id === eventId ||
-    item.reviewId === eventId ||
-    item.requestId === eventId ||
-    item.internalOrderId === eventId
-  ))
-  if (!row) return
-  await nextTick()
-  openReviewDrawer(row)
 }
 
 const reviewRowClassName = ({ row }) => (
@@ -1153,9 +1402,6 @@ const retryLoadError = async (scope) => {
   if (scope === 'detail') {
     await loadSymbolDetail(selectedSymbol.value)
     return
-  }
-  if (scope === 'timeline') {
-    await loadSymbolTimeline(selectedSymbol.value)
   }
 }
 
@@ -1201,13 +1447,67 @@ onMounted(async () => {
   width: 154px;
 }
 
-.position-review-main-grid {
-  display: grid;
+.position-review-layout {
+  display: flex;
   flex: 1 1 auto;
-  grid-template-columns: 320px minmax(0, 1fr);
   gap: var(--fq-space-3);
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
+}
+
+.position-review-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-review-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--fq-panel-bg);
+}
+
+.position-review-tabs :deep(.el-tabs__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--fq-space-3);
+}
+
+.position-review-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+
+.position-review-portfolio-tab {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+
+.position-review-symbol-tab {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-review-symbol-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: var(--fq-space-3);
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -1234,6 +1534,8 @@ onMounted(async () => {
 }
 
 .position-review-symbol-panel {
+  flex: 0 0 280px;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -1331,34 +1633,19 @@ onMounted(async () => {
   justify-content: center;
 }
 
-.position-review-detail-stack {
+.position-review-center {
   display: flex;
   flex-direction: column;
   gap: var(--fq-space-3);
   min-height: 0;
   min-width: 0;
-  overflow-y: auto;
-  padding-right: 3px;
-  scrollbar-gutter: stable;
-}
-
-.position-review-overview-grid {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.72fr) minmax(420px, 1.28fr);
-  gap: var(--fq-space-3);
-}
-
-.position-review-overview-panel {
-  min-height: 330px;
-}
-
-.position-review-overview-chart {
-  flex: 1 1 auto;
-  min-height: 240px;
+  overflow: hidden;
 }
 
 .position-review-subject-panel {
   flex: 0 0 auto;
+  padding-top: var(--fq-space-2);
+  padding-bottom: var(--fq-space-2);
 }
 
 .position-review-scope-meta {
@@ -1371,24 +1658,83 @@ onMounted(async () => {
 }
 
 .position-review-timeline-panel {
-  flex: 0 0 auto;
-  min-height: 620px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .position-review-timeline-chart {
   flex: 1 1 auto;
-  min-height: 520px;
+  min-height: 0;
+}
+
+.position-review-ledger-collapse {
+  flex: 0 0 auto;
+  height: 38%;
+  min-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--fq-border-soft);
+  border-radius: 8px;
+  background: var(--fq-panel-bg);
+}
+
+.position-review-ledger-collapse :deep(.el-collapse-item__header) {
+  background: transparent;
+  color: var(--fq-text-primary);
+  font-weight: 600;
+  padding-left: 12px;
+}
+
+.position-review-ledger-collapse :deep(.el-collapse-item__content) {
+  padding: 0;
+  background: transparent;
 }
 
 .position-review-ledger-panel {
   flex: 0 0 auto;
-  height: min(680px, 68vh);
-  min-height: 420px;
+  height: 100%;
+  min-height: 260px;
   overflow: hidden;
 }
 
 .position-review-table-wrap {
-  min-height: 320px;
+  min-height: 220px;
+}
+
+.position-review-evidence-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.position-review-evidence-panel__header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.position-review-evidence-panel__title {
+  overflow: hidden;
+  font-size: var(--fq-font-panel-title);
+  font-weight: 600;
+  color: var(--fq-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-evidence-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 3px;
+  scrollbar-gutter: stable;
+}
+
+.position-review-evidence-panel__empty {
+  flex: 1 1 auto;
 }
 
 .position-review-ledger-counts,
@@ -1433,6 +1779,55 @@ onMounted(async () => {
 .position-review-reason {
   display: block;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-process-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.position-review-process-sub {
+  color: var(--fq-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.position-review-condition-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.position-review-signal-label {
+  display: block;
+  overflow: hidden;
+  color: var(--fq-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-signal-type {
+  display: block;
+  overflow: hidden;
+  color: var(--fq-text-secondary);
+  font-family: Consolas, Monaco, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-review-signal-remark {
+  display: block;
+  overflow: hidden;
+  color: var(--fq-text-muted);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1494,12 +1889,12 @@ onMounted(async () => {
 }
 
 @media (max-width: 1280px) {
-  .position-review-main-grid {
-    grid-template-columns: 280px minmax(0, 1fr);
+  .position-review-symbol-grid {
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
-  .position-review-overview-grid {
-    grid-template-columns: 1fr;
+  .position-review-symbol-panel {
+    flex-basis: 250px;
   }
 }
 
@@ -1523,36 +1918,58 @@ onMounted(async () => {
     width: 100%;
   }
 
-  .position-review-main-grid {
+  .position-review-layout {
     display: flex;
     flex: 0 0 auto;
     flex-direction: column;
     overflow: visible;
   }
 
+  .position-review-tabs {
+    overflow: visible;
+  }
+
+  .position-review-tabs :deep(.el-tabs__content),
+  .position-review-symbol-tab,
+  .position-review-portfolio-tab {
+    overflow: visible;
+  }
+
   .position-review-symbol-panel {
+    flex: 0 0 auto;
     min-height: 360px;
     max-height: 52vh;
   }
 
-  .position-review-detail-stack {
+  .position-review-main {
     overflow: visible;
   }
 
-  .position-review-overview-grid {
-    grid-template-columns: 1fr;
+  .position-review-symbol-grid {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .position-review-center {
+    overflow: visible;
   }
 
   .position-review-timeline-panel {
-    min-height: 560px;
+    min-height: 480px;
   }
 
   .position-review-timeline-chart {
-    min-height: 470px;
+    min-height: 400px;
   }
 
   .position-review-ledger-panel {
-    height: min(620px, 76vh);
+    height: min(520px, 76vh);
+  }
+
+  .position-review-evidence-panel {
+    min-height: 420px;
+    max-height: 60vh;
   }
 }
 

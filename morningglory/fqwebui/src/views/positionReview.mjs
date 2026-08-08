@@ -117,7 +117,7 @@ const WARNING_CODE_LABELS = Object.freeze({
 
 const CANONICAL_TRADE_SOURCE_LABELS = Object.freeze({
   xt_trades: 'XT 真实成交',
-  execution_history_archive_then_current_xt_om_union: '历史成交档案 + 当前 XT/OM',
+  current_order_ledger_only: '当前订单账本（重建 + 真实订单）',
 })
 
 const normalizeWarning = (warning) => {
@@ -364,8 +364,14 @@ export const normalizePositionReviewSymbolRows = (response = {}) => {
   const rows = rawRows
     .map((row) => {
       const counts = readReviewCounts(row)
-      const status = resolvePrimaryStatus(row, counts)
-      const statusMeta = getPositionReviewStatusMeta(status)
+      const noExecutionHistory = Boolean(pickFirst(row.no_execution_history, row.noExecutionHistory))
+      const explicitVerdict = pickFirst(row.verdict, row.review_status, row.status)
+      const status = noExecutionHistory && !explicitVerdict
+        ? 'NO_EXECUTION'
+        : resolvePrimaryStatus(row, counts)
+      const statusMeta = status === 'NO_EXECUTION'
+        ? { label: '暂无成交记录', chipVariant: 'muted' }
+        : getPositionReviewStatusMeta(status)
       const reviewable = counts.COMPLIANT + counts.ANOMALY
       const computedPassRate = reviewable > 0 ? (counts.COMPLIANT / reviewable) * 100 : null
       const passRate = normalizeRatePercent(pickFirst(row.pass_rate, row.compliance_rate, computedPassRate))
@@ -377,6 +383,7 @@ export const normalizePositionReviewSymbolRows = (response = {}) => {
         name: resolveSymbolName(row),
         currentQuantity: toInteger(pickFirst(row.current_quantity, row.currentQuantity)),
         isHolding: Boolean(pickFirst(row.is_holding, row.isHolding, toInteger(row.current_quantity) > 0)),
+        noExecutionHistory,
         firstTradeAt,
         firstTradeAtLabel: firstTradeAt ? formatBeijingTimestamp(firstTradeAt) : '-',
         lastTradeAt,
@@ -397,7 +404,7 @@ export const normalizePositionReviewSymbolRows = (response = {}) => {
     })
     .filter((row) => row.symbol)
     .sort((left, right) => {
-      const severityOrder = { ANOMALY: 0, UNVERIFIABLE: 1, COMPLIANT: 2, NOT_APPLICABLE: 3 }
+      const severityOrder = { ANOMALY: 0, UNVERIFIABLE: 1, COMPLIANT: 2, NOT_APPLICABLE: 3, NO_EXECUTION: 4 }
       const statusDiff = (severityOrder[left.status] ?? 4) - (severityOrder[right.status] ?? 4)
       if (statusDiff !== 0) return statusDiff
       return (parseTimestampMs(right.lastTradeAt) || 0) - (parseTimestampMs(left.lastTradeAt) || 0)
@@ -514,6 +521,25 @@ const normalizeReviewRow = (review = {}, index = 0) => {
   const rawFormula = toText(pickFirst(expected.formula, review.formula))
   const evidence = review.evidence && typeof review.evidence === 'object' ? review.evidence : {}
   const sourceEntries = toArray(expected.source_entries || expected.entries || review.source_entries)
+  const signal = review.signal && typeof review.signal === 'object' ? review.signal : {}
+  const conditionsPayload = (
+    review.conditions && typeof review.conditions === 'object'
+      ? review.conditions
+      : {}
+  )
+  const conditions = toArray(conditionsPayload.conditions).map((condition) => ({
+    key: toText(condition.condition_key || condition.key),
+    label: toText(condition.label || condition.condition_key),
+    actualDisplay: toText(condition.actual_display),
+    operator: toText(condition.operator),
+    thresholdDisplay: toText(condition.threshold_display),
+    thresholdMissing: condition.threshold_value === null || condition.threshold_value === undefined,
+    passed: condition.passed,
+    source: toText(condition.source),
+  }))
+  const conditionPassedCount = toInteger(conditionsPayload.passed_count, conditions.filter((item) => item.passed === true).length)
+  const conditionFailedCount = toInteger(conditionsPayload.failed_count, conditions.filter((item) => item.passed === false).length)
+  const conditionMissingCount = toInteger(conditionsPayload.missing_count, conditions.filter((item) => item.passed === null).length)
 
   return {
     ...review,
@@ -538,11 +564,35 @@ const normalizeReviewRow = (review = {}, index = 0) => {
       expected.top_river_price,
       review.threshold_price,
     )),
+    thresholdMode: toText(expected.threshold_mode),
+    thresholdRatio: toFiniteNumber(expected.threshold_ratio),
+    thresholdDelta: toFiniteNumber(expected.threshold_delta),
+    rawQuantity: toNullableInteger(expected.raw_quantity),
+    canUseVolume: toNullableInteger(expected.can_use_volume),
+    tracedRawQuantity: toNullableInteger(expected.traced_raw_quantity),
+    perSliceThresholds: toArray(expected.per_slice_thresholds),
     lowestGuardianPrice: toFiniteNumber(pickFirst(
       expected.lowest_guardian_price,
       expected.guardian_price,
       review.lowest_guardian_price,
     )),
+    signal: {
+      type: toText(signal.type),
+      family: toText(signal.family),
+      label: toText(signal.label),
+      side: toText(signal.side),
+      price: toFiniteNumber(signal.price),
+      quantity: toNullableInteger(signal.quantity),
+      time: toText(signal.time),
+      strategy: toText(signal.strategy),
+      remark: toText(signal.remark),
+    },
+    conditions,
+    conditionPassedCount,
+    conditionFailedCount,
+    conditionMissingCount,
+    conditionSnapshotStatus: toText(conditionsPayload.condition_snapshot_status),
+    conditionExpression: toText(conditionsPayload.expression),
     formula: formulaLabel(rawFormula),
     rawFormula,
     actualPrice: toFiniteNumber(pickFirst(
@@ -691,38 +741,6 @@ const aggregateMonthlyActivity = (items = []) => {
   return [...monthMap.values()].sort((left, right) => left.month.localeCompare(right.month))
 }
 
-const normalizeTimelineRows = (timeline = []) => {
-  const seenIds = new Map()
-  return toArray(timeline)
-    .map((item, index) => {
-      const status = normalizePositionReviewStatus(item.verdict || item.status)
-      const meta = getPositionReviewStatusMeta(status)
-      const time = toText(item.time || item.ts)
-      const baseId = toText(item.id) || [
-        item.type || 'timeline',
-        time || 'no-time',
-        normalizeSide(item.side) || 'no-side',
-        item.quantity ?? 'no-quantity',
-        item.price ?? 'no-price',
-      ].join(':')
-      const occurrence = seenIds.get(baseId) || 0
-      seenIds.set(baseId, occurrence + 1)
-      return {
-        ...item,
-        id: occurrence > 0 ? `${baseId}:${occurrence}:${index}` : baseId,
-        time,
-        timeLabel: time ? formatBeijingTimestamp(time) : '-',
-        side: normalizeSide(item.side),
-        status,
-        statusLabel: meta.label,
-        statusChipVariant: meta.chipVariant,
-        price: toFiniteNumber(item.price),
-        quantity: toInteger(item.quantity),
-      }
-    })
-    .sort((left, right) => (parseTimestampMs(left.time) || 0) - (parseTimestampMs(right.time) || 0))
-}
-
 export const normalizePositionReviewDetail = (response = {}) => {
   const payload = readPositionReviewPayload(response)
   const symbolPayload = (
@@ -732,15 +750,6 @@ export const normalizePositionReviewDetail = (response = {}) => {
   )
   const summaryPayload = payload.summary || {}
   const charts = payload.charts || {}
-  const orderTimeline = (
-    payload.order_timeline ||
-    payload.orderTimeline ||
-    payload.timeline_projection ||
-    payload.timelineProjection ||
-    (!Array.isArray(payload.timeline) && payload.timeline && typeof payload.timeline === 'object'
-      ? payload.timeline
-      : {})
-  )
   const reviews = toArray(payload.reviews || payload.orders || payload.events)
     .map(normalizeReviewRow)
     .sort((left, right) => (parseTimestampMs(left.time) || 0) - (parseTimestampMs(right.time) || 0))
@@ -888,8 +897,6 @@ export const normalizePositionReviewDetail = (response = {}) => {
     initialPositionSource,
     initialPositionFormula: dataQuality.initialPositionFormula,
     initialPositionAssumption: dataQuality.initialPositionAssumption,
-    orderTimeline,
-    timeline: normalizeTimelineRows(Array.isArray(payload.timeline) ? payload.timeline : []),
     positionPoints,
     pricePoints,
     quantityCompare: quantityCompare.length ? quantityCompare : fallbackQuantityCompare,

@@ -18,7 +18,8 @@
   - `/api/order-management/stoploss/bind`
   - `/api/tpsl/takeprofit/<symbol>`
   - `/api/tpsl/takeprofit/<symbol>/rearm`
-  - `/api/position-review/symbols/<symbol>/timeline`
+  - `/api/position-review/symbols/<symbol>/chart`
+  - `/api/position-review/events/<event_id>/conditions`
   - `/api/clx-daily-selection/batches`
   - `/api/clx-daily-selection/batches/latest`
   - `/api/clx-daily-selection/batches/<batch_id>/results`
@@ -44,6 +45,13 @@
 - `KlineSlim` 只保留 entry 摘要，不在浮层内展开完整 `aggregation_members / entry_slices`；完整切片检查当前仍依赖 `subject-management` 读模型与组件文件，但独立前端路由已移除
 - 图表价格引导里的持仓参考线已经改成 `entry` 语义，对外文案是“持仓入口线”
 - 持仓股侧边栏排序与 SubjectManagement、PositionManagement 保持一致，按持仓金额从大到小排序
+- 可选“交易复盘”覆盖层消费 `/api/position-review/symbols/<symbol>/chart` 只读投影，在唯一 K 线主图价格层渲染订单 marker：
+  - 颜色只表达方向：买入红色、卖出绿色（同时带 `B` / `S` 文字）
+  - 形状只表达信号类型：由服务端 `signal_type_registry` 提供 `signal_type / signal_family / signal_label / marker_symbol`
+  - verdict 只以边框/透明度/`!` 编码：`FAIL` 深色加粗描边并显示 `!`，`INSUFFICIENT_EVIDENCE` 降透明度，`NOT_APPLICABLE` 低透明度空心
+  - marker 锚定首次成交 bar 与订单加权成交均价；跨 bar fill 用同方向颜色细区间线表示成交跨度
+  - hover 一次性展示全部信息（订单摘要、信号完整详情、全部条件阈值、成交、持仓影响、数据质量），conditions 懒加载并缓存；点击 marker 固定订单并进入 `/position-review` 右侧证据面板
+  - 不再在 K 线下方绘制策略应有量 / 实际成交量 / 连续持仓三轨附图；旧 `/timeline` 接口已移除
 
 ## 当前页面结构
 
@@ -59,7 +67,7 @@
 - 缠论结构浮层
 - 可选交易复盘模式
   - 主 K 线保留为唯一价格图；关联信号和订单聚合成交标记叠加在价格层
-  - 策略应有量、实际成交量和连续持仓在同一时间轴的下方轨道显示
+  - 不再在 K 线下方绘制策略应有量 / 实际成交量 / 连续持仓三轨附图
   - 可跳转到 `/position-review?symbol=<symbol>` 查看完整复盘工作台
 - 右侧 `CLX 信号工作台`
   - `显示控制`：历史范围、同日 marker 聚合/逐条、模型和条件筛选
@@ -91,8 +99,8 @@
 - `保存/恢复单标的总仓位上限`
   - 复用 Position Management 现有接口与同一 Mongo 真值；恢复默认时先刷新系统默认值，再提交并刷新当前生效值
 - `交易复盘模式`
-  - K 线加载完成后，按当前主图时间窗请求 `/api/position-review/symbols/<symbol>/timeline`
-  - 前端只消费订单级 `events` 和连续 `position_series`；成交笔数和均价仅作为订单聚合字段，不渲染逐笔 fill。窗口请求中的实际成交量只代表当前主图窗口内成交
+  - K 线加载完成后请求 `/api/position-review/symbols/<symbol>/chart` 只读投影（不传窗口参数，主图自行按可视窗口过滤 marker）
+  - marker 悬浮框一次性展示全部信息（订单摘要、信号完整详情、全部条件阈值、成交、持仓影响、数据质量）；conditions 按 `event_id` 通过 `/api/position-review/events/<event_id>/conditions` 懒加载并缓存
   - 服务未部署或返回 `404` 时，复盘层显示明确的不可用状态，不会退回旧请求级 `reviews` 并伪装为订单级复盘
 - `stock_pools` 左栏
   - 列表来自 `/api/get_stock_pools_list`，前端会按 6 位代码过滤掉已在“持仓股”分组展示的标的；点击任一标的后使用同一 K 线加载链路，因此 `15min / 30min` 兼容别名与实时缓存 QFQ 未就绪回退对所有左侧列表标的生效

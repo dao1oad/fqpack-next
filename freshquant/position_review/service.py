@@ -17,6 +17,22 @@ from freshquant.order_management.execution_archive import (
     build_execution_archive_key,
     build_execution_key,
 )
+from freshquant.position_review.chart_projection import (
+    build_conditions,
+    build_event_conditions_payload,
+    build_holding_cycles,
+    build_order_event_contract,
+    build_position_series_from_fills,
+    build_symbol_chart_payload,
+    replay_cost_basis,
+    resolve_signal_type,
+    signal_type_registry_payload,
+)
+from freshquant.position_review.portfolio_projection import (
+    build_portfolio_contributions,
+    build_portfolio_series,
+    build_portfolio_summary,
+)
 from freshquant.position_review.replay import (
     VERDICTS,
     build_historical_sell_constraints,
@@ -37,8 +53,8 @@ _VERDICT_PRIORITY = {
     "PASS": 2,
     "NOT_APPLICABLE": 1,
 }
-_CANONICAL_TRADE_SOURCE = "execution_history_archive_then_current_xt_om_union"
-_CATALOG_SCOPE = "symbols_with_archived_or_current_executions"
+_CANONICAL_TRADE_SOURCE = "current_order_ledger_only"
+_CATALOG_SCOPE = "symbols_with_current_orders_or_holdings"
 _INITIAL_POSITION_SOURCE = "derived_from_current_position_and_execution_history"
 _INITIAL_POSITION_ASSUMPTION = (
     "期初仓位按“当前持仓－历史买入＋历史卖出”推导，代表首笔规范成交前的"
@@ -136,7 +152,7 @@ class PositionReviewService:
             "verdict_counts": verdict_counts,
             "data_quality": {
                 "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
-                "canonical_trade_source_label": "历史成交档案 + 当前 XT/OM",
+                "canonical_trade_source_label": "当前订单账本（重建 + 真实订单）",
                 "catalog_scope": _CATALOG_SCOPE,
                 "catalog_snapshot_cache": snapshot,
                 "association_rule": (
@@ -209,56 +225,512 @@ class PositionReviewService:
                 return cached_detail
         bundle = self._load_symbol_bundle(normalized_symbol)
         if not bundle["requests"] and not bundle["xt_trades"]:
+            holding_only = self._holding_only_detail_from_positions(normalized_symbol)
+            if holding_only is not None:
+                return holding_only
             raise ValueError("symbol not found")
         return self._build_detail(normalized_symbol, bundle)
 
-    def get_symbol_timeline(
+    def get_symbol_chart(
         self,
         symbol,
         *,
-        start=None,
-        end=None,
+        period=None,
+        account_partition=None,
+        include_unfilled=False,
         refresh=False,
     ) -> dict[str, Any]:
-        """Return a read-only order-level projection for a visible time window.
+        """Return the unified K-line chart projection for one symbol.
 
-        The existing symbol-detail response deliberately remains a fill-level
-        audit surface.  This projection keeps those fills as the source for
-        position replay, while exposing only one visual event per order (or an
-        explicit unassociated execution when evidence cannot identify an
-        order).  ``refresh`` is accepted for API consistency; the projection
-        always loads a current evidence bundle because its range is caller
-        specific.
+        The chart keeps the K-line bars on the existing market-data APIs and
+        only returns the order markers, cost-basis / position / pnl series,
+        holding cycles and the signal-type registry.  It never duplicates
+        bars and never fabricates signal associations.
         """
 
         del refresh
         normalized_symbol = _normalize_symbol(symbol)
         if not normalized_symbol:
             raise ValueError("symbol not found")
-        start_time = _parse_timeline_bound(start, name="start")
-        end_time = _parse_timeline_bound(end, name="end")
-        if start_time is not None and end_time is not None and start_time > end_time:
-            raise ValueError("start must be earlier than or equal to end")
-
         bundle = self._load_symbol_bundle(normalized_symbol)
         if not bundle["requests"] and not bundle["xt_trades"]:
+            holding_only = self._holding_only_detail_from_positions(normalized_symbol)
+            if holding_only is not None:
+                return self._build_holding_only_chart(
+                    normalized_symbol,
+                    holding_only,
+                    period=str(period or "").strip() or None,
+                    account_partition=str(account_partition or "").strip() or None,
+                    include_unfilled=bool(include_unfilled),
+                )
             raise ValueError("symbol not found")
         detail = self._build_detail(normalized_symbol, bundle)
-        return _build_order_timeline_projection(
+        canonical_trades = list(detail.get("executions") or [])
+        partition_filter = str(account_partition or "").strip()
+        if partition_filter:
+            canonical_trades = [
+                item
+                for item in canonical_trades
+                if str(item.get("account_partition") or "unknown").strip()
+                == partition_filter
+            ]
+        summary = detail.get("summary") or {}
+        initial_position_quantity = _int(summary.get("initial_position_quantity"))
+        initial_position_source = summary.get("initial_position_source")
+        timeline = _build_order_timeline_projection(
             symbol=normalized_symbol,
             name=(detail.get("symbol") or {}).get("name"),
             bundle=bundle,
-            canonical_trades=detail.get("executions") or [],
+            canonical_trades=canonical_trades,
             reviews=detail.get("reviews") or [],
-            initial_position_quantity=(
-                (detail.get("summary") or {}).get("initial_position_quantity")
-            ),
-            initial_position_source=(
-                (detail.get("summary") or {}).get("initial_position_source")
-            ),
-            start_time=start_time,
-            end_time=end_time,
+            initial_position_quantity=initial_position_quantity,
+            initial_position_source=initial_position_source,
+            start_time=None,
+            end_time=None,
         )
+        reviews_by_request = {
+            str(review.get("request_id") or "").strip(): review
+            for review in (detail.get("reviews") or [])
+            if str(review.get("request_id") or "").strip()
+        }
+        requests_by_id = {
+            str(request.get("request_id") or "").strip(): request
+            for request in bundle["requests"]
+            if str(request.get("request_id") or "").strip()
+        }
+        runtime_items = (self._runtime_evidence(normalized_symbol) or {}).get(
+            "items"
+        ) or []
+        cost_replay = replay_cost_basis(
+            symbol=normalized_symbol,
+            canonical_trades=canonical_trades,
+            entries=bundle["entries"],
+            slices=bundle["slices"],
+            allocations=bundle["allocations"],
+            requests_by_id=requests_by_id,
+            initial_position_quantity=initial_position_quantity,
+            initial_position_source=str(initial_position_source or ""),
+        )
+        position_series = build_position_series_from_fills(
+            canonical_trades=canonical_trades,
+            initial_position_quantity=initial_position_quantity,
+            initial_position_source=str(initial_position_source or ""),
+        )
+        holding_cycles = build_holding_cycles(
+            position_series=position_series,
+            cost_basis_series=cost_replay.get("cost_basis_series") or [],
+            realized_pnl=cost_replay.get("realized_pnl") or 0.0,
+            symbol=normalized_symbol,
+        )
+        timeline_events = list(timeline.get("events") or [])
+        if not include_unfilled:
+            timeline_events = [
+                event
+                for event in timeline_events
+                if (
+                    event.get("rebuilt")
+                    or event.get("type") == "unassociated_execution"
+                    or _int(((event.get("actual") or {}).get("filled_quantity"))) > 0
+                )
+            ]
+        data_quality = dict(detail.get("data_quality") or {})
+        data_quality["cost_basis"] = cost_replay.get("data_quality") or {}
+        payload = build_symbol_chart_payload(
+            symbol=normalized_symbol,
+            name=str((detail.get("symbol") or {}).get("name") or ""),
+            timeline_events=timeline_events,
+            canonical_trades=canonical_trades,
+            reviews_by_request=reviews_by_request,
+            requests_by_id=requests_by_id,
+            runtime_items=runtime_items,
+            cost_replay=cost_replay,
+            cost_context_by_execution=cost_replay.get("event_cost_context") or {},
+            position_series=position_series,
+            holding_cycles=holding_cycles,
+            data_quality=data_quality,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        payload["range"] = {
+            "start": None,
+            "end": None,
+            "period": str(period or "").strip() or None,
+            "account_partition": partition_filter or None,
+            "include_unfilled": bool(include_unfilled),
+        }
+        payload["signal_type_registry"] = signal_type_registry_payload()
+        return payload
+
+    def get_event_conditions(self, event_id, *, refresh=False) -> dict[str, Any]:
+        """Lazy-load the full condition evidence for one order event."""
+
+        del refresh
+        event_key = str(event_id or "").strip()
+        if not event_key:
+            raise ValueError("event not found")
+        rows, snapshot = self._get_catalog_snapshot(refresh=False)
+        del rows, snapshot
+        with self._catalog_lock:
+            cached = self._catalog_cache
+            detail_by_symbol = dict((cached or {}).get("detail_by_symbol") or {})
+        for symbol, detail in detail_by_symbol.items():
+            bundle = self._load_symbol_bundle(symbol)
+            timeline = _build_order_timeline_projection(
+                symbol=symbol,
+                name=(detail.get("symbol") or {}).get("name"),
+                bundle=bundle,
+                canonical_trades=detail.get("executions") or [],
+                reviews=detail.get("reviews") or [],
+                initial_position_quantity=(
+                    (detail.get("summary") or {}).get("initial_position_quantity")
+                ),
+                initial_position_source=(
+                    (detail.get("summary") or {}).get("initial_position_source")
+                ),
+                start_time=None,
+                end_time=None,
+            )
+            for event in timeline.get("events") or []:
+                if str(event.get("id") or "") != event_key:
+                    continue
+                request_id = str(event.get("request_id") or "").strip()
+                review = next(
+                    (
+                        item
+                        for item in (detail.get("reviews") or [])
+                        if str(item.get("request_id") or "").strip() == request_id
+                    ),
+                    None,
+                )
+                request = next(
+                    (
+                        item
+                        for item in bundle["requests"]
+                        if str(item.get("request_id") or "").strip() == request_id
+                    ),
+                    None,
+                )
+                runtime_items = (self._runtime_evidence(symbol) or {}).get(
+                    "items"
+                ) or []
+                payload = build_event_conditions_payload(
+                    review=review,
+                    request=request,
+                    runtime_items=runtime_items,
+                    side=str(event.get("side") or "").strip().lower() or None,
+                )
+                payload["event_id"] = event_key
+                payload["symbol"] = symbol
+                return payload
+        raise ValueError("event not found")
+
+    def get_portfolio_summary(self, *, refresh=False) -> dict[str, Any]:
+        (
+            detail_by_symbol,
+            cost_by_symbol,
+            position_by_symbol,
+            xt_assets,
+            credit_snapshots,
+        ) = self._build_portfolio_inputs(refresh=bool(refresh))
+        return build_portfolio_summary(
+            catalog_rows=list(detail_by_symbol),
+            detail_by_symbol=detail_by_symbol,
+            cost_by_symbol=cost_by_symbol,
+            position_by_symbol=position_by_symbol,
+            xt_assets=xt_assets,
+            credit_snapshots=credit_snapshots,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def get_portfolio_series(
+        self,
+        *,
+        refresh=False,
+        period="day",
+    ) -> dict[str, Any]:
+        detail_by_symbol, _, _, xt_assets, credit_snapshots = (
+            self._build_portfolio_inputs(refresh=bool(refresh))
+        )
+        trade_events = _portfolio_trade_events(detail_by_symbol)
+        return build_portfolio_series(
+            xt_assets=xt_assets,
+            credit_snapshots=credit_snapshots,
+            trade_events=trade_events,
+            period=period,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def get_portfolio_contributions(self, *, refresh=False, top_n=10) -> dict[str, Any]:
+        detail_by_symbol, cost_by_symbol, position_by_symbol, _, _ = (
+            self._build_portfolio_inputs(refresh=bool(refresh))
+        )
+        return build_portfolio_contributions(
+            detail_by_symbol=detail_by_symbol,
+            cost_by_symbol=cost_by_symbol,
+            position_by_symbol=position_by_symbol,
+            top_n=top_n,
+        )
+
+    def _build_portfolio_inputs(self, *, refresh):
+        """Build portfolio-level inputs in one read-only pass."""
+
+        del refresh
+        catalog_bundles = None
+        if hasattr(self.repository, "load_catalog_bundles"):
+            catalog_bundles = self.repository.load_catalog_bundles()
+        if catalog_bundles is None:
+            return {}, {}, {}, [], []
+        runtime_catalog = self._runtime_catalog_evidence()
+        positions = {}
+        for item in self.repository.list_xt_positions():
+            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+            if symbol:
+                positions[symbol] = item
+        detail_by_symbol: dict[str, Any] = {}
+        cost_by_symbol: dict[str, Any] = {}
+        for symbol in sorted(catalog_bundles):
+            bundle = _prepare_symbol_bundle(catalog_bundles[symbol])
+            if not bundle["requests"] and not bundle["xt_trades"]:
+                continue
+            runtime_result = _runtime_result_for_symbol(runtime_catalog, symbol)
+            detail = self._build_detail(
+                symbol,
+                bundle,
+                runtime_result=runtime_result,
+            )
+            canonical_trades = list(detail.get("executions") or [])
+            requests_by_id = {
+                str(request.get("request_id") or "").strip(): request
+                for request in bundle["requests"]
+                if str(request.get("request_id") or "").strip()
+            }
+            cost_replay = replay_cost_basis(
+                symbol=symbol,
+                canonical_trades=canonical_trades,
+                entries=bundle["entries"],
+                slices=bundle["slices"],
+                allocations=bundle["allocations"],
+                requests_by_id=requests_by_id,
+                initial_position_quantity=_int(
+                    (detail.get("summary") or {}).get("initial_position_quantity")
+                ),
+                initial_position_source=(
+                    (detail.get("summary") or {}).get("initial_position_source")
+                ),
+            )
+            detail_by_symbol[symbol] = detail
+            cost_by_symbol[symbol] = cost_replay
+        holding_only_details, holding_only_costs = (
+            self._append_holding_only_portfolio_rows(
+                detail_by_symbol,
+                positions,
+            )
+        )
+        detail_by_symbol.update(holding_only_details)
+        cost_by_symbol.update(holding_only_costs)
+        xt_assets = self.repository.list_xt_assets()
+        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=200_000)
+        return (
+            detail_by_symbol,
+            cost_by_symbol,
+            positions,
+            xt_assets,
+            credit_snapshots,
+        )
+
+    def _append_holding_only_portfolio_rows(
+        self,
+        detail_by_symbol,
+        positions,
+    ):
+        """Add broker-estimated cost for current holdings without executions."""
+
+        detail_result = {}
+        cost_result = {}
+        for symbol, position in positions.items():
+            if symbol in detail_by_symbol:
+                continue
+            quantity = _int(position.get("volume"))
+            if quantity <= 0:
+                continue
+            detail_result[symbol] = self._build_holding_only_detail(
+                symbol,
+                position,
+            )
+            cost_result[symbol] = {
+                "cost_basis_source": "broker_snapshot_estimate",
+                "realized_pnl": 0.0,
+                "fees_included": False,
+                "cost_basis_series": [],
+                "data_quality": {
+                    "cost_basis": "degraded",
+                    "ledger_available": False,
+                    "fees_included": False,
+                    "warnings": [
+                        {
+                            "code": "cost_basis_broker_snapshot",
+                            "message": "无成交记录，成本使用券商当前均价快照估算。",
+                        }
+                    ],
+                },
+            }
+        return detail_result, cost_result
+
+    def _holding_only_detail_from_positions(self, symbol):
+        """Return a holding-only detail when the symbol is a current holding."""
+
+        for item in self.repository.list_xt_positions(symbol):
+            if _int(item.get("volume")) <= 0:
+                continue
+            return self._build_holding_only_detail(symbol, item)
+        return None
+
+    def _build_holding_only_detail(self, symbol, position):
+        """Build the read-model detail for a current holding without executions."""
+
+        current_quantity = _int(position.get("volume"))
+        name = _symbol_name(
+            symbol,
+            signals=[],
+            resolver=self.name_resolver,
+        )
+        return {
+            "symbol": {
+                "code": symbol,
+                "name": name,
+                "current_quantity": current_quantity,
+                "is_holding": current_quantity > 0,
+            },
+            "summary": {
+                "request_count": 0,
+                "fill_count": 0,
+                "signal_count": 0,
+                "buy_quantity": 0,
+                "sell_quantity": 0,
+                "initial_position_quantity": current_quantity,
+                "initial_position_source": _INITIAL_POSITION_SOURCE,
+                "buy_amount": 0.0,
+                "sell_amount": 0.0,
+                "first_trade_at": None,
+                "last_trade_at": None,
+                "review_counts": _empty_verdict_counts(),
+                "pass_rate": None,
+            },
+            "reviews": [],
+            "executions": [],
+            "charts": {
+                "cumulative_quantity": [],
+                "traded_amount": [],
+                "trade_price": [],
+                "verdict_distribution": [
+                    {"name": verdict, "value": 0} for verdict in VERDICTS
+                ],
+                "request_quantity_compare": [],
+            },
+            "data_quality": {
+                "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
+                "no_execution_history": True,
+                "warnings": [
+                    {
+                        "code": "no_execution_history",
+                        "message": (
+                            "当前持仓标的暂无历史成交记录，仅展示券商持仓快照，"
+                            "不参与交易复盘判定。"
+                        ),
+                    }
+                ],
+            },
+        }
+
+    def _build_holding_only_chart(
+        self,
+        symbol,
+        detail,
+        *,
+        period,
+        account_partition,
+        include_unfilled,
+    ):
+        """Project a single-point broker-snapshot chart for a holding-only symbol."""
+
+        position = None
+        for item in self.repository.list_xt_positions(symbol):
+            if _int(item.get("volume")) > 0:
+                position = item
+                break
+        quantity = _int((position or {}).get("volume"))
+        avg_price = _float((position or {}).get("avg_price"))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        name = str((detail.get("symbol") or {}).get("name") or "") or symbol
+        cost_series = []
+        if avg_price is not None:
+            cost_series.append(
+                {
+                    "time": now_iso,
+                    "average_cost": avg_price,
+                    "position_quantity": quantity,
+                    "remaining_cost": (
+                        round(quantity * avg_price, 2) if quantity else None
+                    ),
+                    "realized_pnl": 0.0,
+                    "point_type": "broker_snapshot_estimate",
+                    "cost_basis_source": "broker_snapshot_estimate",
+                    "fees_included": False,
+                }
+            )
+        cost_replay = {
+            "cost_basis_source": "broker_snapshot_estimate",
+            "realized_pnl": 0.0,
+            "fees_included": False,
+            "cost_basis_series": cost_series,
+            "data_quality": {
+                "cost_basis": "degraded",
+                "ledger_available": False,
+                "fees_included": False,
+                "warnings": [
+                    {
+                        "code": "cost_basis_broker_snapshot",
+                        "message": "无成交记录，成本使用券商当前均价快照估算。",
+                    }
+                ],
+            },
+        }
+        position_series = []
+        if quantity > 0:
+            position_series.append(
+                {
+                    "time": now_iso,
+                    "value": quantity,
+                    "point_type": "broker_snapshot_estimate",
+                    "assumption": True,
+                    "source": "broker_position_snapshot",
+                }
+            )
+        data_quality = dict(detail.get("data_quality") or {})
+        data_quality["cost_basis"] = cost_replay["data_quality"]
+        payload = build_symbol_chart_payload(
+            symbol=symbol,
+            name=name,
+            timeline_events=[],
+            canonical_trades=[],
+            reviews_by_request={},
+            requests_by_id={},
+            runtime_items=[],
+            cost_replay=cost_replay,
+            cost_context_by_execution={},
+            position_series=position_series,
+            holding_cycles=[],
+            data_quality=data_quality,
+            generated_at=now_iso,
+        )
+        payload["range"] = {
+            "start": None,
+            "end": None,
+            "period": period,
+            "account_partition": account_partition,
+            "include_unfilled": include_unfilled,
+        }
+        payload["signal_type_registry"] = signal_type_registry_payload()
+        return payload
 
     def _get_catalog_snapshot(self, *, refresh):
         observed_generation = self._catalog_generation
@@ -375,6 +847,72 @@ class PositionReviewService:
                     "pass_rate": summary["pass_rate"],
                 }
             )
+        rows, detail_by_symbol = self._append_holding_only_symbols(
+            rows, detail_by_symbol
+        )
+        return rows, detail_by_symbol
+
+    def _append_holding_only_symbols(self, rows, detail_by_symbol):
+        """Append current holdings without any execution history.
+
+        The review catalog intentionally lists "symbols with trusted execution
+        history".  Current holdings that never produced a canonical execution
+        (for example ETF positions or recently opened positions without XT
+        trade records) would otherwise be invisible, making the catalog look
+        smaller than the broker position truth.  They are appended with an
+        explicit ``no_execution_history`` marker instead of fabricated trades.
+        """
+
+        positions = self.repository.list_xt_positions()
+        holding_symbols = sorted(
+            {
+                _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+                for item in positions
+                if _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+            }
+        )
+        position_by_symbol = {}
+        for item in positions:
+            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+            if symbol:
+                position_by_symbol[symbol] = item
+        missing = [
+            symbol for symbol in holding_symbols if symbol not in detail_by_symbol
+        ]
+        for symbol in missing:
+            position = position_by_symbol.get(symbol) or {}
+            current_quantity = _int(position.get("volume"))
+            detail = self._build_holding_only_detail(symbol, position)
+            name = str((detail.get("symbol") or {}).get("name") or "") or symbol
+            detail_by_symbol[symbol] = detail
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "current_quantity": current_quantity,
+                    "is_holding": True,
+                    "no_execution_history": True,
+                    "first_trade_at": None,
+                    "last_trade_at": None,
+                    "request_count": 0,
+                    "fill_count": 0,
+                    "signal_count": 0,
+                    "buy_quantity": 0,
+                    "sell_quantity": 0,
+                    "buy_amount": 0.0,
+                    "sell_amount": 0.0,
+                    "initial_position_quantity": current_quantity,
+                    "initial_position_source": _INITIAL_POSITION_SOURCE,
+                    "data_quality_warning_count": 1,
+                    "data_quality_degraded": True,
+                    "unassociated_trade_count": 0,
+                    "runtime_evidence_available": False,
+                    "runtime_evidence_truncated": False,
+                    "review_counts": _empty_verdict_counts(),
+                    "verdict": None,
+                    "pass_rate": None,
+                }
+            )
         return rows, detail_by_symbol
 
     def _get_cached_catalog_detail(self, symbol):
@@ -472,6 +1010,20 @@ class PositionReviewService:
             sell_constraints=sell_constraints,
             pm_decisions=bundle["pm_decisions"],
         )
+        requests_by_id_detail = {
+            str(item.get("request_id") or "").strip(): item
+            for item in bundle["requests"]
+            if str(item.get("request_id") or "").strip()
+        }
+        reviews = [
+            _attach_review_execution_detail(
+                review,
+                requests_by_id=requests_by_id_detail,
+                signals=bundle["signals"],
+                runtime_items=runtime_result.get("items") or [],
+            )
+            for review in reviews
+        ]
         review_by_request = {
             item["request_id"]: item for item in reviews if item.get("request_id")
         }
@@ -584,14 +1136,9 @@ class PositionReviewService:
                 initial_position_source=summary["initial_position_source"],
             ),
             "reviews": reviews,
-            "timeline": _build_timeline(
-                signals=bundle["signals"],
-                canonical_trades=canonical_trades,
-                reviews=reviews,
-            ),
             "data_quality": {
                 "canonical_trade_source": _CANONICAL_TRADE_SOURCE,
-                "canonical_trade_source_label": "历史成交档案 + 当前 XT/OM",
+                "canonical_trade_source_label": "当前订单账本（重建 + 真实订单）",
                 "initial_position_quantity": summary["initial_position_quantity"],
                 "initial_position_source": summary["initial_position_source"],
                 "initial_position_formula": (
@@ -611,8 +1158,6 @@ class PositionReviewService:
                 "canonical_trade_count": len(canonical_trades),
                 "execution_detail_count": len(canonical_trades),
                 "execution_source_precedence": [
-                    "om_execution_history_archive",
-                    "xt_trades_current",
                     "om_execution_fills_current",
                 ],
                 "execution_source_counts": dict(execution_source_counts),
@@ -1596,58 +2141,6 @@ def _serialize_execution(item):
     }
 
 
-def _build_timeline(*, signals, canonical_trades, reviews):
-    items = []
-    for signal in signals or []:
-        position = str(signal.get("position") or "")
-        items.append(
-            {
-                "id": f"signal:{signal.get('_id') or len(items)}",
-                "time": _value_iso(signal.get("fire_time")),
-                "type": "signal",
-                "side": "buy" if position == "BUY_LONG" else "sell",
-                "price": _float(signal.get("price")),
-                "quantity": None,
-                "verdict": None,
-                "request_id": None,
-                "title": "Guardian 信号",
-                "description": str(signal.get("remark") or ""),
-            }
-        )
-    for review in reviews:
-        items.append(
-            {
-                "id": f"request:{review['request_id']}",
-                "time": review.get("time"),
-                "type": "request",
-                "side": review.get("side"),
-                "price": (review.get("request") or {}).get("price"),
-                "quantity": (review.get("request") or {}).get("quantity"),
-                "verdict": review.get("verdict"),
-                "request_id": review.get("request_id"),
-                "title": "策略下单请求",
-                "description": " / ".join(review.get("reason_codes") or []),
-            }
-        )
-    for trade in canonical_trades:
-        items.append(
-            {
-                "id": f"fill:{trade.get('execution_key')}",
-                "time": _epoch_iso(_int(trade.get("trade_time"))),
-                "type": "fill",
-                "side": trade.get("side"),
-                "price": trade.get("price"),
-                "quantity": trade.get("quantity"),
-                "verdict": None,
-                "request_id": trade.get("request_id"),
-                "title": "XT 实际成交",
-                "description": str(trade.get("broker_trade_id") or ""),
-            }
-        )
-    items.sort(key=lambda item: (item.get("time") or "", item.get("id") or ""))
-    return items
-
-
 def _build_order_timeline_projection(
     *,
     symbol,
@@ -1935,6 +2428,17 @@ def _build_order_timeline_projection(
                 }
             )
         event_id = _timeline_event_id(group)
+        rebuilt = bool(
+            str((group.get("order") or {}).get("source") or "").strip()
+            == "order_ledger_rebuild"
+            or str((group.get("request") or {}).get("source") or "").strip()
+            == "order_ledger_rebuild"
+        )
+        rebuild_source = (
+            str((group.get("order") or {}).get("rebuild_source") or "").strip()
+            or str((group.get("request") or {}).get("rebuild_source") or "").strip()
+            or None
+        )
         events.append(
             {
                 "id": event_id,
@@ -1949,6 +2453,8 @@ def _build_order_timeline_projection(
                 "request_id": group.get("request_id"),
                 "internal_order_id": group.get("internal_order_id"),
                 "side": _timeline_group_side(group, request=request),
+                "rebuilt": rebuilt,
+                "rebuild_source": rebuild_source,
                 "signal": signal,
                 "expected_quantity": expected_quantity,
                 "request_quantity": request_quantity,
@@ -2739,6 +3245,105 @@ def _serialize_timeline_signal(signal):
     }
 
 
+def _review_signal_keys(review, request):
+    keys = []
+    request_id = str(review.get("request_id") or "").strip()
+    trace_id = str((request or {}).get("trace_id") or "").strip()
+    intent_id = str((request or {}).get("intent_id") or "").strip()
+    if request_id:
+        keys.append(("request", request_id))
+    if trace_id:
+        keys.append(("trace", trace_id))
+    if intent_id:
+        keys.append(("intent", intent_id))
+    return keys
+
+
+def _direct_review_signal(review, request, signals):
+    """Resolve the single directly-linked signal for one review.
+
+    Same strong-association rule as the timeline: only explicit
+    request / trace / intent keys match; no time-neighbour inference.
+    Ambiguous or missing matches return None.
+    """
+
+    index = _index_direct_timeline_signals(signals)
+    keys = _review_signal_keys(review, request)
+    candidates = {}
+    for key in keys:
+        for signal_id, signal in (index.get(key) or {}).items():
+            candidates[signal_id] = signal
+    if len(candidates) != 1:
+        return None
+    signal = next(iter(candidates.values()))
+    signal_keys = set(_timeline_signal_links(signal))
+    matched = [key for key in keys if key in signal_keys]
+    if not matched:
+        return None
+    serialized = _serialize_timeline_signal(signal)
+    serialized["type"] = resolve_signal_type(
+        request=request,
+        signal=signal,
+        side=str(review.get("side") or "").strip().lower() or None,
+    )
+    serialized["family"] = (
+        (signal_type_registry_payload() or {}).get(serialized["type"]) or {}
+    ).get("family")
+    return serialized
+
+
+def _attach_review_execution_detail(
+    review,
+    *,
+    requests_by_id,
+    signals,
+    runtime_items,
+):
+    """Attach signal + full condition evidence to a strategy review row.
+
+    This makes the "execution process" visible on the ledger table: which
+    signal fired, what conditions were evaluated (threshold / price / quantity
+    checks), the observed values and the historical thresholds (kept as null
+    when missing).  Strong-association rules are preserved; no neighbour
+    inference is applied.
+    """
+
+    enriched = dict(review or {})
+    request_id = str(review.get("request_id") or "").strip()
+    request = requests_by_id.get(request_id) or {}
+    enriched["signal"] = _direct_review_signal(review, request, signals)
+    runtime_event = None
+    trace_id = str((request or {}).get("trace_id") or "").strip()
+    if trace_id:
+        runtime_event = next(
+            (
+                event
+                for event in runtime_items or []
+                if str(event.get("trace_id") or "").strip() == trace_id
+            ),
+            None,
+        )
+    conditions_payload = build_conditions(
+        review=enriched,
+        request=request,
+        runtime_event=runtime_event,
+        side=str(review.get("side") or "").strip().lower() or None,
+    )
+    conditions = list(conditions_payload.get("conditions") or [])
+    enriched["conditions"] = {
+        "count": len(conditions),
+        "passed_count": sum(1 for item in conditions if item.get("passed") is True),
+        "failed_count": sum(1 for item in conditions if item.get("passed") is False),
+        "missing_count": sum(1 for item in conditions if item.get("passed") is None),
+        "condition_snapshot_status": (conditions_payload.get("data_quality") or {}).get(
+            "condition_snapshot_status"
+        ),
+        "expression": conditions_payload.get("expression"),
+        "conditions": conditions,
+    }
+    return enriched
+
+
 def _first_timeline_text(*values):
     for value in values:
         text = str(value or "").strip()
@@ -2894,6 +3499,39 @@ def _normalize_symbol(value):
     return normalized or ""
 
 
+def _portfolio_trade_events(detail_by_symbol):
+    """Flatten canonical executions into portfolio trade-point events."""
+
+    events = []
+    for symbol in sorted(detail_by_symbol):
+        detail = detail_by_symbol[symbol] or {}
+        name = str((detail.get("symbol") or {}).get("name") or "") or symbol
+        for execution in detail.get("executions") or []:
+            quantity = _int(execution.get("quantity"))
+            price = _float(execution.get("price"))
+            events.append(
+                {
+                    "time": execution.get("time")
+                    or _epoch_iso(_int(execution.get("trade_time"))),
+                    "symbol": symbol,
+                    "name": name,
+                    "side": str(execution.get("side") or "").strip().lower(),
+                    "quantity": quantity,
+                    "price": price,
+                    "amount": round(price * quantity, 2) if price is not None else None,
+                    "request_id": execution.get("request_id") or None,
+                    "broker_trade_id": execution.get("broker_trade_id") or None,
+                    "account_partition": (
+                        execution.get("account_partition") or "unknown"
+                    ),
+                    "association_quality": (
+                        execution.get("association_quality") or None
+                    ),
+                }
+            )
+    return events
+
+
 def _timestamp(value):
     if value in (None, ""):
         return 0
@@ -2914,27 +3552,6 @@ def _timestamp(value):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_BEIJING_TZ)
     return int(dt.timestamp())
-
-
-def _parse_timeline_bound(value, *, name):
-    if value is None or str(value).strip() == "":
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            timestamp = int(value)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError(
-                f"{name} must be an ISO-8601 datetime or Unix timestamp"
-            ) from exc
-    else:
-        text = str(value).strip()
-        try:
-            timestamp = int(float(text))
-        except (TypeError, ValueError, OverflowError):
-            timestamp = _timestamp(text)
-    if timestamp <= 0:
-        raise ValueError(f"{name} must be an ISO-8601 datetime or Unix timestamp")
-    return timestamp
 
 
 def _epoch_iso(value):

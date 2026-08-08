@@ -8,7 +8,7 @@ const chartPath = new URL('../components/position-review/PositionReviewChart.vue
 test('position review view keeps canonical executions and strategy reviews as separate ledgers', async () => {
   const source = await readFile(viewPath, 'utf8')
 
-  assert.match(source, /成交明细（真实成交）/)
+  assert.match(source, /订单成交明细/)
   assert.match(source, /:data="selectedDetail\.executions"/)
   assert.match(source, /逐单策略复盘/)
   assert.match(source, /:data="selectedDetail\.reviews"/)
@@ -86,4 +86,47 @@ test('data quality alert does not collapse inside the fixed-height workbench', a
   const source = await readFile(viewPath, 'utf8')
 
   assert.match(source, /\.position-review-quality-alert\s*\{\s*flex:\s*0 0 auto;/s)
+})
+
+test('position review uses a tab workbench without page-level scroll', async () => {
+  const source = await readFile(viewPath, 'utf8')
+
+  // 工作台标签：组合总览 / 标的复盘。
+  assert.match(source, /<el-tabs[\s\S]*v-model="activeWorkbenchTab"/)
+  assert.match(source, /<el-tab-pane label="组合总览" name="portfolio">/)
+  assert.match(source, /<el-tab-pane label="标的复盘" name="symbol">/)
+  // 页面主体不滚动，滚动只发生在组件内部。
+  assert.match(source, /\.position-review-main\s*\{[\s\S]*?overflow: hidden;/s)
+  assert.match(source, /\.position-review-portfolio-tab\s*\{[\s\S]*?overflow-y: auto;/s)
+  assert.match(source, /\.position-review-symbol-list\s*\{[\s\S]*?overflow-y: auto;/s)
+  // 联动：点左栏持仓/贡献表自动切到标的复盘标签。
+  assert.match(source, /activeWorkbenchTab\.value = 'symbol'/)
+})
+
+test('strategy review ledger ranks above order fill ledger', async () => {
+  const source = await readFile(viewPath, 'utf8')
+
+  const reviewsIndex = source.indexOf('name="ledger-reviews"')
+  const executionsIndex = source.indexOf('name="ledger-executions"')
+  assert.ok(reviewsIndex >= 0, '逐单策略复盘折叠块存在')
+  assert.ok(executionsIndex >= 0, '订单成交明细折叠块存在')
+  assert.ok(
+    reviewsIndex < executionsIndex,
+    '逐单策略复盘必须位于订单成交明细之前',
+  )
+})
+
+test('strategy review table exposes guardian execution process columns', async () => {
+  const source = await readFile(viewPath, 'utf8')
+  const reviewsBlock = source.slice(source.indexOf('name="ledger-reviews"'), source.indexOf('name="ledger-executions"'))
+
+  // 执行过程列：信号类型 / 阈值判断 / 条件判断 / 数量判断。
+  assert.match(reviewsBlock, /label="信号类型"/)
+  assert.match(reviewsBlock, /label="阈值判断"/)
+  assert.match(reviewsBlock, /label="条件判断"/)
+  assert.match(reviewsBlock, /label="数量判断"/)
+  assert.match(reviewsBlock, /row\.conditionPassedCount/)
+  assert.match(reviewsBlock, /row\.signal\.label/)
+  assert.match(reviewsBlock, /row\.canUseVolume/)
+  assert.match(reviewsBlock, /conditionSummaryTitle/)
 })

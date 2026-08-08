@@ -459,7 +459,6 @@ export const klineSlimController = {
           .map((period) => this.chanlunVersionMap[period] || '')
           .concat(JSON.stringify(this.periodLegendSelected))
           .concat(JSON.stringify(this.priceGuideLegendSelected))
-          .concat(JSON.stringify(this.orderReviewLegendSelected))
           .concat(this.clxLegendSelected ? 'clx-legend:on' : 'clx-legend:off')
           .concat(JSON.stringify(this.clxSelectedModelKeys))
           .concat(JSON.stringify(this.clxSelectedConditionKeys))
@@ -489,15 +488,14 @@ export const klineSlimController = {
           legendSelected: {
             ...this.periodLegendSelected,
             ...this.priceGuideLegendSelected,
-            ...this.orderReviewLegendSelected,
             [CLX_SIGNAL_LEGEND_NAME]: this.clxLegendSelected
           },
           priceGuides: this.draftChartPriceGuides,
           editablePriceGuides: this.editablePriceGuides,
           priceGuideEditMode: this.priceGuideEditMode,
           priceGuideEditLocked: this.priceGuideEditLocked,
-          orderReviewTimeline: this.orderReviewTimeline,
-          orderReviewVisible: this.showOrderReview,
+          orderReviewChart: this.orderReviewChart,
+          orderReviewChartVisible: this.showOrderReview,
           clxSignalHistory: this.clxSignalHistory,
           clxModelKeys: this.clxSelectedModelKeys,
           clxConditionKeys: this.clxSelectedConditionKeys,
@@ -569,7 +567,7 @@ export const klineSlimController = {
       this.fetchMainData(this.routeToken)
       this.refreshVisibleChanlunPeriods(this.routeToken)
       if (this.showOrderReview) {
-        this.loadOrderReviewTimeline({ force: true })
+        this.loadOrderReviewChart({ force: true })
       }
       if (this.showClxWorkbench) {
         this.loadClxHistory({ force: true })

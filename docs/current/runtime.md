@@ -181,16 +181,58 @@
   - `GET /api/position-review/summary`
   - `GET /api/position-review/symbols`
   - `GET /api/position-review/symbols/<symbol>`
+  - `GET /api/position-review/portfolio/summary`
+  - `GET /api/position-review/portfolio/series?period=day|week|month`（默认 `day`）
+  - `GET /api/position-review/portfolio/contributions`
+  - `GET /api/position-review/symbols/<symbol>/chart`
+  - `GET /api/position-review/events/<event_id>/conditions`
+- 页面为工作台式结构：左栏是组合总览与标的复盘共用的持仓列表（当前持仓 + 已清仓标的，含
+  `no_execution_history=true` 的当前持仓），右栏用标签页组织“组合总览”与“标的复盘”；
+  页面主体不出现页面级滚动条，滚动只发生在组件内部（持仓列表、组合总览内容、账本、
+  证据面板各自滚动）。点击左栏列表或组合贡献表行自动切换到“标的复盘”标签并选中对应标的。
+- 组合总览的账户净资产曲线按 QMT 口径计算：单位净值 =（基金资产总值 − 基金负债）/ 基金总份额，
+  账户层面净资产 = 总资产 − 总负债；数据来自 `pm_credit_asset_snapshots` 的
+  `total_asset / total_debt`。曲线支持日/周/月多周期切换（默认日），按北京日历桶聚合取各周期
+  末笔快照、缺失区间不插值；交易发生的周期在图上标注交易点，悬浮展示该周期全部交易的
+  时间、标的、方向、数量、价格、金额与请求 ID。
+- 标的复盘的“按标的展示图表”不再展示 K 线（K 线交易标识已由 `/kline-slim` 行情图承载），
+  改为持仓成本价曲线：Y 轴为持仓成本价，X 轴从首个持仓或订单点开始；订单事件（含
+  `rebuilt_open_order` 账本重建买入事件）仍以颜色/形状/边框编码并支持一次性展示全部
+  信号与条件证据的悬浮框。
 - 历史成交标的集合包含当前仍持仓和已经清仓的标的。全局统计、标的列表、图表和订单明细使用同一套账户、标的与时间范围口径。
-- 当前交易快照来自 `xt_trades`，持久历史成交由
-  `om_execution_history_archive` 补齐；订单请求、实际成交数量和持仓变化合并
-  当前 OM 账本与 `position_review_evidence_archive` 交叉核对。
+- 标的目录除“有可信历史成交的标的”外，还会把当前持仓中暂无成交记录的标的（例如无成交档案的 ETF 或新开仓标的）以
+  `no_execution_history=true` 标记追加展示，使目录数量与券商持仓（`xt_positions`）一致；这些标的不参与交易复盘判定，
+  组合贡献使用券商当前均价快照估算成本（`cost_basis_source=broker_snapshot_estimate`、`data_quality.cost_basis=degraded`）。
+- 账本重建（`flatten-cost-price`）会按持仓对账补单：每个 `position_snapshot_flatten` entry
+  生成一条显式标记的重建买入请求与订单（`source=order_ledger_rebuild`、`rebuilt_open=true`、
+  `broker_order_id=null`、`data_quality=reconstructed`），使“有持仓却没有对应买入订单”的
+  现象消失；这类重建订单无 `strategy_context`，复盘判定为 `NOT_APPLICABLE`，不进入 PASS/FAIL
+  合规率，也不计入月度成交额。
+- 订单与成交的唯一来源是当前 OM 账本（`om_order_requests / om_orders /
+  om_broker_orders / om_execution_fills / om_trade_facts / om_position_entries /
+  om_entry_slices / om_exit_allocations`）：重建订单与后续真实订单进入同一账本，
+  真实订单的成交经 `om_execution_fills` 展示。`freshquant.xt_trades`（重建前券商
+  历史成交）与 `om_execution_history_archive / position_review_evidence_archive`
+  只作历史留存，持仓复盘读模型一律不读取。
+- 持仓复盘目录 = 当前账本有订单的标的 ∪ 当前持仓（`xt_positions`）；重建后为 10 个
+  当前持仓，每标的一笔 `rebuilt_open=true` 初始化虚拟订单，图表事件只来自账本订单。
+- flatten 重建后，每个当前持仓会有一条 `rebuilt_open=true` 的重建买入订单（见上文），
+  重建订单同时写入 `om_order_requests / om_orders / om_broker_orders` 三个集合：
+  持仓复盘读取 `om_orders`，仓位管理“相关订单”读取 `om_broker_orders`，两边订单一致。
   `broker_order_id` 和 `broker_trade_id` 都不能作为跨历史记录的单键关联依据。
 - 页面与 API 只显示不可逆 `account_partition`，不返回原始券商账户号；多账户冲突或
   `unknown` 分区通过 `data_quality` 明示。
 - 复盘结果使用 `PASS / FAIL / INSUFFICIENT_EVIDENCE / NOT_APPLICABLE` 四态；合规率只使用可判定的 `PASS + FAIL` 作为分母，不能把证据不足或不适用记录计入合规率。
 - 证据置信度使用 `HIGH / MEDIUM / LOW`；页面同时展示 `data_quality`，使缺失策略上下文、持仓解释或执行关联的结果不会被误读为确定结论。
 - 单标的详情统一返回摘要、图表、订单级复盘、成交时间线和数据质量信息。图表数量与订单级复盘明细必须能够回勾到相同的实际成交事实。
+- 页面一级视图固定为“组合总览 / 标的复盘”，路由 query `view=symbol` 可深链标的复盘。
+- 标的复盘是三栏视口布局（左历史标的目录 / 中 K 线主图 + 折叠账本 / 右固定订单证据面板），100% 缩放下全部组件在同一屏内可操作，各栏内部滚动。
+- 标的复盘主图是单一 K 线图表：颜色=买卖方向（买红/卖绿 + B/S 文字），形状=信号类型（`signal_type_registry`），边框/透明度/`!`=verdict；跨 bar fill 用同色细区间线。
+- 悬浮框一次性展示全部信息：订单摘要、触发信号完整详情（类型/族/名称/时间/价格/数量/方向/来源/关联方式/trace/intent）、全部触发条件与阈值（缺失保持 null 并提示“历史阈值证据缺失”）、订单与成交、仓位与成本影响、数据质量；conditions 按 `event_id` 缓存并按需从 `/events/<id>/conditions` 懒加载，Hover 无需再点击链接。
+- 点击 marker 固定订单，右侧证据面板展示完整证据；点击账本行同样在右栏展示请求复盘或成交证据。
+- KlineSlim 的“交易复盘”覆盖层同样消费 `/symbols/<symbol>/chart` 只读投影并在价格层渲染 marker，使用相同的完整悬浮框；不再在 K 线下方绘制策略应有量/实际成交量/连续持仓三轨附图，旧 `/timeline` 接口已移除。
+- 组合总览聚焦持仓市值、剩余成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N；权益曲线名称与 `equity_basis` 跟随证据等级（`broker_total_asset` / `credit_snapshot_reconstructed` / `estimated`），缺失区间不插值。
+- 持仓成本口径：优先 entry/slice/allocation 账本剩余成本，`fees_included=false`；证据不足时降级为成交移动加权估算并在页面与 `data_quality.cost_basis=degraded` 明示。
 - ClickHouse Trace 只用于补充可选的信号、策略门禁和运行链证据，以及跳转到 `/runtime-observability`。持仓复盘接口不依赖 ClickHouse 才能返回成交和账本结果；Trace 不可用时由证据置信度和 `data_quality` 显示降级。
 
 ## 并行环境的默认口径

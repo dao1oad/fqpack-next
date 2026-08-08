@@ -44,27 +44,82 @@ def list_position_review_symbols():
     )
 
 
-@position_review_bp.get("/symbols/<symbol>/timeline")
-def get_position_review_symbol_timeline(symbol):
+@position_review_bp.get("/portfolio/summary")
+def get_position_review_portfolio_summary():
     try:
         refresh = _boolean_arg("refresh", default=False)
-        return jsonify(
-            _get_position_review_service().get_symbol_timeline(
-                symbol,
-                start=request.args.get("start"),
-                end=request.args.get("end"),
-                refresh=refresh,
-            )
-        )
     except ValueError as exc:
-        message = str(exc)
-        status = (
-            400
-            if message.startswith(("start ", "end "))
-            or "refresh must be boolean" in message
-            else 404
+        return jsonify({"error": str(exc)}), 400
+    return _service_response(
+        lambda service: service.get_portfolio_summary(refresh=refresh)
+    )
+
+
+@position_review_bp.get("/portfolio/series")
+def get_position_review_portfolio_series():
+    try:
+        refresh = _boolean_arg("refresh", default=False)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _service_response(
+        lambda service: service.get_portfolio_series(
+            refresh=refresh,
+            period=str(request.args.get("period") or "").strip() or "day",
         )
-        return jsonify({"error": message}), status
+    )
+
+
+@position_review_bp.get("/portfolio/contributions")
+def get_position_review_portfolio_contributions():
+    try:
+        refresh = _boolean_arg("refresh", default=False)
+        top_n = _positive_int_arg("top_n", default=10, cap=50)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _service_response(
+        lambda service: service.get_portfolio_contributions(
+            refresh=refresh,
+            top_n=top_n,
+        )
+    )
+
+
+@position_review_bp.get("/symbols/<symbol>/chart")
+def get_position_review_symbol_chart(symbol):
+    try:
+        refresh = _boolean_arg("refresh", default=False)
+        include_unfilled = _boolean_arg("include_unfilled", default=False)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        payload = _get_position_review_service().get_symbol_chart(
+            symbol,
+            period=request.args.get("period"),
+            account_partition=request.args.get("account_partition"),
+            include_unfilled=include_unfilled,
+            refresh=refresh,
+        )
+        return jsonify(payload)
+    except ValueError as exc:
+        status = 400 if "refresh must be boolean" in str(exc) else 404
+        return jsonify({"error": str(exc)}), status
+
+
+@position_review_bp.get("/events/<event_id>/conditions")
+def get_position_review_event_conditions(event_id):
+    try:
+        refresh = _boolean_arg("refresh", default=False)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    try:
+        payload = _get_position_review_service().get_event_conditions(
+            event_id,
+            refresh=refresh,
+        )
+        return jsonify(payload)
+    except ValueError as exc:
+        status = 400 if "refresh must be boolean" in str(exc) else 404
+        return jsonify({"error": str(exc)}), status
 
 
 @position_review_bp.get("/symbols/<symbol>")

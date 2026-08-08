@@ -96,6 +96,13 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'primary',
     size: 'small',
   },
+  tradingGuide: {
+    label: '交易课堂',
+    path: '/trading-guide',
+    buttonType: 'primary',
+    plain: true,
+    size: 'small',
+  },
 }
 
 export const HEADER_NAV_GROUPS = [
@@ -103,6 +110,7 @@ export const HEADER_NAV_GROUPS = [
   ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
   ['gantt', 'shouban30', 'dailyScreening', 'clxEvaluation'],
   ['stock', 'pool'],
+  ['tradingGuide'],
 ]
 
 export const ROUTE_TITLES_BY_NAME = {
@@ -122,6 +130,7 @@ export const ROUTE_TITLES_BY_NAME = {
   'runtime-observability': '运行观测',
   'ops-console': '运维',
   'system-settings': '系统设置',
+  'trading-guide': '交易课堂',
 }
 
 export const getHeaderNavTarget = (key) => {

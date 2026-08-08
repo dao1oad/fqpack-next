@@ -36,7 +36,11 @@ python -m freshquant.rear.api_server --port 5000
 - `GET /api/position-review/summary`
 - `GET /api/position-review/symbols`
 - `GET /api/position-review/symbols/<symbol>`
-- `GET /api/position-review/symbols/<symbol>/timeline`
+- `GET /api/position-review/portfolio/summary`
+- `GET /api/position-review/portfolio/series`（`period=day|week|month`，默认 `day`）
+- `GET /api/position-review/portfolio/contributions`
+- `GET /api/position-review/symbols/<symbol>/chart`
+- `GET /api/position-review/events/<event_id>/conditions`
 
 ### `subject-management`
 
@@ -151,11 +155,13 @@ python -m freshquant.rear.api_server --port 5000
   - 当前返回所有存在可信历史成交的标的，包含当前持仓与已清仓标的
   - 每行包含首末成交时间、请求与逐笔成交数量、买卖数量与金额、复盘计数、汇总结论和可判定订单合规率
 - `/api/position-review/symbols/<symbol>`
-  - 当前返回单标的 `summary / executions / charts / reviews / timeline / data_quality`
-  - `executions` 是按账户分区稳定标识的 canonical 逐笔成交台账；同账户迟到或更正的 XT 真值不会与旧 OM/XT 归档重复计数
-  - 合并当前 `xt_trades / OM ledger` 与
-    `om_execution_history_archive / position_review_evidence_archive`；
-    initialize 或 order-ledger rebuild 后已归档历史仍可查询
+  - 当前返回单标的 `summary / executions / charts / reviews / data_quality`
+  - `executions` 是按账户分区稳定标识的 canonical 逐笔成交台账；同账户迟到或更正的 XT 真值不会与旧 OM/XT 记录重复计数
+  - 只读当前库：合并 `freshquant.xt_trades` 与当前 OM 账本
+    （`om_order_requests / om_orders / om_execution_fills / om_trade_facts /
+    om_position_entries / om_entry_slices / om_exit_allocations`）；
+    `om_execution_history_archive / position_review_evidence_archive` 仅作为
+    重建前历史留存的写入侧，复盘读模型不再读取归档
   - `charts` 包含 `cumulative_quantity / traded_amount / trade_price / verdict_distribution / request_quantity_compare`
   - `reviews` 以订单请求为单位返回 `request / expected / actual / verdict / reasons / evidence`
   - `verdict` 固定为 `PASS / FAIL / INSUFFICIENT_EVIDENCE / NOT_APPLICABLE`
@@ -163,13 +169,31 @@ python -m freshquant.rear.api_server --port 5000
   - 账户只返回不可逆 `account_partition` 或 `unknown`，不返回原始账户号；
     多账户与未知分区由 `data_quality` 显式说明
   - ClickHouse Trace 只作为可选补充证据，不是接口返回成交数量或持仓解释的前置条件
-- `/api/position-review/symbols/<symbol>/timeline`
-  - 当前为 `/position-review` 的订单级三轨图和 `/kline-slim` 可选交易复盘模式提供窗口化只读投影；支持 `start / end / refresh` 查询参数
-  - 返回 `events / position_series / range / data_quality`；每个 `events[]` 是按 `account_partition + internal_order_id`（缺少内部订单时使用安全回退键）聚合的一笔订单，而不是逐笔 fill
-  - 未传窗口时，`events[].actual` 返回订单级总成交量、加权成交均价、成交笔数和首末成交时点；传入 `start` 或 `end` 时只统计窗口内成交，`events[].data_quality.actual_scope` 固定为 `window`，避免与窗口内 `position_series` 混用不同成交口径
-  - `position_series` 按真实成交时点连续回放，并在窗口起点和终点提供仓位锚点；即使窗口内没有成交，持仓阶梯线也覆盖整个请求时间窗。同秒跨订单、缺少可证明先后关系时，订单事件以 `data_quality` 明示仓位归属不确定，不承诺任一订单的确定前后仓位
-  - 当一个策略请求拆分为多个订单或账户分区、但没有可用分配证据时，相关 `expected_quantity` 返回 `null` 并附带 `expected_quantity_ambiguous_across_orders` warning，避免在数量轨重复计算策略应有量
-  - `events[].signal` 只在存在 `request_id / internal_order_id / trace_id / intent_id` 等明确关联键时返回；不以时间邻近规则伪造信号与订单关联
+- `/api/position-review/portfolio/summary`
+  - 返回组合总览 KPI：`total_asset / market_value / remaining_cost / floating_pnl / realized_pnl / position_ratio / cash`
+  - 同时返回 `monthly_turnover`、四态 `verdict_counts`、`signal_type_counts`、`reviewable / pass_rate` 与 `data_quality.equity_basis / cost_basis`
+  - `market_value` 覆盖全部持仓快照（券商真值）；`remaining_cost / floating_pnl` 对每个持仓标的优先使用 entry/slice/allocation 账本成本，证据不足时回退券商均价并在 `data_quality.cost_basis=degraded` 明示
+- `/api/position-review/portfolio/series`
+  - 返回权益曲线，名称与 `equity_basis` 跟随证据等级：
+    - `broker_total_asset`：券商历史总资产快照（`xt_assets`）
+    - `credit_snapshot_reconstructed`：信用资产快照重建（`pm_credit_asset_snapshots`，按分钟聚合，缺失区间不插值）
+    - `estimated`：仅当前快照/持仓的估算
+  - 每个点返回 `total_equity / estimated_equity / cash / market_value / total_debt / net_external_flow / position_ratio / drawdown`
+- `/api/position-review/portfolio/contributions`
+  - 返回标的贡献表（按 `total_pnl = realized + floating` 降序），支持 `top_n`（默认 10，上限 50）
+- `/api/position-review/symbols/<symbol>/chart`
+  - 单一 K 线主图的只读投影：返回 `holding_cycles / cost_basis_series / position_series / pnl_series / order_events / signal_type_registry / cost_basis / data_quality`
+  - 市场 K 线仍由 Stock / ETF K 线 API 提供，`chart` 不复制行情 bars
+  - `order_events[]` 是订单级事件合同：`event_id / account_partition / side / event_type / request_id / internal_order_id / broker_order_id / signal / order / execution / position_impact / review / marker / conditions / data_quality`
+  - `marker` 锚定首次成交 bar 与订单加权成交均价；`execution` 保留多笔 fill 明细、首末成交时间与 fill 数
+  - `signal_type_registry` 由服务端稳定映射 `signal_type -> family / label / marker_symbol`；前端只消费该映射
+  - 支持 `period / account_partition / include_unfilled` 查询参数；`include_unfilled=false`（默认）只返回已有实际成交的订单
+  - `cost_basis.fees_included` 恒为 `false`；`cost_basis.source` 为 `entry_slice_allocation`（账本完整）或 `estimated_moving_average`（降级）
+- `/api/position-review/events/<event_id>/conditions`
+  - 按 `event_id` 懒加载完整条件证据：`signal / trigger_snapshot / conditions / expression / condition_tree / strategy_version / config_snapshot_hash / evidence / data_quality`
+  - 每个 condition 返回 `condition_key / label / actual_value / actual_display / operator / threshold_value / threshold_display / unit / passed / source / observed_at / evidence_id`
+  - 历史阈值缺失时 `threshold_value=null` 且 `source=missing`，`data_quality.threshold_missing_count` 计数并在页面提示“历史阈值证据缺失”；当前配置不进入历史 condition snapshot
+  - 找不到事件时返回 404
 - `/api/stock_data`、`/api/stock_data_v2`、`/api/stock_data_chanlun_structure`
   - 当前分钟周期参数兼容 `1min / 5min / 15min / 30min` 与 `1m / 5m / 15m / 30m`，进入服务前统一归一到前端/缠论服务使用的 `1m / 5m / 15m / 30m`
   - `/api/stock_data?realtimeCache=1` 优先读取实时 K 线缓存；若 QFQ 覆盖缺口（含历史无效/占位缺口，不再限定为当日）未就绪，则记录 warning 并回退历史 K 线读取，避免行情图表左侧列表标的出现主图空白

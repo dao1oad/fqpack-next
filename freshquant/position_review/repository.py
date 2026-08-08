@@ -9,14 +9,10 @@ from typing import Any
 from freshquant.db import DBfreshquant
 from freshquant.order_management.db import DBOrderManagement
 from freshquant.order_management.execution_archive import (
-    EXECUTION_ARCHIVE_COLLECTION,
     build_account_partition,
     build_execution_key,
     build_execution_match_key,
     normalize_execution,
-)
-from freshquant.order_management.position_review_archive import (
-    POSITION_REVIEW_EVIDENCE_ARCHIVE_COLLECTION,
 )
 from freshquant.position_management.db import DBPositionManagement
 from freshquant.util.code import normalize_to_base_code
@@ -43,54 +39,39 @@ class PositionReviewRepository:
         )
 
     def list_symbols(self) -> list[str]:
-        # The review catalog is a history of actual executions. A strategy
-        # request that never reached XT must remain directly inspectable, but
-        # it must not make a symbol look "historically traded" in the catalog.
+        # The review catalog is the current order ledger: symbols that have a
+        # current ledger order (rebuilt init orders or future real orders)
+        # plus current broker holdings.  Historical xt_trades are never read
+        # back as catalog entries; archived evidence is write-only.
         values = set()
-        for value in self.business_database["xt_trades"].distinct("stock_code"):
-            symbol = _normalize_symbol(value)
-            if symbol:
-                values.add(symbol)
-        archive_collection = _optional_collection(
-            self.order_database,
-            EXECUTION_ARCHIVE_COLLECTION,
-        )
-        if archive_collection is not None:
-            for value in archive_collection.distinct("symbol"):
+        for collection_name in ("om_order_requests", "om_orders"):
+            collection = _optional_collection(self.order_database, collection_name)
+            if collection is None or not hasattr(collection, "distinct"):
+                continue
+            for value in collection.distinct("symbol"):
                 symbol = _normalize_symbol(value)
                 if symbol:
                     values.add(symbol)
-        current_fill_collection = _optional_collection(
-            self.order_database,
-            "om_execution_fills",
+        position_collection = _optional_collection(
+            self.business_database,
+            "xt_positions",
         )
-        if current_fill_collection is not None:
-            for value in current_fill_collection.distinct("symbol"):
+        if position_collection is not None and hasattr(position_collection, "distinct"):
+            for value in position_collection.distinct("stock_code"):
                 symbol = _normalize_symbol(value)
                 if symbol:
                     values.add(symbol)
         return sorted(values)
 
     def list_xt_trades(self, symbol: str | None = None) -> list[dict[str, Any]]:
-        query = {}
-        if symbol:
-            normalized = _normalize_symbol(symbol)
-            query["stock_code"] = re.compile(
-                rf"^{re.escape(normalized)}(?:\.|$)",
-                re.IGNORECASE,
-            )
-        current = _documents(
-            self.business_database["xt_trades"].find(query).sort("traded_time", 1)
-        )
-        archive_query = {"symbol": _normalize_symbol(symbol)} if symbol else {}
-        archived = _find_documents(
-            _optional_collection(
-                self.order_database,
-                EXECUTION_ARCHIVE_COLLECTION,
-            ),
-            archive_query,
-            sort=("trade_time", 1),
-        )
+        """Canonical fills come from the current order ledger only.
+
+        ``freshquant.xt_trades`` is broker history before the ledger rebuild and
+        is never read back by the review read-model.  Rebuilt init orders have
+        no fills yet; future real orders will attach their ``om_execution_fills``
+        here.
+        """
+
         fill_query = {"symbol": _normalize_symbol(symbol)} if symbol else {}
         current_om = _find_documents(
             _optional_collection(
@@ -101,9 +82,9 @@ class PositionReviewRepository:
             sort=("trade_time", 1),
         )
         return _union_execution_truth(
-            current=current,
+            current=[],
             current_om=current_om,
-            archived=archived,
+            archived=[],
         )
 
     def list_xt_positions(self, symbol: str | None = None) -> list[dict[str, Any]]:
@@ -124,15 +105,9 @@ class PositionReviewRepository:
 
     def list_order_requests(self, symbol: str | None = None) -> list[dict[str, Any]]:
         query = {"symbol": _normalize_symbol(symbol)} if symbol else {}
-        current = _documents(
+        return _documents(
             self.order_database["om_order_requests"].find(query).sort("created_at", 1)
         )
-        archived = self._list_archive_snapshots(
-            "request_snapshot",
-            symbol=symbol,
-        )
-        archived.extend(self._list_evidence_payloads("order_request", symbol=symbol))
-        return _union_by_identifier(current, archived, "request_id")
 
     def list_orders(
         self,
@@ -145,24 +120,7 @@ class PositionReviewRepository:
             query["symbol"] = _normalize_symbol(symbol)
         if request_ids is not None:
             query["request_id"] = {"$in": list(request_ids)}
-        current = _documents(self.order_database["om_orders"].find(query))
-        archived = self._list_archive_snapshots(
-            "order_snapshot",
-            symbol=symbol,
-        )
-        archived.extend(self._list_evidence_payloads("order", symbol=symbol))
-        if request_ids is not None:
-            allowed = {str(item) for item in request_ids}
-            archived = [
-                item
-                for item in archived
-                if str(item.get("request_id") or "") in allowed
-            ]
-        return _union_by_identifier(
-            current,
-            archived,
-            "internal_order_id",
-        )
+        return _documents(self.order_database["om_orders"].find(query))
 
     def list_execution_fills(
         self,
@@ -175,24 +133,12 @@ class PositionReviewRepository:
         query: dict[str, Any] = {"symbol": _normalize_symbol(symbol)}
         if request_ids is not None:
             query["request_id"] = {"$in": list(request_ids)}
-        current = _documents(
-            self.order_database["om_execution_fills"].find(query).sort("trade_time", 1)
-        )
-        archived = self._list_archive_snapshots(
-            "execution_fill_snapshot",
-            symbol=symbol,
-            synthesize="execution_fill",
-        )
-        archived.extend(self._list_evidence_payloads("execution_fill", symbol=symbol))
-        if request_ids is not None:
-            allowed = {str(item) for item in request_ids}
-            archived = [
-                item
-                for item in archived
-                if str(item.get("request_id") or "") in allowed
-            ]
         return self._annotate_execution_conflicts(
-            _union_execution_evidence(current, archived),
+            _documents(
+                self.order_database["om_execution_fills"]
+                .find(query)
+                .sort("trade_time", 1)
+            ),
             symbol=symbol,
         )
 
@@ -207,53 +153,25 @@ class PositionReviewRepository:
         query: dict[str, Any] = {"symbol": _normalize_symbol(symbol)}
         if internal_order_ids is not None:
             query["internal_order_id"] = {"$in": list(internal_order_ids)}
-        current = _documents(
-            self.order_database["om_trade_facts"].find(query).sort("trade_time", 1)
-        )
-        archived = self._list_archive_snapshots(
-            "trade_fact_snapshot",
-            symbol=symbol,
-            synthesize="trade_fact",
-        )
-        archived.extend(self._list_evidence_payloads("trade_fact", symbol=symbol))
-        if internal_order_ids is not None:
-            allowed = {str(item) for item in internal_order_ids}
-            archived = [
-                item
-                for item in archived
-                if str(item.get("internal_order_id") or "") in allowed
-            ]
         return self._annotate_execution_conflicts(
-            _union_execution_evidence(current, archived),
+            _documents(
+                self.order_database["om_trade_facts"].find(query).sort("trade_time", 1)
+            ),
             symbol=symbol,
         )
 
     def list_position_entries(self, symbol: str) -> list[dict[str, Any]]:
-        current = _documents(
+        return _documents(
             self.order_database["om_position_entries"]
             .find({"symbol": _normalize_symbol(symbol)})
             .sort("trade_time", 1)
         )
-        archived = self._list_evidence_payloads(
-            "position_entry",
-            symbol=symbol,
-        )
-        return _union_by_identifier(current, archived, "entry_id")
 
     def list_entry_slices(self, symbol: str) -> list[dict[str, Any]]:
-        current = _documents(
+        return _documents(
             self.order_database["om_entry_slices"]
             .find({"symbol": _normalize_symbol(symbol)})
             .sort([("trade_time", 1), ("sort_key", 1)])
-        )
-        archived = self._list_evidence_payloads(
-            "entry_slice",
-            symbol=symbol,
-        )
-        return _union_by_identifier(
-            current,
-            archived,
-            "entry_slice_id",
         )
 
     def list_exit_allocations(
@@ -269,26 +187,7 @@ class PositionReviewRepository:
             if not trade_fact_ids:
                 return []
             query["exit_trade_fact_id"] = {"$in": list(trade_fact_ids)}
-        current = _documents(self.order_database["om_exit_allocations"].find(query))
-        archived = self._list_evidence_payloads("exit_allocation")
-        allowed_entries = {str(item) for item in entry_ids}
-        archived = [
-            item
-            for item in archived
-            if str(item.get("entry_id") or "") in allowed_entries
-        ]
-        if trade_fact_ids is not None:
-            allowed_facts = {str(item) for item in trade_fact_ids}
-            archived = [
-                item
-                for item in archived
-                if str(item.get("exit_trade_fact_id") or "") in allowed_facts
-            ]
-        return _union_by_identifier(
-            current,
-            archived,
-            "allocation_id",
-        )
+        return _documents(self.order_database["om_exit_allocations"].find(query))
 
     def list_pm_decisions(self, symbol: str) -> list[dict[str, Any]]:
         return _documents(
@@ -297,17 +196,35 @@ class PositionReviewRepository:
             .sort("evaluated_at", 1)
         )
 
+    def list_xt_assets(self) -> list[dict[str, Any]]:
+        """Read-only broker total-asset snapshots (current and historical)."""
+
+        return _documents(
+            self.business_database["xt_assets"].find({}).sort("updated_at", 1)
+        )
+
+    def list_credit_asset_snapshots(
+        self,
+        *,
+        limit: int = 20_000,
+    ) -> list[dict[str, Any]]:
+        """Read-only credit/asset snapshot series for equity reconstruction."""
+
+        collection = _optional_collection(
+            self.position_database,
+            "pm_credit_asset_snapshots",
+        )
+        if collection is None:
+            return []
+        return _documents(
+            collection.find({}).sort("queried_at", 1).limit(max(int(limit or 0), 0))
+        )
+
     def load_catalog_bundles(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
         """Read every catalog collection once and group the snapshot in memory."""
 
         xt_trades = self.list_xt_trades()
-        symbols = sorted(
-            {
-                _normalize_symbol(item.get("stock_code") or item.get("symbol"))
-                for item in xt_trades
-                if _normalize_symbol(item.get("stock_code") or item.get("symbol"))
-            }
-        )
+        symbols = self.list_symbols()
         grouped: dict[str, dict[str, list[dict[str, Any]]]] = {
             symbol: {
                 "requests": [],
@@ -372,71 +289,40 @@ class PositionReviewRepository:
         return grouped
 
     def _list_all_execution_fills(self):
-        current = _documents(
-            self.order_database["om_execution_fills"].find({}).sort("trade_time", 1)
-        )
-        archived = self._list_archive_snapshots(
-            "execution_fill_snapshot",
-            synthesize="execution_fill",
-        )
-        archived.extend(self._list_evidence_payloads("execution_fill"))
         return self._annotate_execution_conflicts(
-            _union_execution_evidence(current, archived)
+            _documents(
+                self.order_database["om_execution_fills"].find({}).sort("trade_time", 1)
+            )
         )
 
     def _list_all_trade_facts(self):
-        current = _documents(
-            self.order_database["om_trade_facts"].find({}).sort("trade_time", 1)
-        )
-        archived = self._list_archive_snapshots(
-            "trade_fact_snapshot",
-            synthesize="trade_fact",
-        )
-        archived.extend(self._list_evidence_payloads("trade_fact"))
         return self._annotate_execution_conflicts(
-            _union_execution_evidence(current, archived)
+            _documents(
+                self.order_database["om_trade_facts"].find({}).sort("trade_time", 1)
+            )
         )
 
     def _list_all_position_entries(self):
-        current = _documents(self.order_database["om_position_entries"].find({}))
-        archived = self._list_evidence_payloads("position_entry")
-        return _union_by_identifier(current, archived, "entry_id")
+        return _documents(self.order_database["om_position_entries"].find({}))
 
     def _list_all_entry_slices(self):
-        current = _documents(self.order_database["om_entry_slices"].find({}))
-        archived = self._list_evidence_payloads("entry_slice")
-        return _union_by_identifier(
-            current,
-            archived,
-            "entry_slice_id",
-        )
+        return _documents(self.order_database["om_entry_slices"].find({}))
 
     def _list_all_exit_allocations(self):
-        current = _documents(self.order_database["om_exit_allocations"].find({}))
-        archived = self._list_evidence_payloads("exit_allocation")
-        return _union_by_identifier(current, archived, "allocation_id")
+        return _documents(self.order_database["om_exit_allocations"].find({}))
 
     def _annotate_execution_conflicts(self, items, *, symbol=None):
         current_query = {}
-        archive_query = {}
         if symbol:
             normalized = _normalize_symbol(symbol)
             current_query["stock_code"] = re.compile(
                 rf"^{re.escape(normalized)}(?:\.|$)",
                 re.IGNORECASE,
             )
-            archive_query["symbol"] = normalized
         current_xt = _documents(self.business_database["xt_trades"].find(current_query))
-        archived = _find_documents(
-            _optional_collection(
-                self.order_database,
-                EXECUTION_ARCHIVE_COLLECTION,
-            ),
-            archive_query,
-        )
         canonical = _select_authoritative_xt_truth(
             current=current_xt,
-            archived=archived,
+            archived=[],
         )
         execution_partitions: dict[str, set[str]] = defaultdict(set)
         match_partitions: dict[str, set[str]] = defaultdict(set)
@@ -463,80 +349,6 @@ class PositionReviewRepository:
             ):
                 document["canonical_conflict"] = "side_mismatch_with_xt"
             results.append(document)
-        return results
-
-    def _list_archive_snapshots(
-        self,
-        field,
-        *,
-        symbol=None,
-        synthesize=None,
-    ):
-        query: dict[str, Any] = {}
-        if symbol:
-            query["symbol"] = _normalize_symbol(symbol)
-        documents = _find_documents(
-            _optional_collection(
-                self.order_database,
-                EXECUTION_ARCHIVE_COLLECTION,
-            ),
-            query,
-        )
-        results = []
-        plural_field = {
-            "request_snapshot": "request_snapshots",
-            "order_snapshot": "order_snapshots",
-            "execution_fill_snapshot": "execution_fill_snapshots",
-            "trade_fact_snapshot": "trade_fact_snapshots",
-        }.get(field)
-        for document in documents:
-            snapshots = []
-            if plural_field:
-                snapshots.extend(document.get(plural_field) or [])
-            snapshot = document.get(field)
-            if isinstance(snapshot, dict) and snapshot:
-                snapshots.append(snapshot)
-            for candidate in snapshots:
-                if not isinstance(candidate, dict) or not candidate:
-                    continue
-                results.append(_with_archive_metadata(candidate, document))
-            if snapshots:
-                continue
-            synthesize_source = {
-                "execution_fill": "om_execution_fills",
-                "trade_fact": "om_trade_facts",
-            }.get(synthesize)
-            if (
-                synthesize
-                and synthesize_source
-                and synthesize_source in set(document.get("sources") or [])
-            ):
-                results.append(
-                    _archive_to_execution_evidence(
-                        document,
-                        kind=synthesize,
-                    )
-                )
-        return results
-
-    def _list_evidence_payloads(self, evidence_type, *, symbol=None):
-        query: dict[str, Any] = {"evidence_type": evidence_type}
-        if symbol:
-            query["symbol"] = _normalize_symbol(symbol)
-        documents = _find_documents(
-            _optional_collection(
-                self.order_database,
-                POSITION_REVIEW_EVIDENCE_ARCHIVE_COLLECTION,
-            ),
-            query,
-            sort=("occurred_at", 1),
-        )
-        results = []
-        for document in documents:
-            payload = document.get("payload")
-            if not isinstance(payload, dict):
-                continue
-            results.append(_with_archive_metadata(payload, document))
         return results
 
 
@@ -567,26 +379,6 @@ def _find_documents(collection, query=None, *, sort=None):
         sort_field = sort[0] if isinstance(sort, tuple) else sort
         documents.sort(key=lambda item: str(item.get(sort_field) or ""))
     return documents
-
-
-def _with_archive_metadata(payload, archive_document):
-    result = dict(payload)
-    result["evidence_key"] = archive_document.get("evidence_key")
-    result["archive_key"] = archive_document.get("archive_key")
-    result["execution_key"] = result.get("execution_key") or archive_document.get(
-        "execution_key"
-    )
-    result["account_partition"] = (
-        archive_document.get("account_partition")
-        or result.get("account_partition")
-        or "unknown"
-    )
-    result["archive_account_resolution"] = archive_document.get("account_resolution")
-    canonical_conflict = archive_document.get("canonical_conflict")
-    result["archive_canonical_conflict"] = canonical_conflict
-    if canonical_conflict:
-        result["canonical_conflict"] = canonical_conflict
-    return result
 
 
 def _documents(cursor) -> list[dict[str, Any]]:
@@ -1084,93 +876,6 @@ def _execution_evidence_to_xt_trade(item):
         }
     )
     return result
-
-
-def _archive_to_execution_evidence(item, *, kind):
-    prefix = "fill" if kind == "execution_fill" else "fact"
-    document = {
-        "broker_trade_id": item.get("broker_trade_id"),
-        "broker_order_id": item.get("broker_order_id"),
-        "internal_order_id": item.get("internal_order_id"),
-        "request_id": item.get("request_id"),
-        "symbol": item.get("symbol"),
-        "side": item.get("side"),
-        "quantity": item.get("quantity"),
-        "price": item.get("price"),
-        "trade_time": item.get("trade_time"),
-        "source": "execution_history_archive",
-        "execution_key": item.get("execution_key"),
-        "archive_key": item.get("archive_key"),
-        "account_partition": item.get("account_partition") or "unknown",
-    }
-    if kind == "execution_fill":
-        document["execution_fill_id"] = item.get("execution_fill_id") or (
-            f"{prefix}_{item.get('execution_key')}"
-        )
-    else:
-        document["trade_fact_id"] = item.get("trade_fact_id") or (
-            f"{prefix}_{item.get('execution_key')}"
-        )
-    return document
-
-
-def _union_execution_evidence(current, archived):
-    by_key = {}
-    for item in list(archived or []) + list(current or []):
-        document = dict(item)
-        execution_key = str(document.get("execution_key") or "")
-        if not execution_key:
-            execution_key = build_execution_key(document)
-        account_partition = str(
-            document.get("account_partition") or ""
-        ).strip() or build_account_partition(document.get("account_id"))
-        evidence_id = str(
-            document.get("execution_fill_id")
-            or document.get("trade_fact_id")
-            or document.get("evidence_key")
-            or ""
-        )
-        intrinsic_key = (
-            execution_key,
-            str(document.get("request_id") or ""),
-            str(document.get("internal_order_id") or ""),
-            evidence_id,
-        )
-        document["execution_key"] = execution_key
-        document["account_partition"] = account_partition
-        by_key[(account_partition, *intrinsic_key)] = document
-
-    known_partitions: dict[tuple, set[str]] = defaultdict(set)
-    for key in by_key:
-        account_partition, *intrinsic = key
-        if account_partition != "unknown":
-            known_partitions[tuple(intrinsic)].add(account_partition)
-    for key in list(by_key):
-        account_partition, *intrinsic = key
-        if (
-            account_partition == "unknown"
-            and len(known_partitions.get(tuple(intrinsic), set())) == 1
-        ):
-            del by_key[key]
-    return sorted(
-        by_key.values(),
-        key=lambda item: (
-            int(item.get("trade_time") or 0),
-            str(item.get("execution_fill_id") or item.get("trade_fact_id") or ""),
-        ),
-    )
-
-
-def _union_by_identifier(current, archived, identifier):
-    by_key = {}
-    anonymous = []
-    for item in list(archived or []) + list(current or []):
-        key = str(item.get(identifier) or "").strip()
-        if key:
-            by_key[key] = dict(item)
-        else:
-            anonymous.append(dict(item))
-    return list(by_key.values()) + anonymous
 
 
 def _append_grouped(grouped, key, item, symbol_value):

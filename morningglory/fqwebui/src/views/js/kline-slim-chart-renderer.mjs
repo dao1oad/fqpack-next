@@ -20,10 +20,7 @@ import {
   getPriceGuideLegendName
 } from './subject-price-guides.mjs'
 import { parseTimestampMs } from '../../tool/beijingTime.mjs'
-import {
-  ORDER_REVIEW_TIMELINE_COLORS,
-  buildOrderReviewOverlayData,
-} from '../orderReviewTimeline.mjs'
+import { buildFullMarkerTooltip } from '../positionReviewRefactor.mjs'
 import {
   aggregateClxMarkersByBar,
   anchorClxMarkersToBars,
@@ -1048,23 +1045,36 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
   }
 }
 
-function toOrderReviewNumber(value) {
+export const ORDER_REVIEW_CHART_LEGEND_NAME = '交易复盘'
+
+const orderReviewChartConditionsCache = new Map()
+
+export function setOrderReviewChartConditions(eventId, payload) {
+  orderReviewChartConditionsCache.set(String(eventId || ''), payload || null)
+}
+
+export function getOrderReviewChartConditions(eventId) {
+  const value = orderReviewChartConditionsCache.get(String(eventId || ''))
+  return value === undefined ? null : value
+}
+
+const ORDER_REVIEW_CHART_COLORS = Object.freeze({
+  buy: '#ef4444',
+  sell: '#22c55e',
+  cost: '#f59e0b',
+  span: '#64748b',
+})
+
+function toOrderReviewChartNumber(value) {
   const numeric = Number(value)
   return Number.isFinite(numeric) ? numeric : null
 }
 
-function toOrderReviewKey(item, index) {
-  return String(
-    item?.orderKey ||
-    item?.order?.orderKey ||
-    item?.order?.internalOrderId ||
-    item?.order?.requestId ||
-    item?.eventId ||
-    `order-review-${index + 1}`
-  )
+function orderReviewChartTimestamp(value) {
+  return toTimestamp(value)
 }
 
-function isWithinOrderReviewWindow(timestamp, realMainWindow) {
+function isOrderReviewChartInWindow(timestamp, realMainWindow) {
   return (
     Number.isFinite(timestamp) &&
     timestamp >= realMainWindow.startTs &&
@@ -1072,174 +1082,255 @@ function isWithinOrderReviewWindow(timestamp, realMainWindow) {
   )
 }
 
-function projectOrderReviewPoint({ item, time, tradingAxis, realMainWindow } = {}) {
-  const timestamp = toTimestamp(time || item?.time)
-  const isWindowEnd = item?.pointType === 'window_end'
-  const isInWindow = isWindowEnd
-    ? Number.isFinite(timestamp) && timestamp >= realMainWindow.startTs && timestamp <= realMainWindow.endTs
-    : isWithinOrderReviewWindow(timestamp, realMainWindow)
-  if (!isInWindow) {
-    return null
-  }
-
-  // A terminal position anchor represents a time-window boundary, not a trade
-  // marker. Mapping it to the boundary keeps it inside the last candle's edge.
-  const slot = isWindowEnd
-    ? tradingAxis.mapBoundaryTsToSlot(timestamp)
-    : tradingAxis.mapPointTsToSlot(timestamp)
-  return Number.isFinite(slot)
-    ? { ...item, timestamp, slot }
-    : null
-}
-
-function assignOrderReviewPlotSlots(items = []) {
-  const buckets = new Map()
-  items.forEach((item) => {
-    const bucketKey = Number(item.slot).toFixed(6)
-    const bucket = buckets.get(bucketKey) || []
-    bucket.push(item)
-    buckets.set(bucketKey, bucket)
-  })
-
-  const plotSlots = new Map()
-  buckets.forEach((bucket) => {
-    const sorted = [...bucket].sort((left, right) => (
-      String(left.orderKey).localeCompare(String(right.orderKey))
-    ))
-    const spacing = Math.min(0.24, 0.72 / Math.max(1, sorted.length))
-    sorted.forEach((item, index) => {
-      const suppliedOffset = toOrderReviewNumber(item.plotOffset)
-      const offset = suppliedOffset ?? (index - (sorted.length - 1) / 2) * spacing
-      plotSlots.set(item.orderKey, item.slot + offset)
-    })
-  })
-  return plotSlots
-}
-
-function signedOrderReviewQuantity(value, side) {
-  const quantity = toOrderReviewNumber(value)
-  if (quantity === null) {
-    return null
-  }
+function orderReviewChartSideColor(side) {
   return String(side || '').toLowerCase() === 'sell'
-    ? -Math.abs(quantity)
-    : Math.abs(quantity)
+    ? ORDER_REVIEW_CHART_COLORS.sell
+    : ORDER_REVIEW_CHART_COLORS.buy
 }
 
-function buildKlineSlimOrderReviewLayer({ timeline, tradingAxis, realMainWindow } = {}) {
-  if (!timeline || !tradingAxis || !realMainWindow) {
+function orderReviewChartVerdictStyle(verdict) {
+  const normalized = String(verdict || '').toUpperCase()
+  if (normalized === 'FAIL') {
+    return { opacity: 1, borderColor: '#111827', borderWidth: 2.5, mark: true }
+  }
+  if (normalized === 'INSUFFICIENT_EVIDENCE') {
+    return { opacity: 0.72, borderColor: '#9ca3af', borderWidth: 1, mark: false }
+  }
+  if (normalized === 'NOT_APPLICABLE') {
+    return { opacity: 0.45, borderColor: '#9ca3af', borderWidth: 1, mark: false }
+  }
+  return { opacity: 1, borderColor: '#111827', borderWidth: 1, mark: false }
+}
+
+function buildOrderReviewChartTooltipFormatter(params) {
+  const event = params?.data?.event
+  if (!event) {
+    return ''
+  }
+  return buildFullMarkerTooltip(event, getOrderReviewChartConditions(event.event_id))
+}
+
+function buildKlineSlimOrderReviewChartLayer({
+  chart,
+  tradingAxis,
+  realMainWindow,
+} = {}) {
+  if (!chart || !tradingAxis || !realMainWindow) {
     return null
   }
-
-  const overlay = buildOrderReviewOverlayData(timeline)
-  const orderEvents = (Array.isArray(overlay?.quantityEvents) ? overlay.quantityEvents : [])
-    .map((item, index) => {
-      const orderKey = toOrderReviewKey(item, index)
-      const projected = projectOrderReviewPoint({
-        item: { ...item, orderKey },
-        time: item?.time,
-        tradingAxis,
-        realMainWindow,
-      })
-      return projected ? { ...projected, orderKey } : null
-    })
-    .filter(Boolean)
-  const plotSlots = assignOrderReviewPlotSlots(orderEvents)
-  const orderByKey = new Map(orderEvents.map((item) => [item.orderKey, {
-    ...item,
-    plotSlot: plotSlots.get(item.orderKey) ?? item.slot,
-  }]))
-  const signalMarkers = (Array.isArray(overlay?.signalMarkers) ? overlay.signalMarkers : [])
-    .map((item, index) => {
-      const orderKey = toOrderReviewKey(item, index)
-      const projected = projectOrderReviewPoint({
-        item: { ...item, orderKey },
-        time: item?.time,
-        tradingAxis,
-        realMainWindow,
-      })
-      if (!projected) return null
-      const orderEvent = orderByKey.get(orderKey)
-      const orderOffset = orderEvent ? orderEvent.plotSlot - orderEvent.slot : 0
-      const plotSlot = projected.slot + orderOffset
-      const price = toOrderReviewNumber(item?.price)
-      return price === null ? null : { ...projected, orderKey, plotSlot, price }
-    })
-    .filter(Boolean)
-  const fillMarkers = (Array.isArray(overlay?.orderFillMarkers) ? overlay.orderFillMarkers : [])
-    .map((item, index) => {
-      const orderKey = toOrderReviewKey(item, index)
-      const orderEvent = orderByKey.get(orderKey)
-      const projected = orderEvent || projectOrderReviewPoint({
-        item: { ...item, orderKey },
-        time: item?.time,
-        tradingAxis,
-        realMainWindow,
-      })
-      const price = toOrderReviewNumber(item?.price)
-      if (!projected || price === null) return null
+  const events = Array.isArray(chart.order_events) ? chart.order_events : []
+  const markers = events
+    .map((event) => {
+      const marker = event.marker || {}
+      const timestamp = orderReviewChartTimestamp(marker.bar_time || event.execution?.first_fill_time)
+      const price = toOrderReviewChartNumber(marker.price)
+      const slot = Number.isFinite(timestamp)
+        ? tradingAxis.mapPointTsToSlot(timestamp)
+        : null
+      if (
+        !Number.isFinite(slot) ||
+        price === null ||
+        !isOrderReviewChartInWindow(timestamp, realMainWindow)
+      ) {
+        return null
+      }
       return {
-        ...projected,
-        ...item,
-        orderKey,
+        eventId: String(event.event_id || ''),
+        side: String(event.side || '').toLowerCase() || 'buy',
+        slot,
         price,
-        plotSlot: orderEvent?.plotSlot ?? projected.slot,
+        symbol: marker.symbol || 'circle',
+        verdict: event.review?.verdict || null,
+        event,
       }
     })
     .filter(Boolean)
-  const fillByOrderKey = new Map(fillMarkers.map((item) => [item.orderKey, item]))
-  const quantityEvents = orderEvents.map((item) => {
-    const side = item?.order?.side || item?.side || ''
-    return {
-      ...item,
-      plotSlot: plotSlots.get(item.orderKey) ?? item.slot,
-      side,
-      expectedQuantity: signedOrderReviewQuantity(item.expectedQuantity, side),
-      actualQuantity: signedOrderReviewQuantity(item.actualQuantity, side),
-    }
+
+  // Same-bar markers are offset horizontally so buy/sell clusters stay readable.
+  const buckets = new Map()
+  markers.forEach((marker) => {
+    const key = Number(marker.slot).toFixed(6)
+    const bucket = buckets.get(key) || []
+    bucket.push(marker)
+    buckets.set(key, bucket)
   })
-  const positionPoints = (Array.isArray(overlay?.positionPoints) ? overlay.positionPoints : [])
-    .map((item) => projectOrderReviewPoint({
-      item,
-      time: item?.time,
-      tradingAxis,
-      realMainWindow,
-    }))
+  const plotSlots = new Map()
+  buckets.forEach((bucket) => {
+    const spacing = Math.min(0.22, 0.6 / Math.max(1, bucket.length))
+    bucket.forEach((marker, index) => {
+      plotSlots.set(marker.eventId, marker.slot + (index - (bucket.length - 1) / 2) * spacing)
+    })
+  })
+  markers.forEach((marker) => {
+    marker.plotSlot = plotSlots.get(marker.eventId) ?? marker.slot
+  })
+
+  const spans = markers
+    .map((marker) => {
+      const execution = marker.event.execution || {}
+      const startTs = orderReviewChartTimestamp(execution.first_fill_time)
+      const endTs = orderReviewChartTimestamp(execution.last_fill_time)
+      const startSlot = Number.isFinite(startTs)
+        ? tradingAxis.mapPointTsToSlot(startTs)
+        : null
+      const endSlot = Number.isFinite(endTs)
+        ? tradingAxis.mapPointTsToSlot(endTs)
+        : null
+      if (
+        !Number.isFinite(startSlot) ||
+        !Number.isFinite(endSlot) ||
+        Math.abs(endSlot - startSlot) < 0.001
+      ) {
+        return null
+      }
+      return {
+        eventId: marker.eventId,
+        side: marker.side,
+        startSlot,
+        endSlot,
+        price: marker.price,
+      }
+    })
     .filter(Boolean)
-    .sort((left, right) => left.timestamp - right.timestamp)
+
+  const costSeries = (Array.isArray(chart.cost_basis_series) ? chart.cost_basis_series : [])
+    .map((point) => {
+      const timestamp = orderReviewChartTimestamp(point.time)
+      const value = toOrderReviewChartNumber(point.average_cost)
+      const slot = Number.isFinite(timestamp)
+        ? tradingAxis.mapPointTsToSlot(timestamp)
+        : null
+      if (!Number.isFinite(slot) || value === null) {
+        return null
+      }
+      return { slot, value, time: point.time }
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.slot - right.slot)
 
   return {
-    hasData: Boolean(
-      signalMarkers.length || fillMarkers.length || quantityEvents.length || positionPoints.length
-    ),
-    signalMarkers,
-    fillMarkers,
-    quantityEvents,
-    positionPoints,
-    signalLinks: signalMarkers
-      .map((signal) => {
-        const fill = fillByOrderKey.get(signal.orderKey)
-        return fill ? { signal, fill, order: signal.order || fill.order } : null
-      })
-      .filter(Boolean),
+    hasData: Boolean(markers.length),
+    markers,
+    spans,
+    costSeries,
   }
 }
 
-function shortOrderReviewId(order = {}) {
-  const text = String(
-    order.internalOrderId || order.requestId || order.orderKey || order.id || ''
-  ).trim()
-  if (!text) return '--'
-  return text.length > 12 ? `...${text.slice(-8)}` : text
+function buildOrderReviewChartCostSeries(layer) {
+  if (!layer.costSeries.length) {
+    return null
+  }
+  return {
+    id: 'order-review-chart-cost',
+    name: '持仓均价',
+    type: 'line',
+    xAxisIndex: 0,
+    yAxisIndex: 0,
+    step: 'end',
+    showSymbol: false,
+    animation: false,
+    z: 6,
+    silent: true,
+    lineStyle: { color: ORDER_REVIEW_CHART_COLORS.cost, width: 1.4, opacity: 0.85 },
+    data: layer.costSeries.map((point) => ({
+      value: [point.slot, point.value],
+      time: point.time,
+    })),
+  }
 }
 
-function formatOrderReviewValue(value, { fallback = '--', precision = 0 } = {}) {
-  const numeric = toOrderReviewNumber(value)
-  if (numeric === null) return fallback
-  return numeric.toLocaleString('zh-CN', {
-    minimumFractionDigits: precision,
-    maximumFractionDigits: precision,
-  })
+function buildOrderReviewChartSpanSeries(layer) {
+  if (!layer.spans.length) {
+    return null
+  }
+  return {
+    id: 'order-review-chart-fill-spans',
+    name: '成交跨度',
+    type: 'custom',
+    coordinateSystem: 'cartesian2d',
+    xAxisIndex: 0,
+    yAxisIndex: 0,
+    silent: true,
+    animation: false,
+    z: 8,
+    data: layer.spans,
+    renderItem(params, api) {
+      const item = layer.spans[params.dataIndex]
+      const start = api.coord([item.startSlot, item.price])
+      const end = api.coord([item.endSlot, item.price])
+      if (!start?.every(Number.isFinite) || !end?.every(Number.isFinite)) return null
+      return {
+        type: 'line',
+        shape: { x1: start[0], y1: start[1], x2: end[0], y2: end[1] },
+        style: {
+          stroke: orderReviewChartSideColor(item.side),
+          lineWidth: 1.2,
+          opacity: 0.85,
+        },
+      }
+    },
+  }
+}
+
+function buildOrderReviewChartMarkerSeries(layer) {
+  if (!layer.markers.length) {
+    return null
+  }
+  return {
+    id: 'order-review-chart-markers',
+    name: '交易复盘',
+    type: 'scatter',
+    xAxisIndex: 0,
+    yAxisIndex: 0,
+    symbol: (value, params) => params?.data?.symbol || 'circle',
+    symbolSize: 13,
+    animation: false,
+    z: 12,
+    label: {
+      show: true,
+      position: 'top',
+      distance: 2,
+      formatter: (params) => {
+        if (params?.data?.mark) return '!'
+        return String(params?.data?.sideText || '')
+      },
+      color: '#f3f4f6',
+      fontSize: 9,
+      fontWeight: 'bold',
+    },
+    data: layer.markers.map((marker) => {
+      const verdictStyle = orderReviewChartVerdictStyle(marker.verdict)
+      return {
+        value: [marker.plotSlot, marker.price],
+        event: marker.event,
+        symbol: marker.symbol,
+        sideText: marker.side === 'buy' ? 'B' : 'S',
+        mark: verdictStyle.mark,
+        itemStyle: {
+          color: orderReviewChartSideColor(marker.side),
+          borderColor: verdictStyle.borderColor,
+          borderWidth: verdictStyle.borderWidth,
+          opacity: verdictStyle.opacity,
+        },
+      }
+    }),
+    tooltip: {
+      show: true,
+      className: 'prt-tooltip',
+      confine: true,
+      extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+      formatter: buildOrderReviewChartTooltipFormatter,
+    },
+  }
+}
+
+function buildKlineSlimOrderReviewChartSeries(layer) {
+  if (!layer?.hasData) return []
+  return [
+    buildOrderReviewChartCostSeries(layer),
+    buildOrderReviewChartSpanSeries(layer),
+    buildOrderReviewChartMarkerSeries(layer),
+  ].filter(Boolean)
 }
 
 function escapeOrderReviewTooltip(value) {
@@ -1249,227 +1340,6 @@ function escapeOrderReviewTooltip(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-}
-
-function buildOrderReviewTooltipFormatter(params) {
-  const order = params?.data?.order
-  if (!order) {
-    return ''
-  }
-  const isUnassociatedExecution = order.type === 'unassociated_execution'
-  const side = order.side === 'buy' ? '买入' : order.side === 'sell' ? '卖出' : '订单'
-  const signal = isUnassociatedExecution
-    ? '订单证据不足，不展示信号关联'
-    : order.signal?.label || order.signalLabel || order.signalId || '未关联信号'
-  const expected = order.expectedQuantity === null || order.expectedQuantity === undefined
-    ? '证据不足'
-    : `${formatOrderReviewValue(order.expectedQuantity)} 股`
-  const actual = `${formatOrderReviewValue(order.actualQuantity, { fallback: '0' })} 股`
-  const actualLabel = order.actualScope === 'window' ? '实际成交（窗口内）' : '实际成交'
-  const position = order.positionBefore === null || order.positionAfter === null ||
-    order.positionBefore === undefined || order.positionAfter === undefined
-    ? '待持仓证据'
-    : `${formatOrderReviewValue(order.positionBefore)} → ${formatOrderReviewValue(order.positionAfter)}`
-  const warnings = Array.isArray(order.dataQuality?.warnings)
-    ? order.dataQuality.warnings
-      .map((warning) => warning?.message || warning?.code || '')
-      .filter(Boolean)
-      .join('；')
-    : ''
-  return [
-    isUnassociatedExecution
-      ? `未关联成交（订单证据不足） ${escapeOrderReviewTooltip(shortOrderReviewId(order))}`
-      : `${side}订单 ${escapeOrderReviewTooltip(shortOrderReviewId(order))}`,
-    `信号：${escapeOrderReviewTooltip(signal)}`,
-    `策略应有：${expected}`,
-    `${actualLabel}：${actual}`,
-    `持仓：${position}`,
-    warnings ? `证据：${escapeOrderReviewTooltip(warnings)}` : '',
-  ].filter(Boolean).join('<br/>')
-}
-
-function buildOrderReviewSignalLinkSeries(layer) {
-  return {
-    id: 'order-review-signal-links',
-    name: '信号关联',
-    type: 'custom',
-    coordinateSystem: 'cartesian2d',
-    xAxisIndex: 0,
-    yAxisIndex: 0,
-    silent: true,
-    animation: false,
-    z: 9,
-    data: layer.signalLinks.map((item) => ({
-      value: [
-        item.signal.plotSlot,
-        item.signal.price,
-        item.fill.plotSlot,
-        item.fill.price,
-      ],
-      order: item.order,
-    })),
-    renderItem(params, api) {
-      const start = api.coord([api.value(0), api.value(1)])
-      const end = api.coord([api.value(2), api.value(3)])
-      if (!start?.every(Number.isFinite) || !end?.every(Number.isFinite)) return null
-      return {
-        type: 'line',
-        shape: { x1: start[0], y1: start[1], x2: end[0], y2: end[1] },
-        style: {
-          stroke: ORDER_REVIEW_TIMELINE_COLORS.signal,
-          lineWidth: 1,
-          lineDash: [3, 3],
-          opacity: 0.78,
-        },
-      }
-    },
-  }
-}
-
-function buildOrderReviewQuantitySeries({ id, name, data, offset, actual = false } = {}) {
-  return {
-    id,
-    name,
-    type: 'custom',
-    coordinateSystem: 'cartesian2d',
-    xAxisIndex: 1,
-    yAxisIndex: 1,
-    animation: false,
-    z: actual ? 7 : 6,
-    data,
-    tooltip: {
-      show: true,
-      formatter: buildOrderReviewTooltipFormatter,
-    },
-    renderItem(params, api) {
-      const item = data[params.dataIndex]
-      const quantity = Number(api.value(1))
-      if (!item || !Number.isFinite(quantity) || quantity === 0) return null
-      const baseline = api.coord([api.value(0), 0])
-      const value = api.coord([api.value(0), quantity])
-      if (!baseline?.every(Number.isFinite) || !value?.every(Number.isFinite)) return null
-      const rect = clipRectToCoordSys({
-        x: baseline[0] + offset - 3,
-        y: Math.min(baseline[1], value[1]),
-        width: 6,
-        height: Math.max(1, Math.abs(value[1] - baseline[1])),
-      }, params.coordSys)
-      if (!rect) return null
-      return {
-        type: 'rect',
-        shape: rect,
-        style: actual
-          ? {
-              fill: item.color,
-              stroke: item.color,
-              opacity: 0.94,
-            }
-          : {
-              fill: 'rgba(245, 158, 11, 0.22)',
-              stroke: ORDER_REVIEW_TIMELINE_COLORS.expected,
-              lineWidth: 1.3,
-            },
-      }
-    },
-  }
-}
-
-function buildOrderReviewSeries(layer) {
-  if (!layer?.hasData) return []
-  const signalMarkers = layer.signalMarkers.map((item) => ({
-    value: [item.plotSlot, item.price],
-    order: item.order,
-    orderKey: item.orderKey,
-  }))
-  const fillMarkers = layer.fillMarkers.map((item) => ({
-    value: [item.plotSlot, item.price],
-    order: item.order,
-    orderKey: item.orderKey,
-    symbol: 'triangle',
-    symbolRotate: item.side === 'sell' ? 180 : 0,
-    itemStyle: {
-      color: item.side === 'sell'
-        ? ORDER_REVIEW_TIMELINE_COLORS.sell
-        : ORDER_REVIEW_TIMELINE_COLORS.buy,
-    },
-  }))
-  const expectedQuantity = layer.quantityEvents
-    .filter((item) => item.expectedQuantity !== null)
-    .map((item) => ({
-      value: [item.plotSlot, item.expectedQuantity],
-      order: item.order,
-    }))
-  const actualQuantity = layer.quantityEvents
-    .filter((item) => item.actualQuantity !== null)
-    .map((item) => ({
-      value: [item.plotSlot, item.actualQuantity],
-      order: item.order,
-      color: item.side === 'sell'
-        ? ORDER_REVIEW_TIMELINE_COLORS.sell
-        : ORDER_REVIEW_TIMELINE_COLORS.buy,
-    }))
-
-  return [
-    buildOrderReviewSignalLinkSeries(layer),
-    {
-      id: 'order-review-signal-markers',
-      name: '关联信号',
-      type: 'scatter',
-      xAxisIndex: 0,
-      yAxisIndex: 0,
-      symbol: 'diamond',
-      symbolSize: 10,
-      animation: false,
-      z: 11,
-      itemStyle: { color: ORDER_REVIEW_TIMELINE_COLORS.signal },
-      data: signalMarkers,
-      tooltip: { show: true, formatter: buildOrderReviewTooltipFormatter },
-    },
-    {
-      id: 'order-review-fill-markers',
-      name: '订单成交',
-      type: 'scatter',
-      xAxisIndex: 0,
-      yAxisIndex: 0,
-      symbol: 'triangle',
-      symbolSize: 13,
-      animation: false,
-      z: 12,
-      data: fillMarkers,
-      tooltip: { show: true, formatter: buildOrderReviewTooltipFormatter },
-    },
-    buildOrderReviewQuantitySeries({
-      id: 'order-review-expected-quantity',
-      name: '策略应有量',
-      data: expectedQuantity,
-      offset: -4,
-    }),
-    buildOrderReviewQuantitySeries({
-      id: 'order-review-actual-quantity',
-      name: '实际成交量',
-      data: actualQuantity,
-      offset: 4,
-      actual: true,
-    }),
-    {
-      id: 'order-review-position',
-      name: '连续持仓',
-      type: 'line',
-      xAxisIndex: 2,
-      yAxisIndex: 2,
-      step: 'end',
-      showSymbol: false,
-      animation: false,
-      z: 6,
-      lineStyle: { color: ORDER_REVIEW_TIMELINE_COLORS.position, width: 1.8 },
-      areaStyle: { color: ORDER_REVIEW_TIMELINE_COLORS.position, opacity: 0.1 },
-      data: layer.positionPoints.map((item) => ({
-        value: [item.slot, item.value],
-        pointType: item.pointType,
-        assumption: item.assumption,
-      })),
-    },
-  ]
 }
 
 function escapeClxTooltip(value) {
@@ -1714,8 +1584,8 @@ function buildSceneRenderSeries(scene, viewport) {
     })
   })
 
-  if (scene.orderReviewTrackVisible) {
-    series.push(...buildOrderReviewSeries(scene.orderReview))
+  if (scene.orderReviewChartTrackVisible) {
+    series.push(...buildKlineSlimOrderReviewChartSeries(scene.orderReviewChartLayer))
   }
 
   if (scene.clxSignalsVisible) {
@@ -1737,8 +1607,8 @@ export function buildKlineSlimChartScene({
   editablePriceGuides = null,
   priceGuideEditMode = false,
   priceGuideEditLocked = false,
-  orderReviewTimeline = null,
-  orderReviewVisible = false,
+  orderReviewChart = null,
+  orderReviewChartVisible = false,
   clxSignalHistory = null,
   clxModelKeys = [],
   clxConditionKeys = [],
@@ -1795,15 +1665,15 @@ export function buildKlineSlimChartScene({
       return buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneScopeId)
     })
     .filter(Boolean)
-  const visibleOrderReview = Boolean(orderReviewVisible)
-  const orderReview = visibleOrderReview
-    ? buildKlineSlimOrderReviewLayer({
-        timeline: orderReviewTimeline,
+  const orderReviewChartLayer = orderReviewChartVisible && orderReviewChart
+    ? buildKlineSlimOrderReviewChartLayer({
+        chart: orderReviewChart,
         tradingAxis,
         realMainWindow,
       })
     : null
-  const orderReviewTrackVisible = Boolean(visibleOrderReview && orderReview?.hasData)
+  const orderReviewChartTrackVisible = Boolean(orderReviewChartLayer?.hasData)
+  const orderReviewChartLegendName = ORDER_REVIEW_CHART_LEGEND_NAME
   const visibleClxSignals = Boolean(clxVisible)
   const clxSignals = visibleClxSignals
     ? buildKlineSlimClxLayer({
@@ -1818,6 +1688,9 @@ export function buildKlineSlimChartScene({
       })
     : null
   const clxLegendNames = visibleClxSignals && clxSignals?.hasData ? [CLX_SIGNAL_LEGEND_NAME] : []
+  const orderReviewChartLegendNames = orderReviewChartTrackVisible
+    ? [orderReviewChartLegendName]
+    : []
 
   return {
     symbol: mainData.symbol || '',
@@ -1826,11 +1699,12 @@ export function buildKlineSlimChartScene({
     sceneScopeId,
     legendNames: legendNames
       .concat(priceGuideLegendEntries.map((item) => item.legendName))
+      .concat(orderReviewChartLegendNames)
       .concat(clxLegendNames),
     legendSelected: {
       ...resolvedLegendSelected,
-      ...(orderReviewTrackVisible
-        ? buildOrderReviewLegendSelectionState(legendSelected)
+      ...(orderReviewChartTrackVisible
+        ? { [orderReviewChartLegendName]: legendSelected?.[orderReviewChartLegendName] !== false }
         : {}),
       ...(clxLegendNames.length
         ? { [CLX_SIGNAL_LEGEND_NAME]: legendSelected?.[CLX_SIGNAL_LEGEND_NAME] !== false }
@@ -1849,112 +1723,14 @@ export function buildKlineSlimChartScene({
     priceGuideBands: normalizePriceGuideBands(priceGuides),
     priceGuideEditMode: Boolean(priceGuideEditMode),
     priceGuideEditLocked: Boolean(priceGuideEditLocked),
-    orderReviewVisible: visibleOrderReview,
-    orderReviewTrackVisible,
-    orderReview,
+    orderReviewChartTrackVisible,
+    orderReviewChartLayer,
+    orderReviewChartLegendName,
     clxSignalsVisible: visibleClxSignals,
     clxSignals,
     periodScenes,
     structureBoxes: periodScenes.flatMap((periodScene) => periodScene.structureBoxes)
   }
-}
-
-function resolveOrderReviewTrackLayout(chart) {
-  const width = Number(chart?.getWidth?.())
-  const height = Number(chart?.getHeight?.())
-  const compact =
-    (Number.isFinite(width) && width <= 960) ||
-    (Number.isFinite(height) && height <= 640)
-  const constrained =
-    (Number.isFinite(width) && width <= 720) ||
-    (Number.isFinite(height) && height <= 500)
-
-  if (constrained) {
-    return {
-      // Keep a complete review legend above the plot without clipping y-axis values.
-      primaryTop: 62,
-      primaryBottom: 128,
-      quantityHeight: 32,
-      quantityBottom: 68,
-      positionHeight: 30,
-      positionBottom: 30,
-      sliderHeight: 12,
-      sliderBottom: 6,
-      gridLeft: 60,
-      gridRight: 8,
-      legendLeft: 12,
-      legendRight: 8,
-      legendTop: 32,
-      compactLegend: true,
-    }
-  }
-
-  if (compact) {
-    return {
-      primaryTop: 58,
-      primaryBottom: 164,
-      quantityHeight: 46,
-      quantityBottom: 94,
-      positionHeight: 42,
-      positionBottom: 36,
-      sliderHeight: 14,
-      sliderBottom: 8,
-      gridLeft: '4%',
-      gridRight: '4%',
-      legendLeft: 250,
-      legendRight: 10,
-      legendTop: 10,
-      compactLegend: false,
-    }
-  }
-
-  return {
-    primaryTop: 64,
-    primaryBottom: 220,
-    quantityHeight: 62,
-    quantityBottom: 118,
-    positionHeight: 56,
-    positionBottom: 42,
-    sliderHeight: 16,
-    sliderBottom: 10,
-    gridLeft: '4%',
-    gridRight: '4%',
-    legendLeft: 250,
-    legendRight: 10,
-    legendTop: 10,
-    compactLegend: false,
-  }
-}
-
-const ORDER_REVIEW_COMPACT_LEGEND_LABELS = Object.freeze({
-  关联信号: '信号',
-  订单成交: '成交',
-  策略应有量: '应有',
-  实际成交量: '实成',
-  连续持仓: '持仓',
-})
-
-export const ORDER_REVIEW_LEGEND_NAMES = Object.freeze([
-  '关联信号',
-  '订单成交',
-  '策略应有量',
-  '实际成交量',
-  '连续持仓',
-])
-
-export function buildOrderReviewLegendSelectionState(previousSelected = null) {
-  if (!previousSelected || typeof previousSelected !== 'object') {
-    return Object.fromEntries(ORDER_REVIEW_LEGEND_NAMES.map((name) => [name, true]))
-  }
-
-  return Object.fromEntries(
-    ORDER_REVIEW_LEGEND_NAMES.map((name) => [
-      name,
-      Object.prototype.hasOwnProperty.call(previousSelected, name)
-        ? !!previousSelected[name]
-        : true,
-    ])
-  )
 }
 
 export function buildKlineSlimChartOption({
@@ -1969,32 +1745,23 @@ export function buildKlineSlimChartOption({
   }
 
   const visiblePeriodsText = scene.periodScenes.map((item) => item.period).join(' / ')
-  const orderReviewVisible = Boolean(scene.orderReviewTrackVisible)
+  const orderReviewVisible = Boolean(scene.orderReviewChartTrackVisible)
   const clxSignalsVisible = Boolean(scene.clxSignalsVisible && scene.clxSignals?.hasData)
-  const reviewLayout = orderReviewVisible ? resolveOrderReviewTrackLayout(chart) : null
-  const compactOrderReviewLegend = Boolean(reviewLayout?.compactLegend)
-  const reviewXAxisIndexes = orderReviewVisible ? [0, 1, 2] : [0]
   const legendNames = orderReviewVisible
-    ? ORDER_REVIEW_LEGEND_NAMES.concat(scene.legendNames)
+    ? [ORDER_REVIEW_CHART_LEGEND_NAME].concat(scene.legendNames)
     : scene.legendNames
-  const primaryGrid = {
-    left: reviewLayout?.gridLeft ?? '4%',
-    right: reviewLayout?.gridRight ?? '4%',
-    top: reviewLayout?.primaryTop ?? 64,
-    bottom: reviewLayout?.primaryBottom ?? 64,
-  }
   const primaryXAxis = {
     type: 'value',
     min: scene.mainWindow.startTs,
     max: scene.mainWindow.endTs,
     minInterval: 1,
     axisLabel: {
-      show: !orderReviewVisible,
+      show: true,
       color: '#9ca3af',
       formatter: (value) => scene.tradingAxis?.formatLabel?.(value) || ''
     },
     axisTick: {
-      show: !orderReviewVisible,
+      show: true,
     },
     axisLine: {
       lineStyle: {
@@ -2017,56 +1784,12 @@ export function buildKlineSlimChartOption({
       }
     }
   }
-  const reviewXAxis = [1, 2].map((index) => ({
-    type: 'value',
-    gridIndex: index,
-    min: scene.mainWindow.startTs,
-    max: scene.mainWindow.endTs,
-    minInterval: 1,
-    axisLabel: {
-      show: index === 2,
-      color: '#9ca3af',
-      formatter: (value) => scene.tradingAxis?.formatLabel?.(value) || ''
-    },
-    axisTick: {
-      show: index === 2,
-    },
-    axisLine: {
-      lineStyle: {
-        color: '#4b5563'
-      }
-    }
-  }))
-  const reviewYAxis = [
-    {
-      type: 'value',
-      gridIndex: 1,
-      name: '订单量',
-      minInterval: 1,
-      axisLabel: { color: '#9ca3af' },
-      nameTextStyle: { color: '#9ca3af' },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.07)' } },
-      axisLine: { lineStyle: { color: '#4b5563' } },
-    },
-    {
-      type: 'value',
-      gridIndex: 2,
-      name: '持仓',
-      minInterval: 1,
-      axisLabel: { color: '#9ca3af' },
-      nameTextStyle: { color: '#9ca3af' },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.07)' } },
-      axisLine: { lineStyle: { color: '#4b5563' } },
-    },
-  ]
   return {
     backgroundColor: echartsConfig.bgColor,
     animation: false,
     title: {
       text: `${scene.symbol || ''} ${scene.name || ''}`.trim(),
-      subtext: compactOrderReviewLegend
-        ? ''
-        : `${scene.currentPeriod} 主图 / ${visiblePeriodsText || scene.currentPeriod}`,
+      subtext: `${scene.currentPeriod} 主图 / ${visiblePeriodsText || scene.currentPeriod}`,
       left: 12,
       top: 8,
       textStyle: {
@@ -2081,21 +1804,11 @@ export function buildKlineSlimChartOption({
     },
     legend: {
       type: 'scroll',
-      top: orderReviewVisible ? reviewLayout.legendTop : 10,
-      left: orderReviewVisible ? reviewLayout.legendLeft : undefined,
-      right: orderReviewVisible ? reviewLayout.legendRight : 10,
+      top: 10,
+      right: 10,
       textStyle: {
         color: '#d1d5db',
-        ...(compactOrderReviewLegend ? { fontSize: 10 } : {}),
       },
-      ...(compactOrderReviewLegend
-        ? {
-            itemWidth: 9,
-            itemHeight: 8,
-            itemGap: 4,
-            formatter: (name) => ORDER_REVIEW_COMPACT_LEGEND_LABELS[name] || name,
-          }
-        : {}),
       selected: scene.legendSelected,
       data: legendNames
     },
@@ -2104,44 +1817,15 @@ export function buildKlineSlimChartOption({
       trigger: 'item',
       triggerOn: orderReviewVisible || clxSignalsVisible ? 'mousemove|click' : 'none',
     },
-    axisPointer: orderReviewVisible
-      ? { link: [{ xAxisIndex: reviewXAxisIndexes }] }
-      : undefined,
-    grid: orderReviewVisible
-      ? [
-          primaryGrid,
-          {
-            left: reviewLayout.gridLeft,
-            right: reviewLayout.gridRight,
-            height: reviewLayout.quantityHeight,
-            bottom: reviewLayout.quantityBottom,
-          },
-          {
-            left: reviewLayout.gridLeft,
-            right: reviewLayout.gridRight,
-            height: reviewLayout.positionHeight,
-            bottom: reviewLayout.positionBottom,
-          },
-        ]
-      : primaryGrid,
-    xAxis: orderReviewVisible
-      ? [
-          { ...primaryXAxis, gridIndex: 0 },
-          ...reviewXAxis,
-        ]
-      : primaryXAxis,
-    yAxis: orderReviewVisible
-      ? [
-          { ...primaryYAxis, gridIndex: 0 },
-          ...reviewYAxis,
-        ]
-      : primaryYAxis,
+    grid: { left: '4%', right: '4%', top: 64, bottom: 64 },
+    xAxis: primaryXAxis,
+    yAxis: primaryYAxis,
     dataZoom: [
       {
         id: 'kline-slim-inside-zoom',
         type: 'inside',
-        xAxisIndex: reviewXAxisIndexes,
-        filterMode: orderReviewVisible ? 'none' : 'filter',
+        xAxisIndex: 0,
+        filterMode: 'none',
         start: viewport?.xRange?.start,
         end: viewport?.xRange?.end,
         throttle: 0,
@@ -2153,13 +1837,13 @@ export function buildKlineSlimChartOption({
       {
         id: 'kline-slim-slider-zoom',
         type: 'slider',
-        xAxisIndex: reviewXAxisIndexes,
-        filterMode: orderReviewVisible ? 'none' : 'filter',
+        xAxisIndex: 0,
+        filterMode: 'none',
         start: viewport?.xRange?.start,
         end: viewport?.xRange?.end,
         throttle: 0,
-        bottom: orderReviewVisible ? reviewLayout.sliderBottom : 20,
-        height: orderReviewVisible ? reviewLayout.sliderHeight : undefined,
+        bottom: 20,
+        height: undefined,
         borderColor: 'rgba(255,255,255,0.12)',
         fillerColor: 'rgba(96,165,250,0.18)',
         handleStyle: {

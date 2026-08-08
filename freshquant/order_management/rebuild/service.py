@@ -244,6 +244,9 @@ class OrderLedgerV2RebuildService:
 
         entry_documents: list[dict] = []
         slice_documents: list[dict] = []
+        order_request_documents: list[dict] = []
+        order_documents: list[dict] = []
+        broker_order_documents: list[dict] = []
         entries_by_symbol: dict[str, list[dict]] = {}
         slices_by_symbol: dict[str, list[dict]] = {}
         invariant_checks: list[dict] = []
@@ -279,6 +282,13 @@ class OrderLedgerV2RebuildService:
             )
             entry_documents.append(entry)
             slice_documents.extend(slices)
+            rebuilt_order = _build_rebuilt_open_order_pair(
+                entry=entry,
+                rebuild_ts=rebuild_ts,
+            )
+            order_request_documents.append(rebuilt_order["order_request"])
+            order_documents.append(rebuilt_order["order"])
+            broker_order_documents.append(rebuilt_order["broker_order"])
             entries_by_symbol.setdefault(symbol, []).append(entry)
             slices_by_symbol.setdefault(symbol, []).extend(slices)
 
@@ -317,10 +327,13 @@ class OrderLedgerV2RebuildService:
             "auto_open_entries": 0,
             "auto_close_allocations": 0,
             "ingest_rejections": 0,
-            "broker_order_documents": [],
+            "rebuilt_open_order_requests": len(order_request_documents),
+            "broker_order_documents": broker_order_documents,
             "execution_fill_documents": [],
             "position_entry_documents": entry_documents,
             "entry_slice_documents": slice_documents,
+            "order_request_documents": order_request_documents,
+            "order_documents": order_documents,
             "exit_allocation_documents": [],
             "reconciliation_gap_documents": [],
             "reconciliation_resolution_documents": [],
@@ -1137,6 +1150,116 @@ def _build_flatten_position_entry(
 def _flatten_beijing_date_time_from_epoch(timestamp):
     dt = datetime.fromtimestamp(int(timestamp), tz=_BEIJING_TIMEZONE)
     return int(dt.strftime("%Y%m%d")), dt.strftime("%H:%M:%S")
+
+
+def _build_rebuilt_open_order_pair(*, entry, rebuild_ts):
+    """Build the reconstructed buy request + order for one flatten entry.
+
+    账本重建（cost-price flatten）只产生持仓 entry，不产生订单，导致复盘里
+    “有持仓却没有对应买入订单”。这里按持仓快照对账：为每个 flatten entry
+    生成一条显式标记的重建买入请求与订单（source=order_ledger_rebuild，
+    rebuilt_open=true）。它们是账本内部的对账记录，不是伪造的券商委托：
+    broker_order_id 保持 None，data_quality=reconstructed，不参与 PASS/FAIL
+    策略复盘（无 strategy_context → NOT_APPLICABLE）。
+    """
+
+    symbol = str(entry.get("symbol") or entry.get("stock_code") or "").strip()
+    entry_id = str(entry.get("entry_id") or "").strip()
+    request_id = f"req_rebuilt_{entry_id}"
+    internal_order_id = f"ord_rebuilt_{entry_id}"
+    price = float(entry.get("entry_price") or entry.get("buy_price_real") or 0.0)
+    quantity = int(
+        entry.get("original_quantity") or entry.get("remaining_quantity") or 0
+    )
+    date_value, time_value = _flatten_beijing_date_time_from_epoch(rebuild_ts)
+    submitted_at = datetime.fromtimestamp(
+        int(rebuild_ts),
+        tz=_BEIJING_TIMEZONE,
+    ).isoformat()
+    order_request = {
+        "request_id": request_id,
+        "action": "buy",
+        "side": "buy",
+        "symbol": symbol,
+        "stock_code": symbol,
+        "price": price,
+        "quantity": quantity,
+        "status": "FILLED",
+        "state": "FILLED",
+        "source": "order_ledger_rebuild",
+        "rebuild_source": POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE,
+        "rebuilt_open": True,
+        "data_quality": "reconstructed",
+        "entry_id": entry_id,
+        "account_id": entry.get("account_id"),
+        "created_at": submitted_at,
+        "submitted_at": submitted_at,
+        "date": date_value,
+        "time": time_value,
+        "trade_time": int(rebuild_ts),
+    }
+    order = {
+        "internal_order_id": internal_order_id,
+        "request_id": request_id,
+        "broker_order_id": None,
+        "symbol": symbol,
+        "stock_code": symbol,
+        "side": "buy",
+        "state": "FILLED",
+        "status": "FILLED",
+        "price": price,
+        "quantity": quantity,
+        "filled_quantity": quantity,
+        "source": "order_ledger_rebuild",
+        "rebuild_source": POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE,
+        "rebuilt_open": True,
+        "data_quality": "reconstructed",
+        "entry_id": entry_id,
+        "account_id": entry.get("account_id"),
+        "submitted_at": submitted_at,
+        "date": date_value,
+        "time": time_value,
+        "trade_time": int(rebuild_ts),
+    }
+    broker_order = {
+        "broker_order_key": f"rebuilt:{entry_id}",
+        "internal_order_id": internal_order_id,
+        "request_id": request_id,
+        "broker_order_id": None,
+        "account_type": None,
+        "trace_id": None,
+        "intent_id": None,
+        "symbol": symbol,
+        "stock_code": symbol,
+        "side": "buy",
+        "state": "FILLED",
+        "status": "FILLED",
+        "source_type": "order_ledger_rebuild",
+        "source": "order_ledger_rebuild",
+        "rebuild_source": POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE,
+        "rebuilt_open": True,
+        "data_quality": "reconstructed",
+        "submitted_at": submitted_at,
+        "updated_at": submitted_at,
+        "requested_quantity": quantity,
+        "filled_quantity": quantity,
+        "avg_filled_price": price,
+        "fill_count": 0,
+        "first_fill_time": int(rebuild_ts),
+        "last_fill_time": int(rebuild_ts),
+        "price": price,
+        "quantity": quantity,
+        "entry_id": entry_id,
+        "account_id": entry.get("account_id"),
+        "date": date_value,
+        "time": time_value,
+        "trade_time": int(rebuild_ts),
+    }
+    return {
+        "order_request": order_request,
+        "order": order,
+        "broker_order": broker_order,
+    }
 
 
 def _assert_flatten_symbol_invariants(

@@ -7,6 +7,7 @@ import global from './global'
 import { queryClient } from './lib/queryClient.mjs'
 import './style/workbench-tokens.css'
 import './style/workbench-density.css'
+import './style/position-review-tooltip.css'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { VueQueryPlugin } from '@tanstack/vue-query'
 

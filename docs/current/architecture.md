@@ -127,7 +127,12 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 
 ### 当前持仓复盘链
 
-`current xt_trades / OM ledger + om_execution_history_archive / position_review_evidence_archive -> position-review read model -> /api/position-review/* -> PositionReview / KlineSlim`
+`current xt_trades / OM ledger（含 flatten 重建订单）-> position-review read model -> /api/position-review/* -> PositionReview / KlineSlim`
+
+持仓复盘读模型只读取当前库（`freshquant.xt_trades` 与 `freshquant_order_management` 的
+`om_order_requests / om_orders / om_execution_fills / om_trade_facts / om_position_entries /
+om_entry_slices / om_exit_allocations`）；`om_execution_history_archive` 与
+`position_review_evidence_archive` 仅作为重建前的历史留存写入侧，复盘不再读取归档。
 
 ## 当前订单账本边界
 
@@ -221,7 +226,12 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
   - 正式导航、人工操作和 Web 健康检查都以 `/daily-screening?tab=clx` 为准
 - `PositionReview`
   - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
-  - 与 `KlineSlim` 共享订单级时间线投影：信号、订单聚合成交、数量对比和连续持仓使用同一口径
+  - 页面拆为“组合总览 / 标的复盘”两个一级视图，路由 query `view=symbol` 可深链标的复盘
+  - 标的复盘是三栏视口布局：左历史标的目录 / 中 K 线主图 + 折叠账本 / 右固定订单证据面板；100% 缩放下全部组件同一屏可操作，各栏内部滚动
+  - 标的复盘使用单一 K 线主图：颜色表达买卖方向（买红/卖绿 + B/S 文字）、形状表达信号类型（服务端 `signal_type_registry`）、边框/透明度/`!` 表达四态 verdict
+  - 主图 marker 锚定首次成交 bar 与订单加权成交均价；跨 bar fill 用同色细区间线；逐笔 fill 只保留在 canonical 成交账本与订单详情
+  - 悬浮框一次性展示全部信息（订单摘要、信号完整详情、全部条件阈值、成交、持仓影响、数据质量），conditions 按 `event_id` 缓存并懒加载，Hover 无需点击链接；点击 marker 固定订单并在右侧证据面板展示完整证据
+  - 组合总览聚焦持仓市值、剩余成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N；权益曲线名称跟随证据等级，缺失区间不插值
   - ClickHouse Trace 只作为可选判定上下文和运行观测跳转证据
 
 ## 当前持仓复盘口径
@@ -240,6 +250,19 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 - positions-only initialize 和 destructive order-ledger rebuild 在删除易失集合前先写两个历史档案；归档失败时清理中止。
 - API 只返回不可逆账户分区，不返回原始券商账户号；无账户证据仅在唯一分区可确认时归并，多分区候选保持歧义而不伪造额外成交。
 - 持仓复盘 API 不写入订单、持仓、策略配置或运行观测数据。
+- K 线主图（含订单 marker）是 `/kline-slim` 行情图的唯一交易标识承载；`/position-review`
+  标的复盘不再展示 K 线，改为持仓成本价曲线（Y 轴 = 成本价，X 轴从首个持仓/订单点开始），
+  也不在 K 线下方绘制策略应有量/实际成交量/连续持仓三轨附图。
+- 订单 marker 唯一口径：X=首次成交时间所在 K 线 bar，Y=订单全部 canonical fill 的加权成交均价；跨 bar 成交从首次成交 bar 到末次成交 bar 绘制同方向颜色细区间线。
+- 颜色只表达订单方向；形状只表达标准化 `signal_type`；verdict 只以边框/虚线/透明度轻量编码。`evidence_confidence` 与 `association_quality` 只进入 Hover、徽标与详情，不增加图形编码。
+- 持仓均价严格优先使用 `om_position_entries / om_entry_slices / om_exit_allocations` 剩余成本重建：
+  `remaining_cost = Σ(剩余 slice 数量 × entry 单位成本)`；成本证据不足时回退成交移动加权估算并全链路标记
+  `cost_basis_source=estimated_moving_average`、`data_quality.cost_basis=degraded`。
+- MVP 费用口径固定为 `fees_included=false`；在费用证据完整归档前，不把估算费用混入正式成本。
+- 卖出按请求 source plan（`guardian_sell_sources.entries`）优先消费对应 entry 份额，再按成本升序消费；卖出低成本份额后剩余均价可上升。
+- 清仓后当前均价线结束并关闭 holding cycle；再次买入创建新 cycle。
+- 组合 KPI 的 `market_value` 覆盖全部持仓快照（券商真值）；`remaining_cost / floating_pnl` 按标的账本成本汇总，证据不足标的回退券商均价并在 `data_quality` 明示估算标数。
+- 组合权益曲线名称与证据等级一致：`broker_total_asset`（券商历史快照）→ `credit_snapshot_reconstructed`（信用资产快照重建，估算）→ `estimated`（证据不足）；缺失区间不插值，不计算伪精确最大回撤。
 
 ## 当前规则
 

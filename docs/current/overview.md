@@ -14,6 +14,7 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 - `/daily-screening?tab=clx` 是 CLX 18 模型正式工作区：在每日选股页内提供批次状态、完整筛选条件、cursor 结果列表、统计、详情、看图跳转和导入通达信；`看图` 进入 `/kline-slim` 并以所选 scope 交易日同步 K 线 `endDate`
 - `/clx-daily-screening` 只保留兼容深链并重定向到 `/daily-screening?tab=clx`，不再挂载第二套筛选页面
 - `PositionReview` 已通过顶部“持仓复盘”导航和独立 `/position-review` 路由提供只读历史交易复盘；当前持仓与已清仓标的使用同一套全量成交、策略判定和图表口径
+- `PositionReview` 采用单页左右栏结构（不再用标签切换）：左栏为组合总览与标的复盘共用的持仓列表，右栏纵向联动“组合总览”与“标的复盘”；组合总览提供持仓市值、成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N，并按 QMT 口径（净资产 = 总资产 − 总负债）展示账户净资产曲线（日/周/月可切换、交易发生的周期标注交易点）；标的复盘以持仓成本价曲线（Y 轴 = 成本价，X 轴从首个持仓/订单点开始）为主，点击 marker 固定订单并查看完整条件阈值证据
 - `SubjectManagement` 独立路由已移除，相关读模型与行内编辑能力已并入 `PositionManagement` 中栏“标的总览”
 - 订单账本已经切到 `broker order / execution fill / position entry / reconciliation` 主语义
 - XT 自动还款已经独立为宿主机 `xt_auto_repay.worker`，只处理普通融资负债，并通过 `/system-settings -> XTQuant` 暴露开关与留底现金
@@ -55,10 +56,10 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
   - `xt_positions`
 - 券商成交与持仓复盘历史真值
   - 当前快照：`xt_trades`
-  - 持久历史：`om_execution_history_archive`
+  - 持久历史（仅写入侧留存，复盘读模型不读取）：`om_execution_history_archive`
 - 内部执行交叉核对真值
   - 当前 `om_execution_fills / om_trade_facts`
-  - 持久策略与持仓证据：`position_review_evidence_archive`
+  - 持久策略与持仓证据（仅写入侧留存，复盘读模型不读取）：`position_review_evidence_archive`
 - 内部持仓解释真值
   - `om_position_entries`
 

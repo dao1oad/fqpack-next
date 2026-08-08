@@ -23,6 +23,9 @@ _REBUILD_RESULT_COLLECTIONS = (
     ("om_reconciliation_gaps", "reconciliation_gap_documents"),
     ("om_reconciliation_resolutions", "reconciliation_resolution_documents"),
     ("om_ingest_rejections", "ingest_rejection_documents"),
+    # flatten-cost-price 模式对账补单：为每个持仓生成重建买入请求与订单。
+    ("om_order_requests", "order_request_documents"),
+    ("om_orders", "order_documents"),
 )
 _SUMMARY_COUNT_KEYS = (
     "broker_orders",
@@ -38,6 +41,7 @@ _SUMMARY_COUNT_KEYS = (
     "auto_open_entries",
     "auto_close_allocations",
     "ingest_rejections",
+    "rebuilt_open_order_requests",
 )
 
 # flatten-cost-price 模式额外清理的集合（随账本重建 purge）。
