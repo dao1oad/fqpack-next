@@ -211,6 +211,19 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 
 一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。
 
+## 持仓复盘（position-review）
+
+`/position-review` 的 summary / symbols / detail 与三个组合接口
+（`/api/position-review/portfolio/{summary,series,contributions}`）共享同一份
+30s TTL 的统一目录快照（`PositionReviewService._ensure_catalog_snapshot`）：
+
+- 快照一次重建承载 rows / detail / cost_by_symbol / positions / holding-only 行 /
+  xt_assets / credit_snapshots，组合接口不再各自全量重建；
+- 并发组合请求单飞（`_catalog_lock` + generation），热路径毫秒级；
+- `refresh=1` 触发重建并连同 `xt_assets` / `credit_snapshots` 一并重读；
+- credit 快照（生产可达 52 万条）按引用只读复用，命中路径不做 deepcopy；
+- 116 部署验收：冷缓存首开全部 6 请求 <15s、组合 tab ≤2s、热路径 P95 不回升。
+
 ### 内部一致性（allocation_integrity）
 
 `GET /api/position-management/reconciliation` 顶层新增 `internal_integrity` 字段
