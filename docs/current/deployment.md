@@ -40,6 +40,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
   在三机矩阵上执行正式部署，并在部署后由 workflow 内 verify 阶段完成运行面健康检查。
 - `deploy-production.yml` 的 deploy job 使用 `[self-hosted, windows, prod-101/prod-100/prod-116]` 三机矩阵，一次 `push main` 在三台正式机器（101 本机 / 100 / 116）上分别执行正式部署；各机 runner 以唯一 label `prod-101` / `prod-100` / `prod-116` 注册，并共用 `self-hosted,windows,production`。
 - `run_formal_deploy.py` 的宿主机运行面 reconcile 与 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 均带有限重试与 settle 窗口：host restart 后若程序未达 RUNNING，会重新 start 后再 settle（默认 1 轮恢复）；Verify 默认最多 3 次快照检查、间隔 10 秒（可用 `-VerifyMaxAttempts` / `-VerifySettleSeconds` 覆盖），吸收运行面重启过渡期与 supervisor RPC 瞬时失败，避免过渡态误判部署失败。
+- `script/fqnext_host_runtime.py` 的 `restart_programs` 在 stopProcess 后按 supervisor program 的命令行特征枚举并 `taskkill /F` 清理所有存活 python 进程（venv shim + 真实解释器子进程），轮询等待全部退出后再 startProcess：消除孤儿解释器残留占用 XTData/Redis/Mongo 资源导致的新进程启动即 Exited。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 canonical main sync、`uv sync` 和 `run_formal_deploy.py`。
 - `deploy-production.yml` 的 job env 显式设置 `FQPACK_TDX_SYNC_DIR=D:/new_tdx`，保证后续 Compose 插值把正式通达信目录挂载到 API 容器；仓库 Compose 默认值也已是 `D:/new_tdx`（可用 `FQPACK_TDX_SYNC_DIR` 覆盖），不再使用空的 `D:/tdx_biduan` 回退。
 - `deploy-production.yml` 当前只要求 canonical repo root 能 fetch 到最新 `origin/main`；它不再要求 canonical repo root 本身先 `pull --ff-only` 到远程 main。
