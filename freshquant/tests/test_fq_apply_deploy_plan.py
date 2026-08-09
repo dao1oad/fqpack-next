@@ -49,3 +49,36 @@ def test_apply_deploy_plan_resets_failed_phases_to_pending_on_resume() -> None:
 
     assert '$status -eq "failed"' in text
     assert '$phaseState.status = "pending"' in text
+
+
+def test_apply_deploy_plan_backfills_surfaces_from_plan_when_only_changed_paths_given() -> (
+    None
+):
+    text = (REPO_ROOT / "script" / "fq_apply_deploy_plan.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "$plan.deployment_surfaces" in text
+    assert "effectiveDeploymentSurface" in text
+    assert "EffectiveDeploymentSurface @($effectiveDeploymentSurface)" in text
+
+    backfill_index = text.index("effectiveDeploymentSurface")
+    surfaces_assignment = text[backfill_index:]
+    assert "$effectiveDeploymentSurface.Count -eq 0" in surfaces_assignment
+    assert "foreach ($surface in @($plan.deployment_surfaces))" in surfaces_assignment
+
+    # 显式传入 -DeploymentSurface 时不应被 plan 回填覆盖。
+    explicit_loop = text[text.index("foreach ($surface in $DeploymentSurface)") :]
+    assert "$effectiveDeploymentSurface += $surface" in explicit_loop
+
+
+def test_apply_deploy_plan_backfills_surfaces_on_resume_state() -> None:
+    text = (REPO_ROOT / "script" / "fq_apply_deploy_plan.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "$state.inputs.deployment_surfaces" in text
+    resume_index = text.index("resuming deploy state")
+    resume_block = text[resume_index:]
+    assert "$plan.deployment_surfaces" in resume_block
+    assert "$state.inputs.deployment_surfaces = @($resumeSurfaces)" in resume_block
