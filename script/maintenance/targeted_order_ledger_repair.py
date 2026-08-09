@@ -107,6 +107,16 @@ def run_verify(*, manifest_path, databases=None):
     result["allocation_integrity"] = _run_allocation_integrity_verify(
         databases=databases if databases is not None else _get_databases()
     )
+    if not (result["allocation_integrity"] or {}).get("ok"):
+        raise click.ClickException(
+            "allocation integrity verify failed: "
+            + json_util.dumps(
+                result["allocation_integrity"],
+                json_options=json_util.RELAXED_JSON_OPTIONS,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
     return result
 
 
