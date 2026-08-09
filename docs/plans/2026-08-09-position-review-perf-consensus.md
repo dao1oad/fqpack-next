@@ -283,4 +283,3 @@ xt_reports.py ingest 成功
 - 冷缓存首开全部 6 请求 <15s，组合 tab 首屏 ≤2s 目标；
 - 热缓存毫秒级，热路径 P95 不因快照 deepcopy 回升；
 - `refresh=1` 语义可观测且单飞；组合接口不再超 15s timeout。
-
