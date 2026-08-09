@@ -9,7 +9,6 @@ const readSource = (relativePath) => (
 const dailySource = readSource('./DailyScreening.vue')
 const orderSource = readSource('./OrderManagement.vue')
 const positionSource = readSource('./PositionManagement.vue')
-const reconciliationSource = readSource('./ReconciliationWorkbench.vue')
 const positionSubjectOverviewSource = readSource('../components/position-management/PositionSubjectOverviewPanel.vue')
 const subjectSource = readSource('./SubjectManagement.vue')
 const runtimeSource = readSource('./RuntimeObservability.vue')
@@ -50,14 +49,12 @@ test('order, position, subject, reconciliation and runtime pages no longer use p
   assert.match(runtimeSource, /\.runtime-browse-layout \{[\s\S]*overflow:\s*hidden;/)
   assert.match(runtimeSource, /\.runtime-browser-panel--detail \{[\s\S]*overflow:\s*hidden;/)
 
-  assert.match(reconciliationSource, /\.reconciliation-body \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(reconciliationSource, /\.reconciliation-layout \{[\s\S]*grid-template-columns:\s*minmax\(360px,\s*0\.9fr\)\s+minmax\(0,\s*1\.35fr\);[\s\S]*overflow:\s*hidden;/)
-  assert.match(reconciliationSource, /\.reconciliation-ledger-panel,[\s\S]*\.reconciliation-detail-panel \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(reconciliationSource, /\.reconciliation-panel__filters \{[\s\S]*flex-wrap:\s*nowrap;/)
-  assert.match(reconciliationSource, /\.reconciliation-table-wrap \{[\s\S]*overflow-y:\s*auto;/)
-  assert.match(reconciliationSource, /\.reconciliation-tabs :deep\(\.el-tabs__content\) \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(reconciliationSource, /\.reconciliation-ledger-workspace \{[\s\S]*grid-template-columns:\s*minmax\(280px,\s*0\.95fr\)\s+minmax\(0,\s*1\.05fr\);/)
-  assert.match(reconciliationSource, /\.reconciliation-ledger-side \{[\s\S]*grid-template-rows:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/)
+  assert.match(positionSource, /\.position-workbench-grid \{[\s\S]*grid-template-columns:\s*minmax\(0,[\s\S]*overflow:\s*hidden;/)
+  assert.match(positionSource, /\.position-selection-tabs :deep\(\.el-tabs__content\) \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(positionSource, /\.position-selection-panel__body \{[\s\S]*grid-template-rows:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*min-height:\s*0;/)
+  assert.match(positionSource, /\.position-troubleshoot-tab-stack \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(positionSource, /\.position-troubleshoot-scroll \{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
+  assert.match(positionSource, /\.position-selection-table-wrap--dense \{[\s\S]*overflow-y:\s*auto;[\s\S]*overflow-x:\s*hidden;/)
 })
 
 test('system settings keeps the hero visible and scrolls inside editor and side panes', () => {
