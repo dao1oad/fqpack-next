@@ -10,6 +10,14 @@ def _build_service(**kwargs):
         PositionReconciliationReadService,
     )
 
+    kwargs.setdefault(
+        "allocation_integrity_loader",
+        lambda: {
+            "position_entries": [],
+            "entry_slices": [],
+            "exit_allocations": [],
+        },
+    )
     return PositionReconciliationReadService(**kwargs)
 
 
