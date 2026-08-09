@@ -69,6 +69,11 @@ def monitor_stock_zh_a_min_event_driven() -> None:
             screening_mode=screening_mode,
         )
     )
+    _emit_guardian_bootstrap_event(
+        trading_mode=trading_mode,
+        screening_mode=screening_mode,
+        enabled_lines=sorted(enabled_lines),
+    )
     if LINE_1M_T not in enabled_lines and LINE_5M_NEW_OPEN not in enabled_lines:
         logger.warning(
             f"[Event] monitor.xtdata trading_mode={trading_mode}; "
@@ -235,6 +240,34 @@ def monitor_stock_zh_a_min_event_driven() -> None:
 )
 def main(mode: str):
     monitor_stock_zh_a_min_event_driven()
+
+
+def _emit_guardian_bootstrap_event(
+    *,
+    trading_mode: bool,
+    screening_mode: bool,
+    enabled_lines: list[str],
+) -> bool:
+    """启动时记录非敏感有效配置（trading / screening / enabled lines）。"""
+
+    try:
+        from freshquant.runtime_observability.logger import RuntimeEventLogger
+
+        return bool(
+            RuntimeEventLogger("guardian_event").emit(
+                {
+                    "component": "guardian_event",
+                    "node": "bootstrap",
+                    "payload": {
+                        "trading_mode": bool(trading_mode),
+                        "screening_mode": bool(screening_mode),
+                        "enabled_lines": list(enabled_lines or []),
+                    },
+                }
+            )
+        )
+    except Exception:  # pragma: no cover - 观测路径失败不影响主链
+        return False
 
 
 if __name__ == "__main__":

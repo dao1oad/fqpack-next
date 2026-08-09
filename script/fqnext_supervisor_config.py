@@ -95,7 +95,7 @@ autorestart=true
 startsecs=5
 
 [program:fqnext_realtime_xtdata_consumer]
-command={python_executable} -m freshquant.market_data.xtdata.strategy_consumer --prewarm --max-bars 20000
+command={python_executable} -m freshquant.market_data.xtdata.strategy_consumer --prewarm
 directory={root}
 stdout_logfile=D:/fqdata/log/fqnext_realtime_xtdata_consumer.log
 stderr_logfile=D:/fqdata/log/fqnext_realtime_xtdata_consumer_err.log

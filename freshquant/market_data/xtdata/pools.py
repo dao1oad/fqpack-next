@@ -9,6 +9,7 @@ from loguru import logger
 
 from freshquant.db import DBfreshquant
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+from freshquant.system_settings_contract import DEFAULT_XTDATA_MAX_SYMBOLS
 
 # 三条正交监控线（按用途命名，替代旧 mode 字符串枚举）。
 LINE_1M_T = "line_1m_t"
@@ -166,11 +167,11 @@ def load_clx_monitor_codes(*, max_symbols: int) -> list[str]:
 
 def _normalize_symbol_limit(max_symbols: int) -> int:
     try:
-        limit = int(max_symbols or 60)
+        limit = int(max_symbols or DEFAULT_XTDATA_MAX_SYMBOLS)
     except Exception:
-        limit = 60
+        limit = DEFAULT_XTDATA_MAX_SYMBOLS
     if limit <= 0:
-        limit = 60
+        limit = DEFAULT_XTDATA_MAX_SYMBOLS
     return limit
 
 

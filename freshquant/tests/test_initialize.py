@@ -237,6 +237,28 @@ def test_main_skip_runtime_bootstrap_does_not_execute_runtime_sync():
     assert any("运行态 bootstrap 已跳过" in line for line in lines)
 
 
+def test_settings_prompts_use_dual_booleans_instead_of_legacy_mode():
+    from freshquant.initialize import SETTINGS_PROMPTS
+
+    prompt_keys = {field_key for field_key, _label, _kind in SETTINGS_PROMPTS}
+
+    assert "monitor.xtdata.mode" not in prompt_keys
+    assert "monitor.xtdata.trading_mode" in prompt_keys
+    assert "monitor.xtdata.screening_mode" in prompt_keys
+    trading_kind = next(
+        kind
+        for field_key, _label, kind in SETTINGS_PROMPTS
+        if field_key == "monitor.xtdata.trading_mode"
+    )
+    screening_kind = next(
+        kind
+        for field_key, _label, kind in SETTINGS_PROMPTS
+        if field_key == "monitor.xtdata.screening_mode"
+    )
+    assert trading_kind == "bool"
+    assert screening_kind == "bool"
+
+
 def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_defaults():
     from freshquant.initialize import run_runtime_bootstrap
 

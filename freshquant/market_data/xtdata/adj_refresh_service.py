@@ -12,6 +12,11 @@ from freshquant.market_data.xtdata.pools import (
     load_monitor_codes,
 )
 from freshquant.system_settings import system_settings
+from freshquant.system_settings_contract import (
+    DEFAULT_XTDATA_MAX_SYMBOLS,
+    DEFAULT_XTDATA_SCREENING_MODE,
+    DEFAULT_XTDATA_TRADING_MODE,
+)
 from freshquant.trading.dt import query_current_trade_date, query_prev_trade_date
 from freshquant.util.code import normalize_to_base_code
 
@@ -42,11 +47,28 @@ def _is_index_like_code(code_prefixed: str) -> bool:
 
 
 def _default_code_loader() -> list[str]:
-    trading_mode = bool(getattr(system_settings.monitor, "xtdata_trading_mode", True))
-    screening_mode = bool(
-        getattr(system_settings.monitor, "xtdata_screening_mode", False)
+    trading_mode = bool(
+        getattr(
+            system_settings.monitor,
+            "xtdata_trading_mode",
+            DEFAULT_XTDATA_TRADING_MODE,
+        )
     )
-    max_symbols = int(system_settings.monitor.xtdata_max_symbols or 60)
+    screening_mode = bool(
+        getattr(
+            system_settings.monitor,
+            "xtdata_screening_mode",
+            DEFAULT_XTDATA_SCREENING_MODE,
+        )
+    )
+    max_symbols = int(
+        getattr(
+            system_settings.monitor,
+            "xtdata_max_symbols",
+            DEFAULT_XTDATA_MAX_SYMBOLS,
+        )
+        or DEFAULT_XTDATA_MAX_SYMBOLS
+    )
     return list(
         load_monitor_codes(
             trading_mode=trading_mode,

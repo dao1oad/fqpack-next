@@ -159,9 +159,30 @@ const createPayload = () => ({
         source: 'params.monitor',
         restart_required: false,
         items: [
-          { key: 'monitor.xtdata.trading_mode', label: '交易模式', value: true },
-          { key: 'monitor.xtdata.screening_mode', label: '选股模式', value: false },
-          { key: 'monitor.xtdata.max_symbols', label: '最大订阅数', value: 60 },
+          {
+            key: 'monitor.xtdata.trading_mode',
+            label: '交易模式',
+            value: true,
+            restart_required: true,
+            restart_surfaces: ['market_data', 'guardian'],
+            refresh_surfaces: ['api'],
+          },
+          {
+            key: 'monitor.xtdata.screening_mode',
+            label: '选股模式',
+            value: false,
+            restart_required: true,
+            restart_surfaces: ['market_data'],
+            refresh_surfaces: ['api'],
+          },
+          {
+            key: 'monitor.xtdata.max_symbols',
+            label: '最大订阅数',
+            value: 60,
+            restart_required: true,
+            restart_surfaces: ['market_data'],
+            refresh_surfaces: ['api'],
+          },
         ],
       },
       {
@@ -172,9 +193,30 @@ const createPayload = () => ({
         restart_required: false,
         items: [
           { key: 'xtquant.account_type', label: '账户类型', value: 'CREDIT' },
-          { key: 'xtquant.broker_submit_mode', label: 'Broker Submit Mode', value: 'observe_only' },
-          { key: 'xtquant.auto_repay.enabled', label: '自动还款', value: true },
-          { key: 'xtquant.auto_repay.reserve_cash', label: '留底现金', value: 5000 },
+          {
+            key: 'xtquant.broker_submit_mode',
+            label: 'Broker Submit Mode',
+            value: 'observe_only',
+            restart_required: true,
+            restart_surfaces: ['broker'],
+            refresh_surfaces: ['xt_auto_repay'],
+          },
+          {
+            key: 'xtquant.auto_repay.enabled',
+            label: '自动还款',
+            value: true,
+            restart_required: false,
+            restart_surfaces: [],
+            refresh_surfaces: ['xt_auto_repay'],
+          },
+          {
+            key: 'xtquant.auto_repay.reserve_cash',
+            label: '留底现金',
+            value: 5000,
+            restart_required: false,
+            restart_surfaces: [],
+            refresh_surfaces: ['xt_auto_repay'],
+          },
         ],
       },
       {
@@ -443,4 +485,53 @@ test('xtquant auto repay rows keep boolean and numeric editors with nested value
   assert.equal(autoRepayReserveCash.value, 5000)
   assert.equal(autoRepayReserveCash.value_label, '5,000')
   assert.equal(autoRepayReserveCash.editor.type, 'number')
+})
+
+test('settings rows expose item level restart and refresh surfaces', () => {
+  const payload = createPayload()
+  const sections = buildSettingsLedgerSections(payload, {
+    currentValues: payload.settings.values,
+    baselineValues: payload.settings.values,
+  })
+  const rows = flattenLedgerRows(sections)
+
+  const tradingMode = rows.find((row) => row.key === 'monitor.xtdata.trading_mode')
+  const submitMode = rows.find((row) => row.key === 'xtquant.broker_submit_mode')
+  const autoRepayEnabled = rows.find((row) => row.key === 'xtquant.auto_repay.enabled')
+
+  assert.equal(tradingMode.restart_required, true)
+  assert.deepEqual(tradingMode.restart_surfaces, ['market_data', 'guardian'])
+  assert.deepEqual(tradingMode.refresh_surfaces, ['api'])
+
+  assert.equal(submitMode.restart_required, true)
+  assert.deepEqual(submitMode.restart_surfaces, ['broker'])
+  assert.deepEqual(submitMode.refresh_surfaces, ['xt_auto_repay'])
+
+  assert.equal(autoRepayEnabled.restart_required, false)
+  assert.deepEqual(autoRepayEnabled.restart_surfaces, [])
+  assert.deepEqual(autoRepayEnabled.refresh_surfaces, ['xt_auto_repay'])
+})
+
+test('SystemSettings.vue no longer keeps third-party business default values', () => {
+  const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
+  const settingsFormBlock = content.slice(
+    content.indexOf('function defaultSettingsForm'),
+    content.indexOf('const cloneValue'),
+  )
+
+  assert.match(settingsFormBlock, /trading_mode: null/)
+  assert.match(settingsFormBlock, /max_symbols: null/)
+  assert.match(settingsFormBlock, /prewarm: \{ max_bars: null \}/)
+  assert.match(settingsFormBlock, /broker_submit_mode: null/)
+  assert.doesNotMatch(settingsFormBlock, /max_symbols: 60/)
+  assert.doesNotMatch(settingsFormBlock, /max_bars: 240/)
+  assert.doesNotMatch(settingsFormBlock, /queue_backlog_threshold: 500/)
+})
+
+test('SystemSettings.vue gates saving until dashboard is ready', () => {
+  const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
+
+  assert.match(content, /dashboardReady/)
+  assert.match(content, /:disabled="!dashboardReady \|\| bootstrapDirtyCount === 0"/)
+  assert.match(content, /:disabled="!dashboardReady \|\| settingsDirtyCount === 0"/)
 })

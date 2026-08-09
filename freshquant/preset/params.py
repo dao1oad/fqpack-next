@@ -2,6 +2,12 @@
 
 from freshquant.database.mongodb import DBfreshquant
 from freshquant.market_data.xtdata.pools import migrate_xtdata_mode
+from freshquant.system_settings_contract import (
+    DEFAULT_XTDATA_MAX_SYMBOLS,
+    DEFAULT_XTDATA_PREWARM_MAX_BARS,
+    DEFAULT_XTDATA_SCREENING_MODE,
+    DEFAULT_XTDATA_TRADING_MODE,
+)
 from freshquant.util.mask_helper import mask
 
 
@@ -61,11 +67,19 @@ def init_param_dict(quiet=False):
     if xtdata_cfg.get("mode") is not None:
         trading_mode, screening_mode = migrate_xtdata_mode(xtdata_cfg.get("mode"))
     else:
-        trading_mode = bool(xtdata_cfg.get("trading_mode", True))
-        screening_mode = bool(xtdata_cfg.get("screening_mode", False))
-    xtdata_max_symbols = int(xtdata_cfg.get("max_symbols", 60) or 60)
+        trading_mode = bool(xtdata_cfg.get("trading_mode", DEFAULT_XTDATA_TRADING_MODE))
+        screening_mode = bool(
+            xtdata_cfg.get("screening_mode", DEFAULT_XTDATA_SCREENING_MODE)
+        )
+    xtdata_max_symbols = int(
+        xtdata_cfg.get("max_symbols", DEFAULT_XTDATA_MAX_SYMBOLS)
+        or DEFAULT_XTDATA_MAX_SYMBOLS
+    )
     prewarm_cfg = xtdata_cfg.get("prewarm", {}) or {}
-    prewarm_max_bars = int(prewarm_cfg.get("max_bars", 20000) or 20000)
+    prewarm_max_bars = int(
+        prewarm_cfg.get("max_bars", DEFAULT_XTDATA_PREWARM_MAX_BARS)
+        or DEFAULT_XTDATA_PREWARM_MAX_BARS
+    )
 
     if quiet:
         print("\n当前XTData监控配置：")
@@ -82,7 +96,11 @@ def init_param_dict(quiet=False):
                 "value.xtdata.screening_mode": screening_mode,
                 "value.xtdata.max_symbols": xtdata_max_symbols,
                 "value.xtdata.prewarm.max_bars": prewarm_max_bars,
-            }
+            },
+            # 旧 mode 一次性迁移：写新删旧，避免旧字段继续覆盖双布尔。
+            "$unset": {
+                "value.xtdata.mode": "",
+            },
         },
         upsert=True,
     )

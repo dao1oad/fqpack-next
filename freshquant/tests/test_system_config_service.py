@@ -482,3 +482,107 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
     assert settings.xtquant.auto_repay_reserve_cash == 12000.0
     assert settings.position_management.holding_only_min_bail == 150000
     assert settings.position_management.single_symbol_position_limit == 780000
+
+
+def test_system_config_service_dashboard_exposes_item_level_activation_metadata(
+    tmp_path, monkeypatch
+):
+    bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
+    _write_bootstrap_file(bootstrap_file)
+    monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
+
+    from freshquant import bootstrap_config as bootstrap_module
+    from freshquant.system_config_service import SystemConfigService
+    from freshquant.system_settings import SystemSettings
+
+    bootstrap_module.reload_bootstrap_config()
+    database = _build_database()
+    service = SystemConfigService(
+        database=database,
+        bootstrap_loader=bootstrap_module.load_bootstrap_config,
+        bootstrap_reloader=bootstrap_module.reload_bootstrap_config,
+        settings=SystemSettings(database=database),
+    )
+
+    sections = service.get_settings_view()["sections"]
+    items_by_key = {
+        item["key"]: item for section in sections for item in section["items"]
+    }
+
+    trading_item = items_by_key["monitor.xtdata.trading_mode"]
+    assert trading_item["restart_required"] is True
+    assert trading_item["restart_surfaces"] == ["market_data", "guardian"]
+    assert trading_item["refresh_surfaces"] == ["api"]
+
+    submit_mode_item = items_by_key["xtquant.broker_submit_mode"]
+    assert submit_mode_item["restart_required"] is True
+    assert submit_mode_item["restart_surfaces"] == ["broker"]
+    assert submit_mode_item["refresh_surfaces"] == ["xt_auto_repay"]
+
+    auto_repay_item = items_by_key["xtquant.auto_repay.enabled"]
+    assert auto_repay_item["restart_required"] is False
+    assert auto_repay_item["restart_surfaces"] == []
+    assert auto_repay_item["refresh_surfaces"] == ["xt_auto_repay"]
+
+    monitor_section = next(
+        section for section in sections if section["key"] == "monitor"
+    )
+    xtquant_section = next(
+        section for section in sections if section["key"] == "xtquant"
+    )
+    assert monitor_section["restart_required"] is True
+    assert xtquant_section["restart_required"] is True
+
+    notification_section = next(
+        section for section in sections if section["key"] == "notification"
+    )
+    assert notification_section["restart_required"] is False
+
+
+def test_system_config_service_overall_save_removes_legacy_xtdata_mode(
+    tmp_path, monkeypatch
+):
+    bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
+    _write_bootstrap_file(bootstrap_file)
+    monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
+
+    from freshquant import bootstrap_config as bootstrap_module
+    from freshquant.system_config_service import SystemConfigService
+    from freshquant.system_settings import SystemSettings
+
+    bootstrap_module.reload_bootstrap_config()
+    database = _build_database()
+    database["params"].update_one(
+        {"code": "monitor"},
+        {
+            "$set": {
+                "value.xtdata.mode": "guardian_1m",
+            }
+        },
+    )
+    service = SystemConfigService(
+        database=database,
+        bootstrap_loader=bootstrap_module.load_bootstrap_config,
+        bootstrap_reloader=bootstrap_module.reload_bootstrap_config,
+        settings=SystemSettings(database=database),
+    )
+
+    service.update_settings(
+        {
+            "monitor": {
+                "xtdata": {
+                    "trading_mode": True,
+                    "screening_mode": False,
+                    "max_symbols": 88,
+                    "queue_backlog_threshold": 320,
+                    "prewarm": {"max_bars": 480},
+                }
+            }
+        }
+    )
+
+    monitor_value = database["params"].find_one({"code": "monitor"})["value"]
+    assert "mode" not in monitor_value["xtdata"]
+    assert monitor_value["xtdata"]["trading_mode"] is True
+    assert monitor_value["xtdata"]["screening_mode"] is False
+    assert monitor_value["xtdata"]["max_symbols"] == 88

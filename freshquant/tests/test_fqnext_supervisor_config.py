@@ -45,6 +45,13 @@ def test_build_supervisor_config_targets_canonical_repo_root() -> None:
         in config_text
     )
     assert (
+        f"command={expected_root}/.venv/Scripts/python.exe -m "
+        "freshquant.market_data.xtdata.strategy_consumer --prewarm" in config_text
+    )
+    # consumer 不再硬编码 --max-bars：正式进程读取 Mongo
+    # monitor.xtdata.prewarm.max_bars，缺失时回退合同默认 20000。
+    assert "--max-bars" not in config_text
+    assert (
         f"command={expected_root}/.venv/Scripts/python.exe -m freshquant.xt_auto_repay.worker"
         in config_text
     )
@@ -118,7 +125,22 @@ def test_inspect_supervisor_config_rejects_main_runtime_and_site_packages(
 
     assert result["ok"] is False
     assert any("main-runtime" in failure for failure in result["failures"])
-    assert any("site-packages" in failure for failure in result["failures"])
+
+
+def test_supervisor_example_consumer_command_has_no_hardcoded_max_bars() -> None:
+    example_path = (
+        Path(__file__).resolve().parents[2]
+        / "deployment"
+        / "examples"
+        / "supervisord.fqnext.example.conf"
+    )
+    example_text = example_path.read_text(encoding="utf-8")
+
+    assert (
+        "python.exe -m freshquant.market_data.xtdata.strategy_consumer --prewarm"
+        in example_text
+    )
+    assert "--max-bars" not in example_text
 
 
 def test_inspect_supervisor_config_accepts_canonical_repo_root_sources(

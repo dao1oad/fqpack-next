@@ -118,11 +118,41 @@ SETTINGS_SECTION_META = {
         "source": "params.monitor",
         "restart_required": False,
         "items": [
-            ("xtdata.trading_mode", "交易模式"),
-            ("xtdata.screening_mode", "选股模式"),
-            ("xtdata.max_symbols", "最大订阅数"),
-            ("xtdata.queue_backlog_threshold", "队列背压阈值"),
-            ("xtdata.prewarm.max_bars", "预热 bars"),
+            {
+                "field": "xtdata.trading_mode",
+                "label": "交易模式",
+                "restart_required": True,
+                "restart_surfaces": ["market_data", "guardian"],
+                "refresh_surfaces": ["api"],
+            },
+            {
+                "field": "xtdata.screening_mode",
+                "label": "选股模式",
+                "restart_required": True,
+                "restart_surfaces": ["market_data"],
+                "refresh_surfaces": ["api"],
+            },
+            {
+                "field": "xtdata.max_symbols",
+                "label": "最大订阅数",
+                "restart_required": True,
+                "restart_surfaces": ["market_data"],
+                "refresh_surfaces": ["api"],
+            },
+            {
+                "field": "xtdata.queue_backlog_threshold",
+                "label": "队列背压阈值",
+                "restart_required": True,
+                "restart_surfaces": ["xt_consumer"],
+                "refresh_surfaces": ["api"],
+            },
+            {
+                "field": "xtdata.prewarm.max_bars",
+                "label": "预热 bars",
+                "restart_required": True,
+                "restart_surfaces": ["xt_consumer"],
+                "refresh_surfaces": ["api"],
+            },
         ],
     },
     "xtquant": {
@@ -131,12 +161,48 @@ SETTINGS_SECTION_META = {
         "source": "params.xtquant",
         "restart_required": False,
         "items": [
-            ("path", "MiniQMT 路径"),
-            ("account", "账户"),
-            ("account_type", "账户类型"),
-            ("broker_submit_mode", "Broker Submit Mode"),
-            ("auto_repay.enabled", "自动还款"),
-            ("auto_repay.reserve_cash", "留底现金"),
+            {
+                "field": "path",
+                "label": "MiniQMT 路径",
+                "restart_required": True,
+                "restart_surfaces": ["broker", "xt_account_sync"],
+                "refresh_surfaces": ["api"],
+            },
+            {
+                "field": "account",
+                "label": "账户",
+                "restart_required": True,
+                "restart_surfaces": ["broker", "xt_account_sync"],
+                "refresh_surfaces": ["xt_auto_repay"],
+            },
+            {
+                "field": "account_type",
+                "label": "账户类型",
+                "restart_required": True,
+                "restart_surfaces": ["broker", "xt_account_sync"],
+                "refresh_surfaces": ["xt_auto_repay"],
+            },
+            {
+                "field": "broker_submit_mode",
+                "label": "Broker Submit Mode",
+                "restart_required": True,
+                "restart_surfaces": ["broker"],
+                "refresh_surfaces": ["xt_auto_repay"],
+            },
+            {
+                "field": "auto_repay.enabled",
+                "label": "自动还款",
+                "restart_required": False,
+                "restart_surfaces": [],
+                "refresh_surfaces": ["xt_auto_repay"],
+            },
+            {
+                "field": "auto_repay.reserve_cash",
+                "label": "留底现金",
+                "restart_required": False,
+                "restart_surfaces": [],
+                "refresh_surfaces": ["xt_auto_repay"],
+            },
         ],
     },
     "guardian": {
@@ -398,10 +464,27 @@ class SystemConfigService:
                     label = str(item_meta.get("label") or field_key).strip()
                     editable = item_meta.get("editable", True)
                     item_source = str(item_meta.get("source") or section_meta["source"])
+                    item_restart_required = bool(
+                        item_meta.get(
+                            "restart_required",
+                            section_meta["restart_required"],
+                        )
+                    )
+                    item_restart_surfaces = [
+                        str(surface)
+                        for surface in (item_meta.get("restart_surfaces") or [])
+                    ]
+                    item_refresh_surfaces = [
+                        str(surface)
+                        for surface in (item_meta.get("refresh_surfaces") or [])
+                    ]
                 else:
                     field_key, label = item_meta
                     editable = True
                     item_source = section_meta["source"]
+                    item_restart_required = bool(section_meta["restart_required"])
+                    item_restart_surfaces = []
+                    item_refresh_surfaces = []
                 value = _deep_get(values.get(key, {}), field_key)
                 items.append(
                     {
@@ -411,16 +494,21 @@ class SystemConfigService:
                         "value": value,
                         "editable": editable,
                         "source": item_source,
-                        "restart_required": section_meta["restart_required"],
+                        "restart_required": item_restart_required,
+                        "restart_surfaces": item_restart_surfaces,
+                        "refresh_surfaces": item_refresh_surfaces,
                     }
                 )
+            section_restart_required = any(
+                bool(item.get("restart_required")) for item in items
+            )
             sections.append(
                 {
                     "key": key,
                     "title": section_meta["title"],
                     "description": section_meta["description"],
                     "source": section_meta["source"],
-                    "restart_required": section_meta["restart_required"],
+                    "restart_required": section_restart_required,
                     "items": items,
                 }
             )

@@ -137,6 +137,7 @@ def test_finalize_submit_execution_marks_order_submitted_with_broker_order_id():
         broker_order_id=123456,
         repository=repository,
         tracking_service=tracking_service,
+        broker_submit_mode="normal",
     )
 
     order = repository.find_order("ord_submit_1")
@@ -165,6 +166,7 @@ def test_finalize_submit_execution_marks_nonpositive_result_failed(broker_order_
         broker_order_id=broker_order_id,
         repository=repository,
         tracking_service=tracking_service,
+        broker_submit_mode="normal",
     )
 
     order = repository.find_order("ord_submit_failed_1")
@@ -222,6 +224,7 @@ def test_dispatch_cancel_execution_cancels_locally_when_broker_order_missing():
         cancel_executor=lambda broker_order_id: 0,
         repository=repository,
         tracking_service=tracking_service,
+        broker_submit_mode="normal",
     )
 
     assert result["status"] == "canceled_before_submit"
@@ -248,6 +251,7 @@ def test_dispatch_cancel_execution_is_idempotent_for_already_canceled_order():
         cancel_executor=lambda broker_order_id: 0,
         repository=repository,
         tracking_service=tracking_service,
+        broker_submit_mode="normal",
     )
 
     assert result["status"] == "already_canceled"
@@ -294,6 +298,32 @@ def test_dispatch_cancel_execution_bypasses_broker_in_observe_only_mode():
     assert result["status"] == "cancel_bypassed"
     assert executor_called["value"] is False
     assert repository.find_order("ord_cancel_bypass_1")["state"] == "CANCELED"
+
+
+def test_finalize_submit_execution_requires_keyword_broker_submit_mode():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+
+    with pytest.raises(TypeError):
+        finalize_submit_execution(
+            {"internal_order_id": "ord_required_mode_1"},
+            broker_order_id=1,
+            repository=repository,
+            tracking_service=tracking_service,
+        )
+
+
+def test_dispatch_cancel_execution_requires_keyword_broker_submit_mode():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+
+    with pytest.raises(TypeError):
+        dispatch_cancel_execution(
+            {"internal_order_id": "ord_required_mode_2", "action": "cancel"},
+            cancel_executor=lambda broker_order_id: 0,
+            repository=repository,
+            tracking_service=tracking_service,
+        )
 
 
 def test_prepare_submit_execution_resolves_credit_sell_order_before_submit():

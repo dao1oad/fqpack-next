@@ -120,7 +120,8 @@ def finalize_submit_execution(
     broker_order_id,
     repository=None,
     tracking_service=None,
-    broker_submit_mode="normal",
+    *,
+    broker_submit_mode,
 ):
     repository = repository or OrderManagementRepository()
     tracking_service = tracking_service or OrderTrackingService(repository=repository)
@@ -167,7 +168,8 @@ def dispatch_cancel_execution(
     cancel_executor,
     repository=None,
     tracking_service=None,
-    broker_submit_mode="normal",
+    *,
+    broker_submit_mode,
 ):
     repository = repository or OrderManagementRepository()
     tracking_service = tracking_service or OrderTrackingService(repository=repository)

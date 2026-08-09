@@ -37,6 +37,13 @@ from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.runtime_singleton import ProcessSingleton, SingletonAlreadyRunning
 from freshquant.system_settings import strict_settings_env_enabled, system_settings
+from freshquant.system_settings_contract import (
+    DEFAULT_XTDATA_MAX_SYMBOLS,
+    DEFAULT_XTDATA_PREWARM_MAX_BARS,
+    DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
+    DEFAULT_XTDATA_SCREENING_MODE,
+    DEFAULT_XTDATA_TRADING_MODE,
+)
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
 from freshquant.util.period import (
     PUBSUB_CHANNEL,
@@ -56,36 +63,65 @@ REALTIME_CLX_MODEL_IDS = list(range(10000, 10018))
 
 def resolve_consumer_runtime_config(*, settings_provider=None) -> dict[str, int | str]:
     settings_provider = settings_provider or system_settings
-    trading_mode = bool(getattr(settings_provider.monitor, "xtdata_trading_mode", True))
+    trading_mode = bool(
+        getattr(
+            settings_provider.monitor,
+            "xtdata_trading_mode",
+            DEFAULT_XTDATA_TRADING_MODE,
+        )
+    )
     screening_mode = bool(
-        getattr(settings_provider.monitor, "xtdata_screening_mode", False)
+        getattr(
+            settings_provider.monitor,
+            "xtdata_screening_mode",
+            DEFAULT_XTDATA_SCREENING_MODE,
+        )
     )
     try:
         max_symbols = int(
-            getattr(settings_provider.monitor, "xtdata_max_symbols", 50) or 50
+            getattr(
+                settings_provider.monitor,
+                "xtdata_max_symbols",
+                DEFAULT_XTDATA_MAX_SYMBOLS,
+            )
+            or DEFAULT_XTDATA_MAX_SYMBOLS
         )
     except (TypeError, ValueError):
-        max_symbols = 50
+        max_symbols = DEFAULT_XTDATA_MAX_SYMBOLS
     if max_symbols <= 0:
-        max_symbols = 50
+        max_symbols = DEFAULT_XTDATA_MAX_SYMBOLS
     try:
         queue_backlog_threshold = int(
             getattr(
                 settings_provider.monitor,
                 "xtdata_queue_backlog_threshold",
-                200,
+                DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
             )
-            or 200
+            or DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD
         )
     except (TypeError, ValueError):
-        queue_backlog_threshold = 200
+        queue_backlog_threshold = DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD
     if queue_backlog_threshold <= 0:
-        queue_backlog_threshold = 200
+        queue_backlog_threshold = DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD
+    try:
+        prewarm_max_bars = int(
+            getattr(
+                settings_provider.monitor,
+                "xtdata_prewarm_max_bars",
+                DEFAULT_XTDATA_PREWARM_MAX_BARS,
+            )
+            or DEFAULT_XTDATA_PREWARM_MAX_BARS
+        )
+    except (TypeError, ValueError):
+        prewarm_max_bars = DEFAULT_XTDATA_PREWARM_MAX_BARS
+    if prewarm_max_bars <= 0:
+        prewarm_max_bars = DEFAULT_XTDATA_PREWARM_MAX_BARS
     return {
         "trading_mode": trading_mode,
         "screening_mode": screening_mode,
         "max_symbols": max_symbols,
         "queue_backlog_threshold": queue_backlog_threshold,
+        "prewarm_max_bars": prewarm_max_bars,
     }
 
 
@@ -308,7 +344,7 @@ class StrategyConsumer:
     def __init__(
         self,
         *,
-        max_bars: int = 20000,
+        max_bars: int | None = None,
         fullcalc_workers: int | None = None,
         fullcalc_max_inflight: int | None = None,
         cache_ttl_seconds: int = 3600 * 24,
@@ -319,6 +355,14 @@ class StrategyConsumer:
         if redis_db is None:  # pragma: no cover
             raise RuntimeError(f"redis client unavailable: {_REDIS_IMPORT_ERR}")
 
+        self.settings_provider = settings_provider or system_settings
+        # prewarm.max_bars 优先级：显式构造参数 > Mongo
+        # monitor.xtdata.prewarm.max_bars > 合同默认 20000。
+        runtime_config = resolve_consumer_runtime_config(
+            settings_provider=self.settings_provider,
+        )
+        if max_bars is None:
+            max_bars = int(runtime_config["prewarm_max_bars"])
         self.max_bars = max(1000, int(max_bars))
         self.cache_ttl_seconds = max(60, int(cache_ttl_seconds))
 
@@ -345,10 +389,6 @@ class StrategyConsumer:
 
         self._catchup_mode = False
         self._dirty_latest: dict[tuple[str, str], dict[str, Any]] = {}
-        self.settings_provider = settings_provider or system_settings
-        runtime_config = resolve_consumer_runtime_config(
-            settings_provider=self.settings_provider
-        )
         self.queue_backlog_threshold = int(
             queue_backlog_threshold or runtime_config["queue_backlog_threshold"]
         )
@@ -371,8 +411,10 @@ class StrategyConsumer:
         logger.info(
             f"[Consumer] init trading={self.trading_mode} "
             f"screening={self.screening_mode} max_bars={self.max_bars} "
+            f"max_symbols={self.max_symbols} "
+            f"queue_backlog_threshold={self.queue_backlog_threshold} "
             f"workers={self.fullcalc_workers} max_inflight={self.fullcalc_max_inflight} "
-            f"queue_backlog_threshold={self.queue_backlog_threshold}"
+            f"prewarm_max_bars={runtime_config['prewarm_max_bars']}"
         )
         self._emit_runtime(
             {
@@ -381,7 +423,10 @@ class StrategyConsumer:
                 "payload": {
                     "trading_mode": self.trading_mode,
                     "screening_mode": self.screening_mode,
+                    "max_symbols": self.max_symbols,
                     "max_bars": self.max_bars,
+                    "queue_backlog_threshold": self.queue_backlog_threshold,
+                    "prewarm_max_bars": runtime_config["prewarm_max_bars"],
                     "workers": self.fullcalc_workers,
                     "max_inflight": self.fullcalc_max_inflight,
                 },
@@ -1379,7 +1424,12 @@ class StrategyConsumer:
 
 
 @click.command()
-@click.option("--max-bars", default=20000, type=int)
+@click.option(
+    "--max-bars",
+    default=None,
+    type=int,
+    help="预热窗口最大 bar 数；缺省时读取 Mongo monitor.xtdata.prewarm.max_bars",
+)
 @click.option("--workers", default=None, type=int)
 @click.option("--max-inflight", default=None, type=int)
 @click.option(

@@ -22,6 +22,11 @@ from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefi
 from freshquant.runtime_constants import TZ
 from freshquant.runtime_observability.logger import RuntimeEventLogger
 from freshquant.system_settings import system_settings
+from freshquant.system_settings_contract import (
+    DEFAULT_XTDATA_MAX_SYMBOLS,
+    DEFAULT_XTDATA_SCREENING_MODE,
+    DEFAULT_XTDATA_TRADING_MODE,
+)
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -76,18 +81,33 @@ def resolve_producer_runtime_config(
 ) -> dict[str, int | str]:
     settings_provider = settings_provider or system_settings
     bootstrap_provider = bootstrap_provider or bootstrap_config
-    trading_mode = bool(getattr(settings_provider.monitor, "xtdata_trading_mode", True))
+    trading_mode = bool(
+        getattr(
+            settings_provider.monitor,
+            "xtdata_trading_mode",
+            DEFAULT_XTDATA_TRADING_MODE,
+        )
+    )
     screening_mode = bool(
-        getattr(settings_provider.monitor, "xtdata_screening_mode", False)
+        getattr(
+            settings_provider.monitor,
+            "xtdata_screening_mode",
+            DEFAULT_XTDATA_SCREENING_MODE,
+        )
     )
     try:
         max_symbols = int(
-            getattr(settings_provider.monitor, "xtdata_max_symbols", 50) or 50
+            getattr(
+                settings_provider.monitor,
+                "xtdata_max_symbols",
+                DEFAULT_XTDATA_MAX_SYMBOLS,
+            )
+            or DEFAULT_XTDATA_MAX_SYMBOLS
         )
     except (TypeError, ValueError):
-        max_symbols = 50
+        max_symbols = DEFAULT_XTDATA_MAX_SYMBOLS
     if max_symbols <= 0:
-        max_symbols = 50
+        max_symbols = DEFAULT_XTDATA_MAX_SYMBOLS
     try:
         port = int(getattr(bootstrap_provider.xtdata, "port", 58610) or 58610)
     except (TypeError, ValueError):

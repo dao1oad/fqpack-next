@@ -247,6 +247,10 @@ def connect(session_id: int = 100):
 
 def trading_main_loop():
     broker_submit_mode = resolve_broker_submit_mode(settings_provider=system_settings)
+    _emit_broker_event(
+        "bootstrap",
+        payload={"broker_submit_mode": broker_submit_mode},
+    )
     if _is_observe_only_mode(broker_submit_mode):
         logger.info(
             "broker submit mode is observe_only; execution requests will be bypassed"
@@ -473,17 +477,6 @@ def _clear_strategy_buy_cooldown(order, *, action):
 
 
 def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode):
-    if _is_observe_only_mode(broker_submit_mode):
-        result = finalize_submit_execution(
-            order,
-            broker_order_id=None,
-            repository=order_management_repository,
-            tracking_service=order_tracking_service,
-            broker_submit_mode=broker_submit_mode,
-        )
-        _emit_broker_bypass(order, action=action)
-        return result
-
     try:
         execution = prepare_submit_execution(
             order,
@@ -493,6 +486,23 @@ def _handle_submit_action(order, *, action, submit_executor, broker_submit_mode)
         if execution.get("status") in {"skipped", "missing_order"}:
             return execution
         resolved_order = execution.get("order_message", order)
+
+        if _is_observe_only_mode(broker_submit_mode):
+            # observe-only 也先走完整 prepare_submit_execution：把价格模式、
+            # 信用订单类型、可用额度与关联 token 解析落库后，再跳过
+            # submit_executor，最终由 finalize 落 BROKER_BYPASSED。
+            # prepare 校验失败走下方正常失败路径，不伪装成成功演练。
+            finalize_result = finalize_submit_execution(
+                resolved_order,
+                broker_order_id=None,
+                repository=order_management_repository,
+                tracking_service=order_tracking_service,
+                broker_submit_mode=broker_submit_mode,
+            )
+            _emit_broker_bypass(resolved_order, action=action)
+            # 保持 observe-only 的 buy 冷却键：BROKER_BYPASSED 不清理冷却，
+            # 避免同一信号在演练环境持续重复生成演练订单。
+            return finalize_result
 
         broker_order_id = submit_executor(resolved_order)
         logger.info(broker_order_id)
