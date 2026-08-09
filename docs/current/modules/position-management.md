@@ -201,9 +201,9 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 
 `/position-management` 当前直接承载 symbol 级一致性审计、相关订单、持仓账本与 gap / resolution / rejection。相关接口仍保持只读：
 
-- `/position-management` 是唯一对账入口；独立 `/reconciliation` 页面（
-  `ReconciliationWorkbench.vue`）已移除，路由 `/reconciliation` 保持 redirect 到
-  `/position-management`，不再有第二套对账页面/导航。
+- `/position-management` 是唯一对账入口；独立对账页面（ReconciliationWorkbench.vue）
+  已移除，旧 reconciliation 路由保持 redirect 到 `/position-management`，
+  不再有第二套对账页面/导航。
 
 - `GET /api/position-management/reconciliation`
 - `GET /api/position-management/reconciliation/<symbol>`
