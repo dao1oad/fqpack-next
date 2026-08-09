@@ -10,6 +10,14 @@ def _build_service(**kwargs):
         PositionReconciliationReadService,
     )
 
+    kwargs.setdefault(
+        "allocation_integrity_loader",
+        lambda: {
+            "position_entries": [],
+            "entry_slices": [],
+            "exit_allocations": [],
+        },
+    )
     return PositionReconciliationReadService(**kwargs)
 
 
@@ -100,6 +108,103 @@ def test_reconciliation_read_service_builds_aligned_row_and_summary():
     assert row["rule_results"]["R4"]["expected_relation"] == "reconciliation_explained"
     assert row["evidence_sections"]["surfaces"][0]["key"] == "broker"
     assert row["evidence_sections"]["rules"][0]["id"] == "R1"
+
+
+def test_reconciliation_read_service_exposes_internal_integrity():
+    service = _build_service(
+        broker_positions_loader=lambda: [],
+        snapshot_positions_loader=lambda: [],
+        entry_positions_loader=lambda: [],
+        slice_positions_loader=lambda: [],
+        compat_positions_loader=lambda: [],
+        stock_fills_projection_loader=lambda symbols: [],
+        reconciliation_summary_loader=lambda symbols: {},
+        allocation_integrity_loader=lambda: {
+            "position_entries": [
+                {
+                    "entry_id": "E1",
+                    "symbol": "688772",
+                    "original_quantity": 1000,
+                    "remaining_quantity": 0,
+                }
+            ],
+            "entry_slices": [
+                {
+                    "entry_slice_id": "S1",
+                    "entry_id": "E1",
+                    "symbol": "600917",
+                    "original_quantity": 1000,
+                    "remaining_quantity": 0,
+                }
+            ],
+            "exit_allocations": [
+                {
+                    "allocation_id": "A1",
+                    "entry_id": "E1",
+                    "entry_slice_id": "S1",
+                    "symbol": "600917",
+                    "allocated_quantity": 1000,
+                }
+            ],
+        },
+    )
+
+    payload = service.get_overview()
+    integrity = payload["internal_integrity"]
+
+    assert integrity["ok"] is False
+    assert integrity["error_count"] == 2
+    assert {error["reference_type"] for error in integrity["errors"]} == {
+        "entry_slice_symbol",
+        "allocation_entry_symbol",
+    }
+    assert integrity["by_symbol"] == {"600917": 2, "688772": 2}
+
+
+def test_reconciliation_read_service_internal_integrity_ok_when_healthy():
+    service = _build_service(
+        broker_positions_loader=lambda: [],
+        snapshot_positions_loader=lambda: [],
+        entry_positions_loader=lambda: [],
+        slice_positions_loader=lambda: [],
+        compat_positions_loader=lambda: [],
+        stock_fills_projection_loader=lambda symbols: [],
+        reconciliation_summary_loader=lambda symbols: {},
+        allocation_integrity_loader=lambda: {
+            "position_entries": [
+                {
+                    "entry_id": "E1",
+                    "symbol": "600000",
+                    "original_quantity": 1000,
+                    "remaining_quantity": 400,
+                }
+            ],
+            "entry_slices": [
+                {
+                    "entry_slice_id": "S1",
+                    "entry_id": "E1",
+                    "symbol": "600000",
+                    "original_quantity": 600,
+                    "remaining_quantity": 0,
+                }
+            ],
+            "exit_allocations": [
+                {
+                    "allocation_id": "A1",
+                    "entry_id": "E1",
+                    "entry_slice_id": "S1",
+                    "symbol": "600000",
+                    "allocated_quantity": 600,
+                }
+            ],
+        },
+    )
+
+    integrity = service.get_overview()["internal_integrity"]
+    assert integrity["ok"] is True
+    assert integrity["error_count"] == 0
+    assert integrity["errors"] == []
+    assert integrity["by_symbol"] == {}
 
 
 def test_reconciliation_read_service_marks_observing_gap_as_warn():
