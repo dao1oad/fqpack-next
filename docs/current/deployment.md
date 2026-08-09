@@ -36,6 +36,8 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 ### 自动正式部署
 
 - `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
+- `deploy-production.yml` 已重新启用（#529D 统一部署收口后）：一次 `push main` 会
+  在三机矩阵上执行正式部署，并在部署后由 workflow 内 verify 阶段完成运行面健康检查。
 - `deploy-production.yml` 的 deploy job 使用 `[self-hosted, windows, prod-101/prod-100/prod-116]` 三机矩阵，一次 `push main` 在三台正式机器（101 本机 / 100 / 116）上分别执行正式部署；各机 runner 以唯一 label `prod-101` / `prod-100` / `prod-116` 注册，并共用 `self-hosted,windows,production`。
 - `run_formal_deploy.py` 的宿主机运行面 reconcile 与 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 均带有限重试与 settle 窗口：host restart 后若程序未达 RUNNING，会重新 start 后再 settle（默认 1 轮恢复）；Verify 默认最多 3 次快照检查、间隔 10 秒（可用 `-VerifyMaxAttempts` / `-VerifySettleSeconds` 覆盖），吸收运行面重启过渡期与 supervisor RPC 瞬时失败，避免过渡态误判部署失败。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 canonical main sync、`uv sync` 和 `run_formal_deploy.py`。
