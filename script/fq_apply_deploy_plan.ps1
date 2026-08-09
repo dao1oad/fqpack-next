@@ -296,6 +296,21 @@ if ($ResumeLatest -or -not [string]::IsNullOrWhiteSpace($ResumeFromStatePath)) {
     if (-not [string]::IsNullOrWhiteSpace([string]$state.plan_summary)) {
         Write-Host ([string]$state.plan_summary)
     }
+
+    $resumeSurfaces = @()
+    foreach ($surface in @($state.inputs.deployment_surfaces)) {
+        if (-not [string]::IsNullOrWhiteSpace($surface)) {
+            $resumeSurfaces += $surface
+        }
+    }
+    if ($resumeSurfaces.Count -eq 0) {
+        foreach ($surface in @($plan.deployment_surfaces)) {
+            if (-not [string]::IsNullOrWhiteSpace($surface)) {
+                $resumeSurfaces += $surface
+            }
+        }
+    }
+    $state.inputs.deployment_surfaces = @($resumeSurfaces)
 }
 else {
     $allChangedPaths = New-Object System.Collections.Generic.List[string]
