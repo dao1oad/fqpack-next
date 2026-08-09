@@ -190,6 +190,48 @@ def test_load_line_codes_unknown_line_returns_empty(monkeypatch):
     assert pools.load_line_codes(line="unknown_line", max_symbols=10) == []
 
 
+def test_holding_exclusion_is_not_truncated_by_max_symbols(monkeypatch):
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def find(self, query=None, projection=None):
+            return list(self.docs)
+
+    # 20 个持仓（sz000001..sz000020），超过 max_symbols=10；
+    # 若持仓排除集被截断到 10 个，000011..000020 会漏入 must/stock 目标。
+    holdings = [{"symbol": f"sz0000{i:02d}"} for i in range(1, 21)] + [
+        {"symbol": f"sh6000{i:02d}"} for i in range(1, 21)
+    ]
+    fake_db = {
+        "xt_positions": FakeCollection(holdings),
+        "must_pool": FakeCollection(
+            [
+                {
+                    "code": f"0000{i:02d}",
+                    "instrument_type": "stock_cn",
+                    "disabled": False,
+                }
+                for i in range(1, 31)
+            ]
+        ),
+        "stock_pools": FakeCollection([{"code": f"6000{i:02d}"} for i in range(1, 31)]),
+    }
+    monkeypatch.setattr(pools, "DBfreshquant", fake_db)
+
+    # must_pool 排除集必须覆盖全部持仓（含超出 max_symbols 的部分），
+    # 只对最终订阅列表应用 limit。
+    must_codes = pools._load_must_pool_codes(10)
+    assert len(must_codes) == 10
+    # 000001..000020 全部在持仓中，必须被排除；剩余 000021..000030 取前 10 个
+    assert must_codes == [f"sz0000{i:02d}" for i in range(21, 31)]
+
+    clx_codes = pools._load_clx_codes(10)
+    assert len(clx_codes) == 10
+    # 600001..600020 全部在持仓中，必须被排除；剩余 600021..600030 取前 10 个
+    assert clx_codes == [f"sh6000{i:02d}" for i in range(21, 31)]
+
+
 def test_init_param_dict_persists_dual_boolean_defaults_when_mode_missing(
     monkeypatch,
 ):

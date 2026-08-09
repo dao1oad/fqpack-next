@@ -170,7 +170,7 @@ $enhua.data_quality.account_partitions
 
 - `D:/fqpack/config/fqnext.compose.env`：Docker 并行环境的正式 `env_file`，其中 `FRESHQUANT_TDX__HOME=/opt/tdx` 是 `fq_apiserver` 解析容器内通达信目录的 bootstrap 真值。不要再依赖仓库根 `.env` 作为 production compose 真值；`git clean -ffdx` 会清理 ignored `.env`。
 - `D:/fqpack/config/envs.conf`：宿主机 Supervisor 运行环境真值。至少要显式提供 Mongo、Redis、TDX 地址，并把代理变量保持为空；当前 Redis 正式端口是 `127.0.0.1:6380`。
-- `D:/new_tdx`：Shouban30 与 CLX 固定分组的宿主机通达信目录；正式 workflow job env 或人工部署进程通过 `FQPACK_TDX_SYNC_DIR=D:/new_tdx` 把它挂载为 `fq_apiserver` 内的 `/opt/tdx`。
+- `D:/new_tdx`：CLX 固定分组与 ZXG/DM 同步的宿主机通达信目录；正式 workflow job env 或人工部署进程通过 `FQPACK_TDX_SYNC_DIR=D:/new_tdx` 把它挂载为 `fq_apiserver` 内的 `/opt/tdx`。
 - `D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`：管理员桥接任务 `fqnext-supervisord-restart` 的外部脚本。仓库内 `script/run_fqnext_supervisord_restart_task.ps1` 变更后，要同步到这里。
 - `D:/fqpack/freshquant-2026.2.23/.venv/pyvenv.cfg`：live canonical repo root virtualenv metadata。正式入口允许自愈，但它缺失时不能把 `.venv\Scripts\python.exe` 当成可信解释器真值。
 
@@ -215,10 +215,9 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/data/index.py` / `freshquant/quote/index.py` / `freshquant/instrument/general.py` / `freshquant/chanlun_service.py` / `freshquant/chanlun_structure_service.py` | Index BFQ API / 分类 / Chanlun 读取链 | 重建 `fq_apiserver` |
 | `freshquant/strategy/**` 或 `freshquant/signal/**` | Guardian | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface guardian -BridgeIfServiceUnavailable` |
 | `sunflower/QUANTAXIS/**` | QAWebServer 与依赖 QUANTAXIS 的宿主机策略链路 | 重建 `fq_qawebserver`；同步重启受影响宿主机 Guardian / strategy 进程 |
-| `freshquant/data/gantt*` / `freshquant/shouban30_pool_service.py` | Gantt/Shouban30 读模型与 API | 重建 API；必要时重跑 Dagster 任务 |
+| `freshquant/data/gantt*` | Gantt 读模型与 API（Shouban30 已废弃） | 重建 API；必要时重跑 Dagster 任务 |
 | `freshquant/data/etf_adj_sync.py` | ETF legacy xdxr/adj 人工运维入口 | 重建 `fq_apiserver` 镜像并重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
-| `freshquant/daily_screening/**` | 每日选股 API 与 `fqscreening` 读模型 | 重建 API；如改动影响自动任务语义，补跑 Dagster 每日筛选任务 |
-| `freshquant/clx_daily_selection/**` | CLX 日线计算服务、API 读链与 Dagster partition/finalizer 共用逻辑 | 重建 API；重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
+| `freshquant/clx_daily_selection/**` | CLX 日线计算服务、API 读链、pre 对账与 Dagster partition/finalizer/pre-reconcile 共用逻辑 | 重建 API；重启 `fq_dagster_webserver` / `fq_dagster_daemon` |
 | `freshquant/rear/clx_daily_selection/**` | CLX 日线 HTTP API | 重建 API |
 | `morningglory/fqcopilot/**` | CLX 原生扩展 | 用当前远程 main 重新同步 Python 依赖并构建扩展；重建/重启消费扩展的 API 与 Dagster 运行面 |
 | `morningglory/fqwebui/**` | Web UI | 重建 `fq_webui` |

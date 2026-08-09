@@ -70,47 +70,29 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/stock_data_chanlun_structure`
   - `/api/guardian_buy_grid_state`
   - `/api/get_stock_pools_list`
-- `POST /api/sync_stock_pools_from_tdx_self_select`
-  - `POST /api/sync_must_pool_from_tdx_self_select`
+- `POST /api/pools/stock/sync-from-tdx`
+  - `POST /api/pools/must/sync-from-tdx`
   - `must_pool` 同步从 `blocknew.cfg` 按显示名「待买」解析真实 BLK 文件名（如 `DM.blk`），解析失败回退 `待买.blk`
   - `/api/get_stock_pre_pools_list`
   - `/api/get_stock_must_pools_list`
-- `/api/add_to_stock_pools_by_code`
-- `/api/add_to_must_pool_by_code`
 
 ### `gantt`
 
 - `/api/gantt/plates`
 - `/api/gantt/stocks`
 - `/api/gantt/stocks/reasons`
-- `/api/gantt/shouban30/plates`
-- `/api/gantt/shouban30/stocks`
-- `/api/gantt/shouban30/pre-pool/*`
-- `/api/gantt/shouban30/stock-pool/*`
-
-### `daily-screening`
-
-- `/api/daily-screening/scopes`
-- `/api/daily-screening/scopes/latest`
-- `/api/daily-screening/filters`
-- `/api/daily-screening/scopes/<scope_id>/summary`
-- `/api/daily-screening/query`
-- `/api/daily-screening/stocks/<code>/detail`
-- `/api/daily-screening/actions/add-to-pre-pool`
-- `/api/daily-screening/actions/add-batch-to-pre-pool`
-- `/api/daily-screening/pre-pools`
-- `/api/daily-screening/pre-pools/stock-pools`
-- `/api/daily-screening/pre-pools/delete`
 
 ### `clx-daily-selection`
 
 - `GET /api/clx-daily-selection/health`
+- `GET /api/clx-daily-selection/official`（当前 ready generation 的 pure-buy 正式结果，默认 `direction_mode=pure_buy`）
 - `GET /api/clx-daily-selection/model-catalog`
 - `GET /api/clx-daily-selection/batches`
 - `GET /api/clx-daily-selection/batches/latest`
 - `GET /api/clx-daily-selection/batches/<batch_id>/summary`
 - `GET|POST /api/clx-daily-selection/batches/<batch_id>/results`
 - `POST /api/clx-daily-selection/batches/<batch_id>/results/query`
+- `POST /api/clx-daily-selection/batches/<batch_id>/results/sync-selected-to-tdx`（导出到 CLX_18）
 - `GET /api/clx-daily-selection/batches/<batch_id>/results/<asset_type>/<symbol>`
 - `GET /api/clx-daily-selection/batches/<batch_id>/statistics`
 - `GET /api/clx-daily-selection/history/signals`
@@ -199,17 +181,17 @@ python -m freshquant.rear.api_server --port 5000
   - 当前分钟周期参数兼容 `1min / 5min / 15min / 30min` 与 `1m / 5m / 15m / 30m`，进入服务前统一归一到前端/缠论服务使用的 `1m / 5m / 15m / 30m`
   - `/api/stock_data?realtimeCache=1` 优先读取实时 K 线缓存；若 QFQ 覆盖缺口（含历史无效/占位缺口，不再限定为当日）未就绪，则记录 warning 并回退历史 K 线读取，避免行情图表左侧列表标的出现主图空白
   - 非实时历史读取或结构读取遇到 QFQ 未就绪时仍返回 `QFQ_DATA_NOT_READY` 对应 HTTP 状态
-- `POST /api/sync_stock_pools_from_tdx_self_select`
-  - 从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 读取通达信自选股，解码为 6 位标的代码，排除当前 `xt_positions` 持仓后，以结果覆盖 `freshquant.stock_pools`
-  - 不在当前 TDX 标的池中的旧 `stock_pools` 记录会被删除；当前 TDX 标的按 `tdx_self_select` 来源 upsert
+- `POST /api/pools/stock/sync-from-tdx`
+  - 从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 读取通达信自选股，解码为 6 位标的代码，排除完整持仓后，以结果覆盖 `freshquant.stock_pools`
+  - 覆盖同步契约：文件缺失、解析失败或有效代码为 0 时直接阻断，不修改池子；先批量 upsert 目标代码，全部成功后再删除不在目标集合中的旧记录；持仓排除集合不受 `max_symbols` 截断
   - 查询参数 `days` 控制新增记录有效期，默认 `30`
-  - 返回 `synced_count / removed_count / skipped_holding_count / skipped_invalid_count` 及对应代码列表；兼容保留 `appended_count / skipped_existing_count` 字段；只写 `stock_pools`，不写 `must_pool`，不触发交易动作
-- `POST /api/sync_must_pool_from_tdx_self_select`
-  - 复用与 `sync_stock_pools_from_tdx_self_select` 相同的 TDX `.blk` 读取/解码链路，从当前 TDX home 的 `T0002/blocknew/待买.blk` 读取「待买」自选股分组，解码为 6 位标的代码，排除当前 `xt_positions` 持仓后导入 `freshquant.must_pool`
-  - 导入为增量合并：已存在于 `must_pool` 的记录保留其 `stop_loss_price / initial_lot_amount / lot_amount` 交易参数，仅合并 `tdx_must_pool` 来源的 provenance；不在「待买」分组中的既有 `must_pool` 记录不会被删除
-  - 新增记录 `stop_loss_price` 保持未配置（`None`），`lot_amount / initial_lot_amount` 走 `get_trade_amount` 默认值
+  - 返回 `source_count / synced_count / removed_count / holding_excluded_count / invalid_count` 及对应代码列表；只写 `stock_pools`，不写 `must_pool`，不触发交易动作
+- `POST /api/pools/must/sync-from-tdx`
+  - 复用相同的 TDX `.blk` 读取/解码链路，从当前 TDX home 的 `T0002/blocknew/待买.blk` 读取「待买」分组（经 `blocknew.cfg` 按显示名解析，如 `DM.blk`），解码为 6 位标的代码，排除完整持仓后覆盖刷新 `freshquant.must_pool`
+  - 覆盖同步契约与 stock 相同（文件阻断、完整持仓排除、先批量 upsert 后删除旧成员）
+  - 已有记录保留 `stop_loss_price / initial_lot_amount / lot_amount` 交易参数；新代码自动解析统一系统默认参数（`stop_loss_price` 来自系统默认止损配置 `params.guardian.value.stock.stop_loss_default`，`lot_amount` 走 `get_trade_amount(code)`，`initial_lot_amount` 默认等于 `lot_amount`）；默认参数不可用时该代码同步失败并列入 `failed_codes`，其他有效代码继续同步
   - 查询参数 `days` 控制 membership 有效期，默认 `30`
-  - 返回 `synced_count / appended_count / skipped_holding_count / skipped_invalid_count` 及对应代码列表；只写 `must_pool`，不写 `stock_pools`，不触发交易动作
+  - 返回 `source_count / synced_count / removed_count / holding_excluded_count / invalid_count / failed_count` 及对应代码列表；只写 `must_pool`，不写 `stock_pools`，不触发交易动作
 - `/api/stock_fills`
   - 仍保留旧名称
   - 底层优先读 `entry ledger`
@@ -308,5 +290,5 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/position-review`
 - `/runtime-observability`
 - `/gantt`
-- `/gantt/shouban30`
-- `/daily-screening`
+- `/daily-screening`（CLX 选股 / 评价 / 三池工作台）
+- `/clx-evaluation`（Vue Router 重定向到 `/daily-screening`）

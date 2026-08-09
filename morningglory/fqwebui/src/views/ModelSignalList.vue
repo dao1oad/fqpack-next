@@ -52,7 +52,7 @@
 
 <script>
 import { stockApi } from '@/api/stockApi'
-import { resolveDailyScreeningClsModelPresentation } from './dailyScreeningPage.mjs'
+import { resolveDailyScreeningClsModelPresentation } from './clsModelPresentation.mjs'
 import _ from 'lodash'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, reactive } from 'vue'

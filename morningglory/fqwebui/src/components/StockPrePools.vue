@@ -3,7 +3,7 @@
       <div class="workbench-panel__header stock-pool-subview__header">
         <div class="workbench-title-group">
           <div class="workbench-panel__title">预选股票池</div>
-          <p class="workbench-panel__desc">按分类浏览预选股票，并支持一键加入监控池。</p>
+          <p class="workbench-panel__desc">由 CLX 正式结果自动生成，只读展示。</p>
         </div>
       </div>
       <el-row class="stock-pool-subview__menu">
@@ -47,12 +47,6 @@
           </el-table-column>
           <el-table-column prop="stop_loss_price" label="止损价格"> </el-table-column>
           <el-table-column prop="datetime" label="时间"> </el-table-column>
-          <el-table-column label="操作">
-              <template #default="scope">
-                <el-button @click="showAddDialog(scope.row)">加入监控池</el-button>
-                <el-button @click="deleteFromStockPrePoolsByCode(scope.row)">删除</el-button>
-              </template>
-          </el-table-column>
         </el-table>
       </div>
       <el-row class="stock-pool-subview__pager">
@@ -69,28 +63,6 @@
         />
       </el-row>
 
-      <!-- 添加监控池弹窗 -->
-      <el-dialog
-        v-model="dialogVisible"
-        title="加入监控池"
-        width="30%"
-        :close-on-click-modal="false"
-      >
-        <el-form :model="monitorForm" label-width="80px">
-          <el-form-item label="股票代码">
-            <el-input v-model="monitorForm.code" placeholder="请输入股票代码" readonly />
-          </el-form-item>
-          <el-form-item label="监控天数">
-            <el-input-number v-model="monitorForm.days" :min="1" :max="365" />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <span class="dialog-footer">
-            <el-button @click="dialogVisible = false">取消</el-button>
-            <el-button type="primary" @click="confirmAddToPool">确认添加</el-button>
-          </span>
-        </template>
-      </el-dialog>
   </div>
 </template>
 
@@ -111,11 +83,6 @@ export default {
         size: 10,
         total: 0,
         current: 1
-      },
-      dialogVisible: false,
-      monitorForm: {
-        code: null,
-        days: 30
       }
     }
   },
@@ -189,61 +156,6 @@ export default {
       })
       window.open(routeUrl.href, '_blank')
     },
-    showAddDialog(stock) {
-      this.monitorForm.code = stock.code;
-      this.monitorForm.days = 30; // 默认30天
-      this.dialogVisible = true;
-    },
-
-    confirmAddToPool() {
-      stockApi.addToStockPoolsByCode(this.monitorForm.code, this.monitorForm.days)
-      .then(res => {
-        if (res.code === '0') {
-          this.$message({
-            message: '加入监控池成功',
-            type: 'success'
-          });
-          this.dialogVisible = false;
-          this.$emit('stock-refresh');
-        } else {
-          this.$message({
-            message: '加入监控池失败',
-            type: 'error'
-          });
-        }
-      })
-      .catch(err => {
-        this.$message({
-          message: '加入监控池失败',
-          type: 'error'
-        });
-      });
-    },
-    deleteFromStockPrePoolsByCode(stock){
-      stockApi.deleteFromStockPrePoolsByCode(stock.code)
-      .then(res => {
-        if (res.code === '0') {
-          this.$message({
-            message: '删除成功',
-            type: 'success'
-          })
-          this.listQuery.current = 1
-          this.fetchStockList()
-        }else{
-          this.$message({
-            message: '删除失败',
-            type: 'error'
-          })
-        }
-      })
-      .catch(err => {
-        this.$message({
-          message: '删除失败',
-          type: 'error'
-        })
-      })
-    }
-
   },
 }
 </script>

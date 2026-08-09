@@ -135,7 +135,7 @@
 当目标是调试前端展示时，至少还需要：
 
 - Web UI
-- Gantt/Shouban30 对应读模型数据
+- Gantt 对应读模型数据（Shouban30 已废弃）
 - Runtime Observability 原始日志目录
 
 当目标是调试 CLX 日线选股与 Kline marker 时，至少还需要：

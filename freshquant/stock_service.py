@@ -20,6 +20,7 @@ from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_type
 from freshquant.pre_pool_service import PrePoolService
 from freshquant.signal.a_stock_common import save_a_stock_pools
+from freshquant.strategy.common import get_trade_amount
 from freshquant.strategy.toolkit.grid import plan_grid_distribution
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
@@ -209,6 +210,45 @@ def read_tdx_self_select_codes(tdx_home=None, filename=TDX_SELF_SELECT_FILENAME)
     return codes
 
 
+def _decode_tdx_block_codes(
+    tdx_home=None,
+    *,
+    filename,
+    display_name,
+) -> list[str]:
+    """读取并完整解析通达信 .blk 分组；文件缺失/解析失败/有效代码为 0 时阻断。
+
+    阻断时抛出 RuntimeError，调用方不得修改池子。
+    """
+    path = _tdx_self_select_path(tdx_home=tdx_home, filename=filename)
+    if not path.exists():
+        raise RuntimeError(f"通达信分组文件不存在，已阻断同步（不修改池子）: {path}")
+    try:
+        text = path.read_bytes().decode("gbk")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(
+            f"通达信分组文件解析失败（非 GBK 编码），已阻断同步: {path}"
+        ) from exc
+    codes = []
+    for line in text.splitlines():
+        code = decode_tdx_self_select_code(line)
+        if code and code not in codes:
+            codes.append(code)
+    if not codes:
+        raise RuntimeError(
+            f"通达信分组 {display_name} 没有有效代码，已阻断同步（不修改池子）: {path}"
+        )
+    return codes
+
+
+def _load_full_holding_codes() -> set[str]:
+    """加载完整持仓集合用于风险排除；永不受 max_symbols 截断，失败时 fail closed。"""
+    try:
+        return get_current_stock_holding_codes()
+    except Exception as exc:  # pragma: no cover - fail closed 路径
+        raise RuntimeError(f"持仓查询失败，已阻断同步: {exc}") from exc
+
+
 def sync_stock_pools_from_tdx_self_select(
     days=30,
     *,
@@ -217,15 +257,27 @@ def sync_stock_pools_from_tdx_self_select(
     category=TDX_SELF_SELECT_CATEGORY,
     source=TDX_SELF_SELECT_SOURCE,
 ):
-    """Make freshquant.stock_pools match the current TDX self-select pool."""
-    codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
+    """用通达信 ZXG 自选股覆盖刷新 stock_pools。
+
+    覆盖同步契约：
+    1. 文件缺失、解析失败或有效代码为 0 时直接阻断，不修改池子；
+    2. 加载完整持仓集合排除，不受 max_symbols 截断；
+    3. 内存中生成最终目标集合；
+    4. 先批量 upsert 目标代码，全部成功后再删除不在目标集合中的旧代码；
+    5. 幂等，失败后修正通达信分组再次点击同步即可恢复。
+    """
+    codes = _decode_tdx_block_codes(
+        tdx_home=tdx_home,
+        filename=filename,
+        display_name=TDX_SELF_SELECT_CATEGORY,
+    )
     now = pendulum.now()
     expire_at = now.add(days=int(days or 30))
     synced_codes = []
     removed_codes = []
     skipped_holding_codes = []
     skipped_invalid_codes = []
-    holding_codes = get_current_stock_holding_codes()
+    holding_codes = _load_full_holding_codes()
 
     target_codes = []
     for code in codes:
@@ -238,12 +290,6 @@ def sync_stock_pools_from_tdx_self_select(
         target_codes.append(code)
 
     target_code_set = set(target_codes)
-    existing_docs = list(DBfreshquant["stock_pools"].find({}, {"code": 1}))
-    for existing in existing_docs:
-        existing_code = _normalize_stock_code6(existing.get("code"))
-        if existing_code and existing_code not in target_code_set:
-            DBfreshquant["stock_pools"].delete_one({"code": existing_code})
-            removed_codes.append(existing_code)
 
     for code in target_codes:
         existing = DBfreshquant["stock_pools"].find_one({"code": code}) or {}
@@ -288,6 +334,19 @@ def sync_stock_pools_from_tdx_self_select(
             continue
         synced_codes.append(code)
 
+    # 全部 upsert 成功后再删除旧成员，防止中途失败先清空旧池。
+    # 没有可用目标代码时阻断破坏性删除（保留旧池），符合 fail-closed 契约。
+    existing_docs = (
+        list(DBfreshquant["stock_pools"].find({}, {"code": 1}))
+        if target_code_set
+        else []
+    )
+    for existing in existing_docs:
+        existing_code = _normalize_stock_code6(existing.get("code"))
+        if existing_code and existing_code not in target_code_set:
+            DBfreshquant["stock_pools"].delete_one({"code": existing_code})
+            removed_codes.append(existing_code)
+
     return {
         "file_name": filename,
         "file_path": str(_tdx_self_select_path(tdx_home=tdx_home, filename=filename)),
@@ -295,18 +354,24 @@ def sync_stock_pools_from_tdx_self_select(
         "source": source,
         "read_count": len(codes),
         "unique_count": len(codes),
+        "source_count": len(codes),
         "appended_count": len(synced_codes),
         "synced_count": len(synced_codes),
         "removed_count": len(removed_codes),
         "skipped_holding_count": len(skipped_holding_codes),
+        "holding_excluded_count": len(skipped_holding_codes),
         "skipped_existing_count": 0,
         "skipped_invalid_count": len(skipped_invalid_codes),
+        "invalid_count": len(skipped_invalid_codes),
         "appended_codes": synced_codes,
         "synced_codes": synced_codes,
         "removed_codes": removed_codes,
         "skipped_holding_codes": skipped_holding_codes,
+        "holding_excluded_codes": skipped_holding_codes,
         "skipped_existing_codes": [],
         "skipped_invalid_codes": skipped_invalid_codes,
+        "invalid_codes": skipped_invalid_codes,
+        "failed_codes": [],
     }
 
 
@@ -318,23 +383,13 @@ def sync_must_pool_from_tdx_self_select(
     category=TDX_MUST_POOL_CATEGORY,
     source=TDX_MUST_POOL_SOURCE,
 ):
-    """Import freshquant.must_pool from the TDX ``待买`` self-select group.
+    """用通达信 DM 待买组覆盖刷新 must_pool。
 
-    Reuses the same TDX ``.blk`` reading/decoding chain as
-    ``sync_stock_pools_from_tdx_self_select``: it reads the 待买 group file,
-    decodes prefixed codes, skips current ``xt_positions`` holdings, and
-    upserts every valid code into ``must_pool`` with a ``tdx_must_pool``
-    membership.
-
-    The group file name is resolved from ``T0002/blocknew/blocknew.cfg`` by the
-    display name ``待买`` (TDX may store it as e.g. ``DM.blk``); when the cfg
-    is missing or the display name is not registered, it falls back to
-    ``T0002/blocknew/待买.blk``.
-
-    Unlike the stock_pools overwrite sync, this is an additive import:
-    existing ``must_pool`` records keep their trading parameters
-    (``stop_loss_price`` / ``initial_lot_amount`` / ``lot_amount``) and are
-    never deleted when they are absent from the TDX group.
+    覆盖同步契约与 stock_pools 相同（文件阻断、完整持仓排除、先批量 upsert 后删除）；
+    差异：
+    - 已有记录保留原交易参数（stop_loss_price / initial_lot_amount / lot_amount）；
+    - 新代码自动解析统一系统默认参数；默认参数不可用时该代码同步失败并在结果中列出，
+      其他有效代码继续同步。
     """
     if not filename:
         filename = resolve_tdx_block_filename(
@@ -342,13 +397,19 @@ def sync_must_pool_from_tdx_self_select(
             display_name=TDX_MUST_POOL_DISPLAY_NAME,
             fallback_filename=TDX_MUST_POOL_FILENAME,
         )
-    codes = read_tdx_self_select_codes(tdx_home=tdx_home, filename=filename)
+    codes = _decode_tdx_block_codes(
+        tdx_home=tdx_home,
+        filename=filename,
+        display_name=TDX_MUST_POOL_DISPLAY_NAME,
+    )
     now = pendulum.now()
     expire_at = now.add(days=int(days or 30))
     synced_codes = []
+    removed_codes = []
     skipped_holding_codes = []
     skipped_invalid_codes = []
-    holding_codes = get_current_stock_holding_codes()
+    failed_codes = []
+    holding_codes = _load_full_holding_codes()
 
     for code in codes:
         if not _is_supported_tdx_stock_pool_code(code):
@@ -359,6 +420,20 @@ def sync_must_pool_from_tdx_self_select(
             continue
 
         existing = DBfreshquant["must_pool"].find_one({"code": code}) or {}
+        has_existing = bool(existing)
+        if has_existing:
+            stop_loss_price = existing.get("stop_loss_price")
+            initial_lot_amount = existing.get("initial_lot_amount")
+            lot_amount = existing.get("lot_amount")
+        else:
+            default_params = resolve_must_pool_default_params(code)
+            if default_params is None:
+                failed_codes.append({"code": code, "reason": "默认止损/资金参数不可用"})
+                continue
+            stop_loss_price = default_params["stop_loss_price"]
+            initial_lot_amount = default_params["initial_lot_amount"]
+            lot_amount = default_params["lot_amount"]
+
         provenance = {
             "sources": [source],
             "categories": [category],
@@ -378,13 +453,24 @@ def sync_must_pool_from_tdx_self_select(
         must_pool.import_pool(
             code=code,
             category=category,
-            stop_loss_price=existing.get("stop_loss_price"),
-            initial_lot_amount=existing.get("initial_lot_amount"),
-            lot_amount=existing.get("lot_amount"),
+            stop_loss_price=stop_loss_price,
+            initial_lot_amount=initial_lot_amount,
+            lot_amount=lot_amount,
             forever=True,
             provenance=provenance,
         )
         synced_codes.append(code)
+
+    # 全部 upsert 成功后再删除旧成员（覆盖语义：must 只以通达信 DM 分组为来源）
+    target_code_set = set(synced_codes)
+    existing_docs = (
+        list(DBfreshquant["must_pool"].find({}, {"code": 1})) if target_code_set else []
+    )
+    for existing in existing_docs:
+        existing_code = _normalize_stock_code6(existing.get("code"))
+        if existing_code and existing_code not in target_code_set:
+            DBfreshquant["must_pool"].delete_one({"code": existing_code})
+            removed_codes.append(existing_code)
 
     return {
         "file_name": filename,
@@ -393,15 +479,61 @@ def sync_must_pool_from_tdx_self_select(
         "source": source,
         "read_count": len(codes),
         "unique_count": len(codes),
+        "source_count": len(codes),
         "synced_count": len(synced_codes),
         "appended_count": len(synced_codes),
+        "removed_count": len(removed_codes),
         "skipped_holding_count": len(skipped_holding_codes),
+        "holding_excluded_count": len(skipped_holding_codes),
         "skipped_invalid_count": len(skipped_invalid_codes),
+        "invalid_count": len(skipped_invalid_codes),
+        "failed_count": len(failed_codes),
         "synced_codes": synced_codes,
         "appended_codes": synced_codes,
+        "removed_codes": removed_codes,
         "skipped_holding_codes": skipped_holding_codes,
+        "holding_excluded_codes": skipped_holding_codes,
         "skipped_invalid_codes": skipped_invalid_codes,
+        "invalid_codes": skipped_invalid_codes,
+        "failed_codes": failed_codes,
     }
+
+
+def resolve_must_pool_default_params(code: str) -> dict | None:
+    """解析 must 新代码的统一系统默认参数。
+
+    - lot_amount 使用现有 get_trade_amount(code)；
+    - initial_lot_amount 默认等于 lot_amount；
+    - stop_loss_price 使用系统正式默认止损配置；
+    - 默认止损未配置时返回 None（调用方将该代码列入同步失败清单）。
+    """
+    lot_amount = get_trade_amount(code)
+    stop_loss_price = _resolve_default_stop_loss_price()
+    if stop_loss_price is None:
+        return None
+    return {
+        "stop_loss_price": stop_loss_price,
+        "initial_lot_amount": lot_amount,
+        "lot_amount": lot_amount,
+    }
+
+
+def _resolve_default_stop_loss_price():
+    """系统正式默认止损配置：``params.guardian.value.stock.stop_loss_default``。"""
+    try:
+        param = DBfreshquant["params"].find_one({"code": "guardian"}) or {}
+        value = (param.get("value") or {}).get("stock") or {}
+        candidate = value.get("stop_loss_default")
+        if candidate is None:
+            candidate = value.get("stop_loss")
+        if candidate is None:
+            return None
+        parsed = float(candidate)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
 
 
 def get_stock_signal_list(page=1, size=1000, category="candidates"):

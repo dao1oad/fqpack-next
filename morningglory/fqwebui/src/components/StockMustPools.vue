@@ -3,7 +3,17 @@
       <div class="workbench-panel__header stock-pool-subview__header">
         <div class="workbench-title-group">
           <div class="workbench-panel__title">必选股票池</div>
-          <p class="workbench-panel__desc">维护必须重点跟踪的股票池，并支持快速跳图与删除。</p>
+          <p class="workbench-panel__desc">以通达信待买组（DM.blk）为唯一来源，覆盖同步并排除持仓。</p>
+        </div>
+        <div>
+          <el-button
+            size="small"
+            type="warning"
+            :loading="mustTdxSyncing"
+            @click="syncMustPoolFromTdx"
+          >
+            同步待买组
+          </el-button>
         </div>
       </div>
       <div class="stock-pool-subview__table">
@@ -41,11 +51,6 @@
           <el-table-column prop="stop_loss_price" label="止损价格"> </el-table-column>
           <el-table-column prop="lot_amount" label="单次买入金额"> </el-table-column>
           <el-table-column prop="created_at" label="时间"> </el-table-column>
-          <el-table-column label="操作">
-              <template #default="scope">
-                <el-button @click="deleteFromStockMustPoolsByCode(scope.row)">删除</el-button>
-              </template>
-          </el-table-column>
         </el-table>
       </div>
       <el-row class="stock-pool-subview__pager">
@@ -75,7 +80,9 @@ import { pollingSlow } from '../lib/queryPolicies.mjs'
 export default {
   name: 'StockMustPools',
   data () {
-    return {}
+    return {
+      mustTdxSyncing: false,
+    }
   },
   setup () {
     const listQuery = reactive({
@@ -125,29 +132,48 @@ export default {
       })
       window.open(routeUrl.href, '_blank')
     },
-    deleteFromStockMustPoolsByCode(stock){
-      stockApi.deleteFromStockMustPoolsByCode(stock.code)
-      .then(res => {
-        if (res.code === '0') {
+    syncMustPoolFromTdx () {
+      this.$confirm('将使用通达信“待买组”覆盖当前待买池，并自动排除持仓股；新代码自动使用系统默认参数。是否继续？', '同步待买组', {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }).then(async () => {
+        this.mustTdxSyncing = true
+        try {
+          const result = await stockApi.syncMustPoolFromTdx({ days: 30 })
+          if (result && String(result.code ?? '0') !== '0') {
+            throw new Error(result.msg || '同步待买组失败')
+          }
+          const summary = result?.data || {}
+          this.refreshStockMustPoolList()
+          let message =
+            '待买组已覆盖同步：同步 ' +
+            (summary.synced_count ?? 0) +
+            '，删除 ' +
+            (summary.removed_count ?? 0) +
+            '，持仓排除 ' +
+            (summary.holding_excluded_count ?? summary.skipped_holding_count ?? 0) +
+            '，无效 ' +
+            (summary.invalid_count ?? summary.skipped_invalid_count ?? 0)
+          if (summary.failed_count > 0) {
+            message +=
+              '，失败 ' +
+              summary.failed_count +
+              '（默认参数不可用）'
+          }
           this.$message({
-            message: '删除成功',
+            message,
             type: 'success'
           })
-          this.listQuery.current = 1
-          this.queryClient.invalidateQueries({ queryKey: ['stockMustPoolList'] })
-        }else{
+        } catch (err) {
           this.$message({
-            message: '删除失败',
+            message: err?.message || '同步待买组失败',
             type: 'error'
           })
+        } finally {
+          this.mustTdxSyncing = false
         }
-      })
-      .catch(err => {
-        this.$message({
-          message: '删除失败',
-          type: 'error'
-        })
-      })
+      }).catch(() => {})
     }
   }
 }

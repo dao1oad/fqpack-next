@@ -328,51 +328,8 @@ def test_resolve_gantt_backfill_trade_dates_returns_empty_when_no_gap(monkeypatc
         lambda collection_name, start_date, end_date: {"2026-03-06"},
         raising=False,
     )
-    monkeypatch.setattr(
-        ops,
-        "_has_legacy_shouban30_snapshot",
-        lambda trade_date: False,
-        raising=False,
-    )
 
     assert ops.resolve_gantt_backfill_trade_dates() == []
-
-
-def test_resolve_gantt_backfill_trade_dates_returns_latest_day_when_no_gap_but_shouban30_is_legacy(
-    monkeypatch,
-):
-    ops = _load_ops_module(monkeypatch)
-
-    monkeypatch.setattr(ops, "_query_latest_trade_date", lambda: "2026-03-06")
-    monkeypatch.setattr(
-        ops, "_query_latest_completed_gantt_trade_date", lambda: "2026-03-06"
-    )
-    monkeypatch.setattr(
-        ops,
-        "_query_recent_trade_dates",
-        lambda end_date, days: ["2026-03-06"],
-        raising=False,
-    )
-    monkeypatch.setattr(
-        ops,
-        "_query_collection_trade_dates",
-        lambda collection_name, start_date, end_date: {"2026-03-06"},
-        raising=False,
-    )
-    monkeypatch.setattr(
-        ops,
-        "_query_non_empty_collection_trade_dates",
-        lambda collection_name, start_date, end_date: {"2026-03-06"},
-        raising=False,
-    )
-    monkeypatch.setattr(
-        ops,
-        "_has_legacy_shouban30_snapshot",
-        lambda trade_date: trade_date == "2026-03-06",
-        raising=False,
-    )
-
-    assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-06"]
 
 
 def test_resolve_gantt_backfill_trade_dates_returns_incremental_window(monkeypatch):
@@ -498,13 +455,6 @@ def test_resolve_gantt_backfill_trade_dates_rechecks_recent_jygs_holes(monkeypat
         }.get(collection_name, set()),
         raising=False,
     )
-    monkeypatch.setattr(
-        ops,
-        "_has_legacy_shouban30_snapshot",
-        lambda trade_date: False,
-        raising=False,
-    )
-
     assert ops.resolve_gantt_backfill_trade_dates() == [
         "2026-03-04",
         "2026-03-06",
@@ -597,13 +547,6 @@ def test_resolve_gantt_backfill_trade_dates_retries_upstream_mismatch_markers(
         lambda end_date, days: ["2026-03-05"],
         raising=False,
     )
-    monkeypatch.setattr(
-        ops,
-        "_has_legacy_shouban30_snapshot",
-        lambda trade_date: False,
-        raising=False,
-    )
-
     assert ops.resolve_gantt_backfill_trade_dates() == ["2026-03-05"]
 
 
@@ -700,14 +643,6 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
         "refresh_quality_stock_universe",
         lambda: calls.append(("quality_stock_universe",)) or {"count": 2},
     )
-    monkeypatch.setattr(
-        ops,
-        "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
-            ("shouban30", trade_date, stock_window_days)
-        )
-        or {"as_of_date": trade_date},
-    )
 
     assert ops.run_gantt_backfill(context) == ["2026-03-04", "2026-03-05"]
     assert calls == [
@@ -717,20 +652,12 @@ def test_run_gantt_backfill_executes_each_trade_date_in_order(monkeypatch):
         ("gantt", "2026-03-04"),
         ("stock_hot_reason", "2026-03-04"),
         ("quality_stock_universe",),
-        ("shouban30", "2026-03-04", 30),
-        ("shouban30", "2026-03-04", 45),
-        ("shouban30", "2026-03-04", 60),
-        ("shouban30", "2026-03-04", 90),
         ("xgb", "2026-03-05"),
         ("jygs", "2026-03-05"),
         ("plate_reason", "2026-03-05"),
         ("gantt", "2026-03-05"),
         ("stock_hot_reason", "2026-03-05"),
         ("quality_stock_universe",),
-        ("shouban30", "2026-03-05", 30),
-        ("shouban30", "2026-03-05", 45),
-        ("shouban30", "2026-03-05", 60),
-        ("shouban30", "2026-03-05", 90),
     ]
 
 
@@ -782,14 +709,6 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
         "refresh_quality_stock_universe",
         lambda: calls.append(("quality_stock_universe",)) or {"count": 2},
     )
-    monkeypatch.setattr(
-        ops,
-        "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
-            ("shouban30", trade_date, stock_window_days)
-        )
-        or {"as_of_date": trade_date},
-    )
 
     with pytest.raises(RuntimeError, match="boom"):
         ops.run_gantt_backfill(context)
@@ -801,74 +720,11 @@ def test_run_gantt_backfill_stops_on_first_failed_trade_date(monkeypatch):
         ("gantt", "2026-03-04"),
         ("stock_hot_reason", "2026-03-04"),
         ("quality_stock_universe",),
-        ("shouban30", "2026-03-04", 30),
-        ("shouban30", "2026-03-04", 45),
-        ("shouban30", "2026-03-04", 60),
-        ("shouban30", "2026-03-04", 90),
         ("xgb", "2026-03-05"),
         ("jygs", "2026-03-05"),
         ("plate_reason", "2026-03-05"),
         ("gantt", "2026-03-05"),
     ]
-
-
-def test_op_build_shouban30_daily_builds_all_stock_window_days(monkeypatch):
-    ops = _load_ops_module(monkeypatch)
-    context = _build_context()
-    calls = []
-
-    monkeypatch.setattr(
-        ops,
-        "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: calls.append(
-            (trade_date, stock_window_days)
-        )
-        or {"as_of_date": trade_date, "stock_window_days": stock_window_days},
-    )
-
-    result = list(ops.op_build_shouban30_daily(context, "2026-03-05"))
-    payload = _collect_output_value(result)
-
-    assert calls == [
-        ("2026-03-05", 30),
-        ("2026-03-05", 45),
-        ("2026-03-05", 60),
-        ("2026-03-05", 90),
-    ]
-    assert payload["trade_date"] == "2026-03-05"
-    assert payload["windows"] == [30, 45, 60, 90]
-
-
-def test_build_shouban30_snapshots_for_date_shares_chanlun_result_cache(monkeypatch):
-    ops = _load_ops_module(monkeypatch)
-    context = _build_context()
-    cache_refs = []
-
-    def persist_shouban30_for_date_stub(
-        trade_date, stock_window_days=30, chanlun_result_cache=None
-    ):
-        cache_refs.append((trade_date, stock_window_days, chanlun_result_cache))
-        return {"as_of_date": trade_date, "stock_window_days": stock_window_days}
-
-    monkeypatch.setattr(
-        ops, "persist_shouban30_for_date", persist_shouban30_for_date_stub
-    )
-
-    result = ops._build_shouban30_snapshots_for_date(context, "2026-03-05")
-
-    assert result["windows"] == [30, 45, 60, 90]
-    assert [item[:2] for item in cache_refs] == [
-        ("2026-03-05", 30),
-        ("2026-03-05", 45),
-        ("2026-03-05", 60),
-        ("2026-03-05", 90),
-    ]
-    assert len({id(item[2]) for item in cache_refs}) == 1
-    assert isinstance(cache_refs[0][2], dict)
-
-
-def test_trade_date_sync_ops_use_explicit_input(monkeypatch):
-    ops = _load_ops_module(monkeypatch)
     context = _build_context()
     calls = []
 
@@ -917,319 +773,6 @@ def test_op_sync_jygs_action_for_trade_date_requires_result_trade_date(monkeypat
         list(ops.op_sync_jygs_action_for_trade_date(context, "2026-03-05"))
 
 
-def test_has_legacy_shouban30_snapshot_detects_missing_chanlun_filter_version(
-    monkeypatch,
-):
-    ops = _load_ops_module(monkeypatch)
-
-    class FakeCollection:
-        def __init__(self, docs):
-            self.docs = list(docs)
-
-        def count_documents(self, query):
-            return len(self.find(query))
-
-        def distinct(self, field, query):
-            return list({doc[field] for doc in self.find(query) if field in doc})
-
-        def find(self, query, projection=None):
-            return [
-                doc
-                for doc in self.docs
-                if all(doc.get(key) == value for key, value in query.items())
-            ]
-
-    monkeypatch.setattr(
-        ops,
-        "DBGantt",
-        {
-            ops.COL_SHOUBAN30_PLATES: FakeCollection(
-                [
-                    {"as_of_date": "2026-03-05", "stock_window_days": 30},
-                    {"as_of_date": "2026-03-05", "stock_window_days": 45},
-                    {"as_of_date": "2026-03-05", "stock_window_days": 60},
-                    {"as_of_date": "2026-03-05", "stock_window_days": 90},
-                ]
-            )
-        },
-    )
-
-    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
-
-
-def test_has_legacy_shouban30_snapshot_detects_mixed_legacy_and_new_rows(monkeypatch):
-    ops = _load_ops_module(monkeypatch)
-
-    class FakeCollection:
-        def __init__(self, docs):
-            self.docs = list(docs)
-
-        def count_documents(self, query):
-            return len(self.find(query))
-
-        def distinct(self, field, query):
-            return list({doc[field] for doc in self.find(query) if field in doc})
-
-        def find(self, query, projection=None):
-            return [
-                doc
-                for doc in self.docs
-                if all(doc.get(key) == value for key, value in query.items())
-            ]
-
-    monkeypatch.setattr(
-        ops,
-        "DBGantt",
-        {
-            ops.COL_SHOUBAN30_PLATES: FakeCollection(
-                [
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 30,
-                        "chanlun_filter_version": "30m_v1",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "plate_key": "legacy-missing-fields",
-                    },
-                ]
-            )
-        },
-    )
-
-    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
-
-
-def test_has_legacy_shouban30_snapshot_detects_missing_extra_filter_stock_fields(
-    monkeypatch,
-):
-    ops = _load_ops_module(monkeypatch)
-
-    class FakeCollection:
-        def __init__(self, docs):
-            self.docs = list(docs)
-
-        def find(self, query, projection=None):
-            return [
-                doc
-                for doc in self.docs
-                if all(doc.get(key) == value for key, value in query.items())
-            ]
-
-    monkeypatch.setattr(
-        ops,
-        "DBGantt",
-        {
-            ops.COL_SHOUBAN30_PLATES: FakeCollection(
-                [
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 30,
-                        "chanlun_filter_version": "30m_v1",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 45,
-                        "chanlun_filter_version": "30m_v1",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 60,
-                        "chanlun_filter_version": "30m_v1",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 90,
-                        "chanlun_filter_version": "30m_v1",
-                    },
-                ]
-            ),
-            ops.COL_SHOUBAN30_PLATES.replace("plates", "stocks"): FakeCollection(
-                [
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 30,
-                        "provider": "xgb",
-                        "plate_key": "11",
-                        "code6": "000001",
-                        "chanlun_filter_version": "30m_v1",
-                    }
-                ]
-            ),
-        },
-    )
-
-    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
-
-
-def test_has_legacy_shouban30_snapshot_detects_pre_143_trading_day_window_semantics(
-    monkeypatch,
-):
-    ops = _load_ops_module(monkeypatch)
-
-    class FakeCollection:
-        def __init__(self, docs):
-            self.docs = list(docs)
-
-        def find(self, query, projection=None):
-            return [
-                doc
-                for doc in self.docs
-                if all(doc.get(key) == value for key, value in query.items())
-            ]
-
-    monkeypatch.setattr(
-        ops,
-        "DBGantt",
-        {
-            ops.COL_SHOUBAN30_PLATES: FakeCollection(
-                [
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 30,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2026-01-23",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-01-23",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 45,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2026-01-21",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-02-25",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 60,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2026-01-05",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-03-03",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 90,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2025-12-06",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-03-04",
-                    },
-                ]
-            ),
-            ops.COL_SHOUBAN30_PLATES.replace("plates", "stocks"): FakeCollection(
-                [
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 30,
-                        "provider": "xgb",
-                        "plate_key": "11",
-                        "code6": "000001",
-                        "chanlun_filter_version": "30m_v1",
-                        "is_credit_subject": False,
-                        "credit_subject_snapshot_ready": True,
-                        "near_long_term_ma_passed": False,
-                        "is_quality_subject": False,
-                        "quality_subject_snapshot_ready": False,
-                    }
-                ]
-            ),
-        },
-    )
-
-    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is True
-
-
-def test_has_legacy_shouban30_snapshot_accepts_stock_rows_with_extra_filter_fields(
-    monkeypatch,
-):
-    ops = _load_ops_module(monkeypatch)
-
-    class FakeCollection:
-        def __init__(self, docs):
-            self.docs = list(docs)
-
-        def find(self, query, projection=None):
-            return [
-                doc
-                for doc in self.docs
-                if all(doc.get(key) == value for key, value in query.items())
-            ]
-
-    monkeypatch.setattr(
-        ops,
-        "DBGantt",
-        {
-            ops.COL_SHOUBAN30_PLATES: FakeCollection(
-                [
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 30,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2026-02-04",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-03-04",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 45,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2026-01-20",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-03-04",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 60,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2026-01-05",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-03-04",
-                    },
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 90,
-                        "chanlun_filter_version": "30m_v1",
-                        "stock_window_from": "2025-12-06",
-                        "stock_window_to": "2026-03-05",
-                        "seg_to": "2026-03-04",
-                    },
-                ]
-            ),
-            ops.COL_SHOUBAN30_PLATES.replace("plates", "stocks"): FakeCollection(
-                [
-                    {
-                        "as_of_date": "2026-03-05",
-                        "stock_window_days": 30,
-                        "provider": "xgb",
-                        "plate_key": "11",
-                        "code6": "000001",
-                        "chanlun_filter_version": "30m_v1",
-                        "is_credit_subject": False,
-                        "credit_subject_snapshot_ready": True,
-                        "near_long_term_ma_passed": False,
-                        "is_quality_subject": False,
-                        "quality_subject_snapshot_ready": False,
-                    }
-                ]
-            ),
-        },
-    )
-
-    assert ops._has_legacy_shouban30_snapshot("2026-03-05") is False
-
-
-def test_job_gantt_postclose_uses_multi_op_graph(monkeypatch):
-    jobs = _load_jobs_module(monkeypatch)
-
-    node_names = {node.name for node in jobs.job_gantt_postclose.graph.node_defs}
-
-    assert "op_run_gantt_postclose_incremental" not in node_names
-    assert "op_resolve_pending_gantt_trade_dates" in node_names
-    assert "op_mark_gantt_postclose_ready" in node_names
-
-
 def test_op_resolve_pending_gantt_trade_dates_yields_dynamic_outputs(monkeypatch):
     ops = _load_ops_module(monkeypatch)
     context = _build_context()
@@ -1264,11 +807,8 @@ def test_job_gantt_postclose_daily_pipeline_dependencies(monkeypatch):
     }
     assert dependency_map["op_build_gantt_daily"] == {"op_build_plate_reason_daily"}
     assert dependency_map["op_build_stock_hot_reason_daily"] == {"op_build_gantt_daily"}
-    assert dependency_map["op_build_shouban30_daily"] == {
-        "op_build_stock_hot_reason_daily"
-    }
     assert dependency_map["op_mark_gantt_postclose_ready"] == {
-        "op_build_shouban30_daily"
+        "op_build_stock_hot_reason_daily"
     }
 
 
@@ -1316,7 +856,8 @@ def test_op_mark_gantt_postclose_ready_writes_marker(monkeypatch):
             context,
             {
                 "trade_date": "2026-03-19",
-                "windows": [30, 45, 60, 90],
+                "row_count": 7,
+                "version": "stock_hot_reason_daily_v1",
             },
         )
     )
@@ -1327,7 +868,13 @@ def test_op_mark_gantt_postclose_ready_writes_marker(monkeypatch):
             "pipeline_key": "gantt_postclose_ready",
             "trade_date": "2026-03-19",
             "run_id": "",
-            "payload": {"windows": [30, 45, 60, 90]},
+            "payload": {
+                "trade_date": "2026-03-19",
+                "hot_reason_ready": True,
+                "hot_reason_row_count": 7,
+                "hot_reason_version": "stock_hot_reason_daily_v1",
+                "shouban30_removed": True,
+            },
         }
     ]
 
@@ -1371,48 +918,6 @@ def test_op_sync_xgb_history_for_trade_date_logs_stage_start_and_done(monkeypatc
     )
     assert any(
         "gantt postclose event=done stage=sync_xgb_history trade_date=2026-03-05 rows=12"
-        in message
-        for message in messages
-    )
-
-
-def test_op_build_shouban30_daily_logs_window_progress_and_summary(monkeypatch):
-    ops = _load_ops_module(monkeypatch)
-    context = _build_context()
-
-    monkeypatch.setattr(
-        ops,
-        "persist_shouban30_for_date",
-        lambda trade_date, stock_window_days=30, chanlun_result_cache=None: {
-            "as_of_date": trade_date,
-            "plates": stock_window_days // 15,
-            "stocks": stock_window_days,
-            "stock_window_days": stock_window_days,
-        },
-    )
-
-    result = list(ops.op_build_shouban30_daily(context, "2026-03-05"))
-    messages = _collect_messages(result)
-    payload = _collect_output_value(result)
-
-    assert payload["trade_date"] == "2026-03-05"
-    assert any(
-        "gantt postclose event=start stage=build_shouban30 trade_date=2026-03-05"
-        in message
-        for message in messages
-    )
-    assert any(
-        "gantt postclose event=progress stage=build_shouban30 trade_date=2026-03-05 stock_window_days=30 status=start"
-        in message
-        for message in messages
-    )
-    assert any(
-        "gantt postclose event=progress stage=build_shouban30 trade_date=2026-03-05 stock_window_days=90 status=done plates=6 stocks=90"
-        in message
-        for message in messages
-    )
-    assert any(
-        "gantt postclose event=done stage=build_shouban30 trade_date=2026-03-05 windows=30,45,60,90"
         in message
         for message in messages
     )

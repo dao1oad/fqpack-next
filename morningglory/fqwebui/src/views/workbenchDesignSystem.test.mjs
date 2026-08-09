@@ -23,7 +23,6 @@ const stockPoolsSource = readSource('../components/StockPools.vue')
 const ganttSource = readSource('./GanttUnified.vue')
 const ganttStocksSource = readSource('./GanttUnifiedStocks.vue')
 const systemSettingsSource = readSource('./SystemSettings.vue')
-const shoubanSource = readSource('./GanttShouban30Phase1.vue')
 const klineBigSource = readSource('./KlineBig.vue')
 const multiPeriodSource = readSource('./MultiPeriod.vue')
 
@@ -268,30 +267,18 @@ test('SubjectManagement.vue consumes shared workbench page toolbar and panel pri
   assert.match(subjectSource, /<WorkbenchDetailPanel class="subject-editor-table-panel">/)
 })
 
-test('DailyScreening.vue reuses StatusChip for toolbar guide summary and detail membership chips', () => {
+test('DailyScreening.vue reuses StatusChip for the workbench pre-sync status', () => {
   assert.match(dailySource, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
-  assert.match(dailySource, /<StatusChip[\s\S]*v-for="line in workbenchGuideLines"[\s\S]*variant="muted"/)
-  assert.match(dailySource, /<StatusChip variant="muted">\s*当前 scope <strong>\{\{\s*selectedScopeLabel\s*\}\}<\/strong>/)
-  assert.match(dailySource, /<StatusChip variant="success">\s*基础池 <strong>\{\{\s*scopeSummary\?\.stock_count \?\? 0\s*\}\}<\/strong>/)
-  assert.match(dailySource, /<StatusChip variant="warning">\s*当前结果 <strong>\{\{\s*resultRows\.length\s*\}\}<\/strong>/)
-  assert.match(dailySource, /<StatusChip[\s\S]*v-for="item in detail\.clsMemberships"[\s\S]*variant="muted"/)
-  assert.match(dailySource, /<StatusChip[\s\S]*v-for="item in detail\.hotMemberships"[\s\S]*variant="warning"/)
-  assert.match(dailySource, /<StatusChip[\s\S]*v-for="item in detail\.marketFlagMemberships"[\s\S]*variant="success"/)
-  assert.match(dailySource, /<StatusChip[\s\S]*:variant="detailBasePoolStatus\.inBasePool \? 'success' : 'warning'"/)
+  assert.match(dailySource, /<StatusChip variant="info">\{\{\s*preStatusLabel\(\)\s*\}\}<\/StatusChip>/)
 })
 
-test('DailyScreening.vue consumes shared workbench page toolbar and panel primitives for the filter result and detail workspace', () => {
+test('DailyScreening.vue consumes shared workbench page primitives and the three compact panels', () => {
   assert.match(dailySource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
-  assert.match(dailySource, /import WorkbenchToolbar from ['"][^'"]*WorkbenchToolbar\.vue['"]/)
-  assert.match(dailySource, /import WorkbenchSidebarPanel from ['"][^'"]*WorkbenchSidebarPanel\.vue['"]/)
-  assert.match(dailySource, /import WorkbenchLedgerPanel from ['"][^'"]*WorkbenchLedgerPanel\.vue['"]/)
-  assert.match(dailySource, /import WorkbenchDetailPanel from ['"][^'"]*WorkbenchDetailPanel\.vue['"]/)
-  assert.match(dailySource, /<WorkbenchPage class="daily-screening-page">/)
-  assert.match(dailySource, /<WorkbenchToolbar class="daily-screening-toolbar">/)
-  assert.match(dailySource, /<WorkbenchSidebarPanel class="daily-filter-panel"/)
-  assert.match(dailySource, /<WorkbenchLedgerPanel class="daily-results-panel"/)
-  assert.match(dailySource, /<WorkbenchLedgerPanel class="daily-workspace-panel"/)
-  assert.match(dailySource, /<WorkbenchDetailPanel class="daily-detail-overview-panel"/)
+  assert.match(dailySource, /import ClxResultPanel from '\.\.\/components\/clx-workbench\/ClxResultPanel\.vue'/)
+  assert.match(dailySource, /import ClxEvaluationPanel from '\.\.\/components\/clx-workbench\/ClxEvaluationPanel\.vue'/)
+  assert.match(dailySource, /import PoolWorkspacePanel from '\.\.\/components\/clx-workbench\/PoolWorkspacePanel\.vue'/)
+  assert.match(dailySource, /<WorkbenchPage class="clx-workbench-page">/)
+  assert.match(dailySource, /class="clx-workbench-grid"/)
 })
 
 test('KlineSlim.vue reuses StatusChip for toolbar, overlay summaries and chanlun summary rows', () => {
@@ -374,25 +361,6 @@ test('SystemSettings.vue reuses shared workbench page toolbar and status chip pr
   assert.match(systemSettingsSource, /<StatusChip class="settings-inline-chip" :variant="restartModeChipVariant\(row\.restart_required\)">/)
   assert.match(systemSettingsSource, /<StatusChip class="settings-inline-chip is-source" variant="info"/)
   assert.match(systemSettingsSource, /<StatusChip class="settings-inline-chip" :variant="stateChipVariant\(row\)">/)
-})
-
-test('GanttShouban30Phase1.vue reuses shared workbench toolbar and panel primitives and no longer relies on provider el-tabs', () => {
-  assert.match(shoubanSource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
-  assert.match(shoubanSource, /import WorkbenchToolbar from ['"][^'"]*WorkbenchToolbar\.vue['"]/)
-  assert.match(shoubanSource, /import WorkbenchLedgerPanel from ['"][^'"]*WorkbenchLedgerPanel\.vue['"]/)
-  assert.match(shoubanSource, /import WorkbenchSidebarPanel from ['"][^'"]*WorkbenchSidebarPanel\.vue['"]/)
-  assert.match(shoubanSource, /import WorkbenchDetailPanel from ['"][^'"]*WorkbenchDetailPanel\.vue['"]/)
-  assert.match(shoubanSource, /import StatusChip from ['"][^'"]*StatusChip\.vue['"]/)
-  assert.match(shoubanSource, /<WorkbenchPage class="shouban30-page shouban30-shell">/)
-  assert.match(shoubanSource, /<WorkbenchToolbar class="shouban30-toolbar">/)
-  assert.match(shoubanSource, /<WorkbenchSidebarPanel class="shouban30-panel shouban30-panel--plates">/)
-  assert.match(shoubanSource, /<WorkbenchLedgerPanel class="shouban30-panel shouban30-panel--stocks">/)
-  assert.match(shoubanSource, /<WorkbenchDetailPanel class="shouban30-panel shouban30-panel--detail">/)
-  assert.match(shoubanSource, /<WorkbenchLedgerPanel class="shouban30-panel shouban30-panel--workspace">/)
-  assert.match(shoubanSource, /<el-radio-group[\s\S]*:model-value="activeViewProvider"/)
-  assert.match(shoubanSource, /<el-radio-button[\s\S]*v-for="option in VIEW_PROVIDER_OPTIONS"/)
-  assert.doesNotMatch(shoubanSource, /<el-tabs[\s\S]*class="provider-tabs"/)
-  assert.doesNotMatch(shoubanSource, /<section class="panel-card"/)
 })
 
 test('MyHeader.vue renders navigation from grouped metadata instead of hardcoded buttons', () => {

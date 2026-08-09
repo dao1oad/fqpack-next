@@ -996,7 +996,7 @@ export default {
       }
       this.stockPoolsTdxSyncing = true
       try {
-        const result = await stockApi.syncStockPoolsFromTdxSelfSelect({ days: 30 })
+        const result = await stockApi.syncStockPoolsFromTdx({ days: 30 })
         if (result && String(result.code ?? '0') !== '0') {
           throw new Error(result.msg || 'sync_stock_pools_from_tdx_self_select failed')
         }
@@ -1022,7 +1022,7 @@ export default {
       }
       this.mustPoolTdxSyncing = true
       try {
-        const result = await stockApi.syncMustPoolFromTdxSelfSelect({ days: 30 })
+        const result = await stockApi.syncMustPoolFromTdx({ days: 30 })
         if (result && String(result.code ?? '0') !== '0') {
           throw new Error(result.msg || 'sync_must_pool_from_tdx_self_select failed')
         }

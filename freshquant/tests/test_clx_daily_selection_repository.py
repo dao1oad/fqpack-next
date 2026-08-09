@@ -10,6 +10,7 @@ from freshquant.clx_daily_selection.repository import (
     COMPLETED_PARTITION_QUERY,
     PUBLISHED_FINAL_QUERY,
     ClxDailySelectionRepository,
+    classify_direction_mode,
 )
 
 
@@ -242,6 +243,120 @@ def test_snapshot_query_applies_direction_filter_in_mongo_contract():
 
     assert page == {"rows": [], "total": 0, "next_cursor": None}
     assert repository.snapshots.last_query["directions"] == {"$in": ["buy"]}
+
+
+def test_snapshot_query_direction_mode_pure_buy_excludes_mixed_and_sell():
+    repository = ClxDailySelectionRepository.__new__(ClxDailySelectionRepository)
+    repository.snapshots = CapturingCollection(
+        [
+            {"symbol": "600000", "directions": ["buy"], "distinct_model_count": 2},
+            {"symbol": "600001", "directions": ["sell"], "distinct_model_count": 2},
+            {
+                "symbol": "600002",
+                "directions": ["buy", "sell"],
+                "distinct_model_count": 2,
+            },
+            {"symbol": "600003", "directions": [], "distinct_model_count": 2},
+        ]
+    )
+
+    page = repository.query_snapshots(
+        ["partition-stock"],
+        {"direction_mode": "pure_buy", "limit": 50},
+    )
+
+    assert [row["symbol"] for row in page["rows"]] == ["600000"]
+    assert page["total"] == 1
+
+
+@pytest.mark.parametrize(
+    ("direction_mode", "expected"),
+    [
+        ("pure_sell", ["600001"]),
+        ("mixed", ["600002"]),
+        ("no_signal", ["600003"]),
+        ("all", ["600000", "600001", "600002", "600003"]),
+    ],
+)
+def test_snapshot_query_direction_mode_classification(direction_mode, expected):
+    repository = ClxDailySelectionRepository.__new__(ClxDailySelectionRepository)
+    repository.snapshots = CapturingCollection(
+        [
+            {"symbol": "600000", "directions": ["buy"], "distinct_model_count": 1},
+            {"symbol": "600001", "directions": ["sell"], "distinct_model_count": 1},
+            {
+                "symbol": "600002",
+                "directions": ["buy", "sell"],
+                "distinct_model_count": 1,
+            },
+            {"symbol": "600003", "directions": [], "distinct_model_count": 1},
+        ]
+    )
+
+    page = repository.query_snapshots(
+        ["partition-stock"],
+        {"direction_mode": direction_mode, "limit": 50},
+    )
+
+    assert [row["symbol"] for row in page["rows"]] == expected
+
+
+@pytest.mark.parametrize(
+    "direction_mode",
+    ["has_buy", "unknown", ""],
+)
+def test_snapshot_query_rejects_unknown_direction_mode(direction_mode):
+    repository = ClxDailySelectionRepository.__new__(ClxDailySelectionRepository)
+    repository.snapshots = CapturingCollection()
+
+    if not direction_mode:
+        page = repository.query_snapshots(
+            ["partition-stock"],
+            {"direction_mode": direction_mode, "limit": 50},
+        )
+        assert page == {"rows": [], "total": 0, "next_cursor": None}
+        return
+    with pytest.raises(ValueError, match="unsupported direction_mode"):
+        repository.query_snapshots(
+            ["partition-stock"],
+            {"direction_mode": direction_mode, "limit": 50},
+        )
+
+
+def test_classify_direction_mode_ignores_unknown_values():
+    # 未知方向（hold/空白）不参与判定，不会造成 mixed 误判
+    assert classify_direction_mode(["buy", "hold"]) == "pure_buy"
+    assert classify_direction_mode(["sell", ""]) == "pure_sell"
+    assert classify_direction_mode(["buy", "sell", "hold"]) == "mixed"
+    assert classify_direction_mode(["hold"]) == "no_signal"
+    assert classify_direction_mode([None, " "]) == "no_signal"
+    assert classify_direction_mode(["BUY"]) == "no_signal"
+
+
+def test_snapshot_query_direction_mode_filters_before_pagination():
+    repository = ClxDailySelectionRepository.__new__(ClxDailySelectionRepository)
+    rows = []
+    for index in range(1, 31):
+        direction = "buy" if index % 3 else "sell"
+        rows.append(
+            {
+                "symbol": f"600{index:03d}",
+                "directions": [direction],
+                "distinct_model_count": 1,
+            }
+        )
+    repository.snapshots = CapturingCollection(rows)
+
+    page = repository.query_snapshots(
+        ["partition-stock"],
+        {"direction_mode": "pure_buy", "limit": 5},
+    )
+
+    # pure_buy 只有 20 行；过滤必须发生在分页切片之前，
+    # 否则第一页会漏数或出现短页。
+    assert page["total"] == 20
+    assert len(page["rows"]) == 5
+    assert page["next_cursor"] == "5"
 
 
 def test_snapshot_query_applies_exact_tristate_line_filters():

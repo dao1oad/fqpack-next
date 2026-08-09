@@ -91,10 +91,10 @@ test('KlineSlim stock_pools sidebar can sync TDX self-select symbols', () => {
   assert.match(viewSource, /@click\.stop="syncStockPoolsFromTdxSelfSelect"/)
   assert.match(scriptSource, /stockPoolsTdxSyncing: false/)
   assert.match(scriptSource, /async syncStockPoolsFromTdxSelfSelect\(\)/)
-  assert.match(scriptSource, /stockApi\.syncStockPoolsFromTdxSelfSelect\(\{ days: 30 \}\)/)
+  assert.match(scriptSource, /stockApi\.syncStockPoolsFromTdx\(\{ days: 30 \}\)/)
   assert.match(scriptSource, /await this\.loadStockPools\(\)/)
-  assert.match(apiSource, /syncStockPoolsFromTdxSelfSelect/)
-  assert.match(apiSource, /\/api\/sync_stock_pools_from_tdx_self_select/)
+  assert.match(apiSource, /syncStockPoolsFromTdx/)
+  assert.match(apiSource, /\/api\/pools\/stock\/sync-from-tdx/)
 })
 
 test('KlineSlim must_pool sidebar can import TDX 待买 group', () => {
@@ -107,10 +107,10 @@ test('KlineSlim must_pool sidebar can import TDX 待买 group', () => {
   assert.match(viewSource, /@click\.stop="syncMustPoolFromTdxSelfSelect"/)
   assert.match(scriptSource, /mustPoolTdxSyncing: false/)
   assert.match(scriptSource, /async syncMustPoolFromTdxSelfSelect\(\)/)
-  assert.match(scriptSource, /stockApi\.syncMustPoolFromTdxSelfSelect\(\{ days: 30 \}\)/)
+  assert.match(scriptSource, /stockApi\.syncMustPoolFromTdx\(\{ days: 30 \}\)/)
   assert.match(scriptSource, /await this\.loadMustPools\(\)/)
-  assert.match(apiSource, /syncMustPoolFromTdxSelfSelect/)
-  assert.match(apiSource, /\/api\/sync_must_pool_from_tdx_self_select/)
+  assert.match(apiSource, /syncMustPoolFromTdx/)
+  assert.match(apiSource, /\/api\/pools\/must\/sync-from-tdx/)
 })
 
 test('KlineSlim page script delegates lifecycle hooks and orchestration to a dedicated controller module', () => {

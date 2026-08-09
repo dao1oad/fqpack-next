@@ -9,8 +9,7 @@
     "lint": "eslint --ext .js,.mjs,.vue src tests",
     "test:unit": "node ./scripts/run-node-tests.mjs",
     "test:unit:all": "node ./scripts/run-node-tests.mjs --include-known-red",
-    "test:browser-smoke": "node ./scripts/run-browser-smoke.mjs",
-    "test:shouban30": "node --test src/views/shouban30Aggregation.test.mjs src/views/shouban30PoolWorkspace.test.mjs"
+    "test:browser-smoke": "node ./scripts/run-browser-smoke.mjs"
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.92.9",

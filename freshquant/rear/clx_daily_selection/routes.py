@@ -146,6 +146,7 @@ def get_results(batch_id: str):
                 request.args.get("condition_keys") or request.args.get("conditionKeys")
             ),
             "directions": _csv(request.args.get("directions")),
+            "direction_mode": str(request.args.get("direction_mode") or "").strip(),
             "q": str(request.args.get("q") or "").strip(),
             "min_model_count": _as_int(
                 request.args.get("min_model_count")
@@ -159,6 +160,56 @@ def get_results(batch_id: str):
         }
     try:
         return jsonify(_get_service().query_results(batch_id, payload))
+    except ValueError as exc:
+        return _invalid_request(exc)
+
+
+@clx_daily_selection_bp.get("/official")
+def get_official_ready():
+    """当前 ready marker generation 的正式选股结果（默认 pure_buy）。
+
+    ready marker 是 pre 自动落池和工作台左栏的唯一 generation 锚点；
+    本接口不把“任意 final 批次”或“最后创建的批次”当作正式结果。
+    """
+    try:
+        return jsonify(
+            _get_service().get_official_ready(
+                trade_date=str(
+                    request.args.get("trade_date")
+                    or request.args.get("tradeDate")
+                    or ""
+                ).strip()
+                or None,
+                payload={
+                    "asset_types": _csv(
+                        request.args.get("asset_types")
+                        or request.args.get("assetTypes")
+                    ),
+                    "model_keys": _csv(
+                        request.args.get("model_keys") or request.args.get("modelKeys")
+                    ),
+                    "condition_keys": _csv(
+                        request.args.get("condition_keys")
+                        or request.args.get("conditionKeys")
+                    ),
+                    "direction_mode": str(
+                        request.args.get("direction_mode") or "pure_buy"
+                    ).strip(),
+                    "q": str(request.args.get("q") or "").strip(),
+                    "min_model_count": _as_int(
+                        request.args.get("min_model_count")
+                        or request.args.get("minModelCount"),
+                        1,
+                        minimum=0,
+                        maximum=18,
+                    ),
+                    "cursor": str(request.args.get("cursor") or "").strip(),
+                    "limit": _as_int(
+                        request.args.get("limit"), 50, minimum=1, maximum=200
+                    ),
+                },
+            )
+        )
     except ValueError as exc:
         return _invalid_request(exc)
 

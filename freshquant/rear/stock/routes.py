@@ -418,8 +418,9 @@ def get_stock_pools_list():
     return jsonify(pools_list)
 
 
-@stock_bp.route("/sync_stock_pools_from_tdx_self_select", methods=["POST"])
-def sync_stock_pools_from_tdx_self_select():
+@stock_bp.route("/pools/stock/sync-from-tdx", methods=["POST"])
+def sync_stock_pools_from_tdx():
+    """用通达信 ZXG 自选股覆盖刷新 stock_pools（排除完整持仓）。"""
     try:
         days = int(request.args.get("days", "30"))
         result = _get_stock_service().sync_stock_pools_from_tdx_self_select(days=days)
@@ -441,8 +442,9 @@ def sync_stock_pools_from_tdx_self_select():
     return jsonify({"code": "0", "msg": "操作成功", "data": result})
 
 
-@stock_bp.route("/sync_must_pool_from_tdx_self_select", methods=["POST"])
-def sync_must_pool_from_tdx_self_select():
+@stock_bp.route("/pools/must/sync-from-tdx", methods=["POST"])
+def sync_must_pool_from_tdx():
+    """用通达信 DM 待买组覆盖刷新 must_pool（排除完整持仓，新代码自动补默认参数）。"""
     try:
         days = int(request.args.get("days", "30"))
         result = _get_stock_service().sync_must_pool_from_tdx_self_select(days=days)
@@ -574,46 +576,6 @@ def get_stock_must_pools_list():
     return jsonify(pools_list)
 
 
-# 从预选股票池中添加股票到股票池中
-@stock_bp.route("/add_to_stock_pools_by_code")
-def add_to_stock_pools_by_code():
-    code = request.args.get("code")
-    if code is None:
-        return jsonify({"code": "1", "msg": "code is None"})
-    days = int(request.args.get("days", "30"))
-    allow_direct = str(request.args.get("allow_direct", "")).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    result = _get_stock_service().add_to_stock_pools_by_code(
-        code,
-        days,
-        allow_direct=allow_direct,
-        category=request.args.get("category"),
-        source=request.args.get("source"),
-        remark=request.args.get("remark"),
-    )
-    if result:
-        return jsonify({"code": "0", "msg": "操作成功"})
-    else:
-        return jsonify({"code": "1", "msg": "操作失败"})
-
-
-# 从监控股票池中删除股票
-@stock_bp.route("/delete_from_stock_pools_by_code")
-def delete_from_stock_pools_by_code():
-    code = request.args.get("code")
-    if code is None:
-        return jsonify({"code": "1", "msg": "code is None"})
-    result = _get_stock_service().delete_from_stock_pools_by_code(code)
-    if result:
-        return jsonify({"code": "0", "msg": "操作成功"})
-    else:
-        return jsonify({"code": "1", "msg": "操作失败"})
-
-
 # 从预选池删除股票
 @stock_bp.route("/delete_from_stock_pre_pools_by_code")
 def delete_from_stock_pre_pools_by_code():
@@ -621,47 +583,6 @@ def delete_from_stock_pre_pools_by_code():
     if code is None:
         return jsonify({"code": "1", "msg": "code is None"})
     result = _get_stock_service().delete_from_stock_pre_pools_by_code(code)
-    if result:
-        return jsonify({"code": "0", "msg": "操作成功"})
-    else:
-        return jsonify({"code": "1", "msg": "操作失败"})
-
-
-# 从监控股票池中添加股票到必选池
-@stock_bp.route("/add_to_must_pool_by_code")
-def add_to_must_pool_by_code():
-    """
-    根据code从监控股票池中添加股票到必选池
-    Args:
-        code: 股票代码
-        stop_loss_price: 止损价格
-        initial_lot_amount: 初始 lot 数量
-        lot_amount: 每次 lot 数量
-    Returns:
-        bool: 操作是否成功
-    """
-    code = request.args.get("code")
-    stop_loss_price = request.args.get("stop_loss_price", type=float)
-    initial_lot_amount = request.args.get("initial_lot_amount", type=float)
-    lot_amount = request.args.get("lot_amount", type=float)
-    if code is None or stop_loss_price < 0 or initial_lot_amount < 0 or lot_amount < 0:
-        return jsonify({"code": "1", "msg": "code is None"})
-    result = _get_stock_service().add_to_must_pool(
-        code, stop_loss_price, initial_lot_amount, lot_amount
-    )
-    if result:
-        return jsonify({"code": "0", "msg": "操作成功"})
-    else:
-        return jsonify({"code": "1", "msg": "操作失败"})
-
-
-# 从必选池里面删除
-@stock_bp.route("/delete_from_must_pool_by_code")
-def delete_from_must_pool_by_code():
-    code = request.args.get("code")
-    if code is None:
-        return jsonify({"code": "1", "msg": "code is None"})
-    result = _get_stock_service().delete_from_must_pool_by_code(code)
     if result:
         return jsonify({"code": "0", "msg": "操作成功"})
     else:
@@ -849,48 +770,6 @@ def update_params():
 
         # 调用服务层函数
         result = _get_stock_service().update_params(name, value)
-
-        if result:
-            return jsonify({"code": "0", "msg": "操作成功"})
-        else:
-            return jsonify({"code": "1", "msg": "操作失败"})
-
-    except ValueError as ve:
-        return jsonify({"code": "1", "msg": str(ve)})
-    except Exception as e:
-        return jsonify({"code": "1", "msg": f"系统错误: {str(e)}"})
-
-
-@stock_bp.route("/add_to_stock_pools_by_stock", methods=["POST"])
-def add_to_stock_pools_by_stock():
-    try:
-        # 检查请求体是否为空
-        if not request.json:
-            return jsonify({"code": "1", "msg": "请求体不能为空"})
-
-        stock = request.json
-
-        # 检查必需的参数
-        if "code" not in stock:
-            return jsonify({"code": "1", "msg": "缺少必需参数: code"})
-
-        if "category" not in stock:
-            return jsonify({"code": "1", "msg": "缺少必需参数: category"})
-
-        if "stop_loss_price" not in stock:
-            return jsonify({"code": "1", "msg": "缺少必需参数: stop_loss_price"})
-
-        code = stock["code"]
-
-        # 基本参数验证
-        if not code or not isinstance(code, str):
-            return jsonify({"code": "1", "msg": "参数名称必须是非空字符串"})
-
-        if code.strip() == "":
-            return jsonify({"code": "1", "msg": "参数名称不能为空字符串"})
-
-        # 调用服务层函数
-        result = _get_stock_service().add_to_stock_pools_by_stock(stock)
 
         if result:
             return jsonify({"code": "0", "msg": "操作成功"})

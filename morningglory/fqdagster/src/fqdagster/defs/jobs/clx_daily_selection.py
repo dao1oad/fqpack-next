@@ -153,3 +153,75 @@ def clx_daily_selection_finalize_op(context) -> dict:
 @job(tags={"dagster/max_concurrent_runs": "1", "dagster/max_retries": "0"})
 def clx_daily_selection_finalize_job():
     clx_daily_selection_finalize_op()
+
+
+@op
+def clx_pre_pool_reconcile_op(context) -> dict:
+    """按当前 ready marker generation 对账 stock_pre_pools 的 CLX membership。"""
+    tags = _run_tags(context)
+    trade_date = str(tags.get("fq_trade_date") or "").strip()
+    expected_batch_id = str(tags.get("fq_clx_batch_id") or "").strip()
+    expected_generation_id = str(tags.get("fq_clx_generation_id") or "").strip()
+    expected_publication_id = str(tags.get("fq_clx_publication_id") or "").strip()
+    if not trade_date:
+        raise Failure("CLX pre reconcile requires fq_trade_date tag")
+
+    from freshquant.clx_daily_selection.pre_reconciliation import (
+        reconcile_pre_pool_for_trade_date,
+    )
+
+    result = reconcile_pre_pool_for_trade_date(trade_date)
+    status = str(result.get("status") or "").strip()
+    if status == "skipped":
+        raise Failure(f"CLX pre reconcile skipped: {result.get('reason')}")
+    if status != "reconciled":
+        raise Failure(
+            f"CLX pre reconcile failed: {status} "
+            f"({result.get('reason') or 'unknown'})"
+        )
+    actual_batch_id = str(result.get("batch_id") or "").strip()
+    if expected_batch_id and actual_batch_id != expected_batch_id:
+        raise Failure(
+            "CLX pre reconcile generation drift: "
+            f"expected={expected_batch_id} actual={actual_batch_id}"
+        )
+    actual_generation_id = str(result.get("generation_id") or "").strip()
+    actual_publication_id = str(result.get("publication_id") or "").strip()
+    if (
+        expected_generation_id
+        and actual_generation_id
+        and actual_generation_id != expected_generation_id
+    ):
+        raise Failure(
+            "CLX pre reconcile generation identity drift: "
+            f"expected={expected_generation_id} actual={actual_generation_id}"
+        )
+    if (
+        expected_publication_id
+        and actual_publication_id
+        and actual_publication_id != expected_publication_id
+    ):
+        raise Failure(
+            "CLX pre reconcile publication drift: "
+            f"expected={expected_publication_id} actual={actual_publication_id}"
+        )
+    # 成功信号：写 done marker，sensor 只在看到该 marker 后才推进 cursor。
+    upsert_postclose_marker(
+        "clx_pre_pool_reconcile_done",
+        trade_date,
+        run_id=str(getattr(context, "run_id", None) or "").strip() or None,
+        payload={
+            "generation_id": actual_generation_id,
+            "publication_id": actual_publication_id,
+            "batch_id": actual_batch_id,
+            "content_hash": str(result.get("content_hash") or "").strip(),
+        },
+        generation_id=actual_generation_id or None,
+        publication_id=actual_publication_id or None,
+    )
+    return result
+
+
+@job(tags={"dagster/max_concurrent_runs": "1", "dagster/max_retries": "2"})
+def clx_pre_pool_reconcile_job():
+    clx_pre_pool_reconcile_op()

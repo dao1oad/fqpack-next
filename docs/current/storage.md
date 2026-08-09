@@ -92,14 +92,15 @@
 - `gantt_plate_daily`
 - `gantt_stock_daily`
 - `stock_hot_reason_daily`
-- `shouban30_plates`
-- `shouban30_stocks`
+- `shouban30_plates` / `shouban30_stocks`
+  - 历史遗留数据，Shouban30 已整体废弃，Dagster 不再写入
 
 ### `fqscreening`
 
 - `daily_screening_runs`
 - `daily_screening_memberships`
 - `daily_screening_stock_snapshots`
+  - 综合交集（每日选股）已整体废弃，停止写入；历史数据默认保留，待后续数据保留策略清理
 
 ### `freshquant_clx_daily_selection`
 
