@@ -155,10 +155,11 @@ def clx_daily_selection_finalizer_sensor(_context):
 def clx_pre_pool_reconcile_sensor(context):
     """按 ready marker generation 触发 stock_pre_pools CLX membership 对账。
 
-    - 游标记录 marker generation（trade_date + generation_id + publication_id），
-      而不是任意 batch id 列表；
-    - 同一 generation 重复触发由 run_key 去重且幂等；
-    - 新 generation（含同日再发布）触发同交易日集合对账。
+    - 只认 ready marker 的 generation（trade_date + generation_id + publication_id）；
+    - 游标只在 job 成功写出 ``clx_pre_pool_reconcile_done`` marker 后才推进，
+      避免 job 失败后（无重试）后续 tick 误判为已处理而永久跳过；
+    - 失败后重新请求使用递增 attempt 的 run_key，保证 Dagster run_key 去重
+      不会吞掉重试。
     """
     try:
         cursor = json.loads(context.cursor) if context.cursor else {}
@@ -170,15 +171,46 @@ def clx_pre_pool_reconcile_sensor(context):
         generation = normalize_ready_generation(marker)
         if not generation or not generation["batch_id"]:
             continue
-        last = cursor.get(trade_date) or {} if isinstance(cursor, dict) else {}
+        done_marker = get_postclose_marker("clx_pre_pool_reconcile_done", trade_date)
+        done_payload = dict(done_marker.get("payload") or {}) if done_marker else {}
+        done_generation_id = str(
+            (
+                done_payload.get("generation_id")
+                or (done_marker.get("generation_id") if done_marker else None)
+                or ""
+            )
+        ).strip()
+        done_publication_id = str(
+            (
+                done_payload.get("publication_id")
+                or (done_marker.get("publication_id") if done_marker else None)
+                or ""
+            )
+        ).strip()
         if (
+            done_generation_id == generation["generation_id"]
+            and done_publication_id == generation["publication_id"]
+        ):
+            # 该 generation 已成功对账：推进 cursor 并跳过。
+            new_cursor = dict(cursor or {})
+            new_cursor[trade_date] = {
+                "generation_id": generation["generation_id"],
+                "publication_id": generation["publication_id"],
+                "batch_id": generation["batch_id"],
+                "content_hash": generation["content_hash"],
+                "status": "done",
+            }
+            cursor = new_cursor
+            continue
+        last = cursor.get(trade_date) or {} if isinstance(cursor, dict) else {}
+        same_generation_requested = (
             last.get("generation_id") == generation["generation_id"]
             and last.get("publication_id") == generation["publication_id"]
-        ):
-            continue
+        )
+        attempt = int(last.get("attempt") or 0) + 1 if same_generation_requested else 1
         run_key = (
             f"clx-pre-reconcile:{trade_date}:{generation['generation_id']}"
-            f":{generation['publication_id']}"
+            f":{generation['publication_id']}:attempt-{attempt}"
         )
         new_cursor = dict(cursor or {})
         new_cursor[trade_date] = {
@@ -186,6 +218,8 @@ def clx_pre_pool_reconcile_sensor(context):
             "publication_id": generation["publication_id"],
             "batch_id": generation["batch_id"],
             "content_hash": generation["content_hash"],
+            "attempt": attempt,
+            "status": "requested",
         }
         return SensorResult(
             run_requests=[

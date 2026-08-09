@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import os
 import re
+import subprocess
 import time
 import xmlrpc.client
 from pathlib import Path
@@ -125,6 +127,90 @@ def build_server_proxy(rpc_url: str) -> xmlrpc.client.ServerProxy:
 
 def get_process_info(server: xmlrpc.client.ServerProxy, name: str) -> dict[str, object]:
     return cast(dict[str, object], cast(Any, server.supervisor.getProcessInfo(name)))
+
+
+PROGRAM_COMMAND_MARKERS = {
+    "fqnext_realtime_xtdata_producer": "market_data.xtdata.market_producer",
+    "fqnext_realtime_xtdata_consumer": "market_data.xtdata.strategy_consumer",
+    "fqnext_xtdata_adj_refresh_worker": "market_data.xtdata.adj_refresh_worker",
+    "fqnext_xtdata_qfq_worker": "market_data.xtdata.qfq_worker",
+    "fqnext_guardian_event": "signal.astock.job.monitor_stock_zh_a_min",
+    "fqnext_xt_account_sync_worker": "xt_account_sync.worker",
+    "fqnext_tpsl_worker": "tpsl.tick_listener",
+    "fqnext_xtquant_broker": "fqxtrade.xtquant.broker",
+    "fqnext_xt_auto_repay_worker": "xt_auto_repay.worker",
+}
+
+
+def list_matching_python_pids(marker: str) -> list[int]:
+    """List Windows python.exe pids whose command line contains marker."""
+
+    if os.name != "nt" or not marker:
+        return []
+    try:
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                "Select-Object ProcessId, CommandLine | ConvertTo-Json -Compress",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except Exception:  # pragma: no cover - best-effort probe
+        return []
+    try:
+        payload = json.loads(result.stdout or "[]")
+    except Exception:
+        return []
+    entries = payload if isinstance(payload, list) else [payload]
+    pids: list[int] = []
+    for entry in entries:
+        command_line = str(entry.get("CommandLine") or "")
+        if marker not in command_line:
+            continue
+        try:
+            pid = int(entry.get("ProcessId") or 0)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0:
+            pids.append(pid)
+    return sorted(set(pids))
+
+
+def clear_program_processes(marker: str, *, timeout_seconds: float = 15.0) -> None:
+    """Terminate every live python process matching marker and wait for exit.
+
+    The venv ``.venv/Scripts/python.exe`` is a shim that spawns the real
+    interpreter as a child process.  ``supervisor.stopProcess`` only stops
+    the supervisor-tracked shim pid; the real interpreter can survive as an
+    orphan holding XTData / Redis / Mongo resources, making the next
+    ``startProcess`` exit immediately.  Enumerating live processes by command
+    line and force-killing each (with a settle wait) clears shim + orphans
+    before the restart starts clean.
+    """
+
+    if os.name != "nt" or not marker:
+        return
+    deadline = time.time() + float(timeout_seconds)
+    while time.time() < deadline:
+        pids = list_matching_python_pids(marker)
+        if not pids:
+            return
+        for pid in pids:
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/F"],
+                    capture_output=True,
+                    timeout=15,
+                )
+            except Exception:  # pragma: no cover - best-effort cleanup
+                pass
+        time.sleep(1.0)
 
 
 def wait_for_state(
@@ -292,6 +378,10 @@ def restart_programs(
                 server.supervisor.stopProcess(program, True)
                 wait_for_state(
                     server, program, "STOPPED", timeout_seconds=timeout_seconds
+                )
+                clear_program_processes(
+                    PROGRAM_COMMAND_MARKERS.get(program, program),
+                    timeout_seconds=min(timeout_seconds, 15.0),
                 )
 
             after: dict[str, object] | None = None

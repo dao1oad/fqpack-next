@@ -81,23 +81,18 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/gantt/plates`
 - `/api/gantt/stocks`
 - `/api/gantt/stocks/reasons`
-- `/api/daily-screening/query`
-- `/api/daily-screening/stocks/<code>/detail`
-- `/api/daily-screening/actions/add-to-pre-pool`
-- `/api/daily-screening/actions/add-batch-to-pre-pool`
-- `/api/daily-screening/pre-pools`
-- `/api/daily-screening/pre-pools/stock-pools`
-- `/api/daily-screening/pre-pools/delete`
 
 ### `clx-daily-selection`
 
 - `GET /api/clx-daily-selection/health`
+- `GET /api/clx-daily-selection/official`（当前 ready generation 的 pure-buy 正式结果，默认 `direction_mode=pure_buy`）
 - `GET /api/clx-daily-selection/model-catalog`
 - `GET /api/clx-daily-selection/batches`
 - `GET /api/clx-daily-selection/batches/latest`
 - `GET /api/clx-daily-selection/batches/<batch_id>/summary`
 - `GET|POST /api/clx-daily-selection/batches/<batch_id>/results`
 - `POST /api/clx-daily-selection/batches/<batch_id>/results/query`
+- `POST /api/clx-daily-selection/batches/<batch_id>/results/sync-selected-to-tdx`（导出到 CLX_18）
 - `GET /api/clx-daily-selection/batches/<batch_id>/results/<asset_type>/<symbol>`
 - `GET /api/clx-daily-selection/batches/<batch_id>/statistics`
 - `GET /api/clx-daily-selection/history/signals`

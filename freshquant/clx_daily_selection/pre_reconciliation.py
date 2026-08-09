@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable
 
 from freshquant.pre_pool_service import PrePoolService
@@ -9,6 +10,23 @@ from .ready_marker import (
     normalize_ready_generation,
 )
 from .repository import classify_direction_mode
+
+
+def _parse_marker_datetime(value: Any) -> datetime | None:
+    """把 ready marker 的 ISO 时间戳解析为 datetime；失败返回 None。
+
+    PrePoolService.upsert_code 会用 ``_pick_earliest/_pick_latest`` 与既有
+    ``datetime`` 比较，直接传 ISO 字符串会抛 TypeError；解析失败时返回 None，
+    由 service 回退到当前时间。
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def build_pure_buy_target(
@@ -98,7 +116,7 @@ def reconcile_pre_pool_for_ready_marker(
         publication_id=frozen["publication_id"],
         content_hash=frozen["content_hash"],
         selection_key=f"batch:{frozen['batch_id']}",
-        added_at=frozen.get("ready_marker_updated_at") or None,
+        added_at=_parse_marker_datetime(frozen.get("ready_marker_updated_at")),
     )
     return {
         "status": "reconciled",

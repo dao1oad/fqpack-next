@@ -421,7 +421,12 @@ test('pools panel loads pre/stock/must lists and offers TDX overwrite sync for s
   await page.setViewportSize({ width: 3440, height: 1440 })
   await mockApis(page, requestLog, {
     poolRows: {
-      pre: [{ code: '000001', name: '平安银行', asset_type: 'stock' }],
+      pre: [{
+        code: '000001',
+        name: '平安银行',
+        asset_type: 'stock',
+        sources: ['clx_daily_selection'],
+      }],
       stock: [{ code: '000002', name: '万科A' }],
       must: [{ code: '000003', name: '宁德时代' }],
     },

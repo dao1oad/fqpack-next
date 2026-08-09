@@ -97,7 +97,12 @@ async function mockWorkbenchApis(page) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([{ code: '000001', name: '平安银行', asset_type: 'stock' }]),
+        body: JSON.stringify([{
+          code: '000001',
+          name: '平安银行',
+          asset_type: 'stock',
+          sources: ['clx_daily_selection'],
+        }]),
       })
       return
     }

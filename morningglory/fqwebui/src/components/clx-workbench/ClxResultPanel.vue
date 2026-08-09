@@ -75,6 +75,12 @@ const loadMore = () => {
 }
 
 const exportToTdx = async () => {
+  if (cursor.value && !loading.value) {
+    ElMessage.warning('结果尚未加载完整，正在拉取全部页面后导出...')
+  }
+  while (cursor.value && !loading.value) {
+    await load({ append: true })
+  }
   const payload = buildResultExportPayload({
     batchId: result.value?.batchId,
     rows: rows.value,

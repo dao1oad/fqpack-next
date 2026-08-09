@@ -140,6 +140,26 @@ export const stockApi = {
       method: 'get'
     })
   },
+  // v4.2 收敛后 stock/must 只以通达信 ZXG/DM 分组为来源，不再提供网页直接维护。
+  // 保留兼容 helper：KlineSlim 等旧入口调用时返回明确提示，避免 missing method。
+  addToStockPoolsByCode () {
+    return Promise.resolve({
+      code: '1',
+      msg: '已迁移：stock_pools 请在通达信维护 ZXG 自选股后点击「同步自选股」'
+    })
+  },
+  deleteFromStockPoolsByCode () {
+    return Promise.resolve({
+      code: '1',
+      msg: '已迁移：stock_pools 请在通达信维护 ZXG 自选股后点击「同步自选股」'
+    })
+  },
+  deleteFromStockMustPoolsByCode () {
+    return Promise.resolve({
+      code: '1',
+      msg: '已迁移：must_pool 请在通达信维护 DM 待买组后点击「同步待买组」'
+    })
+  },
   // 从必选池获取
   getStockMustPoolsList ({ page = 1, size = 10 }) {
     return http({

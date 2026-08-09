@@ -334,8 +334,13 @@ def sync_stock_pools_from_tdx_self_select(
             continue
         synced_codes.append(code)
 
-    # 全部 upsert 成功后再删除旧成员，防止中途失败先清空旧池
-    existing_docs = list(DBfreshquant["stock_pools"].find({}, {"code": 1}))
+    # 全部 upsert 成功后再删除旧成员，防止中途失败先清空旧池。
+    # 没有可用目标代码时阻断破坏性删除（保留旧池），符合 fail-closed 契约。
+    existing_docs = (
+        list(DBfreshquant["stock_pools"].find({}, {"code": 1}))
+        if target_code_set
+        else []
+    )
     for existing in existing_docs:
         existing_code = _normalize_stock_code6(existing.get("code"))
         if existing_code and existing_code not in target_code_set:
@@ -458,7 +463,9 @@ def sync_must_pool_from_tdx_self_select(
 
     # 全部 upsert 成功后再删除旧成员（覆盖语义：must 只以通达信 DM 分组为来源）
     target_code_set = set(synced_codes)
-    existing_docs = list(DBfreshquant["must_pool"].find({}, {"code": 1}))
+    existing_docs = (
+        list(DBfreshquant["must_pool"].find({}, {"code": 1})) if target_code_set else []
+    )
     for existing in existing_docs:
         existing_code = _normalize_stock_code6(existing.get("code"))
         if existing_code and existing_code not in target_code_set:

@@ -37,7 +37,13 @@ export const fetchPoolRows = async ({ poolKind = 'pre', page = 1 } = {}, fetcher
   if (poolKind === 'pre') {
     const payload = await doFetch('/api/get_stock_pre_pools_list', { page, size: 1000 })
     const rows = Array.isArray(payload) ? payload : payload?.data ?? []
-    return normalizePoolRows(rows, 'pre')
+    const clxRows = rows.filter((row) => {
+      const sources = Array.isArray(row.sources) ? row.sources : []
+      if (sources.includes(PRE_POOL_SOURCE)) return true
+      const memberships = Array.isArray(row.memberships) ? row.memberships : []
+      return memberships.some((item) => (item.source || '') === PRE_POOL_SOURCE)
+    })
+    return normalizePoolRows(clxRows, 'pre')
   }
   if (poolKind === 'stock') {
     const payload = await doFetch('/api/get_stock_pools_list', { page })

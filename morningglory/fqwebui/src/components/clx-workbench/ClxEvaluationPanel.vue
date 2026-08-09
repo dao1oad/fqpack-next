@@ -89,9 +89,11 @@ const getGroupMembers = (group) => {
 }
 
 const exportToTdx = async () => {
-  const members = selectedGroupName.value
-    ? getGroupMembers({ groupName: selectedGroupName.value })
-    : filteredMembers.value
+  if (!selectedGroupName.value) {
+    ElMessage.warning('请先选择要导出的评价分组')
+    return
+  }
+  const members = getGroupMembers({ groupName: selectedGroupName.value })
   const payload = buildEvaluationExportPayload(evaluation.value, members)
   if (!payload) {
     ElMessage.warning('当前评价产物未记录评价对象批次，无法导出')
@@ -165,7 +167,7 @@ defineExpose({ load, refresh: () => load() })
           size="small"
           type="primary"
           :loading="exporting"
-          :disabled="!evaluation || evaluation.status !== 'ready'"
+          :disabled="!evaluation || evaluation.status !== 'ready' || !selectedGroupName"
           @click="exportToTdx"
         >
           导出当前评价分组到 CLX_18

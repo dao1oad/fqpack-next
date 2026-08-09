@@ -197,12 +197,17 @@ def test_pre_pool_reconcile_sensor_dispatches_new_generation_once(monkeypatch):
         "get_clx_ready_marker",
         lambda trade_date=None: _ready_marker(),
     )
+    monkeypatch.setattr(
+        module,
+        "get_postclose_marker",
+        lambda pipeline_key, trade_date: None,
+    )
 
     result = module.clx_pre_pool_reconcile_sensor(SimpleNamespace(cursor=""))
 
     assert len(result.run_requests) == 1
     run_request = result.run_requests[0]
-    assert run_request.run_key == "clx-pre-reconcile:2026-08-07:clx-b-1:pub-1"
+    assert run_request.run_key == "clx-pre-reconcile:2026-08-07:clx-b-1:pub-1:attempt-1"
     assert run_request.tags["fq_trade_date"] == "2026-08-07"
     assert run_request.tags["fq_clx_batch_id"] == "clx-b-1"
     assert run_request.tags["fq_clx_generation_id"] == "clx-b-1"
@@ -212,10 +217,47 @@ def test_pre_pool_reconcile_sensor_dispatches_new_generation_once(monkeypatch):
 
     cursor = json.loads(result.cursor)
     assert cursor["2026-08-07"]["generation_id"] == "clx-b-1"
+    assert cursor["2026-08-07"]["attempt"] == 1
+    assert cursor["2026-08-07"]["status"] == "requested"
 
-    # 同一 generation 再次触发应跳过
+    # 同一 generation 再次触发且仍未完成：应重试（attempt 递增）
     again = module.clx_pre_pool_reconcile_sensor(SimpleNamespace(cursor=result.cursor))
-    assert getattr(again, "run_requests", None) in (None, [])
+    assert len(again.run_requests) == 1
+    assert (
+        again.run_requests[0].run_key
+        == "clx-pre-reconcile:2026-08-07:clx-b-1:pub-1:attempt-2"
+    )
+
+
+def test_pre_pool_reconcile_sensor_skips_generation_with_done_marker(monkeypatch):
+    module = import_sensor_module(monkeypatch)
+    monkeypatch.setattr(
+        module,
+        "resolve_recent_completed_trade_dates",
+        lambda limit=5: ["2026-08-07"],
+    )
+    monkeypatch.setattr(
+        module,
+        "get_clx_ready_marker",
+        lambda trade_date=None: _ready_marker(),
+    )
+    monkeypatch.setattr(
+        module,
+        "get_postclose_marker",
+        lambda pipeline_key, trade_date: {
+            "pipeline_key": "clx_pre_pool_reconcile_done",
+            "trade_date": trade_date,
+            "status": "success",
+            "payload": {
+                "generation_id": "clx-b-1",
+                "publication_id": "pub-1",
+            },
+        },
+    )
+
+    result = module.clx_pre_pool_reconcile_sensor(SimpleNamespace(cursor=""))
+
+    assert getattr(result, "run_requests", None) in (None, [])
 
 
 def test_pre_pool_reconcile_sensor_skips_without_ready_marker(monkeypatch):

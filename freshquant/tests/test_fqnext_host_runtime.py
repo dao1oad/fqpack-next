@@ -37,6 +37,70 @@ def test_parse_supervisor_rpc_url_tolerates_utf8_bom() -> None:
     assert rpc_url == "http://127.0.0.1:10011/RPC2"
 
 
+def test_list_matching_python_pids_filters_by_command_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_module()
+    captured: list[list[str]] = []
+
+    def fake_subprocess_run(command, **kwargs):
+        captured.append(list(command))
+        return types.SimpleNamespace(
+            stdout=(
+                '[{"ProcessId": 111, "CommandLine": "python -m '
+                "freshquant.market_data.xtdata.market_producer\"},"
+                '{"ProcessId": 222, "CommandLine": "python -m '
+                'freshquant.xt_account_sync.worker"}]'
+            )
+        )
+
+    monkeypatch.setattr(module, "os", types.SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        module, "subprocess", types.SimpleNamespace(run=fake_subprocess_run)
+    )
+
+    pids = module.list_matching_python_pids("market_data.xtdata.market_producer")
+
+    assert pids == [111]
+    assert "Get-CimInstance Win32_Process" in " ".join(captured[0])
+
+
+def test_clear_program_processes_kills_matching_pids_and_waits_for_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_module()
+    taskkill_calls: list[list[str]] = []
+    probe_results = iter([[111, 222], [111], []])
+
+    monkeypatch.setattr(module, "os", types.SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        module,
+        "list_matching_python_pids",
+        lambda marker: next(probe_results),
+    )
+    monkeypatch.setattr(
+        module,
+        "subprocess",
+        types.SimpleNamespace(
+            run=lambda command, **kwargs: (
+                taskkill_calls.append(list(command))
+                if command[0] == "taskkill"
+                else types.SimpleNamespace(stdout="[]")
+            )
+        ),
+    )
+
+    module.clear_program_processes(
+        "market_data.xtdata.market_producer", timeout_seconds=10
+    )
+
+    assert [call[2] for call in taskkill_calls if call[0] == "taskkill"] == [
+        "111",
+        "222",
+        "111",
+    ]
+
+
 def test_resolve_surface_programs_expands_market_and_order_management() -> None:
     module = load_module()
 
@@ -283,6 +347,7 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
 ) -> None:
     module = load_module()
     start_calls: list[tuple[str, bool]] = []
+    clear_calls: list[str] = []
     running_wait_calls = {"value": 0}
     process_infos = iter(
         [
@@ -303,6 +368,11 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
         return True
 
     server.supervisor.startProcess = fake_start_process
+    monkeypatch.setattr(
+        module,
+        "clear_program_processes",
+        lambda marker, **kwargs: clear_calls.append(marker),
+    )
 
     monkeypatch.setattr(
         module, "get_process_info", lambda _server, _name: next(process_infos)
@@ -338,6 +408,7 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
         ("fqnext_realtime_xtdata_producer", False),
         ("fqnext_realtime_xtdata_producer", False),
     ]
+    assert clear_calls == ["market_data.xtdata.market_producer"]
     assert results == [
         {
             "name": "fqnext_realtime_xtdata_producer",

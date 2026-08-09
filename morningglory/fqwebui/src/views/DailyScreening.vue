@@ -1,5 +1,6 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 
 import MyHeader from './MyHeader.vue'
 import WorkbenchPage from '../components/workbench/WorkbenchPage.vue'
@@ -30,6 +31,12 @@ const preStatus = ref({
 const resultPanel = ref(null)
 const evaluationPanel = ref(null)
 const poolsPanel = ref(null)
+
+const route = useRoute()
+const legacyTradeDate = computed(() => {
+  const value = route.query.trade_date || route.query.tradeDate || ''
+  return String(value || '').trim()
+})
 
 const refreshAll = () => {
   resultPanel.value?.refresh?.()
@@ -69,6 +76,7 @@ const preStatusLabel = () => {
         <ClxResultPanel
           ref="resultPanel"
           class="clx-workbench-grid__result"
+          :trade-date="legacyTradeDate"
           @selection-time="Object.assign(selection, $event)"
           @pre-status="preStatus = $event"
         />
