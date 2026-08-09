@@ -47,6 +47,7 @@ class PositionReconciliationReadService:
         compat_positions_loader=None,
         stock_fills_projection_loader=None,
         reconciliation_summary_loader=None,
+        allocation_integrity_loader=None,
     ):
         self.position_repository = position_repository
         self.order_repository = order_repository
@@ -85,12 +86,40 @@ class PositionReconciliationReadService:
             if reconciliation_summary_loader is not None
             else self._default_reconciliation_summary_loader
         )
+        self.allocation_integrity_loader = (
+            allocation_integrity_loader
+            if allocation_integrity_loader is not None
+            else self._default_allocation_integrity_loader
+        )
 
     def get_overview(self):
         rows = self.list_rows()
         return {
             "summary": _build_summary(rows),
             "rows": rows,
+            "internal_integrity": self._build_internal_integrity(),
+        }
+
+    def _build_internal_integrity(self):
+        from freshquant.order_management.allocation_integrity import (
+            find_exit_allocation_integrity_errors,
+            summarize_integrity_errors,
+        )
+
+        payload = self.allocation_integrity_loader()
+        errors = find_exit_allocation_integrity_errors(
+            position_entries=payload.get("position_entries") or [],
+            entry_slices=payload.get("entry_slices") or [],
+            exit_allocations=payload.get("exit_allocations") or [],
+        )
+        return summarize_integrity_errors(errors)
+
+    def _default_allocation_integrity_loader(self):
+        repository = self._get_order_repository()
+        return {
+            "position_entries": repository.list_position_entries(),
+            "entry_slices": repository.list_all_entry_slices(),
+            "exit_allocations": repository.list_exit_allocations(),
         }
 
     def list_rows(self):

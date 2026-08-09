@@ -485,7 +485,14 @@ def _archive_position_review_history(**kwargs):
     show_default=True,
     help="replay: 逐笔重建；flatten-cost-price: 成本价拍平重建。",
 )
-def rebuild_order_ledger_v2_command(dry_run, execute, backup_db, account_id, mode):
+@click.option(
+    "--verify",
+    is_flag=True,
+    help="重建后运行 allocation_integrity 只读校验，非零错误时退出码非 0。",
+)
+def rebuild_order_ledger_v2_command(
+    dry_run, execute, backup_db, account_id, mode, verify
+):
     summary = run_rebuild(
         dry_run=dry_run,
         execute=execute,
@@ -493,7 +500,31 @@ def rebuild_order_ledger_v2_command(dry_run, execute, backup_db, account_id, mod
         account_id=account_id,
         mode=mode,
     )
+    if verify:
+        summary["integrity_verify"] = _run_integrity_verify()
     click.echo(json.dumps(summary, ensure_ascii=False))
+    if verify and not (summary.get("integrity_verify") or {}).get("ok"):
+        raise click.ClickException(
+            "allocation integrity verify failed: "
+            + json.dumps(summary.get("integrity_verify") or {}, ensure_ascii=False)
+        )
+
+
+def _run_integrity_verify(*, database=None):
+    from freshquant.order_management.allocation_integrity import (
+        find_exit_allocation_integrity_errors,
+        summarize_integrity_errors,
+    )
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = database if database is not None else _get_order_management_db()
+    repository = OrderManagementRepository(database=database)
+    errors = find_exit_allocation_integrity_errors(
+        position_entries=repository.list_position_entries(),
+        entry_slices=repository.list_all_entry_slices(),
+        exit_allocations=repository.list_exit_allocations(),
+    )
+    return summarize_integrity_errors(errors)
 
 
 def main():

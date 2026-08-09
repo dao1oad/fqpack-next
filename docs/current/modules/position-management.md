@@ -224,6 +224,23 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 - credit 快照（生产可达 52 万条）按引用只读复用，命中路径不做 deepcopy；
 - 116 部署验收：冷缓存首开全部 6 请求 <15s、组合 tab ≤2s、热路径 P95 不回升。
 
+### 内部一致性（allocation_integrity）
+
+`GET /api/position-management/reconciliation` 顶层新增 `internal_integrity` 字段
+（`{ok, error_count, errors[], by_symbol{}}`），对 `om_position_entries` /
+`om_entry_slices` / `om_exit_allocations` 三表做逐记录级只读校验（
+`freshquant/order_management/allocation_integrity.py`）：
+
+- 重复 ID（entry / slice / allocation）
+- 引用完整性（allocation → entry / slice 缺失）
+- slice 归属一致（slice 的 entry_id 与 allocation 引用的 entry 一致）
+- symbol 三方一致（entry / slice / allocation，覆盖 #504 混合 symbol 场景）
+- 数量守恒（original − remaining == 已分配量，且不超剩余）
+
+前端 `对账检查` 摘要行新增「内部一致性」Chip（OK / ERROR 计数），展开区展示错误清单。
+校验只读、无副作用；重建/修复 CLI（`rebuild_order_ledger_v2.py --verify`、
+`targeted_order_ledger_repair.py verify`）在重建后运行同一校验器，非零错误即退出码非 0。
+
 ## 排障
 
 ### 需要查看对账或订单链
