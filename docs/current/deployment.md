@@ -80,6 +80,9 @@ powershell -ExecutionPolicy Bypass -File script/fq_local_preflight.ps1 -Mode Ens
 - 当前机器如果没有 `uv.exe` 直接进 PATH，`script/fq_local_preflight.ps1` 会回退到当前 Python launcher 的 `python -m uv`
 - `.github/workflows/ci.yml` 当前也对同一前端 surface 执行上述四个 `fqwebui` gate；前端改动不能只靠本地 `npm run build` 作为唯一证据。
 - `script/fq_apply_deploy_plan.ps1` 仍然保留，用于手工 selective deploy 或断点续跑 deploy phase。
+- `script/fq_apply_deploy_plan.ps1` 仅传 `-ChangedPath`（或 `-FromGitDiff`）而不传 `-DeploymentSurface`
+  时，会用 `freshquant_deploy_plan.py` 输出的 `plan.deployment_surfaces` 回填生效部署面；
+  显式传入 `-DeploymentSurface` 时以用户显式值为准，不被回填覆盖。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File script/fq_apply_deploy_plan.ps1 -FromGitDiff origin/main...HEAD

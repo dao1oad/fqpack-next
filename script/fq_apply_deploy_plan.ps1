@@ -356,6 +356,20 @@ else {
         exit 0
     }
 
+    $effectiveDeploymentSurface = @()
+    foreach ($surface in $DeploymentSurface) {
+        if (-not [string]::IsNullOrWhiteSpace($surface)) {
+            $effectiveDeploymentSurface += $surface
+        }
+    }
+    if ($effectiveDeploymentSurface.Count -eq 0) {
+        foreach ($surface in @($plan.deployment_surfaces)) {
+            if (-not [string]::IsNullOrWhiteSpace($surface)) {
+                $effectiveDeploymentSurface += $surface
+            }
+        }
+    }
+
     $stateFilePath = if (-not [string]::IsNullOrWhiteSpace($StatePath)) {
         Resolve-OptionalPath -RepoRoot $repoRoot -PathValue $StatePath
     }
@@ -368,7 +382,7 @@ else {
         -RepoRoot $repoRoot `
         -Plan $plan `
         -EffectiveChangedPaths @($allChangedPaths.ToArray()) `
-        -EffectiveDeploymentSurface @($DeploymentSurface) `
+        -EffectiveDeploymentSurface @($effectiveDeploymentSurface) `
         -EffectiveRunHealthChecks ([bool]$RunHealthChecks.IsPresent) `
         -EffectiveRunRuntimeOpsCheck ([bool]$RunRuntimeOpsCheck.IsPresent) `
         -EffectiveFromGitDiff $FromGitDiff `
