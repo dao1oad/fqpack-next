@@ -585,6 +585,16 @@ test('KlineSlim routes toolbar and overlay summary pills through shared StatusCh
   assert.doesNotMatch(scriptSource, /guardianRuntimeChipVariant\(\)/)
 })
 
+test('KlineSlim toolbar returns to the ops-console navigation hub', () => {
+  const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
+  const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
+
+  assert.match(viewSource, /@click="jumpToOpsConsole"/)
+  assert.match(viewSource, />← 返回运维<\/el-button>/)
+  assert.match(scriptSource, /jumpToOpsConsole\(\)\s*\{[\s\S]*path: '\/ops-console'/)
+  assert.match(scriptSource, /tabTitle: '运维'/)
+})
+
 test('KlineSlim removes local summary chip classes after StatusChip migration', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const normalizedSource = viewSource.replace(/\r/g, '')

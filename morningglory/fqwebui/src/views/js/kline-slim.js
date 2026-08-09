@@ -2024,6 +2024,14 @@ export default {
     jumpToControl() {
       this.$router.replace('/stock-control')
     },
+    jumpToOpsConsole() {
+      this.$router.push({
+        path: '/ops-console',
+        query: {
+          tabTitle: '运维',
+        },
+      })
+    },
     jumpToBigChart() {
       if (!this.routeSymbol) {
         return
