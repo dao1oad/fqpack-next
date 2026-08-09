@@ -56,6 +56,7 @@
 
 ## 当前页面结构
 
+- 工具栏首位提供 `← 返回运维` 按钮，跳转到 `/ops-console`（包含全局导航栏），保证图表页可随时回到导航入口
 - 三栏统一布局
   - 左栏：持仓、`stock_pools`、`must_pool`、预选池和 CLX 批次/scope、完整筛选条件、cursor 结果列表；分组标题点击即展开/收起，不再额外展示“展开/收起”文字；`stock_pools` 分组提供 `同步自选股` 按钮，可从当前 TDX home 的 `T0002/blocknew/ZXG.blk` 去重追加到 `freshquant.stock_pools`，`must_pool` 分组提供 `同步待买` 按钮，可从 `T0002/blocknew/待买.blk` 导入到 `freshquant.must_pool`，并在左栏展示时与持仓股去重
   - 中栏：当前标的主图与多周期结构

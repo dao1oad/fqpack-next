@@ -2,6 +2,7 @@
   <WorkbenchPage class="kline-big-main kline-slim-main">
     <div class="kline-slim-toolbar">
       <div class="toolbar-left">
+        <el-button size="small" class="kline-slim-back-btn" @click="jumpToOpsConsole">← 返回运维</el-button>
         <el-button size="small" @click="jumpToControl">股票</el-button>
         <el-input
           v-model="symbolInput"
