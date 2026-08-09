@@ -66,114 +66,133 @@ def _unset_nested_value(doc: dict, key: str):
     cur.pop(parts[-1], None)
 
 
-def test_normalize_xtdata_mode_defaults_to_guardian_1m():
-    assert pools.normalize_xtdata_mode(None) == "guardian_1m"
-    assert pools.normalize_xtdata_mode("") == "guardian_1m"
-    assert pools.normalize_xtdata_mode("  ") == "guardian_1m"
-    assert pools.normalize_xtdata_mode("unknown_mode") == "guardian_1m"
-    assert pools.normalize_xtdata_mode("GUARDIAN_1M") == "guardian_1m"
-    assert pools.normalize_xtdata_mode("CLX_15_30") == "guardian_and_clx_15_30"
-    assert pools.normalize_xtdata_mode("CLX_15_30_ONLY") == "clx_15_30_only"
-    assert (
-        pools.normalize_xtdata_mode("guardian_and_clx_15_30")
-        == "guardian_and_clx_15_30"
+def test_migrate_xtdata_mode_maps_legacy_modes_to_dual_booleans():
+    assert pools.migrate_xtdata_mode(None) == (True, False)
+    assert pools.migrate_xtdata_mode("") == (True, False)
+    assert pools.migrate_xtdata_mode("guardian_1m") == (True, False)
+    assert pools.migrate_xtdata_mode("guardian_and_clx_15_30") == (True, True)
+    assert pools.migrate_xtdata_mode("clx_15_30") == (True, True)
+    assert pools.migrate_xtdata_mode("clx_15_30_only") == (False, True)
+    assert pools.migrate_xtdata_mode("unknown_mode") == (True, False)
+
+
+def test_lines_for_modes_keeps_priority_order():
+    assert pools.lines_for_modes(trading_mode=True, screening_mode=False) == (
+        pools.LINE_1M_T,
+        pools.LINE_5M_NEW_OPEN,
     )
+    assert pools.lines_for_modes(trading_mode=False, screening_mode=True) == (
+        pools.LINE_15_30_CLX,
+    )
+    assert pools.lines_for_modes(trading_mode=True, screening_mode=True) == (
+        pools.LINE_1M_T,
+        pools.LINE_5M_NEW_OPEN,
+        pools.LINE_15_30_CLX,
+    )
+    assert pools.lines_for_modes(trading_mode=False, screening_mode=False) == ()
 
 
-def test_xtdata_mode_capabilities_cover_combined_mode():
-    assert pools.xtdata_mode_enables_guardian("guardian_1m") is True
-    assert pools.xtdata_mode_enables_clx("guardian_1m") is False
-    assert pools.xtdata_mode_enables_guardian("guardian_and_clx_15_30") is True
-    assert pools.xtdata_mode_enables_clx("guardian_and_clx_15_30") is True
-    assert pools.xtdata_mode_enables_guardian("clx_15_30") is True
-    assert pools.xtdata_mode_enables_clx("clx_15_30") is True
-    assert pools.xtdata_mode_enables_guardian("clx_15_30_only") is False
-    assert pools.xtdata_mode_enables_clx("clx_15_30_only") is True
-
-
-def test_load_monitor_codes_defaults_unknown_mode_to_guardian(monkeypatch):
+def test_load_monitor_codes_trading_only_uses_holding_and_must_pool(monkeypatch):
     calls: list[tuple[str, int]] = []
 
     monkeypatch.setattr(
         pools,
-        "_load_guardian_codes",
-        lambda limit: calls.append(("guardian", limit)) or ["sz000001"],
+        "_load_holding_codes",
+        lambda limit: calls.append(("holding", limit)) or ["sz000001"],
+    )
+    monkeypatch.setattr(
+        pools,
+        "_load_must_pool_codes",
+        lambda limit: calls.append(("must_pool", limit)) or ["sz000002"],
     )
     monkeypatch.setattr(
         pools,
         "_load_clx_codes",
-        lambda limit: calls.append(("clx", limit)) or ["sz000002"],
+        lambda limit: calls.append(("clx", limit)) or ["sh600000"],
     )
 
-    assert pools.load_monitor_codes(mode="missing_mode", max_symbols=12) == ["sz000001"]
-    assert calls == [("guardian", 12)]
+    assert pools.load_monitor_codes(
+        trading_mode=True,
+        screening_mode=False,
+        max_symbols=12,
+    ) == ["sz000001", "sz000002"]
+    assert calls == [("holding", 12), ("must_pool", 12)]
 
 
-def test_load_monitor_codes_preserves_legacy_clx_alias_as_combined(monkeypatch):
+def test_load_monitor_codes_screening_only_uses_stock_pools(monkeypatch):
     calls: list[tuple[str, int]] = []
 
     monkeypatch.setattr(
         pools,
-        "_load_guardian_codes",
-        lambda limit: calls.append(("guardian", limit)) or ["sz000001"],
+        "_load_holding_codes",
+        lambda limit: calls.append(("holding", limit)) or ["sz000001"],
+    )
+    monkeypatch.setattr(
+        pools,
+        "_load_must_pool_codes",
+        lambda limit: calls.append(("must_pool", limit)) or ["sz000002"],
     )
     monkeypatch.setattr(
         pools,
         "_load_clx_codes",
-        lambda limit: calls.append(("clx", limit)) or ["sz000002", "sh600000"],
+        lambda limit: calls.append(("clx", limit)) or ["sh600000"],
     )
 
-    assert pools.load_monitor_codes(mode="clx_15_30", max_symbols=2) == [
-        "sz000001",
-        "sz000002",
-    ]
-    assert calls == [("guardian", 2), ("clx", 2)]
+    assert pools.load_monitor_codes(
+        trading_mode=False,
+        screening_mode=True,
+        max_symbols=12,
+    ) == ["sh600000"]
+    assert calls == [("clx", 12)]
 
 
-def test_load_monitor_codes_clx_only_uses_stock_pools_without_guardian(monkeypatch):
-    calls: list[tuple[str, int]] = []
-
-    monkeypatch.setattr(
-        pools,
-        "_load_guardian_codes",
-        lambda limit: calls.append(("guardian", limit)) or ["sz000001"],
-    )
-    monkeypatch.setattr(
-        pools,
-        "_load_clx_codes",
-        lambda limit: calls.append(("clx", limit)) or ["sz000002", "sh600000"],
-    )
-
-    assert pools.load_monitor_codes(mode="clx_15_30_only", max_symbols=2) == [
-        "sz000002",
-        "sh600000",
-    ]
-    assert calls == [("clx", 2)]
-
-
-def test_load_monitor_codes_combines_guardian_and_clx_with_guardian_priority(
+def test_load_monitor_codes_truncates_low_priority_line_without_silence(
     monkeypatch,
 ):
+    emitted = []
     monkeypatch.setattr(
         pools,
-        "_load_guardian_codes",
+        "_load_holding_codes",
         lambda limit: ["sh600000", "sz000001", "sz000002"][:limit],
     )
     monkeypatch.setattr(
         pools,
+        "_load_must_pool_codes",
+        lambda limit: ["sz000003", "sz000004"][:limit],
+    )
+    monkeypatch.setattr(
+        pools,
         "_load_clx_codes",
-        lambda limit: ["sz000002", "sz300001", "sh600010"][:limit],
+        lambda limit: ["sz300001", "sh600010"][:limit],
+    )
+    monkeypatch.setattr(
+        pools,
+        "_emit_truncation_event",
+        lambda truncated_lines, limit: emitted.append((list(truncated_lines), limit)),
     )
 
-    assert pools.load_monitor_codes(mode="guardian_and_clx_15_30", max_symbols=4) == [
-        "sh600000",
-        "sz000001",
-        "sz000002",
-        "sz300001",
-    ]
+    result = pools.load_monitor_codes(
+        trading_mode=True,
+        screening_mode=True,
+        max_symbols=3,
+    )
+
+    assert result == ["sh600000", "sz000001", "sz000002"]
+    assert len(emitted) == 1
+    truncated = emitted[0][0]
+    assert {item["line"] for item in truncated} == {
+        pools.LINE_5M_NEW_OPEN,
+        pools.LINE_15_30_CLX,
+    }
 
 
-def test_init_param_dict_persists_guardian_default_when_mode_missing(monkeypatch):
+def test_load_line_codes_unknown_line_returns_empty(monkeypatch):
+    assert pools.load_line_codes(line="unknown_line", max_symbols=10) == []
+
+
+def test_init_param_dict_persists_dual_boolean_defaults_when_mode_missing(
+    monkeypatch,
+):
     fake_db = FakeDb()
     monkeypatch.setattr(params, "DBfreshquant", fake_db)
     monkeypatch.setattr(params, "mask", lambda value, show_chars=0: value)
@@ -181,10 +200,11 @@ def test_init_param_dict_persists_guardian_default_when_mode_missing(monkeypatch
     params.init_param_dict(quiet=True)
 
     monitor_doc = fake_db.params.docs["monitor"]
-    assert monitor_doc["value"]["xtdata"]["mode"] == "guardian_1m"
+    assert monitor_doc["value"]["xtdata"]["trading_mode"] is True
+    assert monitor_doc["value"]["xtdata"]["screening_mode"] is False
 
 
-def test_init_param_dict_preserves_explicit_clx_mode(monkeypatch):
+def test_init_param_dict_migrates_legacy_clx_mode(monkeypatch):
     fake_db = FakeDb(
         [
             {
@@ -205,12 +225,13 @@ def test_init_param_dict_preserves_explicit_clx_mode(monkeypatch):
     params.init_param_dict(quiet=True)
 
     monitor_doc = fake_db.params.docs["monitor"]
-    assert monitor_doc["value"]["xtdata"]["mode"] == "guardian_and_clx_15_30"
+    assert monitor_doc["value"]["xtdata"]["trading_mode"] is True
+    assert monitor_doc["value"]["xtdata"]["screening_mode"] is True
     assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
     assert monitor_doc["value"]["xtdata"]["prewarm"]["max_bars"] == 12345
 
 
-def test_init_param_dict_preserves_explicit_clx_only_mode(monkeypatch):
+def test_init_param_dict_migrates_legacy_clx_only_mode(monkeypatch):
     fake_db = FakeDb(
         [
             {
@@ -231,9 +252,9 @@ def test_init_param_dict_preserves_explicit_clx_only_mode(monkeypatch):
     params.init_param_dict(quiet=True)
 
     monitor_doc = fake_db.params.docs["monitor"]
-    assert monitor_doc["value"]["xtdata"]["mode"] == "clx_15_30_only"
+    assert monitor_doc["value"]["xtdata"]["trading_mode"] is False
+    assert monitor_doc["value"]["xtdata"]["screening_mode"] is True
     assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
-    assert monitor_doc["value"]["xtdata"]["prewarm"]["max_bars"] == 12345
 
 
 def test_init_param_dict_does_not_persist_removed_guardian_and_monitor_fields(

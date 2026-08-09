@@ -10,7 +10,19 @@ import base62
 from bson import ObjectId
 from pydash import get
 
-from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
+from freshquant.market_data.xtdata.pools import migrate_xtdata_mode
+
+
+def _migrated_xtdata_trading_mode(monitor_doc) -> bool:
+    if get(monitor_doc, "xtdata.mode") is not None:
+        return migrate_xtdata_mode(get(monitor_doc, "xtdata.mode"))[0]
+    return bool(get(monitor_doc, "xtdata.trading_mode", True))
+
+
+def _migrated_xtdata_screening_mode(monitor_doc) -> bool:
+    if get(monitor_doc, "xtdata.mode") is not None:
+        return migrate_xtdata_mode(get(monitor_doc, "xtdata.mode"))[1]
+    return bool(get(monitor_doc, "xtdata.screening_mode", False))
 
 
 def strict_settings_env_enabled() -> bool:
@@ -28,7 +40,8 @@ DEFAULT_NOTIFICATION = {
 }
 DEFAULT_MONITOR = {
     "xtdata": {
-        "mode": "guardian_1m",
+        "trading_mode": True,
+        "screening_mode": False,
         "max_symbols": 60,
         "queue_backlog_threshold": 500,
         "prewarm": {"max_bars": 240},
@@ -87,7 +100,8 @@ class NotificationSettings:
 
 @dataclass(frozen=True)
 class MonitorSettings:
-    xtdata_mode: str = "guardian_1m"
+    xtdata_trading_mode: bool = True
+    xtdata_screening_mode: bool = False
     xtdata_max_symbols: int = 60
     xtdata_queue_backlog_threshold: int = 500
     xtdata_prewarm_max_bars: int = 240
@@ -240,7 +254,8 @@ class SystemSettings:
             ),
         )
         self.monitor = MonitorSettings(
-            xtdata_mode=normalize_xtdata_mode(get(monitor_doc, "xtdata.mode")),
+            xtdata_trading_mode=_migrated_xtdata_trading_mode(monitor_doc),
+            xtdata_screening_mode=_migrated_xtdata_screening_mode(monitor_doc),
             xtdata_max_symbols=int(get(monitor_doc, "xtdata.max_symbols", 60) or 60),
             xtdata_queue_backlog_threshold=int(
                 get(monitor_doc, "xtdata.queue_backlog_threshold", 500) or 500

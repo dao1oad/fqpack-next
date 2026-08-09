@@ -62,7 +62,7 @@
   - 空值行为：不报错，但对应通知不会真正发出。
 
 当前没有新系统用途的邮件参数；不要再往 `notification` 下写 SMTP 或邮件接收人。
-CLX 实时链路复用当前 DingTalk webhook 配置；只有 `monitor.xtdata.mode` 启用 CLX 实时能力且 15/30 分钟模型出现正信号时才发送聚合消息。文档、日志和输出中只使用脱敏示例，不输出真实 webhook/token。
+CLX 实时链路复用当前 DingTalk webhook 配置；只有 `monitor.xtdata.screening_mode` 启用选股能力且 15/30 分钟模型出现正信号时才发送聚合消息。文档、日志和输出中只使用脱敏示例，不输出真实 webhook/token。
 
 示例：
 
@@ -84,16 +84,20 @@ CLX 实时链路复用当前 DingTalk webhook 配置；只有 `monitor.xtdata.mo
 
 用途：XTData 监控范围、消费节流和预热参数。
 
-### monitor.xtdata.mode
+### monitor.xtdata.trading_mode
 
-- 含义：XTData 实时监控模式。
-- 类型：`str`
-- 正式支持值：
-  - `guardian_1m`
-  - `guardian_and_clx_15_30`
-  - `clx_15_30_only`
-- 缺省值：`guardian_1m`
-- 非法值行为：自动归一到 `guardian_1m`
+- 含义：交易模式（1m 持仓做T + 5m must_pool 开新仓）。
+- 类型：`bool`
+- 缺省值：`true`
+
+### monitor.xtdata.screening_mode
+
+- 含义：选股模式（15/30 CLX S0000-S0017 选股，不做交易）。
+- 类型：`bool`
+- 缺省值：`false`
+- 旧 `monitor.xtdata.mode` 一次性迁移：`guardian_1m` → trading only、
+  `guardian_and_clx_15_30` / `clx_15_30` → trading + screening、
+  `clx_15_30_only` → screening only。
 - 兼容读取值：
   - `clx_15_30`
     - 读取时自动归一到 `guardian_and_clx_15_30`

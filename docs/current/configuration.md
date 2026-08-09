@@ -203,7 +203,8 @@ CLX 不新增独立 Mongo/Redis 连接配置；API 与 Dagster 继续读取 Fres
 
 - `notification.webhook.dingtalk.private`
 - `notification.webhook.dingtalk.public`
-- `monitor.xtdata.mode`
+- `monitor.xtdata.trading_mode`
+- `monitor.xtdata.screening_mode`
 - `monitor.xtdata.max_symbols`
 - `monitor.xtdata.queue_backlog_threshold`
 - `monitor.xtdata.prewarm.max_bars`

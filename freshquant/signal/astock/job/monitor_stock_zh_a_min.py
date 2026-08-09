@@ -7,8 +7,9 @@ from loguru import logger
 
 from freshquant.data.astock.holding import get_stock_holding_codes
 from freshquant.market_data.xtdata.pools import (
-    normalize_xtdata_mode,
-    xtdata_mode_enables_guardian,
+    LINE_1M_T,
+    LINE_5M_NEW_OPEN,
+    lines_for_modes,
 )
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 from freshquant.pool.general import queryMustPoolCodes
@@ -58,10 +59,20 @@ def monitor_stock_zh_a_min_event_driven() -> None:
     Subscribe `CHANNEL:BAR_UPDATE` and calculate Guardian signals for current
     holdings on 1-minute bars and enabled must-pool new opens on 5-minute bars.
     """
-    xt_mode = normalize_xtdata_mode(system_settings.monitor.xtdata_mode)
-    if not xtdata_mode_enables_guardian(xt_mode):
+    trading_mode = bool(getattr(system_settings.monitor, "xtdata_trading_mode", True))
+    screening_mode = bool(
+        getattr(system_settings.monitor, "xtdata_screening_mode", False)
+    )
+    enabled_lines = set(
+        lines_for_modes(
+            trading_mode=trading_mode,
+            screening_mode=screening_mode,
+        )
+    )
+    if LINE_1M_T not in enabled_lines and LINE_5M_NEW_OPEN not in enabled_lines:
         logger.warning(
-            f"[Event] monitor.xtdata.mode={xt_mode}; guardian capability disabled. Exiting."
+            f"[Event] monitor.xtdata trading_mode={trading_mode}; "
+            "trading lines disabled. Exiting."
         )
         return
 
@@ -143,7 +154,11 @@ def monitor_stock_zh_a_min_event_driven() -> None:
             scope = scope_lock.get("scope") or {}
             in_holding = base_code in (scope.get("holding_codes") or set())
             in_must_pool = base_code in (scope.get("must_pool_codes") or set())
+            if period_backend == "1min" and LINE_1M_T not in enabled_lines:
+                return
             if period_backend == "1min" and not in_holding:
+                return
+            if period_backend == "5min" and LINE_5M_NEW_OPEN not in enabled_lines:
                 return
             if period_backend == "5min" and (in_holding or not in_must_pool):
                 return

@@ -1163,12 +1163,14 @@ Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/history/signal
 
 - `python -m freshquant.market_data.xtdata.market_producer`
 - `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`
-- `monitor.xtdata.mode`
+- `monitor.xtdata.trading_mode`
+- `monitor.xtdata.screening_mode`
 - `XTQUANT_PORT`
 
 处理：
 
-- 修正 `monitor.xtdata.mode` 与 `monitor.xtdata.max_symbols`
+- 修正 `monitor.xtdata.trading_mode` / `monitor.xtdata.screening_mode` 与
+  `monitor.xtdata.max_symbols`
 - 重启 producer / consumer
 - 通过 `/runtime-observability` 看 `xt_producer` / `xt_consumer` 心跳与 backlog
 - 若问题集中在开机或 deploy 后的短窗口，优先核对最新 runtime jsonl 是否已出现启动后的新心跳，再区分是“历史启动失败栈”还是“当前仍未恢复”。

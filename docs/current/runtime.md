@@ -2,7 +2,7 @@
 
 ## Guardian / TPSL 交易运行规则
 
-- Guardian monitor 在正式 `monitor.xtdata.mode=guardian_and_clx_15_30` 下使用
+- Guardian monitor 在正式 `monitor.xtdata.trading_mode=true` 下使用
   一个 listener 监听 `1min / 5min`。listener 范围是当前持仓与 enabled
   `must_pool` 的并集，每 30 秒刷新；`queryMustPoolCodes` 的进程缓存 TTL 为
   60 秒。

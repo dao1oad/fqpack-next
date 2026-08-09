@@ -11,7 +11,6 @@ from freshquant.bootstrap_config import (
     reload_bootstrap_config,
     resolve_bootstrap_file_path,
 )
-from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
 from freshquant.strategy.guardian_buy_grid import DEFAULT_INITIAL_LOT_AMOUNT
 from freshquant.system_settings import system_settings
 
@@ -119,7 +118,8 @@ SETTINGS_SECTION_META = {
         "source": "params.monitor",
         "restart_required": False,
         "items": [
-            ("xtdata.mode", "XTData 模式"),
+            ("xtdata.trading_mode", "交易模式"),
+            ("xtdata.screening_mode", "选股模式"),
             ("xtdata.max_symbols", "最大订阅数"),
             ("xtdata.queue_backlog_threshold", "队列背压阈值"),
             ("xtdata.prewarm.max_bars", "预热 bars"),
@@ -352,7 +352,8 @@ class SystemConfigService:
             },
             "monitor": {
                 "xtdata": {
-                    "mode": normalize_xtdata_mode(provider.monitor.xtdata_mode),
+                    "trading_mode": bool(provider.monitor.xtdata_trading_mode),
+                    "screening_mode": bool(provider.monitor.xtdata_screening_mode),
                     "max_symbols": provider.monitor.xtdata_max_symbols,
                     "queue_backlog_threshold": provider.monitor.xtdata_queue_backlog_threshold,
                     "prewarm": {
@@ -547,10 +548,13 @@ class SystemConfigService:
             },
             "monitor": {
                 "xtdata": {
-                    "mode": normalize_xtdata_mode(
-                        _require_text(
-                            xtdata.get("mode"), field_name="monitor.xtdata.mode"
-                        )
+                    "trading_mode": _require_bool(
+                        xtdata.get("trading_mode"),
+                        field_name="monitor.xtdata.trading_mode",
+                    ),
+                    "screening_mode": _require_bool(
+                        xtdata.get("screening_mode"),
+                        field_name="monitor.xtdata.screening_mode",
                     ),
                     "max_symbols": _require_int(
                         xtdata.get("max_symbols"),

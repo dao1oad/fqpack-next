@@ -115,7 +115,8 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
         "system_settings",
         SimpleNamespace(
             monitor=SimpleNamespace(
-                xtdata_mode="guardian_and_clx_15_30",
+                xtdata_trading_mode=True,
+                xtdata_screening_mode=True,
                 xtdata_max_symbols=1,
             )
         ),

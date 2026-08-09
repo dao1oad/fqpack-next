@@ -307,7 +307,8 @@ function defaultSettingsForm () {
     },
     monitor: {
       xtdata: {
-        mode: 'guardian_1m',
+        trading_mode: true,
+        screening_mode: false,
         max_symbols: 60,
         queue_backlog_threshold: 500,
         prewarm: { max_bars: 240 },

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from freshquant.database.mongodb import DBfreshquant
-from freshquant.market_data.xtdata.pools import normalize_xtdata_mode
+from freshquant.market_data.xtdata.pools import migrate_xtdata_mode
 from freshquant.util.mask_helper import mask
 
 
@@ -55,20 +55,22 @@ def init_param_dict(quiet=False):
         upsert=True,
     )
 
-    # XTData 监控模式（正式值为 guardian_1m / guardian_and_clx_15_30 / clx_15_30_only）
+    # XTData 监控模式（trading_mode / screening_mode 双布尔；旧 mode 一次性迁移）
     monitor_config = DBfreshquant.params.find_one({"code": "monitor"}) or {}
     xtdata_cfg = (monitor_config.get("value", {}) or {}).get("xtdata", {}) or {}
-    xtdata_mode = normalize_xtdata_mode(xtdata_cfg.get("mode"))
-    xtdata_max_symbols = int(xtdata_cfg.get("max_symbols", 50) or 50)
+    if xtdata_cfg.get("mode") is not None:
+        trading_mode, screening_mode = migrate_xtdata_mode(xtdata_cfg.get("mode"))
+    else:
+        trading_mode = bool(xtdata_cfg.get("trading_mode", True))
+        screening_mode = bool(xtdata_cfg.get("screening_mode", False))
+    xtdata_max_symbols = int(xtdata_cfg.get("max_symbols", 60) or 60)
     prewarm_cfg = xtdata_cfg.get("prewarm", {}) or {}
     prewarm_max_bars = int(prewarm_cfg.get("max_bars", 20000) or 20000)
 
     if quiet:
         print("\n当前XTData监控配置：")
-        print(
-            "mode: "
-            f"{xtdata_mode} (guardian_1m | guardian_and_clx_15_30 | clx_15_30_only)"
-        )
+        print(f"trading_mode: {trading_mode} (交易：1m 做T + 5m 开新仓)")
+        print(f"screening_mode: {screening_mode} (选股：15/30 CLX)")
         print(f"max_symbols: {xtdata_max_symbols}")
         print(f"prewarm.max_bars: {prewarm_max_bars}")
 
@@ -76,7 +78,8 @@ def init_param_dict(quiet=False):
         {"code": "monitor"},
         {
             "$set": {
-                "value.xtdata.mode": xtdata_mode,
+                "value.xtdata.trading_mode": trading_mode,
+                "value.xtdata.screening_mode": screening_mode,
                 "value.xtdata.max_symbols": xtdata_max_symbols,
                 "value.xtdata.prewarm.max_bars": prewarm_max_bars,
             }

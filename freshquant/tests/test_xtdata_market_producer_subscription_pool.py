@@ -7,10 +7,19 @@ def test_load_subscription_codes_only_uses_monitor_pool(monkeypatch):
     monkeypatch.setattr(
         market_producer,
         "load_monitor_codes",
-        lambda *, mode, max_symbols: ["SH600000", "sz000001", "", "sh600000"],
+        lambda *, trading_mode, screening_mode, max_symbols: [
+            "SH600000",
+            "sz000001",
+            "",
+            "sh600000",
+        ],
     )
 
-    codes = market_producer._load_subscription_codes(mode="guardian_1m", max_symbols=50)
+    codes = market_producer._load_subscription_codes(
+        trading_mode=True,
+        screening_mode=False,
+        max_symbols=50,
+    )
 
     assert codes == ["sh600000", "sz000001"]
 
@@ -19,7 +28,8 @@ def test_resolve_producer_runtime_config_uses_system_settings_and_bootstrap():
     config = market_producer.resolve_producer_runtime_config(
         settings_provider=SimpleNamespace(
             monitor=SimpleNamespace(
-                xtdata_mode="clx_15_30",
+                xtdata_trading_mode=True,
+                xtdata_screening_mode=True,
                 xtdata_max_symbols=88,
             )
         ),
@@ -28,16 +38,18 @@ def test_resolve_producer_runtime_config_uses_system_settings_and_bootstrap():
 
     assert config == {
         "port": 58611,
-        "mode": "guardian_and_clx_15_30",
+        "trading_mode": True,
+        "screening_mode": True,
         "max_symbols": 88,
     }
 
 
-def test_resolve_producer_runtime_config_preserves_clx_only_mode():
+def test_resolve_producer_runtime_config_preserves_screening_only():
     config = market_producer.resolve_producer_runtime_config(
         settings_provider=SimpleNamespace(
             monitor=SimpleNamespace(
-                xtdata_mode="clx_15_30_only",
+                xtdata_trading_mode=False,
+                xtdata_screening_mode=True,
                 xtdata_max_symbols=77,
             )
         ),
@@ -46,7 +58,8 @@ def test_resolve_producer_runtime_config_preserves_clx_only_mode():
 
     assert config == {
         "port": 58611,
-        "mode": "clx_15_30_only",
+        "trading_mode": False,
+        "screening_mode": True,
         "max_symbols": 77,
     }
 
