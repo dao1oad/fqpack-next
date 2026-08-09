@@ -355,6 +355,10 @@ def test_verify_requires_targeted_surfaces_and_preserves_baseline_processes(
         str(process_path),
         "-SupervisorConfigSnapshotPath",
         str(supervisor_config_path),
+        "-VerifyMaxAttempts",
+        "1",
+        "-VerifySettleSeconds",
+        "0",
     )
 
     assert result.returncode != 0
@@ -564,6 +568,10 @@ def test_verify_rejects_unknown_deployment_surface(tmp_path: Path) -> None:
         str(service_path),
         "-ProcessSnapshotPath",
         str(process_path),
+        "-VerifyMaxAttempts",
+        "1",
+        "-VerifySettleSeconds",
+        "0",
     )
 
     assert result.returncode != 0
@@ -725,6 +733,10 @@ def test_verify_requires_fqnext_supervisord_for_host_managed_surfaces(
         str(process_path),
         "-SupervisorConfigSnapshotPath",
         str(supervisor_config_path),
+        "-VerifyMaxAttempts",
+        "1",
+        "-VerifySettleSeconds",
+        "0",
     )
 
     assert result.returncode != 0
@@ -950,6 +962,10 @@ def test_verify_fails_when_supervisor_config_still_points_to_main_runtime(
         str(supervisor_path),
         "-SupervisorConfigSnapshotPath",
         str(supervisor_config_path),
+        "-VerifyMaxAttempts",
+        "1",
+        "-VerifySettleSeconds",
+        "0",
     )
 
     assert result.returncode != 0
@@ -1163,9 +1179,137 @@ def test_verify_fails_when_supervisor_config_inspection_is_unavailable(
         str(process_path),
         "-SupervisorSnapshotPath",
         str(supervisor_path),
+        "-VerifyMaxAttempts",
+        "1",
+        "-VerifySettleSeconds",
+        "0",
     )
 
     assert result.returncode != 0
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["passed"] is False
     assert any("supervisor config" in failure for failure in payload["failures"])
+
+
+def test_verify_supports_settle_retry_parameters() -> None:
+    script_text = SCRIPT.read_text(encoding="utf-8")
+    assert "[int]$VerifyMaxAttempts" in script_text
+    assert "[int]$VerifySettleSeconds" in script_text
+    assert "$verifyAttempt -lt $VerifyMaxAttempts" in script_text
+
+
+def test_verify_retries_and_passes_when_runtime_recovers(tmp_path: Path) -> None:
+    baseline_path = _write_json(
+        tmp_path / "baseline.json",
+        {
+            "baseline": {
+                "docker": [],
+                "services": [{"name": "fqnext-supervisord", "status": "Running"}],
+                "processes": [
+                    {"id": "xtquant_broker", "running": False},
+                    {"id": "xt_account_sync_worker", "running": False},
+                    {"id": "xt_auto_repay_worker", "running": False},
+                ],
+            }
+        },
+    )
+    docker_path = _write_json(
+        tmp_path / "docker.json",
+        [
+            {
+                "Name": "fq_mongodb",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+            {
+                "Name": "fq_redis",
+                "State": {"Status": "running", "Health": {"Status": "healthy"}},
+            },
+        ],
+    )
+    service_path = _write_json(
+        tmp_path / "services.json",
+        [{"Name": "fqnext-supervisord", "Status": "Running"}],
+    )
+    process_path = _write_json(
+        tmp_path / "processes.json",
+        [
+            {
+                "ProcessId": 2001,
+                "Name": "python.exe",
+                "CommandLine": "python -m fqxtrade.xtquant.broker",
+            },
+            {
+                "ProcessId": 2002,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
+            },
+            {
+                "ProcessId": 2003,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_auto_repay.worker",
+            },
+        ],
+    )
+    supervisor_path = _write_json(
+        tmp_path / "supervisor.json",
+        [
+            {
+                "name": "fqnext_xtquant_broker",
+                "statename": "RUNNING",
+                "pid": 2001,
+                "description": "pid 2001, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_account_sync_worker",
+                "statename": "RUNNING",
+                "pid": 2002,
+                "description": "pid 2002, uptime 0:01:00",
+            },
+            {
+                "name": "fqnext_xt_auto_repay_worker",
+                "statename": "RUNNING",
+                "pid": 2003,
+                "description": "pid 2003, uptime 0:01:00",
+            },
+        ],
+    )
+    supervisor_config_path = _write_valid_supervisor_config_snapshot(
+        tmp_path / "supervisor-config.json"
+    )
+    output_path = tmp_path / "verify.json"
+
+    os.environ["FQ_RUNTIME_VERIFY_TEST_FAIL_ONCE"] = "1"
+    try:
+        result = _run_powershell(
+            SCRIPT,
+            "-Mode",
+            "Verify",
+            "-BaselinePath",
+            str(baseline_path),
+            "-OutputPath",
+            str(output_path),
+            "-DeploymentSurface",
+            "order_management",
+            "-DockerSnapshotPath",
+            str(docker_path),
+            "-ServiceSnapshotPath",
+            str(service_path),
+            "-ProcessSnapshotPath",
+            str(process_path),
+            "-SupervisorSnapshotPath",
+            str(supervisor_path),
+            "-SupervisorConfigSnapshotPath",
+            str(supervisor_config_path),
+            "-VerifyMaxAttempts",
+            "3",
+            "-VerifySettleSeconds",
+            "1",
+        )
+    finally:
+        os.environ.pop("FQ_RUNTIME_VERIFY_TEST_FAIL_ONCE", None)
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is True
+    assert payload["attempt"] == 2
+    assert payload["max_attempts"] == 3
