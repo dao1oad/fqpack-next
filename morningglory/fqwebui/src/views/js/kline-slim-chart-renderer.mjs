@@ -1,10 +1,6 @@
 import echartsConfig from './echartsConfig.js'
-const STRUCTURE_LINE_WIDTH_CAP_PX = 7.5
-
-export const resolveStructureStrokeWidth = (baseWidth, factor) => Math.min(
-  Number(baseWidth) * (Number(factor) || 1),
-  STRUCTURE_LINE_WIDTH_CAP_PX,
-)
+// 缠论结构线统一固定粗细：与 1m 白色笔线一致，不再按颜色/周期区分线宽。
+export const STRUCTURE_LINE_WIDTH_PX = 1.2
 
 import {
   SUPPORTED_CHANLUN_PERIODS,
@@ -948,16 +944,14 @@ function buildPriceGuideLegendEntries(lines = []) {
 function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneScopeId) {
   const palette = PERIOD_STYLE_MAP[period]
   const factor = PERIOD_WIDTH_FACTOR[period] || 1
-  const biStrokeWidth = resolveStructureStrokeWidth(1.2, factor)
-  const duanStrokeWidth = resolveStructureStrokeWidth(1.5, factor)
-  const higherDuanStrokeWidth = resolveStructureStrokeWidth(1.6, factor)
+  const structureStrokeWidth = STRUCTURE_LINE_WIDTH_PX
   const biBoxes = clipStructureBoxes(
     payload?.zsdata,
     period,
     realMainWindow,
     tradingAxis,
     palette.zhongshu,
-    biStrokeWidth,
+    structureStrokeWidth,
     'zhongshu',
     sceneScopeId
   )
@@ -967,7 +961,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
     realMainWindow,
     tradingAxis,
     palette.duanZhongshu,
-    duanStrokeWidth,
+    structureStrokeWidth,
     'duan-zhongshu',
     sceneScopeId
   )
@@ -977,7 +971,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
     realMainWindow,
     tradingAxis,
     palette.higherDuanZhongshu,
-    higherDuanStrokeWidth,
+    structureStrokeWidth,
     'higher-duan-zhongshu',
     sceneScopeId
   )
@@ -987,7 +981,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
       id: `${period}-${sceneScopeId}-bi`,
       name: `${period} 笔`,
       color: palette.bi,
-      width: biStrokeWidth,
+      width: structureStrokeWidth,
       z: 5 + factor,
       points: buildLinePointItems(payload?.bidata, period, tradingAxis)
     },
@@ -995,7 +989,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
       id: `${period}-${sceneScopeId}-duan`,
       name: `${period} 段`,
       color: palette.duan,
-      width: duanStrokeWidth,
+      width: structureStrokeWidth,
       z: 6 + factor,
       points: buildLinePointItems(payload?.duandata, period, tradingAxis)
     },
@@ -1003,7 +997,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
       id: `${period}-${sceneScopeId}-higher-duan`,
       name: `${period} 高级别段`,
       color: palette.higherDuan,
-      width: higherDuanStrokeWidth,
+      width: structureStrokeWidth,
       z: 7 + factor,
       points: buildLinePointItems(payload?.higherDuanData, period, tradingAxis)
     }
@@ -1015,7 +1009,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
       name: `${period} 笔结构`,
       boxes: biBoxes,
       color: palette.zhongshu,
-      borderWidth: biStrokeWidth,
+      borderWidth: structureStrokeWidth,
       z: 4 + factor
     },
     {
@@ -1023,7 +1017,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
       name: `${period} 段结构`,
       boxes: duanBoxes,
       color: palette.duanZhongshu,
-      borderWidth: duanStrokeWidth,
+      borderWidth: structureStrokeWidth,
       z: 5 + factor
     },
     {
@@ -1031,7 +1025,7 @@ function buildPeriodScene(period, payload, realMainWindow, tradingAxis, sceneSco
       name: `${period} 高级段结构`,
       boxes: higherDuanBoxes,
       color: palette.higherDuanZhongshu,
-      borderWidth: higherDuanStrokeWidth,
+      borderWidth: structureStrokeWidth,
       z: 6 + factor
     }
   ].filter((series) => series.boxes.length)

@@ -4,16 +4,14 @@ import assert from 'node:assert/strict'
 import {
   buildKlineSlimChartOption,
   buildKlineSlimChartScene,
-  resolveStructureStrokeWidth,
+  STRUCTURE_LINE_WIDTH_PX,
 } from './kline-slim-chart-renderer.mjs'
 
-test('structure stroke width is capped at the red baseline', () => {
-  assert.equal(resolveStructureStrokeWidth(1.5, 5), 7.5)
-  assert.equal(resolveStructureStrokeWidth(1.6, 7), 7.5)
-  assert.equal(resolveStructureStrokeWidth(1.2, 1), 1.2)
+test('structure stroke width is fixed at the white line width', () => {
+  assert.equal(STRUCTURE_LINE_WIDTH_PX, 1.2)
 })
 
-test('structure box border width matches same-color structure line width', () => {
+test('all structure lines and box borders share the same fixed width', () => {
   const scene = buildKlineSlimChartScene({
     mainData: {
       symbol: '600000',
@@ -49,14 +47,14 @@ test('structure box border width matches same-color structure line width', () =>
   const duanBox = periodScene.structureSeries.find((item) => item.name === '30m 段结构')
   const higherBox = periodScene.structureSeries.find((item) => item.name === '30m 高级段结构')
 
-  assert.equal(bi.width, 6)
-  assert.equal(duan.width, 7.5)
-  assert.equal(higher.width, 7.5)
-  assert.equal(biBox.borderWidth, bi.width)
-  assert.equal(duanBox.borderWidth, duan.width)
-  assert.equal(higherBox.borderWidth, higher.width)
+  assert.equal(bi.width, STRUCTURE_LINE_WIDTH_PX)
+  assert.equal(duan.width, STRUCTURE_LINE_WIDTH_PX)
+  assert.equal(higher.width, STRUCTURE_LINE_WIDTH_PX)
+  assert.equal(biBox.borderWidth, STRUCTURE_LINE_WIDTH_PX)
+  assert.equal(duanBox.borderWidth, STRUCTURE_LINE_WIDTH_PX)
+  assert.equal(higherBox.borderWidth, STRUCTURE_LINE_WIDTH_PX)
 
   const option = buildKlineSlimChartOption({ scene })
   const optionBiBox = option.series.find((item) => item.name === '30m 笔结构')
-  assert.equal(optionBiBox.customMeta.borderWidth, bi.width)
+  assert.equal(optionBiBox.customMeta.borderWidth, STRUCTURE_LINE_WIDTH_PX)
 })
