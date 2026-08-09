@@ -403,7 +403,9 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "--build",
         "fq_apiserver",
     ]
-    assert commands[2][:10] == [
+    wait_command = commands[2]
+    assert "script/ci/wait_for_deploy_dependencies.py" in wait_command
+    assert commands[3][:10] == [
         "powershell",
         "-ExecutionPolicy",
         "Bypass",
@@ -415,11 +417,11 @@ def test_orchestrator_runs_docker_and_host_surfaces_in_order(
         "market_data",
         "-BridgeIfServiceUnavailable",
     ]
-    assert commands[2][-2:] == [
+    assert commands[3][-2:] == [
         "-SupervisorConfigRepoRoot",
         str(Path(".").resolve()),
     ]
-    assert commands[3] == [
+    assert commands[4] == [
         sys.executable,
         "script/freshquant_health_check.py",
         "--surface",
