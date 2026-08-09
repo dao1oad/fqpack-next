@@ -24,6 +24,13 @@
           OK <strong>{{ summary.audit_status_counts?.OK || 0 }}</strong>
         </StatusChip>
         <StatusChip
+          :variant="internalIntegrity?.ok ? 'success' : 'danger'"
+          title="entry / slice / exit allocation 三表内部一致性"
+        >
+          内部一致性
+          <strong>{{ internalIntegrity?.ok ? 'OK' : `${internalIntegrity?.errorCount || 0} ERROR` }}</strong>
+        </StatusChip>
+        <StatusChip
           v-for="item in summaryStateCards"
           :key="item.key"
           :variant="item.chipVariant"
@@ -37,6 +44,43 @@
         >
           {{ item.label }} <strong>{{ item.statusSummary }}</strong>
         </StatusChip>
+      </div>
+
+      <div
+        v-if="internalIntegrityErrors.length"
+        class="position-reconciliation-integrity"
+      >
+        <div class="position-reconciliation-integrity__title">
+          内部一致性错误清单（entry / slice / exit allocation 引用与数量）
+        </div>
+        <div class="position-reconciliation-expanded__table position-reconciliation-expanded__rule-table">
+          <div class="position-reconciliation-expanded__table-head">
+            <span>类型</span>
+            <span>引用</span>
+            <span>期望 vs 实际</span>
+          </div>
+          <div
+            v-for="(item, index) in internalIntegrityErrors.slice(0, 50)"
+            :key="`integrity-${index}-${item.reference_type}-${item.reference_id}`"
+            class="position-reconciliation-expanded__table-row"
+          >
+            <span>{{ item.reference_type }}</span>
+            <span>{{ item.allocation_id }} / {{ item.reference_id }}</span>
+            <span>
+              {{ item.expected_symbol !== '-' || item.actual_symbol !== '-'
+                ? `${item.expected_symbol} → ${item.actual_symbol}`
+                : `${item.expected_quantity} → ${item.actual_quantity}` }}
+            </span>
+          </div>
+          <div
+            v-if="internalIntegrityErrors.length > 50"
+            class="position-reconciliation-expanded__table-row"
+          >
+            <span>…</span>
+            <span>另有 {{ internalIntegrityErrors.length - 50 }} 条</span>
+            <span>-</span>
+          </div>
+        </div>
       </div>
 
       <div class="position-reconciliation-toolbar">
@@ -282,6 +326,8 @@ const summary = computed(() => summaryViewModel.value.summary || {
   row_count: 0,
   audit_status_counts: { OK: 0, WARN: 0, ERROR: 0 },
 })
+const internalIntegrity = computed(() => summaryViewModel.value.internalIntegrity || {})
+const internalIntegrityErrors = computed(() => summaryViewModel.value.internalIntegrity?.errors || [])
 const summaryStateCards = computed(() => summaryViewModel.value.stateCards || [])
 const summaryRuleCards = computed(() => summaryViewModel.value.ruleCards || [])
 const rows = computed(() => buildPositionReconciliationRows(normalizedOverview.value))

@@ -251,6 +251,52 @@ test('buildPositionReconciliationSummaryViewModel exposes rule counts for panel 
   assert.equal(summary.stateCards.find((item) => item.key === 'BROKEN')?.chipVariant, 'danger')
 })
 
+test('buildPositionReconciliationSummaryViewModel exposes internal integrity chip and error rows', () => {
+  const summary = buildPositionReconciliationSummaryViewModel({
+    summary: {
+      row_count: 1,
+      audit_status_counts: { OK: 1, WARN: 0, ERROR: 0 },
+    },
+    internal_integrity: {
+      ok: false,
+      error_count: 2,
+      by_symbol: { 600917: 1, 688772: 1 },
+      errors: [
+        {
+          allocation_id: 'A1',
+          reference_type: 'entry_slice_symbol',
+          reference_id: 'S1',
+          expected_symbol: '688772',
+          actual_symbol: '600917',
+        },
+        {
+          allocation_id: null,
+          reference_type: 'entry_slice_allocation_quantity',
+          reference_id: 'S1',
+          expected_quantity: 600,
+          actual_quantity: 900,
+        },
+      ],
+    },
+  })
+
+  assert.equal(summary.internalIntegrity.ok, false)
+  assert.equal(summary.internalIntegrity.errorCount, 2)
+  assert.deepEqual(summary.internalIntegrity.bySymbol, { 600917: 1, 688772: 1 })
+  assert.equal(summary.internalIntegrity.errors[0].reference_type, 'entry_slice_symbol')
+  assert.equal(summary.internalIntegrity.errors[0].expected_symbol, '688772')
+  assert.equal(summary.internalIntegrity.errors[1].expected_quantity, '600')
+  assert.equal(summary.internalIntegrity.errors[1].actual_quantity, '900')
+  assert.equal(summary.summary.internal_integrity.error_count, 2)
+})
+
+test('buildPositionReconciliationSummaryViewModel treats missing internal integrity as ok', () => {
+  const summary = buildPositionReconciliationSummaryViewModel({ summary: {} })
+  assert.equal(summary.internalIntegrity.ok, false)
+  assert.equal(summary.internalIntegrity.errorCount, 0)
+  assert.deepEqual(summary.internalIntegrity.errors, [])
+})
+
 test('filterPositionReconciliationRows supports audit, state and query filters', () => {
   const rows = buildPositionReconciliationRows({ rows: createRows() })
 

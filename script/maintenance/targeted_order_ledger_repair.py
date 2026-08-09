@@ -100,10 +100,41 @@ def run_verify(*, manifest_path, databases=None):
         raise click.ClickException(
             "verify is blocked: core verify_targeted_repair is not implemented"
         )
-    return verifier(
+    result = verifier(
         manifest=repair_core.load_repair_document(manifest_path),
         databases=databases if databases is not None else _get_databases(),
     )
+    result["allocation_integrity"] = _run_allocation_integrity_verify(
+        databases=databases if databases is not None else _get_databases()
+    )
+    if not (result["allocation_integrity"] or {}).get("ok"):
+        raise click.ClickException(
+            "allocation integrity verify failed: "
+            + json_util.dumps(
+                result["allocation_integrity"],
+                json_options=json_util.RELAXED_JSON_OPTIONS,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+    return result
+
+
+def _run_allocation_integrity_verify(*, databases):
+    from freshquant.order_management.allocation_integrity import (
+        find_exit_allocation_integrity_errors,
+        summarize_integrity_errors,
+    )
+    from freshquant.order_management.repository import OrderManagementRepository
+
+    database = databases.get("order")
+    repository = OrderManagementRepository(database=database)
+    errors = find_exit_allocation_integrity_errors(
+        position_entries=repository.list_position_entries(),
+        entry_slices=repository.list_all_entry_slices(),
+        exit_allocations=repository.list_exit_allocations(),
+    )
+    return summarize_integrity_errors(errors)
 
 
 def run_restore(
