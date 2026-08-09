@@ -283,6 +283,7 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
 ) -> None:
     module = load_module()
     start_calls: list[tuple[str, bool]] = []
+    tree_kill_calls: list[int] = []
     running_wait_calls = {"value": 0}
     process_infos = iter(
         [
@@ -303,6 +304,7 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
         return True
 
     server.supervisor.startProcess = fake_start_process
+    monkeypatch.setattr(module, "terminate_process_tree", tree_kill_calls.append)
 
     monkeypatch.setattr(
         module, "get_process_info", lambda _server, _name: next(process_infos)
@@ -338,6 +340,7 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
         ("fqnext_realtime_xtdata_producer", False),
         ("fqnext_realtime_xtdata_producer", False),
     ]
+    assert tree_kill_calls == [11]
     assert results == [
         {
             "name": "fqnext_realtime_xtdata_producer",
