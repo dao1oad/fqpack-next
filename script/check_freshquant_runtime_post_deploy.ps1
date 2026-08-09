@@ -1237,6 +1237,12 @@ do {
     $result.warnings = @($serviceChecks.Warnings + $processChecks.Warnings + $readinessChecks.Warnings + $supervisorConfigChecks.Warnings)
     $result.failures = @($dockerChecks.Failures + $serviceChecks.Failures + $processChecks.Failures + $readinessChecks.Failures + $supervisorConfigChecks.Failures)
     $result.passed = ($result.failures.Count -eq 0)
+
+    # Test-only hook: inject a synthetic failure on the first verify attempt.
+    if ($env:FQ_RUNTIME_VERIFY_TEST_FAIL_ONCE -eq '1' -and $verifyAttempt -eq 1) {
+        $result.failures = @($result.failures + 'synthetic failure injected for verify retry test')
+        $result.passed = $false
+    }
 } while (-not $result.passed -and $verifyAttempt -lt $VerifyMaxAttempts)
 
 $verifyJson = $result | ConvertTo-Json -Depth 12

@@ -4,7 +4,6 @@ import json
 import os
 import shutil
 import subprocess
-import threading
 from pathlib import Path
 
 import pytest
@@ -1231,7 +1230,26 @@ def test_verify_retries_and_passes_when_runtime_recovers(tmp_path: Path) -> None
         tmp_path / "services.json",
         [{"Name": "fqnext-supervisord", "Status": "Running"}],
     )
-    process_path = _write_json(tmp_path / "processes.json", [])
+    process_path = _write_json(
+        tmp_path / "processes.json",
+        [
+            {
+                "ProcessId": 2001,
+                "Name": "python.exe",
+                "CommandLine": "python -m fqxtrade.xtquant.broker",
+            },
+            {
+                "ProcessId": 2002,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_account_sync.worker",
+            },
+            {
+                "ProcessId": 2003,
+                "Name": "python.exe",
+                "CommandLine": "python -m freshquant.xt_auto_repay.worker",
+            },
+        ],
+    )
     supervisor_path = _write_json(
         tmp_path / "supervisor.json",
         [
@@ -1249,9 +1267,9 @@ def test_verify_retries_and_passes_when_runtime_recovers(tmp_path: Path) -> None
             },
             {
                 "name": "fqnext_xt_auto_repay_worker",
-                "statename": "EXITED",
-                "pid": 0,
-                "description": "exited",
+                "statename": "RUNNING",
+                "pid": 2003,
+                "description": "pid 2003, uptime 0:01:00",
             },
         ],
     )
@@ -1260,47 +1278,7 @@ def test_verify_retries_and_passes_when_runtime_recovers(tmp_path: Path) -> None
     )
     output_path = tmp_path / "verify.json"
 
-    def recover_runtime() -> None:
-        supervisor_path.write_text(
-            json.dumps(
-                [
-                    {
-                        "name": "fqnext_xtquant_broker",
-                        "statename": "RUNNING",
-                        "pid": 2001,
-                        "description": "pid 2001, uptime 0:01:00",
-                    },
-                    {
-                        "name": "fqnext_xt_account_sync_worker",
-                        "statename": "RUNNING",
-                        "pid": 2002,
-                        "description": "pid 2002, uptime 0:01:00",
-                    },
-                    {
-                        "name": "fqnext_xt_auto_repay_worker",
-                        "statename": "RUNNING",
-                        "pid": 2003,
-                        "description": "pid 2003, uptime 0:01:00",
-                    },
-                ]
-            ),
-            encoding="utf-8",
-        )
-        process_path.write_text(
-            json.dumps(
-                [
-                    {
-                        "ProcessId": 2003,
-                        "Name": "python.exe",
-                        "CommandLine": "python -m freshquant.xt_auto_repay.worker",
-                    }
-                ]
-            ),
-            encoding="utf-8",
-        )
-
-    timer = threading.Timer(1.0, recover_runtime)
-    timer.start()
+    os.environ["FQ_RUNTIME_VERIFY_TEST_FAIL_ONCE"] = "1"
     try:
         result = _run_powershell(
             SCRIPT,
@@ -1325,13 +1303,13 @@ def test_verify_retries_and_passes_when_runtime_recovers(tmp_path: Path) -> None
             "-VerifyMaxAttempts",
             "3",
             "-VerifySettleSeconds",
-            "2",
+            "1",
         )
     finally:
-        timer.cancel()
+        os.environ.pop("FQ_RUNTIME_VERIFY_TEST_FAIL_ONCE", None)
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["passed"] is True
-    assert payload["attempt"] >= 2
+    assert payload["attempt"] == 2
     assert payload["max_attempts"] == 3
