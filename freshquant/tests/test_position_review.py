@@ -259,6 +259,12 @@ class FakePositionReviewRepository:
     def list_xt_positions(self, symbol=None):
         return [{"stock_code": "002262.SZ", "volume": 22300}]
 
+    def list_xt_assets(self):
+        return []
+
+    def list_credit_asset_snapshots(self, *, limit=200_000):
+        return []
+
     def list_stock_signals(self, symbol=None):
         return deepcopy(self.signals)
 
@@ -1430,6 +1436,147 @@ def test_catalog_cache_single_flights_parallel_summary_and_symbol_requests():
     assert repository.catalog_calls == 2
 
 
+def test_portfolio_endpoints_share_one_snapshot_build():
+    class CountingRepository(FakePositionReviewRepository):
+        def __init__(self):
+            super().__init__()
+            self.snapshot_builds = 0
+            self.count_lock = Lock()
+
+        def list_symbols(self):
+            with self.count_lock:
+                self.snapshot_builds += 1
+            sleep(0.05)
+            return super().list_symbols()
+
+        def list_xt_assets(self):
+            return [
+                {
+                    "account_id": "068000076370",
+                    "total_asset": 100000.0,
+                    "updated_at": "2026-08-09T00:00:00+00:00",
+                }
+            ]
+
+        def list_credit_asset_snapshots(self, *, limit=200_000):
+            return []
+
+    repository = CountingRepository()
+    service = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+        catalog_ttl_seconds=60,
+    )
+    barrier = Barrier(3)
+
+    def load_summary():
+        barrier.wait()
+        return service.get_portfolio_summary()
+
+    def load_series():
+        barrier.wait()
+        return service.get_portfolio_series()
+
+    def load_contributions():
+        barrier.wait()
+        return service.get_portfolio_contributions()
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(loader)
+            for loader in (load_summary, load_series, load_contributions)
+        ]
+        results = [future.result() for future in futures]
+
+    assert repository.snapshot_builds == 1
+    assert all(result is not None for result in results)
+
+    # 热路径：三个组合接口再次并发不再触发重建。
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(loader)
+            for loader in (load_summary, load_series, load_contributions)
+        ]
+        [future.result() for future in futures]
+    assert repository.snapshot_builds == 1
+
+
+def test_portfolio_refresh_rerereads_snapshot_sources():
+    class CountingRepository(FakePositionReviewRepository):
+        def __init__(self):
+            super().__init__()
+            self.snapshot_builds = 0
+
+        def list_symbols(self):
+            self.snapshot_builds += 1
+            return super().list_symbols()
+
+        def list_xt_assets(self):
+            return []
+
+        def list_credit_asset_snapshots(self, *, limit=200_000):
+            return []
+
+    repository = CountingRepository()
+    service = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+        catalog_ttl_seconds=60,
+    )
+
+    service.get_portfolio_summary()
+    assert repository.snapshot_builds == 1
+
+    service.get_portfolio_series(refresh=True)
+    assert repository.snapshot_builds == 2
+
+    service.get_portfolio_contributions(refresh=True)
+    assert repository.snapshot_builds == 3
+
+
+def test_catalog_hit_path_reuses_credit_snapshots_by_reference():
+    class CreditRepository(FakePositionReviewRepository):
+        def __init__(self):
+            super().__init__()
+            self.credit = [
+                {
+                    "queried_at": f"2026-08-09T00:00:{index:02d}+00:00",
+                    "total_asset": 100000.0 + index,
+                    "total_debt": 0.0,
+                    "available_amount": 100000.0,
+                }
+                for index in range(120)
+            ]
+            self.credit_reads = 0
+
+        def list_xt_assets(self):
+            return []
+
+        def list_credit_asset_snapshots(self, *, limit=200_000):
+            self.credit_reads += 1
+            return self.credit
+
+    repository = CreditRepository()
+    service = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeRuntimeRepository(),
+        name_resolver=lambda symbol: "恩华药业",
+        catalog_ttl_seconds=60,
+    )
+
+    service.get_portfolio_series()
+    assert repository.credit_reads == 1
+    cached_credit = service._catalog_cache["credit_snapshots"]
+    assert cached_credit is repository.credit
+
+    # 热路径命中不再重读，也不 deepcopy（引用复用）。
+    service.get_portfolio_series()
+    assert repository.credit_reads == 1
+    assert service._catalog_cache["credit_snapshots"] is repository.credit
+
+
 def test_catalog_contains_only_symbols_with_current_orders_or_holdings():
     class Collection:
         def __init__(self, values):
@@ -1501,6 +1648,12 @@ def test_catalog_uses_one_batch_snapshot_and_one_global_runtime_scan():
             }
 
         def list_xt_positions(self):
+            return []
+
+        def list_xt_assets(self):
+            return []
+
+        def list_credit_asset_snapshots(self, *, limit=200_000):
             return []
 
         def __getattr__(self, name):

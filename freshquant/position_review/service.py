@@ -471,70 +471,15 @@ class PositionReviewService:
         )
 
     def _build_portfolio_inputs(self, *, refresh):
-        """Build portfolio-level inputs in one read-only pass."""
+        """Build portfolio-level inputs from the unified catalog snapshot."""
 
-        del refresh
-        catalog_bundles = None
-        if hasattr(self.repository, "load_catalog_bundles"):
-            catalog_bundles = self.repository.load_catalog_bundles()
-        if catalog_bundles is None:
-            return {}, {}, {}, [], []
-        runtime_catalog = self._runtime_catalog_evidence()
-        positions = {}
-        for item in self.repository.list_xt_positions():
-            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
-            if symbol:
-                positions[symbol] = item
-        detail_by_symbol: dict[str, Any] = {}
-        cost_by_symbol: dict[str, Any] = {}
-        for symbol in sorted(catalog_bundles):
-            bundle = _prepare_symbol_bundle(catalog_bundles[symbol])
-            if not bundle["requests"] and not bundle["xt_trades"]:
-                continue
-            runtime_result = _runtime_result_for_symbol(runtime_catalog, symbol)
-            detail = self._build_detail(
-                symbol,
-                bundle,
-                runtime_result=runtime_result,
-            )
-            canonical_trades = list(detail.get("executions") or [])
-            requests_by_id = {
-                str(request.get("request_id") or "").strip(): request
-                for request in bundle["requests"]
-                if str(request.get("request_id") or "").strip()
-            }
-            cost_replay = replay_cost_basis(
-                symbol=symbol,
-                canonical_trades=canonical_trades,
-                entries=bundle["entries"],
-                slices=bundle["slices"],
-                allocations=bundle["allocations"],
-                requests_by_id=requests_by_id,
-                initial_position_quantity=_int(
-                    (detail.get("summary") or {}).get("initial_position_quantity")
-                ),
-                initial_position_source=(
-                    (detail.get("summary") or {}).get("initial_position_source")
-                ),
-            )
-            detail_by_symbol[symbol] = detail
-            cost_by_symbol[symbol] = cost_replay
-        holding_only_details, holding_only_costs = (
-            self._append_holding_only_portfolio_rows(
-                detail_by_symbol,
-                positions,
-            )
-        )
-        detail_by_symbol.update(holding_only_details)
-        cost_by_symbol.update(holding_only_costs)
-        xt_assets = self.repository.list_xt_assets()
-        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=200_000)
+        snapshot, _metadata = self._get_portfolio_snapshot(refresh=bool(refresh))
         return (
-            detail_by_symbol,
-            cost_by_symbol,
-            positions,
-            xt_assets,
-            credit_snapshots,
+            snapshot["detail_by_symbol"],
+            snapshot["cost_by_symbol"],
+            snapshot["positions"],
+            snapshot["xt_assets"],
+            snapshot["credit_snapshots"],
         )
 
     def _append_holding_only_portfolio_rows(
@@ -556,23 +501,7 @@ class PositionReviewService:
                 symbol,
                 position,
             )
-            cost_result[symbol] = {
-                "cost_basis_source": "broker_snapshot_estimate",
-                "realized_pnl": 0.0,
-                "fees_included": False,
-                "cost_basis_series": [],
-                "data_quality": {
-                    "cost_basis": "degraded",
-                    "ledger_available": False,
-                    "fees_included": False,
-                    "warnings": [
-                        {
-                            "code": "cost_basis_broker_snapshot",
-                            "message": "无成交记录，成本使用券商当前均价快照估算。",
-                        }
-                    ],
-                },
-            }
+            cost_result[symbol] = _broker_estimate_cost(position)
         return detail_result, cost_result
 
     def _holding_only_detail_from_positions(self, symbol):
@@ -733,6 +662,14 @@ class PositionReviewService:
         return payload
 
     def _get_catalog_snapshot(self, *, refresh):
+        snapshot, metadata = self._ensure_catalog_snapshot(refresh=bool(refresh))
+        return deepcopy(snapshot["rows"]), metadata
+
+    def _get_portfolio_snapshot(self, *, refresh):
+        snapshot, metadata = self._ensure_catalog_snapshot(refresh=bool(refresh))
+        return snapshot, metadata
+
+    def _ensure_catalog_snapshot(self, *, refresh):
         observed_generation = self._catalog_generation
         with self._catalog_lock:
             now = self._clock()
@@ -748,37 +685,54 @@ class PositionReviewService:
             if cached and (
                 concurrent_refresh_satisfied or (not refresh and cache_fresh)
             ):
-                return deepcopy(cached["rows"]), {
+                return cached, {
                     "cache_hit": True,
                     "ttl_seconds": self.catalog_ttl_seconds,
                     "generated_at": cached["generated_at"],
                 }
 
-            rows, detail_by_symbol = self._build_symbol_rows()
+            snapshot = self._build_catalog_snapshot()
             generated_at = datetime.now(timezone.utc).isoformat()
             built_at = self._clock()
             self._catalog_cache = {
-                "rows": deepcopy(rows),
-                "detail_by_symbol": deepcopy(detail_by_symbol),
+                "rows": deepcopy(snapshot["rows"]),
+                "detail_by_symbol": deepcopy(snapshot["detail_by_symbol"]),
+                "cost_by_symbol": snapshot["cost_by_symbol"],
+                "positions": snapshot["positions"],
+                "holding_only_details": snapshot["holding_only_details"],
+                "holding_only_costs": snapshot["holding_only_costs"],
+                "xt_assets": snapshot["xt_assets"],
+                "credit_snapshots": snapshot["credit_snapshots"],
                 "generated_at": generated_at,
                 "built_at_monotonic": built_at,
             }
             self._catalog_generation += 1
-            return rows, {
+            return self._catalog_cache, {
                 "cache_hit": False,
                 "ttl_seconds": self.catalog_ttl_seconds,
                 "generated_at": generated_at,
             }
 
-    def _build_symbol_rows(self):
+    def _build_catalog_snapshot(self):
+        """Build rows, detail and portfolio inputs in one read-only pass.
+
+        The unified snapshot carries everything the summary / symbols / detail
+        endpoints and the three portfolio endpoints need, so portfolio
+        requests reuse the same 30s TTL build instead of each rebuilding the
+        catalog and re-reading the 200k credit snapshots.  Credit snapshots
+        are stored by reference and never deep-copied on the hit path.
+        """
+
         rows = []
         detail_by_symbol = {}
+        cost_by_symbol = {}
         catalog_bundles = None
         if hasattr(self.repository, "load_catalog_bundles"):
             catalog_bundles = self.repository.load_catalog_bundles()
         runtime_catalog = (
             self._runtime_catalog_evidence() if catalog_bundles is not None else None
         )
+        positions = self._load_xt_positions_by_symbol()
         symbols = (
             sorted(catalog_bundles)
             if catalog_bundles is not None
@@ -802,57 +756,89 @@ class PositionReviewService:
                     runtime_result=runtime_result,
                 )
             detail_by_symbol[symbol] = detail
-            summary = detail["summary"]
-            rows.append(
-                {
-                    "symbol": symbol,
-                    "name": detail["symbol"]["name"],
-                    "current_quantity": detail["symbol"]["current_quantity"],
-                    "is_holding": detail["symbol"]["is_holding"],
-                    "first_trade_at": summary["first_trade_at"],
-                    "last_trade_at": summary["last_trade_at"],
-                    "request_count": summary["request_count"],
-                    "fill_count": summary["fill_count"],
-                    "signal_count": summary["signal_count"],
-                    "buy_quantity": summary["buy_quantity"],
-                    "sell_quantity": summary["sell_quantity"],
-                    "buy_amount": summary["buy_amount"],
-                    "sell_amount": summary["sell_amount"],
-                    "initial_position_quantity": summary["initial_position_quantity"],
-                    "initial_position_source": summary["initial_position_source"],
-                    "data_quality_warning_count": len(
-                        (detail.get("data_quality") or {}).get("warnings") or []
-                    ),
-                    "data_quality_degraded": bool(
-                        (detail.get("data_quality") or {}).get("warnings")
-                    ),
-                    "unassociated_trade_count": int(
-                        (detail.get("data_quality") or {}).get(
-                            "unassociated_trade_count"
-                        )
-                        or 0
-                    ),
-                    "runtime_evidence_available": bool(
-                        (detail.get("data_quality") or {}).get(
-                            "runtime_evidence_available"
-                        )
-                    ),
-                    "runtime_evidence_truncated": bool(
-                        (detail.get("data_quality") or {}).get(
-                            "runtime_evidence_truncated"
-                        )
-                    ),
-                    "review_counts": summary["review_counts"],
-                    "verdict": _rollup_verdict(summary["review_counts"]),
-                    "pass_rate": summary["pass_rate"],
-                }
+            cost_by_symbol[symbol] = self._replay_cost_for_bundle(
+                symbol=symbol,
+                bundle=bundle,
+                detail=detail,
             )
+            rows.append(_catalog_row_from_detail(symbol, detail))
         rows, detail_by_symbol = self._append_holding_only_symbols(
-            rows, detail_by_symbol
+            rows,
+            detail_by_symbol,
+            positions=positions,
         )
-        return rows, detail_by_symbol
+        holding_only_details, holding_only_costs = (
+            self._append_holding_only_portfolio_rows(
+                detail_by_symbol,
+                positions,
+            )
+        )
+        detail_by_symbol.update(holding_only_details)
+        cost_by_symbol.update(holding_only_costs)
+        # _append_holding_only_symbols 已把持仓加入 detail（无成本），
+        # 这里为这些持仓补 broker 估算成本，保证组合成本口径完整。
+        for symbol, position in positions.items():
+            if symbol in cost_by_symbol:
+                continue
+            if _int(position.get("volume")) <= 0:
+                continue
+            cost_by_symbol[symbol] = _broker_estimate_cost(position)
+        xt_assets = self.repository.list_xt_assets()
+        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=200_000)
+        return {
+            "rows": rows,
+            "detail_by_symbol": detail_by_symbol,
+            "cost_by_symbol": cost_by_symbol,
+            "positions": positions,
+            "holding_only_details": holding_only_details,
+            "holding_only_costs": holding_only_costs,
+            "xt_assets": xt_assets,
+            "credit_snapshots": credit_snapshots,
+        }
 
-    def _append_holding_only_symbols(self, rows, detail_by_symbol):
+    def _build_symbol_rows(self):
+        """Compatibility wrapper returning (rows, detail_by_symbol)."""
+
+        snapshot = self._build_catalog_snapshot()
+        return snapshot["rows"], snapshot["detail_by_symbol"]
+
+    def _load_xt_positions_by_symbol(self):
+        positions = {}
+        for item in self.repository.list_xt_positions():
+            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+            if symbol:
+                positions[symbol] = item
+        return positions
+
+    def _replay_cost_for_bundle(self, *, symbol, bundle, detail):
+        canonical_trades = list(detail.get("executions") or [])
+        requests_by_id = {
+            str(request.get("request_id") or "").strip(): request
+            for request in bundle["requests"]
+            if str(request.get("request_id") or "").strip()
+        }
+        return replay_cost_basis(
+            symbol=symbol,
+            canonical_trades=canonical_trades,
+            entries=bundle["entries"],
+            slices=bundle["slices"],
+            allocations=bundle["allocations"],
+            requests_by_id=requests_by_id,
+            initial_position_quantity=_int(
+                (detail.get("summary") or {}).get("initial_position_quantity")
+            ),
+            initial_position_source=(
+                (detail.get("summary") or {}).get("initial_position_source")
+            ),
+        )
+
+    def _append_holding_only_symbols(
+        self,
+        rows,
+        detail_by_symbol,
+        *,
+        positions=None,
+    ):
         """Append current holdings without any execution history.
 
         The review catalog intentionally lists "symbols with trusted execution
@@ -863,19 +849,25 @@ class PositionReviewService:
         explicit ``no_execution_history`` marker instead of fabricated trades.
         """
 
-        positions = self.repository.list_xt_positions()
+        if positions is None:
+            positions = self._load_xt_positions_by_symbol()
+        if isinstance(positions, dict):
+            position_by_symbol = dict(positions)
+            position_documents = list(positions.values())
+        else:
+            position_documents = list(positions or [])
+            position_by_symbol = {}
+            for item in position_documents:
+                symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
+                if symbol:
+                    position_by_symbol[symbol] = item
         holding_symbols = sorted(
             {
                 _normalize_symbol(item.get("stock_code") or item.get("symbol"))
-                for item in positions
+                for item in position_documents
                 if _normalize_symbol(item.get("stock_code") or item.get("symbol"))
             }
         )
-        position_by_symbol = {}
-        for item in positions:
-            symbol = _normalize_symbol(item.get("stock_code") or item.get("symbol"))
-            if symbol:
-                position_by_symbol[symbol] = item
         missing = [
             symbol for symbol in holding_symbols if symbol not in detail_by_symbol
         ]
@@ -3437,6 +3429,65 @@ def _rollup_verdict(counts):
     if not populated:
         return "NOT_APPLICABLE"
     return max(populated, key=lambda item: _VERDICT_PRIORITY[item])
+
+
+def _catalog_row_from_detail(symbol, detail):
+    summary = detail["summary"]
+    return {
+        "symbol": symbol,
+        "name": detail["symbol"]["name"],
+        "current_quantity": detail["symbol"]["current_quantity"],
+        "is_holding": detail["symbol"]["is_holding"],
+        "first_trade_at": summary["first_trade_at"],
+        "last_trade_at": summary["last_trade_at"],
+        "request_count": summary["request_count"],
+        "fill_count": summary["fill_count"],
+        "signal_count": summary["signal_count"],
+        "buy_quantity": summary["buy_quantity"],
+        "sell_quantity": summary["sell_quantity"],
+        "buy_amount": summary["buy_amount"],
+        "sell_amount": summary["sell_amount"],
+        "initial_position_quantity": summary["initial_position_quantity"],
+        "initial_position_source": summary["initial_position_source"],
+        "data_quality_warning_count": len(
+            (detail.get("data_quality") or {}).get("warnings") or []
+        ),
+        "data_quality_degraded": bool(
+            (detail.get("data_quality") or {}).get("warnings")
+        ),
+        "unassociated_trade_count": int(
+            (detail.get("data_quality") or {}).get("unassociated_trade_count") or 0
+        ),
+        "runtime_evidence_available": bool(
+            (detail.get("data_quality") or {}).get("runtime_evidence_available")
+        ),
+        "runtime_evidence_truncated": bool(
+            (detail.get("data_quality") or {}).get("runtime_evidence_truncated")
+        ),
+        "review_counts": summary["review_counts"],
+        "verdict": _rollup_verdict(summary["review_counts"]),
+        "pass_rate": summary["pass_rate"],
+    }
+
+
+def _broker_estimate_cost(position):
+    return {
+        "cost_basis_source": "broker_snapshot_estimate",
+        "realized_pnl": 0.0,
+        "fees_included": False,
+        "cost_basis_series": [],
+        "data_quality": {
+            "cost_basis": "degraded",
+            "ledger_available": False,
+            "fees_included": False,
+            "warnings": [
+                {
+                    "code": "cost_basis_broker_snapshot",
+                    "message": "无成交记录，成本使用券商当前均价快照估算。",
+                }
+            ],
+        },
+    }
 
 
 def _empty_verdict_counts():
