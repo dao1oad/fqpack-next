@@ -104,7 +104,8 @@ const createPayload = () => ({
     values: {
       monitor: {
         xtdata: {
-          mode: 'guardian_1m',
+          trading_mode: true,
+          screening_mode: false,
           max_symbols: 60,
           queue_backlog_threshold: 500,
           prewarm: { max_bars: 240 },
@@ -158,7 +159,8 @@ const createPayload = () => ({
         source: 'params.monitor',
         restart_required: false,
         items: [
-          { key: 'monitor.xtdata.mode', label: 'XTData 模式', value: 'guardian_1m' },
+          { key: 'monitor.xtdata.trading_mode', label: '交易模式', value: true },
+          { key: 'monitor.xtdata.screening_mode', label: '选股模式', value: false },
           { key: 'monitor.xtdata.max_symbols', label: '最大订阅数', value: 60 },
         ],
       },
@@ -319,11 +321,14 @@ test('single symbol position limit row uses default position limit wording and h
   assert.match(content, /未为某个标的单独设置上限时，默认使用这里的值/)
 })
 
-test('resolveEditorMeta returns official select options for enum settings', () => {
-  assert.deepEqual(resolveEditorMeta('monitor.xtdata.mode').options.map((item) => item.value), [
-    'guardian_1m',
-    'guardian_and_clx_15_30',
-    'clx_15_30_only',
+test('resolveEditorMeta returns official boolean options for xtdata modes', () => {
+  assert.deepEqual(resolveEditorMeta('monitor.xtdata.trading_mode').options.map((item) => item.value), [
+    true,
+    false,
+  ])
+  assert.deepEqual(resolveEditorMeta('monitor.xtdata.screening_mode').options.map((item) => item.value), [
+    true,
+    false,
   ])
   assert.deepEqual(resolveEditorMeta('xtquant.account_type').options.map((item) => item.value), [
     'STOCK',
@@ -405,12 +410,15 @@ test('position inventory supplement keeps only non-duplicated readonly rows for 
   assert.equal(section.rows[0].readonly, true)
 })
 
-test('monitor mode editor exposes official guardian, combined, and clx-only modes', () => {
-  const options = resolveEditorMeta('monitor.xtdata.mode').options.map((item) => item.value)
+test('monitor mode editor exposes trading and screening boolean switches', () => {
+  const tradingOptions = resolveEditorMeta('monitor.xtdata.trading_mode').options.map((item) => item.value)
+  const screeningOptions = resolveEditorMeta('monitor.xtdata.screening_mode').options.map((item) => item.value)
   const content = readFileSync(new URL('./SystemSettings.vue', import.meta.url), 'utf8')
 
-  assert.deepEqual(options, ['guardian_1m', 'guardian_and_clx_15_30', 'clx_15_30_only'])
-  assert.equal(options.includes('clx_15_30'), false)
+  assert.deepEqual(tradingOptions, [true, false])
+  assert.deepEqual(screeningOptions, [true, false])
+  assert.notEqual(resolveEditorMeta('monitor.xtdata.mode').type, 'select')
+  assert.equal(resolveEditorMeta('monitor.xtdata.mode').options, undefined)
   assert.match(content, /buildSettingsLedgerSections/)
 })
 

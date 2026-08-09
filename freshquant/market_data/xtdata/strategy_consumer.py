@@ -26,10 +26,10 @@ from freshquant.market_data.xtdata.constants import (
     REDIS_QUEUE_SHARDS,
 )
 from freshquant.market_data.xtdata.pools import (
+    LINE_15_30_CLX,
     load_clx_monitor_codes,
+    load_line_codes,
     load_monitor_codes,
-    normalize_xtdata_mode,
-    xtdata_mode_enables_clx,
 )
 from freshquant.market_data.xtdata.realtime_store import upsert_realtime_bars
 from freshquant.market_data.xtdata.schema import BarCloseEvent, normalize_prefixed_code
@@ -56,8 +56,9 @@ REALTIME_CLX_MODEL_IDS = list(range(10000, 10018))
 
 def resolve_consumer_runtime_config(*, settings_provider=None) -> dict[str, int | str]:
     settings_provider = settings_provider or system_settings
-    mode = normalize_xtdata_mode(
-        getattr(settings_provider.monitor, "xtdata_mode", None)
+    trading_mode = bool(getattr(settings_provider.monitor, "xtdata_trading_mode", True))
+    screening_mode = bool(
+        getattr(settings_provider.monitor, "xtdata_screening_mode", False)
     )
     try:
         max_symbols = int(
@@ -81,7 +82,8 @@ def resolve_consumer_runtime_config(*, settings_provider=None) -> dict[str, int 
     if queue_backlog_threshold <= 0:
         queue_backlog_threshold = 200
     return {
-        "mode": mode,
+        "trading_mode": trading_mode,
+        "screening_mode": screening_mode,
         "max_symbols": max_symbols,
         "queue_backlog_threshold": queue_backlog_threshold,
     }
@@ -362,11 +364,13 @@ class StrategyConsumer:
             submit_fn=self._submit_fullcalc,
         )
 
-        self.mode = str(runtime_config["mode"])
+        self.trading_mode = bool(runtime_config.get("trading_mode", True))
+        self.screening_mode = bool(runtime_config.get("screening_mode", False))
         self.max_symbols = int(runtime_config["max_symbols"])
 
         logger.info(
-            f"[Consumer] init mode={self.mode} max_bars={self.max_bars} "
+            f"[Consumer] init trading={self.trading_mode} "
+            f"screening={self.screening_mode} max_bars={self.max_bars} "
             f"workers={self.fullcalc_workers} max_inflight={self.fullcalc_max_inflight} "
             f"queue_backlog_threshold={self.queue_backlog_threshold}"
         )
@@ -375,7 +379,8 @@ class StrategyConsumer:
                 "component": "xt_consumer",
                 "node": "bootstrap",
                 "payload": {
-                    "mode": self.mode,
+                    "trading_mode": self.trading_mode,
+                    "screening_mode": self.screening_mode,
                     "max_bars": self.max_bars,
                     "workers": self.fullcalc_workers,
                     "max_inflight": self.fullcalc_max_inflight,
@@ -417,7 +422,11 @@ class StrategyConsumer:
         """
         prewarm: load up to max_bars per (code,period) and run fullcalc once.
         """
-        codes = load_monitor_codes(mode=self.mode, max_symbols=self.max_symbols)
+        codes = load_monitor_codes(
+            trading_mode=self.trading_mode,
+            screening_mode=self.screening_mode,
+            max_symbols=self.max_symbols,
+        )
         periods = ["1min", "5min", "15min", "30min"]
         logger.info(
             f"[Consumer] prewarm start: codes={len(codes)} periods={periods} max_bars={self.max_bars}"
@@ -463,7 +472,7 @@ class StrategyConsumer:
         )
 
     def _clx_monitor_codes(self, *, force: bool = False) -> set[str]:
-        if not xtdata_mode_enables_clx(self.mode):
+        if not self.screening_mode:
             return set()
         now_ts = time.time()
         with self._clx_codes_lock:
@@ -476,7 +485,10 @@ class StrategyConsumer:
                 return set(self._clx_codes_cache)
             codes = {
                 str(code or "").strip().lower()
-                for code in load_clx_monitor_codes(max_symbols=self.max_symbols)
+                for code in load_line_codes(
+                    line=LINE_15_30_CLX,
+                    max_symbols=self.max_symbols,
+                )
                 if str(code or "").strip()
             }
             self._clx_codes_cache = codes
@@ -485,7 +497,7 @@ class StrategyConsumer:
 
     def _model_ids_for(self, code_prefixed: str, period_backend: str) -> list[int]:
         period_backend = to_backend_period(period_backend)
-        if not xtdata_mode_enables_clx(self.mode):
+        if not self.screening_mode:
             return []
         if period_backend not in {"15min", "30min"}:
             return []

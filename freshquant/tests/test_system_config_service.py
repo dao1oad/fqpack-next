@@ -143,7 +143,8 @@ def _build_database():
                     "code": "monitor",
                     "value": {
                         "xtdata": {
-                            "mode": "guardian_1m",
+                            "trading_mode": True,
+                            "screening_mode": False,
                             "max_symbols": 50,
                             "queue_backlog_threshold": 120,
                             "prewarm": {"max_bars": 300},
@@ -399,7 +400,8 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         },
         "monitor": {
             "xtdata": {
-                "mode": "clx_15_30",
+                "trading_mode": True,
+                "screening_mode": True,
                 "max_symbols": 88,
                 "queue_backlog_threshold": 320,
                 "prewarm": {"max_bars": 480},
@@ -435,7 +437,8 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
     result = service.update_settings(payload)
 
     assert result["values"]["xtquant"]["account"] == "123456"
-    assert result["values"]["monitor"]["xtdata"]["mode"] == "guardian_and_clx_15_30"
+    assert result["values"]["monitor"]["xtdata"]["trading_mode"] is True
+    assert result["values"]["monitor"]["xtdata"]["screening_mode"] is True
     assert (
         database["params"].find_one({"code": "xtquant"})["value"]["path"]
         == "D:/mini_qmt/userdata_mini"
@@ -445,8 +448,16 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         "reserve_cash": 12000.0,
     }
     assert (
-        database["params"].find_one({"code": "monitor"})["value"]["xtdata"]["mode"]
-        == "guardian_and_clx_15_30"
+        database["params"].find_one({"code": "monitor"})["value"]["xtdata"][
+            "trading_mode"
+        ]
+        is True
+    )
+    assert (
+        database["params"].find_one({"code": "monitor"})["value"]["xtdata"][
+            "screening_mode"
+        ]
+        is True
     )
     assert (
         database["params"].find_one({"code": "guardian"})["value"]["stock"][

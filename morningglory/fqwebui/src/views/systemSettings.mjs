@@ -51,10 +51,13 @@ const SECTION_COLUMN_MAP = {
 }
 
 const SELECT_FIELD_META = {
-  'monitor.xtdata.mode': [
-    { label: 'guardian_1m', value: 'guardian_1m' },
-    { label: 'guardian_and_clx_15_30', value: 'guardian_and_clx_15_30' },
-    { label: 'clx_15_30_only', value: 'clx_15_30_only' },
+  'monitor.xtdata.trading_mode': [
+    { label: '开启', value: true },
+    { label: '关闭', value: false },
+  ],
+  'monitor.xtdata.screening_mode': [
+    { label: '开启', value: true },
+    { label: '关闭', value: false },
   ],
   'xtquant.account_type': [
     { label: 'STOCK', value: 'STOCK' },

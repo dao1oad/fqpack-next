@@ -246,7 +246,8 @@ def test_run_runtime_bootstrap_syncs_xt_credit_subjects_and_instrument_strategy_
     summary = run_runtime_bootstrap(
         settings_provider=SimpleNamespace(
             monitor=SimpleNamespace(
-                xtdata_mode="guardian_and_clx_15_30",
+                xtdata_trading_mode=True,
+                xtdata_screening_mode=True,
                 xtdata_max_symbols=20,
             ),
             get_strategy_id=lambda code: (

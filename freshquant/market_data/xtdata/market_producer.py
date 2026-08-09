@@ -17,7 +17,6 @@ from freshquant.market_data.xtdata.bar_generator import OneMinuteBarGenerator
 from freshquant.market_data.xtdata.constants import tick_queue_key_for_code
 from freshquant.market_data.xtdata.pools import (
     load_monitor_codes,
-    normalize_xtdata_mode,
 )
 from freshquant.market_data.xtdata.schema import TickQuoteEvent, normalize_prefixed_code
 from freshquant.runtime_constants import TZ
@@ -48,10 +47,22 @@ def _to_xt_symbol(code_prefixed: str) -> str:
     return s
 
 
-def _load_subscription_codes(*, mode: str, max_symbols: int) -> list[str]:
+def _load_subscription_codes(
+    *,
+    trading_mode: bool,
+    screening_mode: bool,
+    max_symbols: int,
+) -> list[str]:
     codes: list[str] = []
     seen: set[str] = set()
-    for raw_code in load_monitor_codes(mode=mode, max_symbols=max_symbols) or []:
+    for raw_code in (
+        load_monitor_codes(
+            trading_mode=trading_mode,
+            screening_mode=screening_mode,
+            max_symbols=max_symbols,
+        )
+        or []
+    ):
         code = normalize_prefixed_code(raw_code).lower()
         if not code or code in seen:
             continue
@@ -65,8 +76,9 @@ def resolve_producer_runtime_config(
 ) -> dict[str, int | str]:
     settings_provider = settings_provider or system_settings
     bootstrap_provider = bootstrap_provider or bootstrap_config
-    mode = normalize_xtdata_mode(
-        getattr(settings_provider.monitor, "xtdata_mode", None)
+    trading_mode = bool(getattr(settings_provider.monitor, "xtdata_trading_mode", True))
+    screening_mode = bool(
+        getattr(settings_provider.monitor, "xtdata_screening_mode", False)
     )
     try:
         max_symbols = int(
@@ -82,7 +94,8 @@ def resolve_producer_runtime_config(
         port = 58610
     return {
         "port": port,
-        "mode": mode,
+        "trading_mode": trading_mode,
+        "screening_mode": screening_mode,
         "max_symbols": max_symbols,
     }
 
@@ -424,14 +437,19 @@ def start_producer():
     )
     xtdata.connect(port=port)
 
-    mode = str(runtime_config["mode"])
+    trading_mode = bool(runtime_config.get("trading_mode", True))
+    screening_mode = bool(runtime_config.get("screening_mode", False))
     max_symbols = int(runtime_config["max_symbols"])
     _emit_runtime(
         _get_runtime_logger(),
         {
             "component": "xt_producer",
             "node": "config_resolve",
-            "payload": {"mode": mode, "max_symbols": max_symbols},
+            "payload": {
+                "trading_mode": trading_mode,
+                "screening_mode": screening_mode,
+                "max_symbols": max_symbols,
+            },
         },
     )
 
@@ -489,14 +507,26 @@ def start_producer():
                 {
                     "component": "xt_producer",
                     "node": "subscription_load",
-                    "payload": {"mode": mode, "codes": len(sub_codes), "seq": sub_seq},
+                    "payload": {
+                        "trading_mode": trading_mode,
+                        "screening_mode": screening_mode,
+                        "codes": len(sub_codes),
+                        "seq": sub_seq,
+                    },
                 },
             )
             logger.info(
-                f"[Producer] subscribed: mode={mode} codes={len(sub_codes)} seq={sub_seq}"
+                f"[Producer] subscribed: trading={trading_mode} "
+                f"screening={screening_mode} codes={len(sub_codes)} seq={sub_seq}"
             )
 
-    _subscribe(_load_subscription_codes(mode=mode, max_symbols=max_symbols))
+    _subscribe(
+        _load_subscription_codes(
+            trading_mode=trading_mode,
+            screening_mode=screening_mode,
+            max_symbols=max_symbols,
+        )
+    )
 
     heartbeat_stop = threading.Event()
 
@@ -540,7 +570,9 @@ def start_producer():
                 current_codes = sorted(sub_codes)
             if not current_codes:
                 current_codes = _load_subscription_codes(
-                    mode=mode, max_symbols=max_symbols
+                    trading_mode=trading_mode,
+                    screening_mode=screening_mode,
+                    max_symbols=max_symbols,
                 )
             if not current_codes:
                 _emit_recovery_event(
@@ -608,7 +640,11 @@ def start_producer():
         while True:
             try:
                 time.sleep(PRODUCER_POOL_REFRESH_INTERVAL_S)
-                new_list = _load_subscription_codes(mode=mode, max_symbols=max_symbols)
+                new_list = _load_subscription_codes(
+                    trading_mode=trading_mode,
+                    screening_mode=screening_mode,
+                    max_symbols=max_symbols,
+                )
                 new_set = set(new_list)
                 with sub_lock:
                     current_sub_codes = set(sub_codes)

@@ -35,15 +35,13 @@ producer 是唯一 XTData 实时订阅入口；consumer 是唯一 bar 队列消�
 - QuantAxis 历史库
 - `freshquant.dagster_pipeline_markers` 的 `stock_postclose_ready` / `etf_postclose_ready` 成功文档
 - 监控池来源
-  - `guardian_1m = xt_positions + must_pool`
-  - `guardian_and_clx_15_30 = (xt_positions + must_pool) + stock_pools`
-    - 先保留 Guardian 池
-    - 再补未过期 `stock_pools`
-    - 总数不超过 `monitor.xtdata.max_symbols`
-  - `clx_15_30_only = stock_pools`
-    - 只读取未过期 `stock_pools`
-    - 不启用 Guardian 1 分钟事件能力
-    - 总数不超过 `monitor.xtdata.max_symbols`
+  - 三条正交监控线（`freshquant/market_data/xtdata/pools.py` 单一真值源）：
+    - `line_1m_t`：仅持仓（`xt_positions`），1m 做T
+    - `line_5m_new_open`：`must_pool` 且未持仓，5m 开新仓
+    - `line_15_30_clx`：未过期 `stock_pools` 且未持仓，15/30 CLX 选股
+  - producer 订阅 = 启用线的并集；consumer / Guardian 按周期与线归属消费
+  - 超限按优先级 `line_1m_t > line_5m_new_open > line_15_30_clx` 截断，
+    触顶写 runtime 事件（`reason_code=line_codes_truncated`）并日志告警，不静默
 
 ## 数据流
 
@@ -109,17 +107,16 @@ consumer 还会把本批命中标的（带前缀代码，如 `sh600000`）去重
 - `FQ_SYSTEM_SETTINGS_STRICT`
   - 生产配置缺失时快速失败开关；`1/true/yes/on` 时数据库配置不可用直接抛错，worker 由 Supervisor 按重试策略拉起，不回退默认配置。
   - 生产通过 `D:/fqpack/config/envs.conf` 设 `FQ_SYSTEM_SETTINGS_STRICT=1`；CI 与本地测试默认不设置，避免模块导入依赖 MongoDB。
-- `monitor.xtdata.mode`
-  - 决定订阅池来源和 consumer 行为。
-  - `guardian_1m` 只服务 Guardian 1 分钟事件链。
-  - `guardian_and_clx_15_30` 同时服务：
-    - Guardian 1 分钟事件链
-    - `stock_pools` 的 15/30 分钟 CLX 模型
-  - `clx_15_30_only` 只服务：
-    - 未过期 `stock_pools` 的 15/30 分钟 CLX 模型
-  - 兼容旧值：
-    - `clx_15_30`
-      - 读取时自动归一到 `guardian_and_clx_15_30`
+- `monitor.xtdata.trading_mode`
+  - 交易模式（默认 true）：启用 `line_1m_t`（1m 做T，仅持仓）+
+    `line_5m_new_open`（5m must_pool 开新仓，排除持仓）。
+- `monitor.xtdata.screening_mode`
+  - 选股模式（默认 false）：启用 `line_15_30_clx`
+    （15/30 CLX S0000-S0017 选股，排除持仓，不做交易）。
+  - 两种模式独立可同时开启；旧 `monitor.xtdata.mode` 由一次性迁移
+    （`migrate_xtdata_mode`）映射后退役：`guardian_1m` → trading only、
+    `guardian_and_clx_15_30` / `clx_15_30` → trading + screening、
+    `clx_15_30_only` → screening only，运行时不保留旧别名逻辑。
 - `monitor.xtdata.max_symbols`
   - 限制订阅池大小。
 - `monitor.xtdata.queue_backlog_threshold`
@@ -130,9 +127,8 @@ consumer 还会把本批命中标的（带前缀代码，如 `sh600000`）去重
 
 对 Guardian 主链最重要的是：
 
-- `monitor.xtdata.mode` 启用了 Guardian 能力
-  - 正式值可为 `guardian_1m` 或 `guardian_and_clx_15_30`
-  - `clx_15_30_only` 不启用 Guardian 能力
+- `monitor.xtdata.trading_mode=true` 时启用 Guardian 交易线
+  （1m 持仓做T + 5m must_pool 开新仓）；`screening_mode` 不影响交易主链。
 
 ## 部署/运行
 
@@ -166,7 +162,7 @@ consumer 还会把本批命中标的（带前缀代码，如 `sh600000`）去重
 ### consumer 不更新
 
 - 检查 Redis bar 队列是否持续堆积。
-- 检查 `monitor.xtdata.mode` 是否匹配。
+- 检查 `monitor.xtdata.trading_mode` / `monitor.xtdata.screening_mode` 是否匹配。
 - 检查 prewarm 是否异常退出。
 
 ### Kline 页面停在旧 bar

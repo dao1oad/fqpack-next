@@ -168,7 +168,8 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
 
     assert settings.notification.dingtalk_private_webhook == "https://private.example"
     assert settings.notification.dingtalk_public_webhook == "https://public.example"
-    assert settings.monitor.xtdata_mode == "guardian_1m"
+    assert settings.monitor.xtdata_trading_mode is True
+    assert settings.monitor.xtdata_screening_mode is False
     assert settings.monitor.xtdata_max_symbols == 48
     assert settings.monitor.xtdata_queue_backlog_threshold == 200
     assert settings.monitor.xtdata_prewarm_max_bars == 120
@@ -223,7 +224,8 @@ def test_system_settings_normalizes_legacy_clx_mode_to_combined_mode():
 
     settings = SystemSettings(database=database)
 
-    assert settings.monitor.xtdata_mode == "guardian_and_clx_15_30"
+    assert settings.monitor.xtdata_trading_mode is True
+    assert settings.monitor.xtdata_screening_mode is True
 
 
 def test_system_settings_ensure_defaults_and_strategy_lookup():
@@ -269,7 +271,8 @@ def test_system_settings_marks_initial_load_unready_when_database_unavailable():
     )
 
     assert settings.notification.dingtalk_private_webhook == ""
-    assert settings.monitor.xtdata_mode == "guardian_1m"
+    assert settings.monitor.xtdata_trading_mode is True
+    assert settings.monitor.xtdata_screening_mode is False
     assert settings.xtquant.account == ""
     assert settings.xtquant.auto_repay_enabled is True
     assert settings.xtquant.auto_repay_reserve_cash == 5000.0

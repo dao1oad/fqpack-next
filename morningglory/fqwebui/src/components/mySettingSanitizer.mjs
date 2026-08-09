@@ -11,6 +11,15 @@ export const sanitizeLegacySettingValue = (code, value) => {
         delete sanitized.stock
       }
     }
+    if (sanitized.xtdata && typeof sanitized.xtdata === 'object') {
+      const legacyMode = sanitized.xtdata.mode
+      if (legacyMode !== undefined) {
+        const migrated = migrateMonitorXtdataMode(legacyMode)
+        sanitized.xtdata.trading_mode = migrated.trading_mode
+        sanitized.xtdata.screening_mode = migrated.screening_mode
+        delete sanitized.xtdata.mode
+      }
+    }
   }
 
   if (code === 'guardian') {
@@ -22,4 +31,15 @@ export const sanitizeLegacySettingValue = (code, value) => {
   }
 
   return sanitized
+}
+
+export const migrateMonitorXtdataMode = (mode) => {
+  const normalized = String(mode ?? '').trim().toLowerCase()
+  if (normalized === 'clx_15_30_only') {
+    return { trading_mode: false, screening_mode: true }
+  }
+  if (normalized === 'guardian_and_clx_15_30' || normalized === 'clx_15_30') {
+    return { trading_mode: true, screening_mode: true }
+  }
+  return { trading_mode: true, screening_mode: false }
 }

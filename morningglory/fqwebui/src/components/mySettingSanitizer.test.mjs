@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { sanitizeLegacySettingValue } from './mySettingSanitizer.mjs'
+import { migrateMonitorXtdataMode, sanitizeLegacySettingValue } from './mySettingSanitizer.mjs'
 
 test('sanitizeLegacySettingValue strips removed monitor fields', () => {
   const value = sanitizeLegacySettingValue('monitor', {
@@ -10,15 +10,25 @@ test('sanitizeLegacySettingValue strips removed monitor fields', () => {
       auto_open: true,
     },
     xtdata: {
-      mode: 'guardian_1m',
+      mode: 'guardian_and_clx_15_30',
     },
   })
 
   assert.deepEqual(value, {
     xtdata: {
-      mode: 'guardian_1m',
+      trading_mode: true,
+      screening_mode: true,
     },
   })
+})
+
+test('migrateMonitorXtdataMode maps legacy modes to dual booleans', () => {
+  assert.deepEqual(migrateMonitorXtdataMode('guardian_1m'), { trading_mode: true, screening_mode: false })
+  assert.deepEqual(migrateMonitorXtdataMode('guardian_and_clx_15_30'), { trading_mode: true, screening_mode: true })
+  assert.deepEqual(migrateMonitorXtdataMode('clx_15_30'), { trading_mode: true, screening_mode: true })
+  assert.deepEqual(migrateMonitorXtdataMode('clx_15_30_only'), { trading_mode: false, screening_mode: true })
+  assert.deepEqual(migrateMonitorXtdataMode('unknown'), { trading_mode: true, screening_mode: false })
+  assert.deepEqual(migrateMonitorXtdataMode(''), { trading_mode: true, screening_mode: false })
 })
 
 test('sanitizeLegacySettingValue strips removed guardian fields', () => {

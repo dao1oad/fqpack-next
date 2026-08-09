@@ -10,7 +10,6 @@ from freshquant.data.qfq_reader import QFQDataNotReadyError
 from freshquant.db import DBQuantAxis
 from freshquant.market_data.xtdata.pools import (
     load_monitor_codes,
-    normalize_xtdata_mode,
 )
 from freshquant.system_settings import system_settings
 from freshquant.trading.dt import query_current_trade_date, query_prev_trade_date
@@ -43,9 +42,19 @@ def _is_index_like_code(code_prefixed: str) -> bool:
 
 
 def _default_code_loader() -> list[str]:
-    mode = normalize_xtdata_mode(system_settings.monitor.xtdata_mode)
-    max_symbols = int(system_settings.monitor.xtdata_max_symbols or 50)
-    return list(load_monitor_codes(mode=mode, max_symbols=max_symbols) or [])
+    trading_mode = bool(getattr(system_settings.monitor, "xtdata_trading_mode", True))
+    screening_mode = bool(
+        getattr(system_settings.monitor, "xtdata_screening_mode", False)
+    )
+    max_symbols = int(system_settings.monitor.xtdata_max_symbols or 60)
+    return list(
+        load_monitor_codes(
+            trading_mode=trading_mode,
+            screening_mode=screening_mode,
+            max_symbols=max_symbols,
+        )
+        or []
+    )
 
 
 def _default_snapshot_provider(kind: str) -> dict[str, Any] | None:

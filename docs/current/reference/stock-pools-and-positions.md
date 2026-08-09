@@ -140,15 +140,15 @@
 ### 股票已在 must_pool，但 XTData 还没订阅
 
 - 检查 producer 订阅池是否刷新
-- 检查 `monitor.xtdata.mode` 是否是 `guardian_1m` 或 `guardian_and_clx_15_30`
-- 若生产配置为 `clx_15_30_only`，该模式不订阅 `must_pool`
+  - 检查 `monitor.xtdata.trading_mode` 是否为 true
+  - 若生产配置为 `trading_mode=false`，交易线不订阅 `must_pool`
 
 ### `stock_pools模型信号` 列表为空
 
 - 检查 `realtime_screen_multi_period` 是否有数据
 - 检查 XTData consumer 是否在跑
-- 检查 `monitor.xtdata.mode` 是否切到了 `guardian_and_clx_15_30` 或 `clx_15_30_only`
-- 如果库里还是旧值 `clx_15_30`，运行时也会按联合模式执行
+  - 检查 `monitor.xtdata.screening_mode` 是否为 true
+  - 旧 `monitor.xtdata.mode`（如 `clx_15_30`）由一次性迁移映射后退役
 
 ### 持仓有票，但 Guardian 卖点不触发
 
