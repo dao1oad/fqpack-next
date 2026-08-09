@@ -127,6 +127,13 @@ export const buildPositionReconciliationSummaryViewModel = (payload = {}) => {
   const summary = normalizedPayload?.summary && typeof normalizedPayload.summary === 'object'
     ? normalizedPayload.summary
     : {}
+  const internalIntegrity = normalizedPayload?.internal_integrity
+    && typeof normalizedPayload.internal_integrity === 'object'
+    ? normalizedPayload.internal_integrity
+    : {}
+  const internalIntegrityErrors = Array.isArray(internalIntegrity?.errors)
+    ? internalIntegrity.errors
+    : []
   const stateCards = Object.values(RECONCILIATION_STATE_META).map((meta) => ({
     key: meta.key,
     label: meta.label,
@@ -150,6 +157,7 @@ export const buildPositionReconciliationSummaryViewModel = (payload = {}) => {
       statusSummary: `OK ${okCount} / WARN ${warnCount} / ERROR ${errorCount}`,
     }
   })
+  const internalIntegrityErrorCount = internalIntegrityErrors.length
   return {
     summary: {
       row_count: toNumber(summary?.row_count),
@@ -160,9 +168,32 @@ export const buildPositionReconciliationSummaryViewModel = (payload = {}) => {
       },
       reconciliation_state_counts: summary?.reconciliation_state_counts || {},
       rule_counts: summary?.rule_counts || {},
+      internal_integrity: {
+        ok: internalIntegrity?.ok === true,
+        error_count: internalIntegrityErrorCount,
+        by_symbol: internalIntegrity?.by_symbol || {},
+      },
     },
     stateCards,
     ruleCards,
+    internalIntegrity: {
+      ok: internalIntegrity?.ok === true,
+      errorCount: internalIntegrityErrorCount,
+      bySymbol: internalIntegrity?.by_symbol || {},
+      errors: internalIntegrityErrors.map((error) => ({
+        allocation_id: toText(error?.allocation_id) || '-',
+        reference_type: toText(error?.reference_type) || '-',
+        reference_id: toText(error?.reference_id) || '-',
+        expected_symbol: toText(error?.expected_symbol) || '-',
+        actual_symbol: toText(error?.actual_symbol) || '-',
+        expected_quantity: toNumber(error?.expected_quantity, null) === null
+          ? '-'
+          : formatInteger(error?.expected_quantity),
+        actual_quantity: toNumber(error?.actual_quantity, null) === null
+          ? '-'
+          : formatInteger(error?.actual_quantity),
+      })),
+    },
   }
 }
 

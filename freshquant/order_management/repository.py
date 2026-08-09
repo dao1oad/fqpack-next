@@ -780,6 +780,11 @@ class OrderManagementRepository:
             )
         return list(cursor)
 
+    def list_all_entry_slices(self):
+        """List every entry slice document (open and closed) for integrity checks."""
+
+        return list(self.entry_slices.find({}))
+
     def list_exit_allocations_for_request(
         self,
         *,
