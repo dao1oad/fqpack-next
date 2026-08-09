@@ -252,6 +252,21 @@ def build_host_command(command: list[str], repo_root: Path) -> list[str]:
     return [*command, "-SupervisorConfigRepoRoot", str(repo_root)]
 
 
+def build_wait_dependencies_command(
+    python_executable: str,
+    *,
+    timeout_seconds: float = 180.0,
+) -> list[str]:
+    """Wait for Mongo / Redis / XTData TCP ports before the host restart."""
+
+    return [
+        python_executable,
+        "script/ci/wait_for_deploy_dependencies.py",
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+
+
 def build_plan(
     plan_module, bootstrap: bool, changed_paths: list[str]
 ) -> dict[str, Any]:
@@ -336,6 +351,17 @@ def run_formal_deploy(
                     list(plan["docker_command"]),
                     repo_root=repo_root,
                     output_path=run_dir / "10-docker-deploy.log",
+                )
+
+            if plan["host_command"]:
+                wait_command = build_wait_dependencies_command(
+                    resolved_python_executable,
+                )
+                commands.append(wait_command)
+                execute_command(
+                    wait_command,
+                    repo_root=repo_root,
+                    output_path=run_dir / "12-dependency-wait.log",
                 )
 
             if plan["host_command"]:
