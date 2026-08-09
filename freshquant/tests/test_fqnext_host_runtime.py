@@ -331,6 +331,7 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
         server,
         ["fqnext_realtime_xtdata_producer"],
         timeout_seconds=5,
+        recovery_attempts=0,
     )
 
     assert start_calls == [
@@ -408,6 +409,7 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
             server,
             ["fqnext_xtquant_broker", "fqnext_xt_account_sync_worker"],
             timeout_seconds=5,
+            recovery_attempts=0,
         )
 
     assert start_calls == [
@@ -416,6 +418,102 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
         ("fqnext_xt_account_sync_worker", False),
     ]
     assert "fqnext_xt_account_sync_worker" in str(excinfo.value)
+
+
+def test_restart_programs_recovers_exited_program_during_settle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_module()
+    start_calls: list[tuple[str, bool]] = []
+    settle_call_count = {"value": 0}
+    process_infos = {
+        "fqnext_xtquant_broker": {"statename": "EXITED", "pid": 0},
+        "fqnext_xt_account_sync_worker": {"statename": "RUNNING", "pid": 22},
+    }
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(
+            stopProcess=lambda _name, _wait: True,
+            startProcess=None,
+        )
+    )
+
+    def fake_start_process(name: str, wait: bool) -> bool:
+        start_calls.append((name, wait))
+        broker_starts = sum(
+            1
+            for (start_name, _wait) in start_calls
+            if start_name == "fqnext_xtquant_broker"
+        )
+        if name == "fqnext_xtquant_broker" and broker_starts == 3:
+            process_infos["fqnext_xtquant_broker"] = {"statename": "RUNNING", "pid": 99}
+        return True
+
+    def fake_get_process_info(_server, name):
+        return process_infos[name]
+
+    def fake_wait_for_state(_server, name, expected_state, timeout_seconds=0):
+        if expected_state == "STOPPED":
+            return {"statename": "EXITED", "pid": 0}
+        if (
+            name == "fqnext_xtquant_broker"
+            and str(process_infos["fqnext_xtquant_broker"]["statename"]).upper()
+            != "RUNNING"
+        ):
+            raise RuntimeError(
+                "Program fqnext_xtquant_broker did not reach RUNNING; last state=Exited"
+            )
+        return process_infos[name]
+
+    def fake_wait_for_programs_settled(
+        _server,
+        _programs,
+        timeout_seconds=0,
+        settle_seconds=0,
+        poll_interval_seconds=0,
+    ):
+        settle_call_count["value"] += 1
+        return {
+            "fqnext_xtquant_broker": process_infos["fqnext_xtquant_broker"],
+            "fqnext_xt_account_sync_worker": process_infos[
+                "fqnext_xt_account_sync_worker"
+            ],
+        }
+
+    server.supervisor.startProcess = fake_start_process
+    monkeypatch.setattr(module, "get_process_info", fake_get_process_info)
+    monkeypatch.setattr(module, "wait_for_state", fake_wait_for_state)
+    monkeypatch.setattr(
+        module, "wait_for_programs_settled", fake_wait_for_programs_settled
+    )
+
+    results = module.restart_programs(
+        server,
+        ["fqnext_xtquant_broker", "fqnext_xt_account_sync_worker"],
+        timeout_seconds=5,
+        recovery_attempts=1,
+    )
+
+    assert settle_call_count["value"] == 2
+    assert start_calls == [
+        ("fqnext_xtquant_broker", False),
+        ("fqnext_xtquant_broker", False),
+        ("fqnext_xt_account_sync_worker", False),
+        ("fqnext_xtquant_broker", False),
+    ]
+    assert results == [
+        {
+            "name": "fqnext_xtquant_broker",
+            "before_state": "EXITED",
+            "after_state": "RUNNING",
+            "pid": 99,
+        },
+        {
+            "name": "fqnext_xt_account_sync_worker",
+            "before_state": "RUNNING",
+            "after_state": "RUNNING",
+            "pid": 22,
+        },
+    ]
 
 
 def test_restart_programs_accepts_transient_start_errors_when_final_state_is_running(

@@ -13,6 +13,7 @@ DEFAULT_CONFIG_PATH = Path("D:/fqpack/config/supervisord.fqnext.conf")
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_SETTLE_SECONDS = 3.0
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
+DEFAULT_RECOVERY_ATTEMPTS = 1
 TRANSITIONAL_STATES = {"STARTING", "STOPPING"}
 RETRYABLE_START_STATES = {"EXITED", "FATAL", "BACKOFF", "STARTING"}
 TIMEOUT_FLOOR_COMMANDS = {"stop-surfaces", "restart-surfaces", "wait-settled"}
@@ -270,6 +271,7 @@ def restart_programs(
     server: xmlrpc.client.ServerProxy,
     programs: list[str],
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    recovery_attempts: int = DEFAULT_RECOVERY_ATTEMPTS,
 ) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     result_lookup: dict[str, dict[str, object]] = {}
@@ -340,14 +342,42 @@ def restart_programs(
     settled_infos: dict[str, dict[str, object]] | None = None
     settle_error: str | None = None
     if len(programs) > 1 or errors:
-        try:
-            settled_infos = wait_for_programs_settled(
-                server,
-                programs,
-                timeout_seconds=timeout_seconds,
+        settle_attempts = max(0, int(recovery_attempts)) + 1
+        for settle_attempt in range(settle_attempts):
+            try:
+                settled_infos = wait_for_programs_settled(
+                    server,
+                    programs,
+                    timeout_seconds=timeout_seconds,
+                )
+            except RuntimeError as exc:
+                settled_infos = None
+                settle_error = str(exc)
+            if settled_infos is not None and all(
+                str(info.get("statename", "")).upper() == "RUNNING"
+                for info in settled_infos.values()
+            ):
+                settle_error = None
+                break
+            if settle_attempt >= settle_attempts - 1:
+                break
+            current_infos = (
+                settled_infos
+                if settled_infos is not None
+                else {
+                    program: get_process_info(server, program) for program in programs
+                }
             )
-        except RuntimeError as exc:
-            settle_error = str(exc)
+            for program in programs:
+                if (
+                    str(current_infos.get(program, {}).get("statename", "")).upper()
+                    != "RUNNING"
+                ):
+                    try:
+                        server.supervisor.startProcess(program, False)
+                    except Exception:
+                        pass
+            settled_infos = None
 
     if settled_infos is None:
         settled_infos = {
