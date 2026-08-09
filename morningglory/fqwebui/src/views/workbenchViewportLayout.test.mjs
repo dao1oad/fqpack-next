@@ -13,16 +13,13 @@ const positionSubjectOverviewSource = readSource('../components/position-managem
 const subjectSource = readSource('./SubjectManagement.vue')
 const runtimeSource = readSource('./RuntimeObservability.vue')
 const systemSettingsSource = readSource('./SystemSettings.vue')
-const shoubanSource = readSource('./GanttShouban30Phase1.vue')
 const ganttSource = readSource('./GanttUnified.vue')
 const ganttStocksSource = readSource('./GanttUnifiedStocks.vue')
 
-test('daily screening keeps the page shell fixed and scrolls inside filter and result regions', () => {
-  assert.match(dailySource, /\.daily-screening-page \{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
-  assert.match(dailySource, /\.daily-screening-body \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(dailySource, /\.daily-screening-grid \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(dailySource, /\.daily-filter-panel \{[\s\S]*overflow-y:\s*auto;/)
-  assert.match(dailySource, /\.daily-results-content \{[\s\S]*overflow:\s*hidden;/)
+test('daily screening workbench keeps the page shell fixed and scrolls only inside panels', () => {
+  assert.match(dailySource, /\.clx-workbench-page \{[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
+  assert.match(dailySource, /\.clx-workbench-body \{[\s\S]*overflow:\s*hidden;/)
+  assert.match(dailySource, /\.clx-workbench-grid \{[\s\S]*grid-template-columns:[\s\S]*minmax\(760px,\s*30fr\)[\s\S]*minmax\(1100px,\s*46fr\)[\s\S]*minmax\(560px,\s*24fr\);[\s\S]*min-height:\s*0;[\s\S]*overflow:\s*hidden;/)
 })
 
 test('order, position, subject, reconciliation and runtime pages no longer use page-level scrolling at desktop widths', () => {
@@ -66,10 +63,6 @@ test('system settings keeps the hero visible and scrolls inside editor and side 
 })
 
 test('gantt routes use fixed viewport pages and keep scrolling inside content panes', () => {
-  assert.match(shoubanSource, /\.shouban30-page \{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
-  assert.match(shoubanSource, /\.shouban30-page-body \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(shoubanSource, /\.shouban30-grid \{[\s\S]*overflow:\s*hidden;/)
-
   assert.match(ganttSource, /<WorkbenchPage class="gantt-page">/)
   assert.match(ganttSource, /<div class="workbench-body gantt-page-body">/)
   assert.match(ganttSource, /\.gantt-page-content \{[\s\S]*overflow:\s*auto;/)

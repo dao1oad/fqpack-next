@@ -202,6 +202,149 @@ def test_delete_pre_pool_removes_entire_code_record():
     assert [row["code"] for row in service.list_codes()] == ["000002"]
 
 
+def test_reconcile_clx_trade_date_upserts_target_and_removes_stale():
+    service = _make_service()
+    service.upsert_code(
+        code="000001",
+        source="clx_daily_selection",
+        category="trade_date:2026-03-19",
+        added_at=datetime(2026, 3, 19, 9, 0),
+        extra={"batch_id": "old-batch", "direction_mode": "pure_buy"},
+    )
+    service.upsert_code(
+        code="600000",
+        source="manual",
+        category="keep-me",
+    )
+
+    result = service.reconcile_clx_trade_date(
+        trade_date="2026-03-19",
+        target_codes=["000001", "000002", "600519"],
+        asset_type_by_code={"000002": "etf", "600519": "stock"},
+        batch_id="new-batch",
+        publication_id="pub-1",
+        content_hash="hash-1",
+        selection_key="selection-1",
+        added_at=datetime(2026, 3, 19, 15, 0),
+    )
+
+    assert result["added"] == 2
+    assert result["updated"] == 1
+    assert result["removed"] == 0
+    rows = {row["code"]: row for row in service.list_codes()}
+    assert set(rows) == {"000001", "000002", "600519", "600000"}
+    membership = next(
+        item
+        for item in rows["000001"]["memberships"]
+        if item["source"] == "clx_daily_selection"
+    )
+    assert membership["category"] == "trade_date:2026-03-19"
+    assert membership["extra"]["batch_id"] == "new-batch"
+    assert rows["000002"]["memberships"][0]["extra"]["asset_type"] == "etf"
+    assert rows["600000"]["memberships"][0]["source"] == "manual"
+
+
+def test_reconcile_clx_trade_date_removes_stale_membership_and_keeps_other_sources():
+    service = _make_service()
+    service.upsert_code(
+        code="000001",
+        source="clx_daily_selection",
+        category="trade_date:2026-03-19",
+        extra={"batch_id": "old-batch"},
+    )
+    service.upsert_code(
+        code="000001",
+        source="manual",
+        category="watch",
+    )
+
+    result = service.reconcile_clx_trade_date(
+        trade_date="2026-03-19",
+        target_codes=["600519"],
+        batch_id="new-batch",
+        publication_id="pub-1",
+        content_hash="hash-1",
+        added_at=datetime(2026, 3, 19, 15, 0),
+    )
+
+    assert result["removed"] == 1
+    rows = service.list_codes()
+    by_code = {row["code"]: row for row in rows}
+    assert "000001" in by_code
+    assert [item["source"] for item in by_code["000001"]["memberships"]] == ["manual"]
+
+
+def test_reconcile_clx_trade_date_is_idempotent_for_same_generation():
+    service = _make_service()
+    kwargs = dict(
+        trade_date="2026-03-19",
+        target_codes=["000001"],
+        batch_id="batch-1",
+        publication_id="pub-1",
+        content_hash="hash-1",
+        added_at=datetime(2026, 3, 19, 15, 0),
+    )
+
+    first = service.reconcile_clx_trade_date(**kwargs)
+    second = service.reconcile_clx_trade_date(**kwargs)
+
+    assert first["added"] == 1
+    assert second["unchanged"] == 1
+    assert second["added"] == 0
+    assert len(service.list_codes()) == 1
+
+
+def test_purge_expired_memberships_removes_expired_and_keeps_valid():
+    service = _make_service()
+    service.upsert_code(
+        code="000001",
+        source="clx_daily_selection",
+        category="trade_date:2026-03-19",
+        added_at=datetime(2026, 3, 19, 15, 0),
+        expire_at=datetime(2026, 3, 20, 0, 0),
+    )
+    service.upsert_code(
+        code="000002",
+        source="clx_daily_selection",
+        category="trade_date:2026-03-19",
+        added_at=datetime(2026, 3, 19, 15, 0),
+        expire_at=datetime(2026, 6, 20, 0, 0),
+    )
+
+    result = service.purge_expired_memberships(now=datetime(2026, 3, 21, 0, 0))
+
+    assert result["removed_docs"] == 1
+    assert result["removed_memberships"] == 1
+    assert [row["code"] for row in service.list_codes()] == ["000002"]
+
+
+def test_purge_expired_memberships_refreshes_derived_top_level_fields():
+    service = _make_service()
+    service.upsert_code(
+        code="000001",
+        source="clx_daily_selection",
+        category="trade_date:2026-03-19",
+        added_at=datetime(2026, 3, 19, 15, 0),
+        expire_at=datetime(2026, 3, 20, 0, 0),
+    )
+    service.upsert_code(
+        code="000001",
+        source="manual",
+        category="watch",
+        added_at=datetime(2026, 3, 19, 15, 0),
+        expire_at=datetime(2026, 6, 20, 0, 0),
+    )
+
+    result = service.purge_expired_memberships(now=datetime(2026, 3, 21, 0, 0))
+
+    assert result["removed_memberships"] == 1
+    assert result["refreshed_docs"] == 1
+    row = service.list_codes()[0]
+    assert row["sources"] == ["manual"]
+    assert row["categories"] == ["watch"]
+    assert row["expire_at"] == datetime(2026, 6, 20, 0, 0)
+
+
 def test_list_pre_pool_returns_unique_codes_with_sources_and_categories():
     service = _make_service(
         [

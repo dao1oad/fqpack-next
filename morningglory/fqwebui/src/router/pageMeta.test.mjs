@@ -84,7 +84,7 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
     ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
-    ['gantt', 'shouban30', 'dailyScreening', 'clxEvaluation'],
+    ['gantt', 'dailyScreening', 'clxEvaluation'],
     ['stock', 'pool'],
     ['tradingGuide'],
   ])
@@ -98,18 +98,17 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.equal(groups[1][3].query.tabTitle, '运行观测')
   assert.equal(groups[1][4].path, '/ops-console')
   assert.equal(groups[1][4].query.tabTitle, '运维')
-  assert.equal(groups[2][1].query.days, '30')
-  assert.equal(groups[2][2].label, '每日选股')
+  assert.equal(groups[2][1].label, '每日选股')
+  assert.equal(groups[2][1].path, '/daily-screening')
+  assert.equal(groups[2][1].query.tabTitle, '每日选股')
+  assert.equal(groups[2][2].label, 'CLX评价')
   assert.equal(groups[2][2].path, '/daily-screening')
-  assert.equal(groups[2][2].query.tabTitle, '每日选股')
-  assert.equal(groups[2][3].label, 'CLX评价')
-  assert.equal(groups[2][3].path, '/clx-evaluation')
-  assert.equal(groups[2][3].query.tabTitle, 'CLX评价')
+  assert.equal(groups[2][2].query.tabTitle, 'CLX评价')
   assert.equal(groups[4][0].label, '交易课堂')
   assert.equal(groups[4][0].path, '/trading-guide')
   assert.equal(groups[4][0].query.tabTitle, '交易课堂')
-  assert.equal(Object.hasOwn(groups[2][2].query, 'clxScreening'), false)
-  assert.equal(Object.hasOwn(groups[2][2].query, 'clxWorkbench'), false)
+  assert.equal(Object.hasOwn(groups[2][1].query, 'clxScreening'), false)
+  assert.equal(Object.hasOwn(groups[2][1].query, 'clxWorkbench'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/daily-screening'), true)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/futures-control'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/tpsl'), false)

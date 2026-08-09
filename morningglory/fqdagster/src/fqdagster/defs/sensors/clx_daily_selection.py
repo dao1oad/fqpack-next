@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from dagster import RunRequest, SkipReason, sensor
+import json
 
+from dagster import RunRequest, SensorResult, SkipReason, sensor
+
+from freshquant.clx_daily_selection.ready_marker import (
+    get_clx_ready_marker,
+    normalize_ready_generation,
+)
 from freshquant.clx_daily_selection.service import ClxDailySelectionService
 
 from ..jobs.clx_daily_selection import (
     clx_daily_selection_finalize_job,
     clx_daily_selection_partition_job,
+    clx_pre_pool_reconcile_job,
 )
 from ..postclose_markers import (
     get_postclose_marker,
@@ -142,3 +149,58 @@ def clx_daily_selection_finalizer_sensor(_context):
     return SkipReason(
         skip_message or "no recent completed trade dates for CLX finalization"
     )
+
+
+@sensor(job=clx_pre_pool_reconcile_job, minimum_interval_seconds=60)
+def clx_pre_pool_reconcile_sensor(context):
+    """按 ready marker generation 触发 stock_pre_pools CLX membership 对账。
+
+    - 游标记录 marker generation（trade_date + generation_id + publication_id），
+      而不是任意 batch id 列表；
+    - 同一 generation 重复触发由 run_key 去重且幂等；
+    - 新 generation（含同日再发布）触发同交易日集合对账。
+    """
+    try:
+        cursor = json.loads(context.cursor) if context.cursor else {}
+    except (TypeError, ValueError):
+        cursor = {}
+
+    for trade_date in resolve_recent_completed_trade_dates(limit=5):
+        marker = get_clx_ready_marker(trade_date=trade_date)
+        generation = normalize_ready_generation(marker)
+        if not generation or not generation["batch_id"]:
+            continue
+        last = cursor.get(trade_date) or {} if isinstance(cursor, dict) else {}
+        if (
+            last.get("generation_id") == generation["generation_id"]
+            and last.get("publication_id") == generation["publication_id"]
+        ):
+            continue
+        run_key = (
+            f"clx-pre-reconcile:{trade_date}:{generation['generation_id']}"
+            f":{generation['publication_id']}"
+        )
+        new_cursor = dict(cursor or {})
+        new_cursor[trade_date] = {
+            "generation_id": generation["generation_id"],
+            "publication_id": generation["publication_id"],
+            "batch_id": generation["batch_id"],
+            "content_hash": generation["content_hash"],
+        }
+        return SensorResult(
+            run_requests=[
+                RunRequest(
+                    run_key=run_key,
+                    tags={
+                        "fq_trade_date": trade_date,
+                        "fq_clx_batch_id": generation["batch_id"],
+                        "fq_clx_generation_id": generation["generation_id"],
+                        "fq_clx_generation_order": generation["generation_order"],
+                        "fq_clx_publication_id": generation["publication_id"],
+                        "fq_clx_content_hash": generation["content_hash"],
+                    },
+                )
+            ],
+            cursor=json.dumps(new_cursor, ensure_ascii=False, sort_keys=True),
+        )
+    return SkipReason("no new CLX ready generation to reconcile")

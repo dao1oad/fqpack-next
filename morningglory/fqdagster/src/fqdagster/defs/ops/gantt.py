@@ -10,10 +10,8 @@ from freshquant.data.gantt_readmodel import (
     COL_GANTT_STOCK_DAILY,
     COL_PLATE_REASON_DAILY,
     COL_STOCK_HOT_REASON_DAILY,
-    _calc_start_date,
     persist_gantt_daily_for_date,
     persist_plate_reason_daily_for_date,
-    persist_shouban30_for_date,
     persist_stock_hot_reason_daily_for_date,
 )
 from freshquant.data.gantt_source_jygs import (
@@ -38,18 +36,9 @@ from freshquant.db import DBGantt
 from ..postclose_markers import upsert_postclose_marker
 
 COL_GANTT_PLATE_DAILY = "gantt_plate_daily"
-COL_SHOUBAN30_PLATES = "shouban30_plates"
-COL_SHOUBAN30_STOCKS = "shouban30_stocks"
 POSTCLOSE_CUTOFF_HOUR = 15
 POSTCLOSE_CUTOFF_MINUTE = 5
-SHOUBAN30_STOCK_WINDOWS = (30, 45, 60, 90)
-SHOUBAN30_EXTRA_FILTER_FIELDS = (
-    "is_credit_subject",
-    "credit_subject_snapshot_ready",
-    "near_long_term_ma_passed",
-    "is_quality_subject",
-    "quality_subject_snapshot_ready",
-)
+STOCK_HOT_REASON_VERSION = "stock_hot_reason_daily_v1"
 GANTT_BACKFILL_HOLE_SCAN_DAYS = 90
 BACKFILL_DATE_FIELD_BY_COLLECTION = {
     COL_XGB_TOP_GAINER_HISTORY: "trade_date",
@@ -92,21 +81,6 @@ def _to_str(value: Any) -> str:
     return str(value).strip()
 
 
-def _has_legacy_shouban30_window_semantics(
-    doc: dict[str, Any], *, trade_date: str, stock_window_days: int
-) -> bool:
-    expected_start_date = _calc_start_date(trade_date, stock_window_days)
-    stock_window_from = _to_str(doc.get("stock_window_from"))
-    if not stock_window_from:
-        return True
-    if stock_window_from < expected_start_date:
-        return True
-    seg_to = _to_str(doc.get("seg_to"))
-    if seg_to and seg_to < expected_start_date:
-        return True
-    return False
-
-
 def _query_latest_trade_date() -> str:
     trade_dates = list(tool_trade_date_hist_sina()["trade_date"])
     if not trade_dates:
@@ -140,50 +114,6 @@ def _query_latest_completed_gantt_trade_date() -> str | None:
     if not dates:
         return None
     return max(dates)
-
-
-def _has_legacy_shouban30_snapshot(trade_date: str) -> bool:
-    date_str = _to_str(trade_date)
-    if not date_str:
-        return False
-
-    collection = DBGantt[COL_SHOUBAN30_PLATES]
-    docs = list(collection.find({"as_of_date": date_str}))
-    if not docs:
-        return False
-
-    windows = set()
-    for doc in docs:
-        stock_window_days = doc.get("stock_window_days")
-        if (
-            not isinstance(stock_window_days, int)
-            or stock_window_days not in SHOUBAN30_STOCK_WINDOWS
-        ):
-            return True
-        if not _to_str(doc.get("chanlun_filter_version")):
-            return True
-        if _has_legacy_shouban30_window_semantics(
-            doc,
-            trade_date=date_str,
-            stock_window_days=stock_window_days,
-        ):
-            return True
-        windows.add(stock_window_days)
-
-    if windows != set(SHOUBAN30_STOCK_WINDOWS):
-        return True
-
-    stock_docs = list(DBGantt[COL_SHOUBAN30_STOCKS].find({"as_of_date": date_str}))
-    if not stock_docs:
-        return True
-
-    for doc in stock_docs:
-        if not _to_str(doc.get("chanlun_filter_version")):
-            return True
-        if any(field not in doc for field in SHOUBAN30_EXTRA_FILTER_FIELDS):
-            return True
-
-    return False
 
 
 def _query_trade_dates_between(start_date: str, end_date: str) -> list[str]:
@@ -363,29 +293,6 @@ def _log_postclose_event(
     )
 
 
-def _build_shouban30_snapshots_for_date(context, trade_date: str) -> dict[str, Any]:
-    results: list[dict[str, Any]] = []
-    chanlun_result_cache: dict[str, dict[str, Any]] = {}
-    for stock_window_days in SHOUBAN30_STOCK_WINDOWS:
-        result = persist_shouban30_for_date(
-            trade_date,
-            stock_window_days=stock_window_days,
-            chanlun_result_cache=chanlun_result_cache,
-        )
-        results.append(result)
-        context.log.info(
-            "built shouban30 trade_date=%s stock_window_days=%s result=%s",
-            trade_date,
-            stock_window_days,
-            result,
-        )
-    return {
-        "trade_date": trade_date,
-        "windows": list(SHOUBAN30_STOCK_WINDOWS),
-        "results": results,
-    }
-
-
 def _remember_gantt_backfill_resolution(
     resolution: GanttBackfillResolution,
 ) -> GanttBackfillResolution:
@@ -445,14 +352,6 @@ def _resolve_gantt_backfill_trade_dates_result() -> GanttBackfillResolution:
             return _remember_gantt_backfill_resolution(
                 GanttBackfillResolution(
                     trade_dates=hole_trade_dates,
-                    latest_trade_date=latest_trade_date,
-                    latest_completed_trade_date=latest_completed_trade_date,
-                )
-            )
-        if _has_legacy_shouban30_snapshot(latest_trade_date):
-            return _remember_gantt_backfill_resolution(
-                GanttBackfillResolution(
-                    trade_dates=[latest_trade_date],
                     latest_trade_date=latest_trade_date,
                     latest_completed_trade_date=latest_completed_trade_date,
                 )
@@ -525,7 +424,6 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
         trade_date,
         quality_stock_result,
     )
-    shouban30_result = _build_shouban30_snapshots_for_date(context, trade_date)
 
     return {
         "trade_date": trade_date,
@@ -535,7 +433,6 @@ def run_gantt_pipeline_for_date(context, trade_date: str) -> dict[str, Any]:
         "gantt": gantt_result,
         "stock_hot_reason_rows": stock_hot_reason_count,
         "quality_stock_universe": quality_stock_result,
-        "shouban30": shouban30_result,
     }
 
 
@@ -773,7 +670,13 @@ def op_build_stock_hot_reason_daily(
         trade_date=trade_date,
         rows=count,
     )
-    yield Output(trade_date)
+    yield Output(
+        {
+            "trade_date": trade_date,
+            "row_count": int(count or 0),
+            "version": STOCK_HOT_REASON_VERSION,
+        }
+    )
 
 
 @op
@@ -804,69 +707,20 @@ def op_refresh_quality_stock_universe_daily(
 
 
 @op
-def op_build_shouban30_daily(context, trade_date: str) -> Generator[object, None, None]:
-    yield _log_postclose_event(
-        context,
-        event="start",
-        stage="build_shouban30",
-        trade_date=trade_date,
-    )
-    results: list[dict[str, Any]] = []
-    chanlun_result_cache: dict[str, dict[str, Any]] = {}
-    for stock_window_days in SHOUBAN30_STOCK_WINDOWS:
-        yield _log_postclose_event(
-            context,
-            event="progress",
-            stage="build_shouban30",
-            trade_date=trade_date,
-            stock_window_days=stock_window_days,
-            status="start",
-        )
-        result = persist_shouban30_for_date(
-            trade_date,
-            stock_window_days=stock_window_days,
-            chanlun_result_cache=chanlun_result_cache,
-        )
-        results.append(result)
-        context.log.info(
-            "built shouban30 trade_date=%s stock_window_days=%s result=%s",
-            trade_date,
-            stock_window_days,
-            result,
-        )
-        yield _log_postclose_event(
-            context,
-            event="progress",
-            stage="build_shouban30",
-            trade_date=trade_date,
-            stock_window_days=stock_window_days,
-            status="done",
-            plates=(result or {}).get("plates"),
-            stocks=(result or {}).get("stocks"),
-        )
+def op_mark_gantt_postclose_ready(
+    context, hot_reason_payload: dict[str, Any]
+) -> Generator[object, None, None]:
+    trade_date = _to_str((hot_reason_payload or {}).get("trade_date"))
+    if not trade_date:
+        raise RuntimeError("missing trade_date in hot_reason payload")
     payload = {
         "trade_date": trade_date,
-        "windows": list(SHOUBAN30_STOCK_WINDOWS),
-        "results": results,
+        "hot_reason_ready": True,
+        "hot_reason_row_count": int((hot_reason_payload or {}).get("row_count") or 0),
+        "hot_reason_version": _to_str((hot_reason_payload or {}).get("version"))
+        or STOCK_HOT_REASON_VERSION,
+        "shouban30_removed": True,
     }
-    yield _log_postclose_event(
-        context,
-        event="done",
-        stage="build_shouban30",
-        trade_date=trade_date,
-        windows=payload.get("windows"),
-    )
-    yield Output(payload)
-
-
-@op
-def op_mark_gantt_postclose_ready(
-    context, shouban30_payload: dict[str, Any]
-) -> Generator[object, None, None]:
-    trade_date = _to_str((shouban30_payload or {}).get("trade_date"))
-    if not trade_date:
-        raise RuntimeError("missing trade_date in shouban30 payload")
-    payload = {"windows": list((shouban30_payload or {}).get("windows") or [])}
     upsert_postclose_marker(
         "gantt_postclose_ready",
         trade_date,
@@ -887,9 +741,8 @@ def graph_gantt_postclose_for_trade_date(trade_date):
     jygs_trade_date = op_sync_jygs_action_for_trade_date(trade_date)
     agreed_trade_date = op_build_plate_reason_daily(xgb_trade_date, jygs_trade_date)
     gantt_trade_date = op_build_gantt_daily(agreed_trade_date)
-    hot_reason_trade_date = op_build_stock_hot_reason_daily(gantt_trade_date)
-    shouban30_payload = op_build_shouban30_daily(hot_reason_trade_date)
-    op_mark_gantt_postclose_ready(shouban30_payload)
+    hot_reason_payload = op_build_stock_hot_reason_daily(gantt_trade_date)
+    op_mark_gantt_postclose_ready(hot_reason_payload)
 
 
 @graph

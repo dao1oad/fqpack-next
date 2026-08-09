@@ -68,6 +68,11 @@ def dagster_sensor_stub():
         def __init__(self, skip_message):
             self.skip_message = skip_message
 
+    class SensorResult:
+        def __init__(self, run_requests=None, cursor=None):
+            self.run_requests = run_requests or []
+            self.cursor = cursor
+
     class SensorDefinition:
         def __init__(self, fn, **kwargs):
             self.fn = fn
@@ -83,6 +88,7 @@ def dagster_sensor_stub():
 
     module.RunRequest = RunRequest
     module.SkipReason = SkipReason
+    module.SensorResult = SensorResult
     module.sensor = sensor
     return module
 
@@ -98,15 +104,11 @@ def import_sensor_module(monkeypatch):
     )
     monkeypatch.setitem(
         sys.modules,
-        "fqdagster.defs.jobs.daily_screening",
-        SimpleNamespace(daily_screening_postclose_job=SimpleNamespace(name="daily")),
-    )
-    monkeypatch.setitem(
-        sys.modules,
         "fqdagster.defs.jobs.clx_daily_selection",
         SimpleNamespace(
             clx_daily_selection_partition_job=SimpleNamespace(name="partition"),
             clx_daily_selection_finalize_job=SimpleNamespace(name="finalize"),
+            clx_pre_pool_reconcile_job=SimpleNamespace(name="pre_reconcile"),
         ),
     )
     for name in (
@@ -161,6 +163,73 @@ def test_stock_sensor_starts_from_stock_marker_without_reading_etf(monkeypatch):
     assert result.tags["fq_clx_effective_universe_hash"] == EFFECTIVE_UNIVERSE_HASH
     assert result.tags["fq_clx_universe_isolation_hash"] == UNIVERSE_ISOLATION_HASH
     assert marker_calls == [("stock_postclose_ready", "2026-03-19")]
+
+
+def _ready_marker(trade_date="2026-08-07", batch_id="clx-b-1"):
+    return {
+        "pipeline_key": "clx_daily_selection_ready",
+        "trade_date": trade_date,
+        "status": "success",
+        "updated_at": "2026-08-07T20:00:00+08:00",
+        "generation_id": batch_id,
+        "generation_order": "1",
+        "publication_id": "pub-1",
+        "payload": {
+            "batch_id": batch_id,
+            "content_hash": "hash-1",
+            "partition_ids": ["p-stock", "p-etf"],
+            "generation_id": batch_id,
+            "generation_order": "1",
+            "publication_id": "pub-1",
+        },
+    }
+
+
+def test_pre_pool_reconcile_sensor_dispatches_new_generation_once(monkeypatch):
+    module = import_sensor_module(monkeypatch)
+    monkeypatch.setattr(
+        module,
+        "resolve_recent_completed_trade_dates",
+        lambda limit=5: ["2026-08-07"],
+    )
+    monkeypatch.setattr(
+        module,
+        "get_clx_ready_marker",
+        lambda trade_date=None: _ready_marker(),
+    )
+
+    result = module.clx_pre_pool_reconcile_sensor(SimpleNamespace(cursor=""))
+
+    assert len(result.run_requests) == 1
+    run_request = result.run_requests[0]
+    assert run_request.run_key == "clx-pre-reconcile:2026-08-07:clx-b-1:pub-1"
+    assert run_request.tags["fq_trade_date"] == "2026-08-07"
+    assert run_request.tags["fq_clx_batch_id"] == "clx-b-1"
+    assert run_request.tags["fq_clx_generation_id"] == "clx-b-1"
+    assert run_request.tags["fq_clx_publication_id"] == "pub-1"
+    assert run_request.tags["fq_clx_content_hash"] == "hash-1"
+    import json
+
+    cursor = json.loads(result.cursor)
+    assert cursor["2026-08-07"]["generation_id"] == "clx-b-1"
+
+    # 同一 generation 再次触发应跳过
+    again = module.clx_pre_pool_reconcile_sensor(SimpleNamespace(cursor=result.cursor))
+    assert getattr(again, "run_requests", None) in (None, [])
+
+
+def test_pre_pool_reconcile_sensor_skips_without_ready_marker(monkeypatch):
+    module = import_sensor_module(monkeypatch)
+    monkeypatch.setattr(
+        module,
+        "resolve_recent_completed_trade_dates",
+        lambda limit=5: ["2026-08-07"],
+    )
+    monkeypatch.setattr(module, "get_clx_ready_marker", lambda trade_date=None: None)
+
+    result = module.clx_pre_pool_reconcile_sensor(SimpleNamespace(cursor=""))
+
+    assert getattr(result, "run_requests", None) in (None, [])
 
 
 @pytest.mark.parametrize(

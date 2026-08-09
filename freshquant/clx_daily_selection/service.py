@@ -28,6 +28,7 @@ from .contracts import (
     normalize_qfq_snapshot_pair,
     qfq_snapshot_pair_hash,
 )
+from .repository import classify_direction_mode
 from .tdx_export import write_clx_tdx_group
 
 PARTITION_INSTRUMENT_ERROR_TOLERANCE = 0
@@ -106,6 +107,68 @@ class ClxDailySelectionService:
             "status": "no_ready_batch",
             "release_status": "partial" if include_partial else "final",
             "is_final": False,
+        }
+
+    def get_official_ready(
+        self,
+        *,
+        trade_date: str | None = None,
+        payload: dict[str, Any] | None = None,
+        ready_marker_provider=None,
+    ) -> dict[str, Any]:
+        """返回当前 ready marker 对应的正式选股结果（默认 direction_mode=pure_buy）。
+
+        ready marker 是 pre 自动落池与工作台左栏的唯一 generation 锚点；
+        不把“任意 final 批次”或“最后创建的批次”当作正式结果。
+        """
+        from .ready_marker import (
+            get_clx_ready_marker,
+            normalize_ready_generation,
+        )
+
+        provider = ready_marker_provider or get_clx_ready_marker
+        marker = provider(trade_date or None)
+        generation = normalize_ready_generation(marker)
+        if not generation or not generation["batch_id"]:
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "status": "no_ready",
+            }
+        batch = self._require_batch(generation["batch_id"])
+        query_payload = dict(payload or {})
+        query_payload.setdefault("direction_mode", "pure_buy")
+        page = self.repository.query_snapshots(
+            self._batch_partition_ids(batch), query_payload
+        )
+        counts = {"pure_buy_total": 0, "stock": 0, "etf": 0}
+        for row in self.repository.get_snapshots(self._batch_partition_ids(batch)):
+            if classify_direction_mode(row.get("directions")) != "pure_buy":
+                continue
+            counts["pure_buy_total"] += 1
+            asset_type = str(row.get("asset_type") or "").strip()
+            if asset_type == "etf":
+                counts["etf"] += 1
+            elif asset_type == "stock":
+                counts["stock"] += 1
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "status": "ready",
+            "trade_date": generation["trade_date"],
+            "batch_id": generation["batch_id"],
+            "generation_id": generation["generation_id"],
+            "generation_order": generation["generation_order"],
+            "publication_id": generation["publication_id"],
+            "content_hash": generation["content_hash"],
+            "ready_marker_updated_at": generation["ready_marker_updated_at"],
+            "result_time": (
+                str((batch.get("publication") or {}).get("published_at") or "")
+                or generation["ready_marker_updated_at"]
+            ),
+            "release_status": batch.get("release_status"),
+            "is_final": batch.get("is_final"),
+            "partitions": deepcopy(batch.get("partitions") or {}),
+            "counts": counts,
+            **page,
         }
 
     def get_batch_summary(self, batch_id: str):

@@ -153,3 +153,39 @@ def clx_daily_selection_finalize_op(context) -> dict:
 @job(tags={"dagster/max_concurrent_runs": "1", "dagster/max_retries": "0"})
 def clx_daily_selection_finalize_job():
     clx_daily_selection_finalize_op()
+
+
+@op
+def clx_pre_pool_reconcile_op(context) -> dict:
+    """按当前 ready marker generation 对账 stock_pre_pools 的 CLX membership。"""
+    tags = _run_tags(context)
+    trade_date = str(tags.get("fq_trade_date") or "").strip()
+    expected_batch_id = str(tags.get("fq_clx_batch_id") or "").strip()
+    if not trade_date:
+        raise Failure("CLX pre reconcile requires fq_trade_date tag")
+
+    from freshquant.clx_daily_selection.pre_reconciliation import (
+        reconcile_pre_pool_for_trade_date,
+    )
+
+    result = reconcile_pre_pool_for_trade_date(trade_date)
+    status = str(result.get("status") or "").strip()
+    if status == "skipped":
+        raise Failure(f"CLX pre reconcile skipped: {result.get('reason')}")
+    if status != "reconciled":
+        raise Failure(
+            f"CLX pre reconcile failed: {status} "
+            f"({result.get('reason') or 'unknown'})"
+        )
+    actual_batch_id = str(result.get("batch_id") or "").strip()
+    if expected_batch_id and actual_batch_id != expected_batch_id:
+        raise Failure(
+            "CLX pre reconcile generation drift: "
+            f"expected={expected_batch_id} actual={actual_batch_id}"
+        )
+    return result
+
+
+@job(tags={"dagster/max_concurrent_runs": "1", "dagster/max_retries": "0"})
+def clx_pre_pool_reconcile_job():
+    clx_pre_pool_reconcile_op()

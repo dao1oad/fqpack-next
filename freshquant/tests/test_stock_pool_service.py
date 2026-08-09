@@ -96,6 +96,12 @@ class FakeDB(dict):
 def _import_stock_service_with_stubs(monkeypatch):
     db_module = types.ModuleType("freshquant.db")
     db_module.DBfreshquant = {}
+    db_module.MongoClient = object()
+    db_module.DBQuantAxis = object()
+    db_module.DBGantt = object()
+    db_module.DBScreening = object()
+    db_module.DBOrderManagement = object()
+    db_module.DBQA = object()
 
     code_module = types.ModuleType("freshquant.util.code")
     code_module.fq_util_code_append_market_code = lambda code: code
@@ -115,6 +121,8 @@ def _import_stock_service_with_stubs(monkeypatch):
     signal_common_module.save_a_stock_pools = lambda *args, **kwargs: None
 
     strategy_module = types.ModuleType("freshquant.strategy")
+    strategy_common_module = types.ModuleType("freshquant.strategy.common")
+    strategy_common_module.get_trade_amount = lambda code=None: 100
     strategy_toolkit_module = types.ModuleType("freshquant.strategy.toolkit")
     strategy_grid_module = types.ModuleType("freshquant.strategy.toolkit.grid")
     strategy_grid_module.plan_grid_distribution = lambda *args, **kwargs: None
@@ -128,6 +136,9 @@ def _import_stock_service_with_stubs(monkeypatch):
         sys.modules, "freshquant.signal.a_stock_common", signal_common_module
     )
     monkeypatch.setitem(sys.modules, "freshquant.strategy", strategy_module)
+    monkeypatch.setitem(
+        sys.modules, "freshquant.strategy.common", strategy_common_module
+    )
     monkeypatch.setitem(
         sys.modules, "freshquant.strategy.toolkit", strategy_toolkit_module
     )

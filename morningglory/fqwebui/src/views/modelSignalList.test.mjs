@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { resolveDailyScreeningClsModelPresentation } from './dailyScreeningPage.mjs'
+import { resolveDailyScreeningClsModelPresentation } from './clsModelPresentation.mjs'
 
 const modelSignalListSource = readFileSync(new URL('./ModelSignalList.vue', import.meta.url), 'utf8')
 

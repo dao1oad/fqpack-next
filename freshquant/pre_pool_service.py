@@ -117,6 +117,167 @@ class PrePoolService:
         self.db = DBfreshquant if db is None else db
         self.collection = self.db["stock_pre_pools"]
 
+    def reconcile_clx_trade_date(
+        self,
+        *,
+        trade_date: str,
+        target_codes: Iterable[str],
+        asset_type_by_code: dict[str, str] | None = None,
+        batch_id: str = "",
+        publication_id: str = "",
+        content_hash: str = "",
+        selection_key: str = "",
+        added_at: Any = None,
+        now: Any = None,
+    ) -> dict:
+        """按 ready generation 对当前交易日的 CLX membership 做幂等对账。
+
+        - 同一 code、同一交易日最多保留一个 CLX membership
+          （source=clx_daily_selection, category=trade_date:YYYY-MM-DD）；
+        - 同日发布新 generation 时替换该交易日的 CLX membership；
+        - 旧 generation 命中但当前不再命中的 CLX membership 被移除；
+        - code 的其他来源 membership 不受影响；
+        - 无剩余 membership 时删除顶层文档。
+        """
+        trade_date = _to_text(trade_date)
+        if not trade_date:
+            raise ValueError("trade_date required")
+        category = f"trade_date:{trade_date}"
+        now = now if now is not None else datetime.now()
+        added_at = added_at if added_at is not None else now
+        asset_type_by_code = asset_type_by_code or {}
+        target_set = {_to_text(code) for code in target_codes if _to_text(code)}
+        extra = {
+            "batch_id": _to_text(batch_id),
+            "publication_id": _to_text(publication_id),
+            "content_hash": _to_text(content_hash),
+            "selection_key": _to_text(selection_key),
+            "direction_mode": "pure_buy",
+        }
+
+        added = 0
+        updated = 0
+        unchanged = 0
+        for code in sorted(target_set):
+            existing = self.get_code(code) or {}
+            membership = next(
+                (
+                    item
+                    for item in (existing.get("memberships") or [])
+                    if _to_text(item.get("source")) == "clx_daily_selection"
+                    and _to_text(item.get("category")) == category
+                ),
+                None,
+            )
+            row_extra = _deepcopy_dict(membership.get("extra")) if membership else {}
+            same_generation = (
+                membership is not None
+                and row_extra.get("batch_id") == extra["batch_id"]
+                and row_extra.get("publication_id") == extra["publication_id"]
+                and row_extra.get("content_hash") == extra["content_hash"]
+            )
+            membership_extra = dict(extra)
+            asset_type = _to_text(asset_type_by_code.get(code))
+            if asset_type:
+                membership_extra["asset_type"] = asset_type
+            self.upsert_code(
+                code=code,
+                name=(existing or {}).get("name"),
+                symbol=(existing or {}).get("symbol"),
+                source="clx_daily_selection",
+                category=category,
+                added_at=added_at,
+                extra=membership_extra,
+            )
+            if same_generation:
+                unchanged += 1
+            elif membership is not None:
+                updated += 1
+            else:
+                added += 1
+
+        removed = 0
+        for row in self.list_codes(source="clx_daily_selection"):
+            code = _to_text(row.get("code"))
+            if not code or code in target_set:
+                continue
+            has_membership = any(
+                _to_text(item.get("source")) == "clx_daily_selection"
+                and _to_text(item.get("category")) == category
+                for item in (row.get("memberships") or [])
+            )
+            if has_membership and self.remove_membership(
+                code=code, source="clx_daily_selection", category=category
+            ):
+                removed += 1
+
+        return {
+            "trade_date": trade_date,
+            "category": category,
+            "target_count": len(target_set),
+            "added": added,
+            "updated": updated,
+            "unchanged": unchanged,
+            "removed": removed,
+        }
+
+    def purge_expired_memberships(self, now: Any = None) -> dict:
+        """清理已过期 membership，重算顶层派生字段，无有效 membership 时删除顶层文档。"""
+        now = now if now is not None else datetime.now()
+        removed_memberships = 0
+        removed_docs = 0
+        refreshed_docs = 0
+        for row in self._load_all_rows():
+            code = _to_text(row.get("code"))
+            if not code or not _looks_like_unified_doc(row):
+                continue
+            remaining = []
+            for item in row.get("memberships") or []:
+                expire_at = item.get("expire_at")
+                if expire_at is not None and expire_at < now:
+                    removed_memberships += 1
+                    continue
+                remaining.append(
+                    {
+                        "source": _to_text(item.get("source")) or "manual",
+                        "category": _to_text(item.get("category")) or "uncategorized",
+                        "added_at": item.get("added_at"),
+                        "expire_at": item.get("expire_at"),
+                        "extra": _deepcopy_dict(item.get("extra")),
+                    }
+                )
+            if not remaining:
+                if self.delete_code(code):
+                    removed_docs += 1
+                continue
+            if len(remaining) == len(row.get("memberships") or []):
+                continue
+            document = deepcopy(row)
+            document["memberships"] = sorted(remaining, key=_membership_sort_key)
+            document["sources"] = _dedupe_text_list(
+                [item.get("source") for item in document["memberships"]]
+            )
+            document["categories"] = _dedupe_text_list(
+                [item.get("category") for item in document["memberships"]]
+            )
+            remaining_expire_at = [
+                item.get("expire_at") for item in document["memberships"]
+            ]
+            if remaining_expire_at:
+                resolved_expire_at = remaining_expire_at[0]
+                for candidate in remaining_expire_at[1:]:
+                    resolved_expire_at = _pick_latest(resolved_expire_at, candidate)
+            else:
+                resolved_expire_at = None
+            document["expire_at"] = resolved_expire_at
+            self._replace_code_document(code, document)
+            refreshed_docs += 1
+        return {
+            "removed_memberships": removed_memberships,
+            "removed_docs": removed_docs,
+            "refreshed_docs": refreshed_docs,
+        }
+
     def upsert_code(
         self,
         *,

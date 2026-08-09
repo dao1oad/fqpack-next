@@ -15,6 +15,7 @@ LINE_FLAG_KEYS = frozenset(
     {"above_ma250", "above_chanlun_line", "above_reference_line"}
 )
 LINE_FLAG_VALUES = frozenset({"yes", "no", "unknown"})
+DIRECTION_MODES = ("pure_buy", "pure_sell", "mixed", "no_signal", "all")
 PUBLISHED_FINAL_QUERY = {
     "is_final": True,
     "publication.status": {"$in": ["published", "not_required"]},
@@ -23,6 +24,31 @@ COMPLETED_PARTITION_QUERY = {
     "status": "completed",
     "commit_result.status": "completed",
 }
+
+
+def classify_direction_mode(directions) -> str:
+    """把快照 directions 归一到业务方向口径。
+
+    - pure_buy: 规范化去重后恰好只有 buy（不含 sell）
+    - pure_sell: 恰好只有 sell
+    - mixed: 同时包含 buy 与 sell
+    - no_signal: 无 buy/sell；未知方向值（如 hold/空白）不参与判定，
+      只保留 buy/sell 后再分类，未知值本身不会造成 mixed 误判。
+    """
+    normalized = sorted(
+        {
+            str(item or "").strip()
+            for item in (directions or [])
+            if str(item or "").strip() in {"buy", "sell"}
+        }
+    )
+    if not normalized:
+        return "no_signal"
+    if normalized == ["buy"]:
+        return "pure_buy"
+    if normalized == ["sell"]:
+        return "pure_sell"
+    return "mixed"
 
 
 class ClxDailySelectionRepository:
@@ -565,6 +591,12 @@ class ClxDailySelectionRepository:
             query["condition_keys"] = {"$in": list(payload["condition_keys"])}
         if payload.get("directions"):
             query["directions"] = {"$in": list(payload["directions"])}
+        direction_mode = str(payload.get("direction_mode") or "").strip()
+        if direction_mode and direction_mode not in DIRECTION_MODES:
+            raise ValueError(
+                f"unsupported direction_mode: {direction_mode}; "
+                f"expected one of {','.join(DIRECTION_MODES)}"
+            )
         line_flags = payload.get("line_flags")
         if line_flags is not None and not isinstance(line_flags, dict):
             raise ValueError("line_flags must be an object")
@@ -589,6 +621,12 @@ class ClxDailySelectionRepository:
                 str(item.get("symbol") or ""),
             )
         )
+        if direction_mode and direction_mode != "all":
+            rows = [
+                item
+                for item in rows
+                if classify_direction_mode(item.get("directions")) == direction_mode
+            ]
         try:
             offset = max(0, int(str(payload.get("cursor") or "0")))
         except ValueError:

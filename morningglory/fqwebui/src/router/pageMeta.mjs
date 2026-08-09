@@ -48,16 +48,6 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'success',
     size: 'small',
   },
-  shouban30: {
-    label: '首板选股',
-    path: '/gantt/shouban30',
-    query: {
-      p: 'xgb',
-      days: '30',
-    },
-    buttonType: 'warning',
-    size: 'small',
-  },
   dailyScreening: {
     label: '每日选股',
     path: '/daily-screening',
@@ -67,7 +57,7 @@ export const HEADER_NAV_TARGETS = {
   },
   clxEvaluation: {
     label: 'CLX评价',
-    path: '/clx-evaluation',
+    path: '/daily-screening',
     buttonType: 'primary',
     plain: true,
     size: 'small',
@@ -108,7 +98,7 @@ export const HEADER_NAV_TARGETS = {
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
   ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
-  ['gantt', 'shouban30', 'dailyScreening', 'clxEvaluation'],
+  ['gantt', 'dailyScreening', 'clxEvaluation'],
   ['stock', 'pool'],
   ['tradingGuide'],
 ]
@@ -120,7 +110,6 @@ export const ROUTE_TITLES_BY_NAME = {
   'kline-big': '行情图表',
   'kline-slim': '行情图表',
   gantt: '板块趋势',
-  'gantt-shouban30': '首板选股',
   'daily-screening': '每日选股',
   'clx-daily-screening': '每日选股',
   'clx-evaluation': 'CLX日线评价',

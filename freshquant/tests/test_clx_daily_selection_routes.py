@@ -88,6 +88,68 @@ def test_model_catalog_route_exposes_real_filter_contract(monkeypatch):
     assert all(item["label"] for item in payload["conditions"])
 
 
+def test_official_route_returns_ready_marker_result(monkeypatch):
+    service = ClxDailySelectionService(
+        repository=object(),
+        market_data_provider=object(),
+        engine=object(),
+    )
+
+    def _official_ready(**kwargs):
+        assert kwargs["trade_date"] == "2026-08-07"
+        assert kwargs["payload"]["direction_mode"] == "pure_buy"
+        return {
+            "schema_version": "clx-daily-selection.v2",
+            "status": "ready",
+            "trade_date": "2026-08-07",
+            "batch_id": "clx-2026-08-07-production_v1-abc",
+            "result_time": "2026-08-07T20:00:00+08:00",
+            "counts": {"pure_buy_total": 3, "stock": 2, "etf": 1},
+            "rows": [],
+            "total": 3,
+            "next_cursor": None,
+        }
+
+    monkeypatch.setattr(service, "get_official_ready", _official_ready)
+
+    response = make_client(monkeypatch, service).get(
+        "/api/clx-daily-selection/official",
+        query_string={
+            "trade_date": "2026-08-07",
+            "direction_mode": "pure_buy",
+            "limit": "50",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ready"
+    assert data["counts"] == {"pure_buy_total": 3, "stock": 2, "etf": 1}
+
+
+def test_official_route_reports_no_ready_without_marker(monkeypatch):
+    service = ClxDailySelectionService(
+        repository=object(),
+        market_data_provider=object(),
+        engine=object(),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_official_ready",
+        lambda **kwargs: {
+            "schema_version": "clx-daily-selection.v2",
+            "status": "no_ready",
+        },
+    )
+
+    response = make_client(monkeypatch, service).get(
+        "/api/clx-daily-selection/official"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "no_ready"
+
+
 def test_batch_routes_preserve_final_default_and_explicit_partial(monkeypatch):
     captured = []
 

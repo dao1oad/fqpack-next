@@ -177,6 +177,20 @@ def _normalize_symbol_limit(max_symbols: int) -> int:
 def _load_holding_codes(limit: int) -> list[str]:
     """line_1m_t：仅持仓（xt_positions），1m 做T。"""
 
+    codes = _load_holding_codes_full()
+    return sorted(c for c in codes if len(c) >= 8)[:limit]
+
+
+def _load_holding_codes_full() -> set[str]:
+    """完整持仓集合，用于风险排除；永不受订阅上限截断。
+
+    规则（交易安全 Gate）：
+    - 持仓排除集合永不受 max_symbols 截断；
+    - 先加载完整持仓 set 做风险排除；
+    - 排除完成后，才对最终订阅列表应用 max_symbols；
+    - 持仓查询失败时异常向上传播（fail closed），不得按“无持仓”继续。
+    """
+
     codes: set[str] = set()
     for doc in DBfreshquant["xt_positions"].find(
         {}, {"stock_code": 1, "code": 1, "symbol": 1}
@@ -185,13 +199,13 @@ def _load_holding_codes(limit: int) -> list[str]:
         norm = normalize_prefixed_code(str(raw)).lower()
         if norm:
             codes.add(norm)
-    return sorted(c for c in codes if len(c) >= 8)[:limit]
+    return codes
 
 
 def _load_must_pool_codes(limit: int) -> list[str]:
     """line_5m_new_open：must_pool 且未持仓，5m 开新仓。"""
 
-    holding_codes = _load_holding_codes(limit)
+    holding_codes = _load_holding_codes_full()
     codes: set[str] = set()
     for doc in DBfreshquant["must_pool"].find(
         {"instrument_type": {"$in": ["stock_cn", "etf_cn"]}, "disabled": {"$ne": True}},
@@ -207,7 +221,7 @@ def _load_must_pool_codes(limit: int) -> list[str]:
 def _load_clx_codes(limit: int) -> list[str]:
     """line_15_30_clx：未过期 stock_pools 且未持仓，15/30 CLX 选股。"""
 
-    holding_codes = _load_holding_codes(limit)
+    holding_codes = _load_holding_codes_full()
     codes: set[str] = set()
     now = datetime.now()
     for doc in DBfreshquant["stock_pools"].find(

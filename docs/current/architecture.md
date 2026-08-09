@@ -91,9 +91,9 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 
 ### 读链
 
-`freshquant_clx_daily_selection -> /api/clx-daily-selection/* -> /daily-screening?tab=clx CLX master-detail 工作区 -> 当前 symbol/endDate K 线与详情 -> ECharts CLX marker series`
+`freshquant_clx_daily_selection -> /api/clx-daily-selection/*（含 /official ready 接口）-> /daily-screening 三面板工作台（左选股 / 中评价 / 右三池）`
 
-新链使用独立数据库、API 和 `clx_daily_selection_ready` marker，统一页面入口为 `/daily-screening?tab=clx`。页面采用高密度 master-detail 布局：左侧条件与交集结果，中间工作区，右侧标的详情；保留静态 JSON schema/API 与 `importGroupToTdx()` 能力。`/clx-daily-screening` 只把兼容 query 映射后重定向到该入口，不再挂载第二套页面状态；旧 `fqscreening` 与 `daily_screening_ready` 继续保持 12 模型链的原有语义。
+新链使用独立数据库、API 和 `clx_daily_selection_ready` marker。ready marker 是 pre 自动落池与工作台左栏的唯一 generation 锚点，不把“任意 final 批次”或“最后创建的批次”当作正式结果。`/daily-screening` 收敛为固定左中右三栏工作台：左栏展示当前 ready generation 的 pure-buy 结果与选股结果时间，中栏展示最新 CLX 评价产物与评价结果时间/评价对象时间，右栏为 pre / 监控 / 待买三池（pre 由 CLX 自动落池，stock/must 只以通达信 ZXG/DM 分组为来源做覆盖同步）。页面根无滚动，滚动只在组件内。`/clx-evaluation` 由 Vue Router 重定向到 `/daily-screening`；`/clx-daily-screening` 仍保留兼容 query 映射重定向。旧 `fqscreening` 与 `daily_screening_ready`（综合交集）已整体退出。
 ## 当前行情复权边界
 
 - Stock / ETF 线上读取统一由 `freshquant.data.qfq_reader` 解析 `quantaxis.qfq_ready` 指向的 active A/B 快照；reader 每次请求重新解析 marker，不缓存 collection pointer。
@@ -215,15 +215,15 @@ om_entry_slices / om_exit_allocations`）；`om_execution_history_archive` 与
   - `entries + entry_slices + takeprofit + stoploss`
 - `KlineSlim`
   - `entries + entry stoploss + guardian/takeprofit + 可选订单级交易复盘覆盖层`
-  - CLX 左栏是完整选股工作区：读取选定 final/显式 partial scope，支持资产、模型、条件、方向、线关系、最少模型数和文本查询，并按服务端 cursor 追加结果
+  - CLX 选股工作区入口为 `/daily-screening`（三面板工作台），左栏读取 ready generation 的 pure-buy 结果（`direction_mode=pure_buy`），支持资产、模型、条件、方向、线关系、最少模型数和文本查询，并按服务端 cursor 追加结果
   - 点击左栏标的时更新当前 symbol/asset type，并把 `scope.tradeDate` 映射为 K 线与历史信号共同使用的 `endDate`
   - 左栏“筛选哪些标的”的模型/条件状态与右栏“显示哪些历史 marker”的模型/条件状态分别维护，切换任一侧都不静默改写另一侧
   - 中栏继续提供唯一 K 线主图；右侧工作台按 `production_v1` 历史响应控制 marker 可见性、时间轴和证据详情
   - CLX marker 由 renderer 生成独立 ECharts scatter series，并由 controller 处理点击、聚焦和 tooltip
   - `/clx-daily-screening` 兼容入口
-  - 保留旧收藏和深链可达性，将 `scope_id / asset_types / model_keys / condition_keys / line_flags` 等兼容 query 映射为 `/daily-screening?tab=clx` 的 CLX 查询状态后重定向
+  - 保留旧收藏和深链可达性，将 `scope_id / asset_types / model_keys / condition_keys / line_flags` 等兼容 query 映射为 `/daily-screening` 的 CLX 查询状态后重定向
   - 不挂载独立筛选页面，也不维护第二份 scope、筛选、选中标的或分页状态
-  - 正式导航、人工操作和 Web 健康检查都以 `/daily-screening?tab=clx` 为准
+  - 正式导航、人工操作和 Web 健康检查都以 `/daily-screening` 为准
 - `PositionReview`
   - 当前 `xt_trades / OM ledger` 与两个只读历史档案的合并视图
   - 页面拆为“组合总览 / 标的复盘”两个一级视图，路由 query `view=symbol` 可深链标的复盘

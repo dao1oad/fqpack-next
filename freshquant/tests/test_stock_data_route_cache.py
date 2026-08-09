@@ -434,9 +434,7 @@ def test_stock_data_v2_normalizes_backend_minute_alias(monkeypatch, stock_routes
     assert calls == [("sz000001", "30m", None)]
 
 
-def test_sync_stock_pools_from_tdx_self_select_route_calls_service(
-    monkeypatch, stock_routes
-):
+def test_sync_stock_pools_from_tdx_route_calls_service(monkeypatch, stock_routes):
     calls = []
 
     service = types.SimpleNamespace(
@@ -446,7 +444,7 @@ def test_sync_stock_pools_from_tdx_self_select_route_calls_service(
     monkeypatch.setattr(stock_routes, "_get_stock_service", lambda: service)
     stock_routes.request.args = {"days": "45"}
 
-    response = stock_routes.sync_stock_pools_from_tdx_self_select()
+    response = stock_routes.sync_stock_pools_from_tdx()
 
     assert response.status_code == 200
     assert response.get_json() == {

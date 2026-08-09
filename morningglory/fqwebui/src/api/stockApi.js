@@ -49,16 +49,16 @@ export const stockApi = {
       params: { page, size }
     })
   },
-  syncStockPoolsFromTdxSelfSelect ({ days = 30 } = {}) {
+  syncStockPoolsFromTdx ({ days = 30 } = {}) {
     return http({
-      url: '/api/sync_stock_pools_from_tdx_self_select',
+      url: '/api/pools/stock/sync-from-tdx',
       method: 'post',
       params: { days }
     })
   },
-  syncMustPoolFromTdxSelfSelect ({ days = 30 } = {}) {
+  syncMustPoolFromTdx ({ days = 30 } = {}) {
     return http({
-      url: '/api/sync_must_pool_from_tdx_self_select',
+      url: '/api/pools/must/sync-from-tdx',
       method: 'post',
       params: { days }
     })
@@ -132,48 +132,9 @@ export const stockApi = {
       method: 'get'
     })
   },
-  // 添加到监控池
-  addToStockPoolsByCode (code, days, options = {}) {
-    const allowDirect = options.allowDirect ?? options.allow_direct
-    const params = { code, days }
-    if (allowDirect !== undefined) {
-      params.allow_direct = allowDirect ? 1 : 0
-    }
-    if (options.category) {
-      params.category = options.category
-    }
-    if (options.source) {
-      params.source = options.source
-    }
-    if (options.remark) {
-      params.remark = options.remark
-    }
-    return http({
-      url: '/api/add_to_stock_pools_by_code',
-      method: 'get',
-      params
-    })
-  },
-  // 添加到监控池
-  addToStockPoolsByStock (data) {
-    const url = '/api/add_to_stock_pools_by_stock'
-    return http({
-      url,
-      method: 'post',
-      data
-    })
-  },
   // 从预监控池删除
   deleteFromStockPrePoolsByCode (code) {
     const url = `/api/delete_from_stock_pre_pools_by_code?code=${code}`
-    return http({
-      url,
-      method: 'get'
-    })
-  },
-  // 从监控池删除
-  deleteFromStockPoolsByCode (code) {
-    const url = `/api/delete_from_stock_pools_by_code?code=${code}`
     return http({
       url,
       method: 'get'
@@ -185,22 +146,6 @@ export const stockApi = {
       url: '/api/get_stock_must_pools_list',
       method: 'get',
       params: { page, size }
-    })
-  },
-  // 从必选删除
-  deleteFromStockMustPoolsByCode (code) {
-    const url = `/api/delete_from_must_pool_by_code?code=${code}`
-    return http({
-      url,
-      method: 'get'
-    })
-  },
-  // 从监控池添加到必选
-  addToStockMustPoolsByCode (code, stop_loss_price, initial_lot_amount, lot_amount) {
-    const url = `/api/add_to_must_pool_by_code?code=${code}&stop_loss_price=${stop_loss_price}&initial_lot_amount=${initial_lot_amount}&lot_amount=${lot_amount}`
-    return http({
-      url,
-      method: 'get'
     })
   },
   // 获取所有设置

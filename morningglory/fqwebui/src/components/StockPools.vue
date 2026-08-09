@@ -16,7 +16,13 @@
 
           <div class="workbench-toolbar__actions">
             <el-button @click="refreshStockList">刷新</el-button>
-            <el-button type="primary" @click="showAddStockDialog">添加股票</el-button>
+            <el-button
+              type="primary"
+              :loading="stockTdxSyncing"
+              @click="syncStockPoolsFromTdx"
+            >
+              同步自选股
+            </el-button>
           </div>
         </div>
 
@@ -34,7 +40,7 @@
           <div class="workbench-panel__header">
             <div class="workbench-title-group">
               <div class="workbench-panel__title">监控股票池</div>
-              <p class="workbench-panel__desc">维护当前监控池股票，支持跳转大图、删除和加入必选池。</p>
+              <p class="workbench-panel__desc">以通达信自选股（ZXG.blk）为唯一来源，覆盖同步并排除持仓。</p>
             </div>
           </div>
 
@@ -72,14 +78,6 @@
               </el-table-column>
               <el-table-column prop="stop_loss_price" label="止损价格" />
               <el-table-column prop="datetime" label="时间" />
-              <el-table-column label="操作" width="180">
-                <template #default="scope">
-                  <div class="stock-pool-actions">
-                    <el-button @click="addToStockMustPoolsByCode(scope.row)">添加到必选</el-button>
-                    <el-button @click="deleteFromStockPoolsByCode(scope.row)">删除</el-button>
-                  </div>
-                </template>
-              </el-table-column>
             </el-table>
           </div>
 
@@ -109,48 +107,6 @@
         </div>
       </div>
 
-      <el-dialog title="增加必选股票" v-model="dialogFormVisible">
-        <el-form :model="form" size="large">
-          <el-form-item label="股票号" :label-width="formLabelWidth">
-            <el-input v-model="form.code" :readonly="true" />
-          </el-form-item>
-          <el-form-item label="止损价格" :label-width="formLabelWidth">
-            <el-input-number v-model="form.stop_loss_price" :precision="2" :step="0.01" />
-          </el-form-item>
-          <el-form-item label="首次买入金额" :label-width="formLabelWidth">
-            <el-input-number v-model="form.initial_lot_amount" :precision="2" :step="1" />
-          </el-form-item>
-          <el-form-item label="每次买入金额" :label-width="formLabelWidth">
-            <el-input-number v-model="form.lot_amount" :precision="2" :step="1" />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <div class="dialog-footer">
-            <el-button @click="dialogFormVisible = false">取 消</el-button>
-            <el-button type="primary" @click="confirmAddMust">确 定</el-button>
-          </div>
-        </template>
-      </el-dialog>
-
-      <el-dialog title="添加股票到监控池" v-model="addStockDialogVisible">
-        <el-form :model="addStockForm" size="large">
-          <el-form-item label="股票代码" :label-width="formLabelWidth">
-            <el-input v-model="addStockForm.code" placeholder="请输入股票代码，如：000001" />
-          </el-form-item>
-          <el-form-item label="分类" :label-width="formLabelWidth">
-            <el-input v-model="addStockForm.category" placeholder="请输入分类，如：自定义" />
-          </el-form-item>
-          <el-form-item label="止损价格" :label-width="formLabelWidth">
-            <el-input-number v-model="addStockForm.stop_loss_price" :precision="2" :step="0.01" />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <div class="dialog-footer">
-            <el-button @click="addStockDialogVisible = false">取 消</el-button>
-            <el-button type="primary" @click="confirmAddStock">确 定</el-button>
-          </div>
-        </template>
-      </el-dialog>
     </div>
   </WorkbenchPage>
 </template>
@@ -187,20 +143,7 @@ export default {
   },
   data () {
     return {
-      form: {
-        code: null,
-        stop_loss_price: null,
-        initial_lot_amount: null,
-        lot_amount: null,
-      },
-      addStockForm: {
-        code: null,
-        category: 'Custom',
-        stop_loss_price: null,
-      },
-      formLabelWidth: '120px',
-      dialogFormVisible: false,
-      addStockDialogVisible: false,
+      stockTdxSyncing: false,
     }
   },
   setup () {
@@ -227,50 +170,6 @@ export default {
     return { isLoading, stockList, listQuery, queryClient }
   },
   methods: {
-    showAddStockDialog () {
-      this.addStockForm.code = null
-      this.addStockForm.stop_loss_price = null
-      this.addStockDialogVisible = true
-    },
-    confirmAddStock () {
-      if (!this.addStockForm.code) {
-        this.$message({
-          message: '请输入股票代码',
-          type: 'warning',
-        })
-        return
-      }
-      if (!this.addStockForm.stop_loss_price) {
-        this.$message({
-          message: '请输入止损价格',
-          type: 'warning',
-        })
-        return
-      }
-
-      stockApi.addToStockPoolsByStock(this.addStockForm)
-        .then(res => {
-          if (res.code === '0') {
-            this.addStockDialogVisible = false
-            this.refreshStockList()
-            this.$message({
-              message: '添加成功',
-              type: 'success',
-            })
-          } else {
-            this.$message({
-              message: '添加失败',
-              type: 'error',
-            })
-          }
-        })
-        .catch(() => {
-          this.$message({
-            message: '添加失败',
-            type: 'error',
-          })
-        })
-    },
     refreshStockList () {
       this.listQuery.current = 1
       this.queryClient.invalidateQueries({ queryKey: ['stockPoolList'] })
@@ -294,60 +193,41 @@ export default {
       })
       window.open(routeUrl.href, '_blank')
     },
-    addToStockMustPoolsByCode (row) {
-      this.form.code = row.code
-      this.form.stop_loss_price = row.stop_loss_price
-      this.form.initial_lot_amount = null
-      this.form.lot_amount = null
-      this.dialogFormVisible = true
-    },
-    confirmAddMust () {
-      stockApi.addToStockMustPoolsByCode(this.form.code, this.form.stop_loss_price, this.form.initial_lot_amount, this.form.lot_amount)
-        .then(res => {
-          if (res.code === '0') {
-            this.dialogFormVisible = false
-            this.$refs.stockMustPoolsRef.refreshStockMustPoolList()
-            this.$message({
-              message: '添加成功',
-              type: 'success',
-            })
-          } else {
-            this.$message({
-              message: '添加失败',
-              type: 'error',
-            })
+    syncStockPoolsFromTdx () {
+      this.$confirm('将使用通达信“自选股”覆盖当前监控池，并自动排除持仓股。是否继续？', '同步自选股', {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }).then(async () => {
+        this.stockTdxSyncing = true
+        try {
+          const result = await stockApi.syncStockPoolsFromTdx({ days: 30 })
+          if (result && String(result.code ?? '0') !== '0') {
+            throw new Error(result.msg || '同步自选股失败')
           }
-        })
-        .catch(() => {
+          const summary = result?.data || {}
+          this.refreshStockList()
           this.$message({
-            message: '添加失败',
+            message:
+              '自选股已覆盖同步：同步 ' +
+              (summary.synced_count ?? 0) +
+              '，删除 ' +
+              (summary.removed_count ?? 0) +
+              '，持仓排除 ' +
+              (summary.holding_excluded_count ?? summary.skipped_holding_count ?? 0) +
+              '，无效 ' +
+              (summary.invalid_count ?? summary.skipped_invalid_count ?? 0),
+            type: 'success',
+          })
+        } catch (err) {
+          this.$message({
+            message: err?.message || '同步自选股失败',
             type: 'error',
           })
-        })
-    },
-    deleteFromStockPoolsByCode (stock) {
-      stockApi.deleteFromStockPoolsByCode(stock.code)
-        .then(res => {
-          if (res.code === '0') {
-            this.listQuery.current = 1
-            this.queryClient.invalidateQueries({ queryKey: ['stockPoolList'] })
-            this.$message({
-              message: '删除成功',
-              type: 'success',
-            })
-          } else {
-            this.$message({
-              message: '删除失败',
-              type: 'error',
-            })
-          }
-        })
-        .catch(() => {
-          this.$message({
-            message: '删除失败',
-            type: 'error',
-          })
-        })
+        } finally {
+          this.stockTdxSyncing = false
+        }
+      }).catch(() => {})
     },
   },
 }

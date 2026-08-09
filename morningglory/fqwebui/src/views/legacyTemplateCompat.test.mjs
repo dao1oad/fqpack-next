@@ -64,11 +64,10 @@ test('FuturePositionList keeps a refresh timer handle and clears it on unmount',
   )
 })
 
-test('DailyScreening.vue no longer uses the deprecated el-pagination small prop', async () => {
+test('DailyScreening workbench no longer uses el-pagination (lists scroll inside panels)', async () => {
   const content = await read('./DailyScreening.vue')
 
-  assert.match(content, /<el-pagination[\s\S]*size="small"/)
-  assert.doesNotMatch(content, /<el-pagination[\s\S]*\n\s*small(?=[\s>])/)
+  assert.doesNotMatch(content, /<el-pagination/)
 })
 
 test('kline-big defaults single-chart period to 1m when the route query omits period', async () => {
