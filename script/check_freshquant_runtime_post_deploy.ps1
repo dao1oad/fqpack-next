@@ -12,7 +12,9 @@ param(
     [string]$SupervisorSnapshotPath,
     [string]$SupervisorConfigSnapshotPath,
     [string]$ExpectedSupervisorRepoRoot = 'D:\fqpack\freshquant-2026.2.23',
-    [string]$SupervisorConfigPath = 'D:\fqpack\config\supervisord.fqnext.conf'
+    [string]$SupervisorConfigPath = 'D:\fqpack\config\supervisord.fqnext.conf',
+    [int]$VerifyMaxAttempts = 3,
+    [int]$VerifySettleSeconds = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1115,38 +1117,55 @@ function Get-SupervisorConfigChecks {
     }
 }
 
-$deploymentSurfaces = @(Resolve-DeploymentSurfaces -Values $DeploymentSurface)
-$allContainerNames = @(Get-AllKnownContainerNames)
-$dockerSnapshot = @(Get-DockerSnapshot -ContainerNames $allContainerNames)
-$serviceSnapshot = @(Get-ServiceSnapshot)
-$supervisorState = Get-SupervisorProgramSnapshot
-$supervisorConfigState = Get-SupervisorConfigSnapshot
-$processSnapshot = @(Get-ProcessSnapshot)
-$dockerBaseline = @(Normalize-DockerBaseline -Snapshot $dockerSnapshot -ContainerNames $allContainerNames)
-$serviceBaseline = @(Normalize-ServiceBaseline -Snapshot $serviceSnapshot)
-$processBaseline = @(Normalize-ProcessBaseline -Snapshot $processSnapshot -SupervisorState $supervisorState)
+function Get-RuntimeSnapshots {
+    param([string[]]$ContainerNames)
 
-$result = [ordered]@{
-    mode = $Mode
-    deployment_surfaces = @($deploymentSurfaces)
-    captured_at = ConvertTo-IsoTimestamp -Value (Get-Date)
-    baseline = [ordered]@{
-        docker = @($dockerBaseline)
-        services = @($serviceBaseline)
-        processes = @($processBaseline)
-        supervisor_config = $supervisorConfigState.payload
+    $dockerSnapshot = @(Get-DockerSnapshot -ContainerNames $ContainerNames)
+    $serviceSnapshot = @(Get-ServiceSnapshot)
+    $supervisorState = Get-SupervisorProgramSnapshot
+    $supervisorConfigState = Get-SupervisorConfigSnapshot
+    $processSnapshot = @(Get-ProcessSnapshot)
+    $dockerBaseline = @(Normalize-DockerBaseline -Snapshot $dockerSnapshot -ContainerNames $ContainerNames)
+    $serviceBaseline = @(Normalize-ServiceBaseline -Snapshot $serviceSnapshot)
+    $processBaseline = @(Normalize-ProcessBaseline -Snapshot $processSnapshot -SupervisorState $supervisorState)
+
+    return [ordered]@{
+        docker = $dockerSnapshot
+        services = $serviceSnapshot
+        supervisor = $supervisorState
+        supervisor_config = $supervisorConfigState
+        processes = $processSnapshot
+        docker_baseline = $dockerBaseline
+        service_baseline = $serviceBaseline
+        process_baseline = $processBaseline
     }
-    docker_checks = @()
-    service_checks = @()
-    process_checks = @()
-    readiness_checks = @()
-    supervisor_config_checks = @()
-    warnings = @()
-    failures = @()
-    passed = $true
 }
 
+
+$deploymentSurfaces = @(Resolve-DeploymentSurfaces -Values $DeploymentSurface)
+$allContainerNames = @(Get-AllKnownContainerNames)
+
 if ($Mode -eq 'CaptureBaseline') {
+    $snapshots = Get-RuntimeSnapshots -ContainerNames $allContainerNames
+    $result = [ordered]@{
+        mode = $Mode
+        deployment_surfaces = @($deploymentSurfaces)
+        captured_at = ConvertTo-IsoTimestamp -Value (Get-Date)
+        baseline = [ordered]@{
+            docker = @($snapshots.docker_baseline)
+            services = @($snapshots.service_baseline)
+            processes = @($snapshots.process_baseline)
+            supervisor_config = $snapshots.supervisor_config.payload
+        }
+        docker_checks = @()
+        service_checks = @()
+        process_checks = @()
+        readiness_checks = @()
+        supervisor_config_checks = @()
+        warnings = @()
+        failures = @()
+        passed = $true
+    }
     $json = $result | ConvertTo-Json -Depth 12
     if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
         Write-Utf8NoBomFile -Path $OutputPath -Content $json
@@ -1160,7 +1179,6 @@ if ([string]::IsNullOrWhiteSpace($BaselinePath)) {
 }
 
 $baseline = Read-Baseline -Path $BaselinePath
-$result.baseline = $baseline
 
 $requiredContainerNames = [System.Collections.Generic.List[string]]::new()
 $requiredContainerSeen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -1180,20 +1198,52 @@ foreach ($surface in $deploymentSurfaces) {
     }
 }
 
-$dockerChecks = Get-DockerChecks -CurrentEntries $dockerBaseline -RequiredContainerNames @($requiredContainerNames)
-$serviceChecks = Get-ServiceChecks -CurrentEntries $serviceBaseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
-$processChecks = Get-ProcessChecks -CurrentEntries $processBaseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
-$readinessChecks = Get-QfqReadinessChecks -DeploymentSurfaces $deploymentSurfaces
-$supervisorConfigChecks = Get-SupervisorConfigChecks -SupervisorConfigState $supervisorConfigState -DeploymentSurfaces $deploymentSurfaces
+$verifyAttempt = 0
+do {
+    $verifyAttempt++
+    if ($verifyAttempt -gt 1 -and $VerifySettleSeconds -gt 0) {
+        Start-Sleep -Seconds $VerifySettleSeconds
+    }
 
-$result.docker_checks = $dockerChecks.Checks
-$result.service_checks = $serviceChecks.Checks
-$result.process_checks = $processChecks.Checks
-$result.readiness_checks = $readinessChecks.Checks
-$result.supervisor_config_checks = $supervisorConfigChecks.Checks
-$result.warnings = @($serviceChecks.Warnings + $processChecks.Warnings + $readinessChecks.Warnings + $supervisorConfigChecks.Warnings)
-$result.failures = @($dockerChecks.Failures + $serviceChecks.Failures + $processChecks.Failures + $readinessChecks.Failures + $supervisorConfigChecks.Failures)
-$result.passed = ($result.failures.Count -eq 0)
+    $snapshots = Get-RuntimeSnapshots -ContainerNames $allContainerNames
+    $result = [ordered]@{
+        mode = $Mode
+        attempt = $verifyAttempt
+        max_attempts = $VerifyMaxAttempts
+        deployment_surfaces = @($deploymentSurfaces)
+        captured_at = ConvertTo-IsoTimestamp -Value (Get-Date)
+        baseline = $baseline
+        docker_checks = @()
+        service_checks = @()
+        process_checks = @()
+        readiness_checks = @()
+        supervisor_config_checks = @()
+        warnings = @()
+        failures = @()
+        passed = $true
+    }
+
+    $dockerChecks = Get-DockerChecks -CurrentEntries $snapshots.docker_baseline -RequiredContainerNames @($requiredContainerNames)
+    $serviceChecks = Get-ServiceChecks -CurrentEntries $snapshots.service_baseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
+    $processChecks = Get-ProcessChecks -CurrentEntries $snapshots.process_baseline -Baseline $baseline -DeploymentSurfaces $deploymentSurfaces
+    $readinessChecks = Get-QfqReadinessChecks -DeploymentSurfaces $deploymentSurfaces
+    $supervisorConfigChecks = Get-SupervisorConfigChecks -SupervisorConfigState $snapshots.supervisor_config -DeploymentSurfaces $deploymentSurfaces
+
+    $result.docker_checks = $dockerChecks.Checks
+    $result.service_checks = $serviceChecks.Checks
+    $result.process_checks = $processChecks.Checks
+    $result.readiness_checks = $readinessChecks.Checks
+    $result.supervisor_config_checks = $supervisorConfigChecks.Checks
+    $result.warnings = @($serviceChecks.Warnings + $processChecks.Warnings + $readinessChecks.Warnings + $supervisorConfigChecks.Warnings)
+    $result.failures = @($dockerChecks.Failures + $serviceChecks.Failures + $processChecks.Failures + $readinessChecks.Failures + $supervisorConfigChecks.Failures)
+    $result.passed = ($result.failures.Count -eq 0)
+
+    # Test-only hook: inject a synthetic failure on the first verify attempt.
+    if ($env:FQ_RUNTIME_VERIFY_TEST_FAIL_ONCE -eq '1' -and $verifyAttempt -eq 1) {
+        $result.failures = @($result.failures + 'synthetic failure injected for verify retry test')
+        $result.passed = $false
+    }
+} while (-not $result.passed -and $verifyAttempt -lt $VerifyMaxAttempts)
 
 $verifyJson = $result | ConvertTo-Json -Depth 12
 if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
