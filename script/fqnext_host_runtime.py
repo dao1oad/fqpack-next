@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import os
 import re
+import subprocess
 import time
 import xmlrpc.client
 from pathlib import Path
@@ -125,6 +127,31 @@ def build_server_proxy(rpc_url: str) -> xmlrpc.client.ServerProxy:
 
 def get_process_info(server: xmlrpc.client.ServerProxy, name: str) -> dict[str, object]:
     return cast(dict[str, object], cast(Any, server.supervisor.getProcessInfo(name)))
+
+
+def terminate_process_tree(pid: int) -> None:
+    """Force-terminate a Windows process tree (shim + real interpreter child).
+
+    The venv ``.venv/Scripts/python.exe`` is a shim that spawns the real
+    interpreter as a child process.  ``supervisor.stopProcess`` only stops
+    the supervisor-tracked shim pid, so the real interpreter can survive as
+    an orphan holding XTData / Redis / Mongo resources; the next
+    ``startProcess`` then exits immediately and exhausts the settle budget.
+    ``taskkill /T /F`` removes the whole tree so the restart starts clean.
+    """
+
+    if int(pid or 0) <= 0:
+        return
+    if os.name != "nt":
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:  # pragma: no cover - best-effort cleanup
+        pass
 
 
 def wait_for_state(
@@ -293,6 +320,8 @@ def restart_programs(
                 wait_for_state(
                     server, program, "STOPPED", timeout_seconds=timeout_seconds
                 )
+                terminate_process_tree(int(str(before.get("pid") or 0)))
+                time.sleep(1.0)
 
             after: dict[str, object] | None = None
             last_error: RuntimeError | None = None
