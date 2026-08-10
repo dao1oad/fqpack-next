@@ -386,6 +386,15 @@ function Invoke-UvSyncWithHostRuntimeQuiesce {
             )
         }
     } finally {
+        # P1-B：quiesce 路径重启前先跑应用级依赖 wait（短预算 120s）。
+        # 超时仍重启并告警——避免"依赖未就绪即拉起"与"quiesce 后永不拉起"两个极端。
+        $dependencyWaitScript = Join-Path $RepoRoot "script\ci\wait_for_deploy_dependencies.py"
+        if (Test-Path $dependencyWaitScript) {
+            & $PythonExe $dependencyWaitScript --timeout-seconds 120 *> $null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "dependency readiness wait timed out; restarting host surfaces anyway."
+            }
+        }
         Invoke-HostRuntimeControl -HostRuntimeScript $HostRuntimeScript -Mode "RestartSurfaces" -DeploymentSurface $HostRuntimeSurfaces
     }
 

@@ -1438,13 +1438,39 @@ class StrategyConsumer:
 def main(max_bars: int, workers: int | None, max_inflight: int | None, prewarm: bool):
     try:
         with ProcessSingleton("xtdata-strategy-consumer"):
-            # 生产在 envs.conf 设 FQ_SYSTEM_SETTINGS_STRICT=1 时严格 reload：
-            # Mongo 不可用则终止进程而不是回退 guardian_1m；CI/测试默认宽松。
-            system_settings.reload(strict=strict_settings_env_enabled())
-            consumer = StrategyConsumer(
-                max_bars=max_bars,
-                fullcalc_workers=workers,
-                fullcalc_max_inflight=max_inflight,
+            # P2-A：启动期 Mongo/Redis 连接类异常指数退避重试（确定性错误 fail-fast）。
+            from freshquant.database.dependency_retry import (
+                emit_retry_event,
+                retry_connection_errors,
+            )
+
+            def _build_consumer():
+                # 生产在 envs.conf 设 FQ_SYSTEM_SETTINGS_STRICT=1 时严格 reload：
+                # Mongo 不可用则终止进程而不是回退 guardian_1m；CI/测试默认宽松。
+                system_settings.reload(strict=strict_settings_env_enabled())
+                return StrategyConsumer(
+                    max_bars=max_bars,
+                    fullcalc_workers=workers,
+                    fullcalc_max_inflight=max_inflight,
+                )
+
+            def _on_retry(*, error, delay_seconds):
+                logger.warning(
+                    "[Consumer] dependency unavailable; retrying in %.1f seconds: %s",
+                    delay_seconds,
+                    error,
+                )
+                emit_retry_event(
+                    component="xtdata_strategy_consumer",
+                    node="startup",
+                    message="[Consumer] dependency unavailable; retrying",
+                    delay_seconds=delay_seconds,
+                    error=error,
+                )
+
+            consumer = retry_connection_errors(
+                _build_consumer,
+                emit_fn=_on_retry,
             )
             if prewarm:
                 consumer.prewarm()

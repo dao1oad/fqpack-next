@@ -328,7 +328,7 @@ def test_worker_run_forever_retries_retryable_xt_errors_until_startup_succeeds(
     ]
     assert sleep_calls == [5, 3]
     assert warnings == [
-        "xt_account_sync XT unavailable; retrying in 5.0 seconds: xtquant connect failed: -1"
+        "xt_account_sync dependency unavailable; retrying in 5.0 seconds: xtquant connect failed: -1"
     ]
 
 
@@ -422,7 +422,7 @@ def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
     ]
     assert sleep_calls == [5, 3]
     assert warnings == [
-        "xt_account_sync XT unavailable; retrying in 5.0 seconds: xtquant connect failed: -1"
+        "xt_account_sync dependency unavailable; retrying in 5.0 seconds: xtquant connect failed: -1"
     ]
 
 

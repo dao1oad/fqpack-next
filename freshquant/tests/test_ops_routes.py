@@ -397,6 +397,12 @@ def test_resolve_tdxhq_endpoint_prefers_compose_env(monkeypatch):
     assert ops_routes._resolve_tdxhq_endpoint() == "http://fq_tdxhq:5001"
 
 
+def test_resolve_tdxhq_endpoint_legacy_key_warns_and_still_works(monkeypatch):
+    monkeypatch.delenv("FRESHQUANT_TDX__HQ_ENDPOINT", raising=False)
+    monkeypatch.setenv("FRESHQUANT_TDX__HQ__ENDPOINT", "http://legacy:7000")
+    assert ops_routes._resolve_tdxhq_endpoint() == "http://legacy:7000"
+
+
 def _fake_host_snapshot(
     *,
     supervisor_ok=True,

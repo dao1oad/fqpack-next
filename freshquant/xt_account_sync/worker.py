@@ -6,6 +6,11 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from freshquant.database.dependency_retry import (
+    emit_retry_event,
+    is_retryable_connection_error,
+    retry_connection_errors,
+)
 from freshquant.xt_account_sync.service import XtAccountSyncService
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
@@ -37,7 +42,12 @@ def run_forever(
     sync_service_factory = (
         XtAccountSyncService.build_default if service is None else None
     )
-    sync_service = service or sync_service_factory()
+    sync_service = service or _build_default_service_with_retry(
+        sync_service_factory,
+        sleep_fn=sleep_fn,
+        retry_delay_seconds=retry_delay_seconds,
+        retry_delay_max_seconds=retry_delay_max_seconds,
+    )
     now_provider = now_provider or _shanghai_now
     startup_time = now_provider()
 
@@ -167,12 +177,23 @@ def _sync_once_with_xt_retry(
                 seed_symbol_snapshots=seed_symbol_snapshots,
             )
         except Exception as error:
-            if not _is_retryable_xt_sync_error(error):
+            if not (
+                _is_retryable_xt_sync_error(error)
+                or is_retryable_connection_error(error)
+            ):
                 raise
             logger.warning(
-                "xt_account_sync XT unavailable; retrying in %.1f seconds: %s",
+                "xt_account_sync dependency unavailable; "
+                "retrying in %.1f seconds: %s",
                 delay_seconds,
                 error,
+            )
+            emit_retry_event(
+                component="xt_account_sync_worker",
+                node="sync",
+                message="xt_account_sync dependency unavailable; retrying",
+                delay_seconds=delay_seconds,
+                error=error,
             )
             sleep_fn(delay_seconds)
             delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)
@@ -194,6 +215,44 @@ def _is_retryable_xt_sync_error(error):
     message = str(error)
     return message.startswith("xtquant connect failed:") or message.startswith(
         "xtquant subscribe failed:"
+    )
+
+
+def _build_default_service_with_retry(
+    factory,
+    *,
+    sleep_fn,
+    retry_delay_seconds,
+    retry_delay_max_seconds,
+):
+    """构造期 Mongo/Redis 连接类异常同样退避重试（P2-A）。"""
+    if factory is None:
+        return None
+
+    def _build():
+        return factory()
+
+    def _on_retry(*, error, delay_seconds):
+        logger.warning(
+            "xt_account_sync dependency unavailable during build; "
+            "retrying in %.1f seconds: %s",
+            delay_seconds,
+            error,
+        )
+        emit_retry_event(
+            component="xt_account_sync_worker",
+            node="startup",
+            message="xt_account_sync dependency unavailable during build",
+            delay_seconds=delay_seconds,
+            error=error,
+        )
+
+    return retry_connection_errors(
+        _build,
+        sleep_fn=sleep_fn,
+        emit_fn=_on_retry,
+        base_delay_seconds=retry_delay_seconds,
+        max_delay_seconds=retry_delay_max_seconds,
     )
 
 

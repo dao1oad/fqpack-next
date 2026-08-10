@@ -208,7 +208,9 @@ def load_bootstrap_config() -> BootstrapConfig:
         hq_endpoint=_as_str(
             get(settings, "tdx.hq.endpoint"),
             _as_str(
-                os.environ.get("FRESHQUANT_TDX__HQ__ENDPOINT"), "http://127.0.0.1:15001"
+                os.environ.get("FRESHQUANT_TDX__HQ_ENDPOINT")
+                or os.environ.get("FRESHQUANT_TDX__HQ__ENDPOINT"),
+                "http://127.0.0.1:15001",
             ),
         ),
     )

@@ -28,6 +28,64 @@ def test_parse_supervisor_rpc_url_reads_fqnext_port() -> None:
     assert rpc_url == "http://127.0.0.1:10011/RPC2"
 
 
+def test_probe_dependencies_returns_true_on_ok_json(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(
+        module,
+        "subprocess",
+        types.SimpleNamespace(
+            run=lambda *a, **k: types.SimpleNamespace(
+                returncode=0,
+                stdout='{"ok": true, "ready": true}\n',
+            )
+        ),
+    )
+
+    assert module.probe_dependencies(timeout_seconds=1.0) is True
+
+
+def test_probe_dependencies_returns_false_on_nonzero_exit(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(
+        module,
+        "subprocess",
+        types.SimpleNamespace(
+            run=lambda *a, **k: types.SimpleNamespace(
+                returncode=1,
+                stdout='{"ok": false, "ready": false}\n',
+            )
+        ),
+    )
+
+    assert module.probe_dependencies(timeout_seconds=1.0) is False
+
+
+def test_program_stderr_tail_returns_rpc_text(monkeypatch) -> None:
+    module = load_module()
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(
+            tailProcessStderrLog=lambda *a: (0, 10, "boom traceback", False)
+        )
+    )
+
+    assert module.program_stderr_tail(server, "fqnext_tpsl_worker") == "boom traceback"
+
+
+def test_program_stderr_tail_tolerates_rpc_failure() -> None:
+    module = load_module()
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(
+            tailProcessStderrLog=lambda *a: (_ for _ in ()).throw(
+                RuntimeError("rpc down")
+            )
+        )
+    )
+
+    assert module.program_stderr_tail(server, "fqnext_tpsl_worker") == ""
+
+
 def test_parse_supervisor_rpc_url_tolerates_utf8_bom() -> None:
     module = load_module()
     config_text = "\ufeff[inet_http_server]\nport=127.0.0.1:10011\n"

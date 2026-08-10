@@ -66,6 +66,10 @@ IN_FLIGHT_ORDER_STATES = frozenset(
 )
 TERMINAL_GAP_STATES = frozenset({"RESOLVED", "CLOSED"})
 ISSUE_STATUSES = frozenset({"warning", "failed", "error", "skipped"})
+ISSUE_CURRENT_WINDOW_S = 24 * 3600  # "最近异常"当前窗口：近 24h
+GUARDIAN_STRATEGY_COMPONENT = "guardian_strategy"
+SKIPPED_EXEMPT_COMPONENTS = frozenset({GUARDIAN_STRATEGY_COMPONENT})
+TICK_QUEUE_BACKLOG_THRESHOLD = 10000
 TRADING_SESSIONS = frozenset({"auction", "morning", "afternoon"})
 
 KLINE_FRESHNESS_RED_S = 120.0
@@ -422,11 +426,20 @@ def _clickhouse_ping() -> tuple[bool, float | None, str | None]:
 
 
 def _resolve_tdxhq_endpoint() -> str:
-    """解析 TDXHQ 端点：优先 compose 环境变量（FRESHQUANT_TDX__HQ_ENDPOINT）。"""
-    for key in ("FRESHQUANT_TDX__HQ_ENDPOINT", "FRESHQUANT_TDX__HQ__ENDPOINT"):
-        value = os.environ.get(key)
-        if value and str(value).strip():
-            return str(value).strip()
+    """解析 TDXHQ 端点：收敛单键 FRESHQUANT_TDX__HQ_ENDPOINT（与 compose env 一致）。
+
+    旧键 FRESHQUANT_TDX__HQ__ENDPOINT 命中时告警（过渡兼容，不再作为首选）。
+    """
+    primary = os.environ.get("FRESHQUANT_TDX__HQ_ENDPOINT")
+    if primary and str(primary).strip():
+        return str(primary).strip()
+    legacy = os.environ.get("FRESHQUANT_TDX__HQ__ENDPOINT")
+    if legacy and str(legacy).strip():
+        logger.warning(
+            "TDXHQ legacy env key FRESHQUANT_TDX__HQ__ENDPOINT is set; "
+            "converge to FRESHQUANT_TDX__HQ_ENDPOINT"
+        )
+        return str(legacy).strip()
     endpoint = str(bootstrap_config.tdx.hq_endpoint or "").strip()
     return endpoint or "http://127.0.0.1:15001"
 
@@ -452,16 +465,58 @@ def _probe_dependencies() -> dict[str, Any]:
         "redis": _redis_ping,
         "clickhouse": _clickhouse_ping,
         "tdxhq": _tdxhq_ping,
+        "tick_queue": _tick_queue_depth_probe,
     }
     result: dict[str, Any] = {}
     for name, probe in probes.items():
         ok, latency_ms, error = probe()
-        result[name] = {
+        entry: dict[str, Any] = {
             "ok": bool(ok),
             "latency_ms": latency_ms,
             "error": error,
         }
+        if name == "tick_queue":
+            entry["depth"] = latency_ms
+            entry.pop("latency_ms", None)
+        result[name] = entry
     return result
+
+
+def _tick_queue_depth_probe() -> tuple[bool, int | None, str | None]:
+    """tick 队列积压探针：REDIS_TICK_QUEUE_PREFIX 各 shard 长度求和 + 阈值告警。
+
+    tpsl 停摆时 tick 队列会无限膨胀（consumer 的 backlog_sum 是 K 线队列，
+    不覆盖 tick 队列），此探针用于早期发现止盈止损链静默停摆。
+    """
+    try:
+        from freshquant.market_data.xtdata.constants import (
+            REDIS_QUEUE_SHARDS,
+            REDIS_TICK_QUEUE_PREFIX,
+        )
+    except Exception as exc:
+        return False, None, f"tick queue probe unavailable: {exc}"
+    try:
+        probe_redis = redis.Redis(
+            host=bootstrap_config.redis.host,
+            port=bootstrap_config.redis.port,
+            db=bootstrap_config.redis.db,
+            password=(bootstrap_config.redis.password or None),
+            socket_connect_timeout=2.0,
+            socket_timeout=2.0,
+            decode_responses=True,
+        )
+        depth = 0
+        for index in range(int(REDIS_QUEUE_SHARDS)):
+            depth += int(probe_redis.llen(f"{REDIS_TICK_QUEUE_PREFIX}:{index}") or 0)
+        if depth > TICK_QUEUE_BACKLOG_THRESHOLD:
+            return (
+                False,
+                depth,
+                f"tick queue backlog {depth} > {TICK_QUEUE_BACKLOG_THRESHOLD}",
+            )
+        return True, depth, None
+    except Exception as exc:
+        return False, None, f"tick queue probe failed: {exc}"
 
 
 # ---- KPI 构建 ----
@@ -640,25 +695,38 @@ def _build_issue_aggregate(components: list[dict[str, Any]]) -> dict[str, Any]:
     issue_trace_count = 0
     issue_step_count = 0
     last_issue_ts: str | None = None
+    window_seconds = ISSUE_CURRENT_WINDOW_S
+    recent_components: set[str] = set()
+    recent_trace_count = 0
+    recent_step_count = 0
     for item in components or []:
         status = str(item.get("status") or "").lower()
-        if status in ISSUE_STATUSES:
+        component = str(item.get("component") or "")
+        trace_count = _to_int(item.get("issue_trace_count"))
+        step_count = _to_int(item.get("issue_step_count"))
+        issue_ts = item.get("last_issue_ts")
+        # P4-B：guardian_strategy 的 skipped 是"非策略机设计性跳过"，不计异常。
+        skipped_exempt = status == "skipped" and component in SKIPPED_EXEMPT_COMPONENTS
+        if status in ISSUE_STATUSES and not skipped_exempt:
             issue_components.append(
                 {
-                    "component": str(item.get("component") or ""),
+                    "component": component,
                     "status": status,
-                    "issue_trace_count": _to_int(item.get("issue_trace_count")),
-                    "issue_step_count": _to_int(item.get("issue_step_count")),
-                    "last_issue_ts": item.get("last_issue_ts"),
+                    "issue_trace_count": trace_count,
+                    "issue_step_count": step_count,
+                    "last_issue_ts": issue_ts,
                 }
             )
-        issue_trace_count += _to_int(item.get("issue_trace_count"))
-        issue_step_count += _to_int(item.get("issue_step_count"))
-        item_issue_ts = item.get("last_issue_ts")
-        if item_issue_ts and (
-            last_issue_ts is None or str(item_issue_ts) > last_issue_ts
-        ):
-            last_issue_ts = str(item_issue_ts)
+        if skipped_exempt:
+            continue
+        issue_trace_count += trace_count
+        issue_step_count += step_count
+        if issue_ts and (last_issue_ts is None or str(issue_ts) > last_issue_ts):
+            last_issue_ts = str(issue_ts)
+        if _issue_ts_within_window(issue_ts, window_seconds=window_seconds):
+            recent_components.add(component)
+            recent_trace_count += trace_count
+            recent_step_count += step_count
     issue_components.sort(key=lambda item: item["last_issue_ts"] or "", reverse=True)
     return {
         "component_issue_count": len(issue_components),
@@ -666,7 +734,42 @@ def _build_issue_aggregate(components: list[dict[str, Any]]) -> dict[str, Any]:
         "issue_step_count": issue_step_count,
         "last_issue_ts": last_issue_ts,
         "components": issue_components,
+        # P4-B：current(24h)/historical 分离——前端"最近异常"用 recent_*，
+        # 历史累计保留在 issue_* 上（不破坏累计语义）。
+        "window_seconds": window_seconds,
+        "recent_component_count": len(recent_components),
+        "recent_issue_trace_count": recent_trace_count,
+        "recent_issue_step_count": recent_step_count,
+        "recent_components": sorted(recent_components),
     }
+
+
+def _issue_ts_within_window(value: Any, *, window_seconds: int) -> bool:
+    """判断 issue 时间戳是否落在当前窗口内（兼容 ISO8601 / epoch 秒 / 毫秒）。"""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        ts = float(value)
+        if ts > 1e12:
+            ts /= 1000.0
+        return (time.time() - ts) <= window_seconds
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        dt = datetime.fromisoformat(text)
+        return (time.time() - dt.timestamp()) <= window_seconds
+    except ValueError:
+        pass
+    try:
+        ts = float(text)
+        if ts > 1e12:
+            ts /= 1000.0
+        return (time.time() - ts) <= window_seconds
+    except ValueError:
+        return False
 
 
 def _build_overview() -> dict[str, Any]:
@@ -718,6 +821,11 @@ def _build_overview() -> dict[str, Any]:
             "issue_step_count": 0,
             "last_issue_ts": None,
             "components": [],
+            "window_seconds": ISSUE_CURRENT_WINDOW_S,
+            "recent_component_count": 0,
+            "recent_issue_trace_count": 0,
+            "recent_issue_step_count": 0,
+            "recent_components": [],
             "degraded_reason": health_error,
         }
 
