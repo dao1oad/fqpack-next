@@ -3,6 +3,21 @@ name: Deploy Production
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "人工部署目标机（100/116 为生产机，仅在此指定时才部署）"
+        required: true
+        default: "101"
+        type: choice
+        options:
+          - "101"
+          - "100"
+          - "116"
+          - "101,100"
+          - "101,116"
+          - "100,116"
+          - "101,100,116"
 
 permissions:
   contents: read
@@ -13,14 +28,20 @@ concurrency:
 
 jobs:
   deploy:
+    # push main 只自动部署 101（本机/开发机）；
+    # 100/116 是生产机，仅在人工 workflow_dispatch 指定时才部署。
+    if: >-
+      (github.event_name == 'push' && matrix.runner == '101') ||
+      (github.event_name == 'workflow_dispatch' &&
+       contains(github.event.inputs.targets, matrix.runner))
     strategy:
       fail-fast: false
       matrix:
-        runner: [prod-101, prod-100, prod-116]
+        runner: ["101", "100", "116"]
     runs-on:
       - self-hosted
       - windows
-      - ${{ matrix.runner }}
+      - prod-${{ matrix.runner }}
     env:
       FQ_DEPLOY_CANONICAL_REPO_ROOT: D:\fqpack\freshquant-2026.2.23
       FQ_DOCKER_FORCE_LOCAL_BUILD: "1"

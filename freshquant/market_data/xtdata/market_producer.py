@@ -13,6 +13,10 @@ import click
 from loguru import logger
 
 from freshquant.bootstrap_config import bootstrap_config
+from freshquant.database.dependency_retry import (
+    emit_retry_event,
+    is_retryable_connection_error,
+)
 from freshquant.market_data.xtdata.bar_generator import OneMinuteBarGenerator
 from freshquant.market_data.xtdata.constants import tick_queue_key_for_code
 from freshquant.market_data.xtdata.pools import (
@@ -298,15 +302,44 @@ def _build_tick_quote_payloads(datas: dict[str, dict]) -> list[tuple[str, str]]:
 def _push_tick_quote_payloads(
     payloads: list[tuple[str, str]], *, redis_client=redis_db
 ) -> None:
-    if not payloads or redis_client is None:
+    if not payloads:
+        return
+    if redis_client is None:
+        # P2-C：不再静默丢 tick——显式告警，观测面可发现。
+        _emit_runtime(
+            _get_runtime_logger(),
+            {
+                "component": "xt_producer",
+                "node": "tick_push",
+                "event_type": "trace_step",
+                "status": "error",
+                "reason_code": "redis_unavailable",
+                "message": "[Producer] redis client unavailable; tick quotes dropped",
+                "metrics": {"dropped_payloads": len(payloads)},
+                "payload": {},
+            },
+        )
         return
     try:
         pipe = redis_client.pipeline()
         for queue_key, payload in payloads:
             pipe.rpush(queue_key, payload)
         pipe.execute()
-    except Exception:
+    except Exception as exc:
         traceback.print_exc()
+        _emit_runtime(
+            _get_runtime_logger(),
+            {
+                "component": "xt_producer",
+                "node": "tick_push",
+                "event_type": "trace_step",
+                "status": "error",
+                "reason_code": "redis_push_failed",
+                "message": f"[Producer] tick quote push failed: {exc}",
+                "metrics": {"dropped_payloads": len(payloads)},
+                "payload": {},
+            },
+        )
 
 
 def _push_tick_quote_events(datas: dict[str, dict], *, redis_client=redis_db) -> None:
@@ -719,12 +752,22 @@ def run_producer_with_xtdata_retry(
         try:
             return start_fn()
         except Exception as error:
-            if not _is_retryable_xtdata_error(error):
+            if not (
+                _is_retryable_xtdata_error(error)
+                or is_retryable_connection_error(error)
+            ):
                 raise
             logger.warning(
-                "[Producer] XTData unavailable; retrying in %.1f seconds: %s",
+                "[Producer] dependency unavailable; retrying in %.1f seconds: %s",
                 delay_seconds,
                 error,
+            )
+            emit_retry_event(
+                component="xt_producer",
+                node="startup",
+                message="[Producer] dependency unavailable; retrying",
+                delay_seconds=delay_seconds,
+                error=error,
             )
             sleep_fn(delay_seconds)
             delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)

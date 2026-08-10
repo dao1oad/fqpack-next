@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -26,6 +27,132 @@ def test_parse_supervisor_rpc_url_reads_fqnext_port() -> None:
     rpc_url = module.parse_supervisor_rpc_url(config_text)
 
     assert rpc_url == "http://127.0.0.1:10011/RPC2"
+
+
+def test_probe_dependencies_returns_true_on_ok_json(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(
+        module,
+        "subprocess",
+        types.SimpleNamespace(
+            run=lambda *a, **k: types.SimpleNamespace(
+                returncode=0,
+                stdout='{"ok": true, "ready": true}\n',
+            )
+        ),
+    )
+
+    assert module.probe_dependencies(timeout_seconds=1.0) is True
+
+
+def test_probe_dependencies_returns_false_on_nonzero_exit(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setattr(
+        module,
+        "subprocess",
+        types.SimpleNamespace(
+            run=lambda *a, **k: types.SimpleNamespace(
+                returncode=1,
+                stdout='{"ok": false, "ready": false}\n',
+            )
+        ),
+    )
+
+    assert module.probe_dependencies(timeout_seconds=1.0) is False
+
+
+def test_program_stderr_tail_returns_rpc_text(monkeypatch) -> None:
+    module = load_module()
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(
+            tailProcessStderrLog=lambda *a: (0, 10, "boom traceback", False)
+        )
+    )
+
+    assert module.program_stderr_tail(server, "fqnext_tpsl_worker") == "boom traceback"
+
+
+def test_program_stderr_tail_tolerates_rpc_failure() -> None:
+    module = load_module()
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(
+            tailProcessStderrLog=lambda *a: (_ for _ in ()).throw(
+                RuntimeError("rpc down")
+            )
+        )
+    )
+
+    assert module.program_stderr_tail(server, "fqnext_tpsl_worker") == ""
+
+
+def test_detect_fake_start_returns_true_when_start_never_changes(monkeypatch) -> None:
+    module = load_module()
+    info = {"statename": "EXITED", "pid": 0, "start": 1786328586}
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(getProcessInfo=lambda name: dict(info))
+    )
+    monkeypatch.setattr(
+        module,
+        "time",
+        types.SimpleNamespace(time=time.time, sleep=lambda s: None),
+    )
+
+    assert (
+        module.detect_fake_start(
+            server, "fqnext_xt_auto_repay_worker", window_seconds=1.0
+        )
+        is True
+    )
+
+
+def test_detect_fake_start_returns_false_when_pid_changes(monkeypatch) -> None:
+    module = load_module()
+    info = {"statename": "STARTING", "pid": 0, "start": 1786328586}
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(getProcessInfo=lambda name: dict(info))
+    )
+
+    def _sleep(_seconds):
+        info.update(pid=17040)
+
+    monkeypatch.setattr(
+        module,
+        "time",
+        types.SimpleNamespace(time=time.time, sleep=_sleep),
+    )
+
+    assert (
+        module.detect_fake_start(
+            server, "fqnext_xt_auto_repay_worker", window_seconds=1.0
+        )
+        is False
+    )
+
+
+def test_detect_fake_start_returns_false_when_start_ts_updates(monkeypatch) -> None:
+    module = load_module()
+    info = {"statename": "STARTING", "pid": 0, "start": 1786328586}
+    server = types.SimpleNamespace(
+        supervisor=types.SimpleNamespace(getProcessInfo=lambda name: dict(info))
+    )
+
+    def _sleep(_seconds):
+        info.update(start=1786335095)
+
+    monkeypatch.setattr(
+        module,
+        "time",
+        types.SimpleNamespace(time=time.time, sleep=_sleep),
+    )
+
+    assert (
+        module.detect_fake_start(
+            server, "fqnext_xt_auto_repay_worker", window_seconds=1.0
+        )
+        is False
+    )
 
 
 def test_parse_supervisor_rpc_url_tolerates_utf8_bom() -> None:
@@ -349,12 +476,8 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
     start_calls: list[tuple[str, bool]] = []
     clear_calls: list[str] = []
     running_wait_calls = {"value": 0}
-    process_infos = iter(
-        [
-            {"statename": "RUNNING", "pid": 11},
-            {"statename": "EXITED", "pid": 0},
-        ]
-    )
+    process_state = {"statename": "RUNNING", "pid": 11, "start": 100}
+    spawn_seq = {"value": 20}
 
     server = types.SimpleNamespace(
         supervisor=types.SimpleNamespace(
@@ -365,6 +488,12 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
 
     def fake_start_process(name: str, wait: bool) -> bool:
         start_calls.append((name, wait))
+        spawn_seq["value"] += 1
+        process_state.update(
+            statename="STARTING",
+            pid=spawn_seq["value"],
+            start=100 + spawn_seq["value"],
+        )
         return True
 
     server.supervisor.startProcess = fake_start_process
@@ -375,7 +504,7 @@ def test_restart_programs_retries_start_when_first_attempt_exits(
     )
 
     monkeypatch.setattr(
-        module, "get_process_info", lambda _server, _name: next(process_infos)
+        module, "get_process_info", lambda _server, _name: dict(process_state)
     )
 
     def fake_wait_for_state(_server, _name, expected_state, timeout_seconds=0):
@@ -425,9 +554,14 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
     module = load_module()
     start_calls: list[tuple[str, bool]] = []
     process_infos = {
-        "fqnext_xtquant_broker": {"statename": "RUNNING", "pid": 11},
-        "fqnext_xt_account_sync_worker": {"statename": "RUNNING", "pid": 22},
+        "fqnext_xtquant_broker": {"statename": "RUNNING", "pid": 11, "start": 100},
+        "fqnext_xt_account_sync_worker": {
+            "statename": "RUNNING",
+            "pid": 22,
+            "start": 200,
+        },
     }
+    spawn_seq = {"value": 0}
     server = types.SimpleNamespace(
         supervisor=types.SimpleNamespace(
             stopProcess=lambda _name, _wait: True,
@@ -437,10 +571,16 @@ def test_restart_programs_reconciles_remaining_programs_before_raising(
 
     def fake_start_process(name: str, wait: bool) -> bool:
         start_calls.append((name, wait))
+        spawn_seq["value"] += 1
+        process_infos[name].update(
+            statename="STARTING",
+            pid=100 + spawn_seq["value"],
+            start=1000 + spawn_seq["value"],
+        )
         return True
 
     def fake_get_process_info(_server, name):
-        return process_infos[name]
+        return dict(process_infos[name])
 
     def fake_wait_for_state(_server, name, expected_state, timeout_seconds=0):
         if expected_state == "STOPPED":
@@ -498,8 +638,12 @@ def test_restart_programs_recovers_exited_program_during_settle(
     start_calls: list[tuple[str, bool]] = []
     settle_call_count = {"value": 0}
     process_infos = {
-        "fqnext_xtquant_broker": {"statename": "EXITED", "pid": 0},
-        "fqnext_xt_account_sync_worker": {"statename": "RUNNING", "pid": 22},
+        "fqnext_xtquant_broker": {"statename": "EXITED", "pid": 0, "start": 100},
+        "fqnext_xt_account_sync_worker": {
+            "statename": "RUNNING",
+            "pid": 22,
+            "start": 200,
+        },
     }
     server = types.SimpleNamespace(
         supervisor=types.SimpleNamespace(
@@ -516,11 +660,27 @@ def test_restart_programs_recovers_exited_program_during_settle(
             if start_name == "fqnext_xtquant_broker"
         )
         if name == "fqnext_xtquant_broker" and broker_starts == 3:
-            process_infos["fqnext_xtquant_broker"] = {"statename": "RUNNING", "pid": 99}
+            process_infos["fqnext_xtquant_broker"] = {
+                "statename": "RUNNING",
+                "pid": 99,
+                "start": 500,
+            }
+        elif name == "fqnext_xtquant_broker":
+            process_infos["fqnext_xtquant_broker"] = {
+                "statename": "STARTING",
+                "pid": 50 + broker_starts,
+                "start": 300 + broker_starts,
+            }
+        else:
+            process_infos["fqnext_xt_account_sync_worker"] = {
+                "statename": "RUNNING",
+                "pid": 22,
+                "start": 900,
+            }
         return True
 
     def fake_get_process_info(_server, name):
-        return process_infos[name]
+        return dict(process_infos[name])
 
     def fake_wait_for_state(_server, name, expected_state, timeout_seconds=0):
         if expected_state == "STOPPED":
@@ -592,12 +752,20 @@ def test_restart_programs_accepts_transient_start_errors_when_final_state_is_run
 ) -> None:
     module = load_module()
     start_calls: list[tuple[str, bool]] = []
+    process_state = {"statename": "EXITED", "pid": 0, "start": 100}
+    spawn_seq = {"value": 0}
     server = types.SimpleNamespace(
         supervisor=types.SimpleNamespace(stopProcess=None, startProcess=None)
     )
 
     def fake_start_process(name: str, wait: bool) -> bool:
         start_calls.append((name, wait))
+        spawn_seq["value"] += 1
+        process_state.update(
+            statename="STARTING",
+            pid=100 + spawn_seq["value"],
+            start=500 + spawn_seq["value"],
+        )
         return True
 
     server.supervisor.startProcess = fake_start_process
@@ -606,7 +774,7 @@ def test_restart_programs_accepts_transient_start_errors_when_final_state_is_run
     monkeypatch.setattr(
         module,
         "get_process_info",
-        lambda _server, _name: {"statename": "EXITED", "pid": 0},
+        lambda _server, _name: dict(process_state),
     )
     monkeypatch.setattr(
         module,

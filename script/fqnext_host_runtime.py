@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 import xmlrpc.client
 from pathlib import Path
@@ -16,6 +17,10 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_SETTLE_SECONDS = 3.0
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0
 DEFAULT_RECOVERY_ATTEMPTS = 1
+DEPENDENCY_PROBE_TIMEOUT_SECONDS = 60.0
+STDERR_TAIL_CHARS = 2000
+FAKE_START_VERIFY_WINDOW_S = 3.0
+FAKE_START_VERIFY_POLL_S = 0.5
 TRANSITIONAL_STATES = {"STARTING", "STOPPING"}
 RETRYABLE_START_STATES = {"EXITED", "FATAL", "BACKOFF", "STARTING"}
 TIMEOUT_FLOOR_COMMANDS = {"stop-surfaces", "restart-surfaces", "wait-settled"}
@@ -387,7 +392,17 @@ def restart_programs(
             after: dict[str, object] | None = None
             last_error: RuntimeError | None = None
             for attempt in range(2):
+                pre_start = get_process_info(server, program)
                 server.supervisor.startProcess(program, False)
+                # P3-C：快速识别"假启动"——supervisord-go 状态机卡死时
+                # startProcess 返回 True 但从未真正 spawn 新进程（pid/start 不更新）。
+                # 不再傻等 RUNNING 超时，几秒内判死并走服务级自愈。
+                if detect_fake_start(server, program, before=pre_start):
+                    last_error = RuntimeError(
+                        f"FAKE_START_DETECTED: {program} startProcess returned True "
+                        "but supervisor never spawned a new process (state machine wedged)"
+                    )
+                    break
                 try:
                     after = wait_for_state(
                         server, program, "RUNNING", timeout_seconds=timeout_seconds
@@ -402,6 +417,16 @@ def restart_programs(
                     )
                     if attempt >= 1 or retry_state not in RETRYABLE_START_STATES:
                         break
+                    # P3-A：第 1 次失败且状态可重试时，先跑依赖就绪探测再重试，
+                    # 避免"依赖未就绪即反复拉起"耗尽预算。
+                    if not probe_dependencies(
+                        timeout_seconds=DEPENDENCY_PROBE_TIMEOUT_SECONDS
+                    ):
+                        print(
+                            f"dependency readiness probe failed before retrying "
+                            f"{program}; still retrying",
+                            file=sys.stderr,
+                        )
 
             if after is None:
                 latest = get_process_info(server, program)
@@ -411,6 +436,9 @@ def restart_programs(
                     if last_error is not None
                     else f"Program {program} did not reach RUNNING after retry"
                 )
+                stderr_tail = program_stderr_tail(server, program)
+                if stderr_tail:
+                    error_message = f"{error_message}\nstderr_tail={stderr_tail[-STDERR_TAIL_CHARS:]}"
                 errors[program] = error_message
                 result_entry["after_state"] = latest.get("statename")
                 result_entry["pid"] = latest.get("pid")
@@ -507,6 +535,89 @@ def restart_programs(
         )
 
     return results
+
+
+def detect_fake_start(
+    server: xmlrpc.client.ServerProxy,
+    program: str,
+    *,
+    before: dict[str, object] | None = None,
+    window_seconds: float = FAKE_START_VERIFY_WINDOW_S,
+    poll_interval_seconds: float = FAKE_START_VERIFY_POLL_S,
+) -> bool:
+    """startProcess 后短窗口内验证 supervisor 是否真正动作。
+
+    判据（任一满足即"有动作"，返回 False）：
+    - 进程 pid 变化且 > 0（新进程已出现）
+    - supervisor 记录的 start 时间戳更新（spawn 被记录）
+
+    窗口内始终无动作 → 判定"假启动"，返回 True。必须在 startProcess 之前
+    捕获 ``before`` 基线，否则正常启动也会被误判。
+    """
+    before = before if before is not None else get_process_info(server, program)
+    before_pid = _coerce_int(before.get("pid"))
+    before_start = _coerce_int(before.get("start"))
+    deadline = time.time() + float(window_seconds)
+    while time.time() < deadline:
+        info = get_process_info(server, program)
+        pid = _coerce_int(info.get("pid"))
+        start_ts = _coerce_int(info.get("start"))
+        if pid > 0 and pid != before_pid:
+            return False
+        if start_ts > 0 and start_ts != before_start:
+            return False
+        time.sleep(float(poll_interval_seconds))
+    return True
+
+
+def probe_dependencies(
+    timeout_seconds: float = DEPENDENCY_PROBE_TIMEOUT_SECONDS,
+) -> bool:
+    """运行应用级依赖就绪探测（script/ci/wait_for_deploy_dependencies.py）。
+
+    探测不可用/失败返回 False（不阻塞重启流程，仅作为重试前的等待窗口）。
+    """
+    script = Path(__file__).resolve().parent / "ci" / "wait_for_deploy_dependencies.py"
+    if not script.exists():
+        return False
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--timeout-seconds",
+                str(max(float(timeout_seconds), 1.0)),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=max(float(timeout_seconds) + 30.0, 60.0),
+        )
+        if proc.returncode != 0:
+            return False
+        lines = [line for line in proc.stdout.splitlines() if line.strip()]
+        if not lines:
+            return False
+        payload = json.loads(lines[-1])
+        return bool(payload.get("ok") and payload.get("ready"))
+    except Exception:
+        return False
+
+
+def program_stderr_tail(
+    server: xmlrpc.client.ServerProxy,
+    program: str,
+    max_chars: int = STDERR_TAIL_CHARS,
+) -> str:
+    """通过 supervisor RPC 取 stderr 尾部，用于失败归因（依赖类 vs 程序自身故障）。"""
+    try:
+        result = cast(
+            tuple[Any, Any, str, Any],
+            server.supervisor.tailProcessStderrLog(program, 0, max_chars),
+        )
+        _offset, _length, text, _overflow = result
+        return str(text or "").strip()
+    except Exception:
+        return ""
 
 
 def stop_programs(

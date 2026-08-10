@@ -233,6 +233,43 @@ function Test-HostRuntimeProgramsRunning {
     return @($programs | Where-Object { [string]$_.state -ne 'Running' }).Count -eq 0
 }
 
+function Get-HostRuntimeRunningPrograms {
+    param([object]$Payload)
+
+    if ($null -eq $Payload) {
+        return @()
+    }
+    return @(
+        $Payload.programs |
+            Where-Object { [string]$_.state -eq 'Running' } |
+            ForEach-Object { [string]$_.name }
+    )
+}
+
+function Assert-HostRuntimeProgramsRunning {
+    param(
+        [object]$Payload,
+        [string[]]$RequiredPrograms
+    )
+
+    $running = @(Get-HostRuntimeRunningPrograms -Payload $Payload)
+    $missing = @($RequiredPrograms | Where-Object { $_ -notin $running })
+    return [pscustomobject]@{
+        ok = ($missing.Count -eq 0)
+        missing = $missing
+        running_count = $running.Count
+        expected_count = $RequiredPrograms.Count
+    }
+}
+
+function Get-DockerFqnextContainerCount {
+    $names = & docker ps --filter "name=fqnext_20260223" --format "{{.Names}}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return $null
+    }
+    return @($names | Where-Object { $_ }).Count
+}
+
 function Reload-SupervisorServiceForConfig {
     param(
         [string]$ServiceName,
@@ -364,25 +401,68 @@ switch ($Mode) {
         try {
             Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
         } catch {
+            $originalMessage = $_.Exception.Message
             if (-not $BridgeIfServiceUnavailable) {
                 throw
             }
-            if ($bridgeRetried) {
-                throw
-            }
-
-            $bridgeRetried = $true
-            $originalMessage = $_.Exception.Message
-            Invoke-AdminBridgeRecovery -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds | Out-Null
-            $bridgeSettledPayload = Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds | ConvertFrom-Json
-            $bridgeRecoveredRunning = Test-HostRuntimeProgramsRunning -Payload $bridgeSettledPayload
-            if (-not $bridgeRecoveredRunning) {
-                try {
-                    Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
-                } catch {
-                    throw "fqnext host runtime restart failed after admin bridge retry. initial_error=$originalMessage retry_error=$($_.Exception.Message)"
+            if ($originalMessage -match 'FAKE_START_DETECTED') {
+                # P3-C: supervisord-go state machine wedged (fake start). Recover at
+                # service level: restart fqnext-supervisord, autostart pulls all programs.
+                Write-Warning "supervisor fake start detected; recovering via service restart. error=$originalMessage"
+                Invoke-AdminBridgeRecovery -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds | Out-Null
+                $recoveredPayload = Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds | ConvertFrom-Json
+                $recoveredRunning = Test-HostRuntimeProgramsRunning -Payload $recoveredPayload
+                if (-not $recoveredRunning) {
+                    throw "host runtime not Running after fake-start service restart. error=$originalMessage"
+                }
+            } else {
+                if ($bridgeRetried) {
+                    throw
+                }
+                $bridgeRetried = $true
+                Invoke-AdminBridgeRecovery -ServiceName $SupervisorServiceName -TaskName $RestartTaskName -TimeoutSeconds $TimeoutSeconds | Out-Null
+                $bridgeSettledPayload = Invoke-HostRuntimePython -Command 'wait-settled' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds | ConvertFrom-Json
+                $bridgeRecoveredRunning = Test-HostRuntimeProgramsRunning -Payload $bridgeSettledPayload
+                if (-not $bridgeRecoveredRunning) {
+                    try {
+                        Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds
+                    } catch {
+                        throw "fqnext host runtime restart failed after admin bridge retry. initial_error=$originalMessage retry_error=$($_.Exception.Message)"
+                    }
                 }
             }
+        }
+
+        # P3-B: validate all supervisor programs Running (9/9); explicitly restart
+        # tpsl if not Running; fail the deploy if it still is not Running.
+        $statusPayload = Invoke-HostRuntimePython -Command 'status' -Surfaces $DeploymentSurface -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds | ConvertFrom-Json
+        $requiredPrograms = @($statusPayload.programs | ForEach-Object { [string]$_.name })
+        $validation = Assert-HostRuntimeProgramsRunning -Payload $statusPayload -RequiredPrograms $requiredPrograms
+        if (-not $validation.ok) {
+            Write-Warning "host runtime validation: running=$($validation.running_count)/$($validation.expected_count) missing=$($validation.missing -join ',')"
+            if ('fqnext_tpsl_worker' -in $validation.missing) {
+                Write-Warning "tpsl worker not Running; explicit restart attempt."
+                try {
+                    Invoke-HostRuntimePython -Command 'restart-surfaces' -Surfaces @('tpsl') -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds | Out-Null
+                } catch {
+                    throw "tpsl explicit start failed after validation: $($_.Exception.Message)"
+                }
+                $retryPayload = Invoke-HostRuntimePython -Command 'status' -Surfaces @('tpsl') -ResolvedConfigPath $ConfigPath -TimeoutSeconds $TimeoutSeconds | ConvertFrom-Json
+                $retryValidation = Assert-HostRuntimeProgramsRunning -Payload $retryPayload -RequiredPrograms @('fqnext_tpsl_worker')
+                if (-not $retryValidation.ok) {
+                    throw "tpsl worker still not Running after explicit start; deploy run must fail."
+                }
+            }
+            $remainingMissing = @($validation.missing | Where-Object { $_ -ne 'fqnext_tpsl_worker' })
+            if ($remainingMissing.Count -gt 0) {
+                throw "host runtime programs not Running after restart: $($remainingMissing -join ',')"
+            }
+        }
+        $dockerCount = Get-DockerFqnextContainerCount
+        if ($null -ne $dockerCount -and $dockerCount -lt 10) {
+            Write-Warning "docker fqnext containers up=$dockerCount/10; verify compose stack."
+        } else {
+            Write-Output "docker fqnext containers up=$dockerCount/10"
         }
         exit 0
     }

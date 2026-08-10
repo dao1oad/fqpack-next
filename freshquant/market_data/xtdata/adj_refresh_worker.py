@@ -6,6 +6,11 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from freshquant.database.dependency_retry import (
+    emit_retry_event,
+    is_retryable_connection_error,
+    retry_connection_errors,
+)
 from freshquant.market_data.xtdata.adj_refresh_service import (
     AdjRefreshService,
     _is_retryable_xtdata_error,
@@ -31,7 +36,12 @@ def run_forever(
     retry_delay_max_seconds=60.0,
 ):
     refresh_service_factory = AdjRefreshService if service is None else None
-    refresh_service = service or refresh_service_factory()
+    refresh_service = service or _build_default_service_with_retry(
+        refresh_service_factory,
+        sleep_fn=sleep_fn,
+        retry_delay_seconds=retry_delay_seconds,
+        retry_delay_max_seconds=retry_delay_max_seconds,
+    )
     now_provider = now_provider or _shanghai_now
     startup_time = now_provider()
 
@@ -134,12 +144,23 @@ def _sync_once_with_xt_retry(
         try:
             refresh_service.sync_once()
         except Exception as error:
-            if not _is_retryable_xtdata_error(error):
+            if not (
+                _is_retryable_xtdata_error(error)
+                or is_retryable_connection_error(error)
+            ):
                 raise
             logger.warning(
-                "xtdata adj refresh XT unavailable; retrying in %.1f seconds: %s",
+                "xtdata adj refresh dependency unavailable; "
+                "retrying in %.1f seconds: %s",
                 delay_seconds,
                 error,
+            )
+            emit_retry_event(
+                component="xtdata_adj_refresh_worker",
+                node="sync",
+                message="xtdata adj refresh dependency unavailable; retrying",
+                delay_seconds=delay_seconds,
+                error=error,
             )
             sleep_fn(delay_seconds)
             delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)
@@ -147,6 +168,44 @@ def _sync_once_with_xt_retry(
                 refresh_service = refresh_service_factory()
             continue
         return refresh_service
+
+
+def _build_default_service_with_retry(
+    factory,
+    *,
+    sleep_fn,
+    retry_delay_seconds,
+    retry_delay_max_seconds,
+):
+    """构造期 Mongo/Redis 连接类异常同样退避重试（P2-A）。"""
+    if factory is None:
+        return None
+
+    def _build():
+        return factory()
+
+    def _on_retry(*, error, delay_seconds):
+        logger.warning(
+            "xtdata adj refresh dependency unavailable during build; "
+            "retrying in %.1f seconds: %s",
+            delay_seconds,
+            error,
+        )
+        emit_retry_event(
+            component="xtdata_adj_refresh_worker",
+            node="startup",
+            message="xtdata adj refresh dependency unavailable during build",
+            delay_seconds=delay_seconds,
+            error=error,
+        )
+
+    return retry_connection_errors(
+        _build,
+        sleep_fn=sleep_fn,
+        emit_fn=_on_retry,
+        base_delay_seconds=retry_delay_seconds,
+        max_delay_seconds=retry_delay_max_seconds,
+    )
 
 
 if __name__ == "__main__":

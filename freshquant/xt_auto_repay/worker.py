@@ -8,6 +8,10 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from freshquant.database.dependency_retry import (
+    emit_retry_event,
+    is_retryable_connection_error,
+)
 from freshquant.xt_auto_repay.executor import XtAutoRepayExecutor
 from freshquant.xt_auto_repay.service import (
     HARD_SETTLE_MODE,
@@ -373,12 +377,23 @@ class XtAutoRepayWorker:
             try:
                 return self.executor.query_credit_detail()
             except Exception as error:
-                if not _is_retryable_xt_auto_repay_error(error):
+                if not (
+                    _is_retryable_xt_auto_repay_error(error)
+                    or is_retryable_connection_error(error)
+                ):
                     raise
                 logger.warning(
-                    "xt auto repay XT unavailable; retrying in %.1f seconds: %s",
+                    "xt auto repay dependency unavailable; "
+                    "retrying in %.1f seconds: %s",
                     delay_seconds,
                     error,
+                )
+                emit_retry_event(
+                    component="xt_auto_repay_worker",
+                    node="credit_detail",
+                    message="xt auto repay dependency unavailable; retrying",
+                    delay_seconds=delay_seconds,
+                    error=error,
                 )
                 self._reset_executor_after_retryable_xt_error()
                 self.retry_sleep_fn(delay_seconds)

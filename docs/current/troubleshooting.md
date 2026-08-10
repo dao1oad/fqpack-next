@@ -1205,3 +1205,77 @@ Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/history/signal
 - In Docker, API and Dagster also share `FQ_TRADE_CALENDAR_STATE_DIR`; check `cn_a_sina.json` there if Mongo is unavailable or the cache document is missing.
 - `trade_calendar_refresh_job` can complete in degraded mode when live Sina/AkShare fails but Mongo or the disk snapshot covers the current date; inspect the asset result fields `refresh_status`, `degraded`, `source_error_type`, and `source_error_message`.
 - Run `trade_calendar_refresh_job` in Dagster to force a live refresh after the upstream endpoint recovers; a successful live refresh rewrites both Mongo and the disk snapshot.
+
+## TPSL 无 tick / tick 队列积压（Redis 断连自愈）
+
+现象：
+
+- `fqnext_tpsl_worker` 反复崩溃或长时间无 tick
+- `/api/ops/overview` 的 `dependencies.tick_queue.depth` 持续增长超过阈值（10000）
+
+当前行为（P2-B）：
+
+- `freshquant/tpsl/tick_listener.py` 对 Redis 连接类异常（ConnectionError/TimeoutError）指数退避重建 client（5s→60s），`run_forever` 不退出
+- 解析/回调异常（毒消息）log+skip 继续消费，不再杀死监听器
+- 故障演练：`docker restart fq_redis` 后 tpsl 应自动恢复不退出
+
+处理：
+
+- 先看 `D:/fqdata/log/fqnext_tpsl_worker_err.log` 尾部，确认是连接类还是毒消息
+- 若 tick 队列已积压，恢复消费后深度会自然回落；长时间不回落则检查 consumer 是否停摆
+
+## Guardian 在 trading_mode=false 下保持 RUNNING（idle 待命）
+
+现象：
+
+- guardian 日志出现 `trading lines disabled. Entering idle standby`
+
+当前行为（P1-E）：
+
+- `monitor_stock_zh_a_min.py` 在 trading_mode=false 且无启用线时不再 exit(0)，改为每 60s 打一次 idle 日志保持 RUNNING
+- 避免 supervisord 按 autorestart + startsecs=5 反复拉起、快速退出耗尽 startretries 进 FATAL
+
+处理：
+
+- 该状态是预期状态，不算异常；部署 reconcile / 运维页 KPI 不再误报
+- 若 guardian 崩溃且 stderr 无 `trading lines disabled`，按真实故障排查
+
+## TDXHQ 探测失败（端点键收敛）
+
+现象：
+
+- `/api/ops/overview` `dependencies.tdxhq.ok=false`，error 为 Connection refused
+
+当前规范（P4-A）：
+
+- 端点键收敛为单键 `FRESHQUANT_TDX__HQ_ENDPOINT`（容器内 `http://fq_tdxhq:5001`，宿主机 `http://127.0.0.1:15001`）
+- 旧键 `FRESHQUANT_TDX__HQ__ENDPOINT` 命中时后端打 warning 并过渡兼容；`freshquant/gateway/__init__.py` 默认值兜底时打 warning
+- 配置以 `D:\fqpack\config\fqnext.compose.env` 与 `deployment/examples/envs.fqnext.example` 为准
+
+处理：
+
+- 先核对容器 env：`docker exec fqnext_20260223-fq_apiserver-1 printenv | findstr TDX`
+- 若命中旧键，改回单键后重建 apiserver（复用现有镜像）
+
+## Supervisor 假启动（FAKE_START_DETECTED）与服务级自愈
+
+现象：
+
+- 部署/重启期间某程序长时间 Exited，supervisor RPC 显示 `startProcess` 已调用但
+  pid 仍为 0、`start` 时间戳不更新、程序日志无任何新写入
+- 根因：supervisord-go 状态机卡死——`startProcess` 返回 True 但从未真正 spawn 新进程
+
+当前行为（P3-C）：
+
+- `script/fqnext_host_runtime.py` 在 `startProcess` 后 3 秒窗口内校验 pid / start
+  时间戳是否变化；无变化即判定 `FAKE_START_DETECTED`，快速失败（不再傻等 RUNNING 超时）
+- `script/fqnext_host_runtime_ctl.ps1` 捕获 `FAKE_START_DETECTED` 后直接重启
+  `fqnext-supervisord` 服务（admin bridge / 管理员），服务起来后按 autostart
+  拉起全部程序——这是已被验证的恢复路径
+- 处理时在部署输出中会看到 `supervisor fake start detected; recovering via service restart`，
+  随后 `wait-settled` 校验 9/9
+
+处理：
+
+- 若部署输出含 FAKE_START_DETECTED 且最终 9/9 Running，属自愈成功，无需人工干预
+- 若服务重启后仍有程序不 Running，按"宿主机运行面没有恢复"一节继续排查

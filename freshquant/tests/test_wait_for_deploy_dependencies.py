@@ -4,6 +4,7 @@ import importlib.util
 import socket
 import sys
 import threading
+import types
 from pathlib import Path
 
 
@@ -90,3 +91,102 @@ def test_wait_for_dependencies_recovers_when_port_opens_later() -> None:
         thread.join(timeout=3.0)
     assert result["ok"] is True
     assert result["ready"] is True
+
+
+def test_mongo_ping_or_none_falls_back_to_none_without_pymongo(monkeypatch) -> None:
+    module = load_module()
+
+    monkeypatch.setitem(sys.modules, "pymongo", None)
+
+    assert module._mongo_ping_or_none("127.0.0.1", 27027, 0.5) is None
+
+
+def test_mongo_ping_or_none_returns_false_when_ping_fails(monkeypatch) -> None:
+    module = load_module()
+
+    class _FakePingClient:
+        def __init__(self, *args, **kwargs):
+            self.admin = self
+
+        def command(self, name):
+            raise ConnectionError("mongo down")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        module,
+        "MongoClient",
+        _FakePingClient,
+        raising=False,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "pymongo",
+        types.SimpleNamespace(MongoClient=_FakePingClient),
+    )
+
+    assert module._mongo_ping_or_none("127.0.0.1", 27027, 0.5) is False
+
+
+def test_redis_write_probe_or_none_returns_false_when_write_fails(monkeypatch) -> None:
+    module = load_module()
+
+    class _FakeRedisClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def set(self, key, value, ex=0):
+            raise ConnectionError("redis down")
+
+        def delete(self, key):
+            return 1
+
+        def close(self):
+            pass
+
+    fake_redis = types.SimpleNamespace(
+        Redis=_FakeRedisClient,
+        exceptions=types.SimpleNamespace(),
+    )
+    monkeypatch.setitem(sys.modules, "redis", fake_redis)
+
+    assert module._redis_write_probe_or_none("127.0.0.1", 6380, 0.5) is False
+
+
+def test_wait_for_app_ready_requires_xtdata_stable_window() -> None:
+    module = load_module()
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(16)
+        port = int(listener.getsockname()[1])
+        stop = threading.Event()
+
+        def drain() -> None:
+            while not stop.is_set():
+                try:
+                    conn, _ = listener.accept()
+                    conn.close()
+                except OSError:
+                    break
+
+        thread = threading.Thread(target=drain, daemon=True)
+        thread.start()
+        result = module.wait_for_app_ready(
+            host="127.0.0.1",
+            mongo_port=port,
+            redis_port=port,
+            xtdata_port=port,
+            enable_mongo_ping=False,
+            enable_redis_write=False,
+            stable_window=2,
+            timeout_seconds=5.0,
+            poll_interval_seconds=0.05,
+            connect_timeout_seconds=0.3,
+        )
+        stop.set()
+        thread.join(timeout=3.0)
+    assert result["ok"] is True
+    assert result["ready"] is True
+    assert result["details"]["xtdata"]["probe"] == "tcp_stable_2"
+    assert result["details"]["mongo"]["probe"] == "tcp"

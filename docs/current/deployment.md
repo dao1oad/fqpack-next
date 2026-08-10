@@ -35,10 +35,15 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 ### 自动正式部署
 
-- `deploy-production.yml` 由 `push main` 直接触发，不需要额外审批。
-- `deploy-production.yml` 已重新启用（#529D 统一部署收口后）：一次 `push main` 会
-  在三机矩阵上执行正式部署，并在部署后由 workflow 内 verify 阶段完成运行面健康检查。
-- `deploy-production.yml` 的 deploy job 使用 `[self-hosted, windows, prod-101/prod-100/prod-116]` 三机矩阵，一次 `push main` 在三台正式机器（101 本机 / 100 / 116）上分别执行正式部署；各机 runner 以唯一 label `prod-101` / `prod-100` / `prod-116` 注册，并共用 `self-hosted,windows,production`。
+- `deploy-production.yml` 由 `push main` 与人工 `workflow_dispatch` 触发。
+- `push main` **只自动部署 101（本机）**，不需要额外审批；100/116 是生产机，
+  **不随 push 自动部署**，仅在人工 `workflow_dispatch` 通过 `targets` 输入显式指定
+  （`100` / `116` / `101,100` / `101,116` / `100,116` / `101,100,116`）时才部署。
+- deploy job 使用 `[self-hosted, windows, prod-<101/100/116>]` 矩阵，job 级
+  `if` 分流：`push` 仅命中 `prod-101`；`workflow_dispatch` 按 `targets` 命中对应
+  runner。各机 runner 以唯一 label `prod-101` / `prod-100` / `prod-116` 注册，
+  并共用 `self-hosted,windows,production`。
+- 人工部署 100/116 前建议先确认 101 已部署且健康检查通过（101 是先行验证面）。
 - `run_formal_deploy.py` 的宿主机运行面 reconcile 与 `check_freshquant_runtime_post_deploy.ps1 -Mode Verify` 均带有限重试与 settle 窗口：host restart 后若程序未达 RUNNING，会重新 start 后再 settle（默认 1 轮恢复）；Verify 默认最多 3 次快照检查、间隔 10 秒（可用 `-VerifyMaxAttempts` / `-VerifySettleSeconds` 覆盖），吸收运行面重启过渡期与 supervisor RPC 瞬时失败，避免过渡态误判部署失败。
 - `script/fqnext_host_runtime.py` 的 `restart_programs` 在 stopProcess 后按 supervisor program 的命令行特征枚举并 `taskkill /F` 清理所有存活 python 进程（venv shim + 真实解释器子进程），轮询等待全部退出后再 startProcess：消除孤儿解释器残留占用 XTData/Redis/Mongo 资源导致的新进程启动即 Exited。
 - `deploy-production.yml` 现在只调用 `script/ci/run_production_deploy.ps1`，不再在 workflow YAML 内手工展开 canonical main sync、`uv sync` 和 `run_formal_deploy.py`。
@@ -48,6 +53,10 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `script/ci/run_production_deploy.ps1` 保留 bootstrap/re-exec 逻辑，作为人工正式 deploy 或 local main sync root 直接入口时的兜底；workflow 正式路径已经不再依赖 canonical repo root 上的脚本版本。
 - `script/ci/run_production_deploy.ps1` 在 canonical main sync 这一步会从当前 entrypoint repo 解析 `script/ci/sync_local_deploy_mirror.py` 的绝对路径，而不是回退到 `canonical repo root` 里可能落后的旧 helper；这样 local main sync root 的最新清理策略才能真正生效。
 - 若 `uv sync --frozen` 在 live canonical repo root 的 `.venv\` 中遇到宿主机运行面占用的二进制扩展锁，`script/ci/run_production_deploy.ps1` 会先受控 quiesce 宿主机 surfaces（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`），再重试一次 `uv sync`，最后统一拉起这些 surfaces，避免原地覆盖 `.pyd` / `.dll` 时直接失败。
+- quiesce 路径拉起前会先跑应用级依赖就绪探测（`script/ci/wait_for_deploy_dependencies.py`，短预算 120s）：依赖未就绪时仍会拉起并告警，避免"依赖未就绪即拉起"与"quiesce 后 surface 永不拉起"两个极端（P1-B）。主部署路径（`run_formal_deploy.py`）顺序固定为 baseline → docker → wait → host restart → health → verify。
+- 依赖就绪探测是应用级而非纯 TCP：Mongo 走 `ping` 命令、Redis 走 SET/DEL 可写探针（tpsl/producer 都是写方，ping 无法发现 MISCONF/只读/OOM）、XTData 走 TCP + 稳定窗口（连续 3×5s）；显式传 `--port` 时退化为纯 TCP 兜底。该探测只缩小竞态窗口，不是"就绪证明"（XTData 订阅失败由 producer 侧无限退避兜底）。
+- `script/fqnext_host_runtime.py` 的 `restart_programs` 在第 1 次 start 失败且状态可重试时，先跑依赖就绪探测（60s）再重试；失败详情会附 supervisor RPC `tailProcessStderrLog` 的 stderr 尾部，用于区分"依赖未就绪"与"程序自身 Traceback"（P3-A）。
+- `script/fqnext_host_runtime_ctl.ps1` 的 `EnsureServiceAndRestartSurfaces` 在重启后校验 supervisor 全量 Running（五个 surface 去重 9 个程序；`fqnext_ops_host_snapshot` 单独确认）与 docker 10/10：tpsl 非 Running 时显式 restart 一次，仍失败则使部署失败（P3-B）；docker 计数不足时告警。
 - 若 live canonical repo root 的 `.venv\pyvenv.cfg` 缺失，或 `.venv\Scripts\python.exe` 已存在但不能正常启动，`script/ci/run_production_deploy.ps1` 会在 quiesce 宿主机 surfaces 后执行 `python -m uv venv .venv --python <runner-python> --clear` 重建 canonical repo root virtualenv metadata，再补一次 `uv sync --frozen`；正式 deploy 不再假设保留下来的 `.venv\` 一定完整可用。
 - `script/ci/sync_local_deploy_mirror.py` 在 fast-forward 前会先显式枚举并清掉 mirror 内的 ignored 产物，但保留 live canonical repo root 的 `.venv\`；这样既能继续清理历史 `build/`、`*.egg-info/`、生成的 `fqchan*.cpp` 一类文件，也不会误删当前宿主机 runtime 正在使用的解释器环境。
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。

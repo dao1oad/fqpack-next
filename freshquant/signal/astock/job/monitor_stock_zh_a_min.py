@@ -75,10 +75,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
         enabled_lines=sorted(enabled_lines),
     )
     if LINE_1M_T not in enabled_lines and LINE_5M_NEW_OPEN not in enabled_lines:
-        logger.warning(
-            f"[Event] monitor.xtdata trading_mode={trading_mode}; "
-            "trading lines disabled. Exiting."
-        )
+        _run_guardian_idle_standby(trading_mode=trading_mode)
         return
 
     signal_map = {
@@ -268,6 +265,29 @@ def _emit_guardian_bootstrap_event(
         )
     except Exception:  # pragma: no cover - 观测路径失败不影响主链
         return False
+
+
+def _run_guardian_idle_standby(
+    *,
+    trading_mode: bool,
+    sleep_fn=sleep,
+    stop_event=None,
+) -> None:
+    """trading_mode=false 设计退出时保持 RUNNING 的待命循环。
+
+    避免进程 exit(0) 后 supervisord 按 autorestart + startsecs=5 反复拉起、
+    快速退出累计耗尽 startretries 进 FATAL，也避免部署 reconcile 把
+    设计性退出误判为失败。进程保持 RUNNING，KPI / 重启校验自然一致。
+    """
+    logger.warning(
+        f"[Event] monitor.xtdata trading_mode={trading_mode}; "
+        "trading lines disabled. Entering idle standby (keeps supervisor RUNNING)."
+    )
+    while True:
+        if stop_event is not None and stop_event.is_set():
+            return
+        logger.info("[Event] guardian idle standby: trading lines disabled")
+        sleep_fn(60)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,15 @@ def test_guardian_monitor_uses_trading_mode_capability_instead_of_strict_mode_ma
     assert 'expected guardian_1m. Exiting.' not in content
 
 
+def test_guardian_monitor_idle_standby_instead_of_exit():
+    content = Path("freshquant/signal/astock/job/monitor_stock_zh_a_min.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Entering idle standby" in content
+    assert "trading lines disabled. Exiting." not in content
+
+
 def test_guardian_monitor_disables_buy_zs_huila_signal():
     content = Path("freshquant/signal/astock/job/monitor_stock_zh_a_min.py").read_text(
         encoding="utf-8"
