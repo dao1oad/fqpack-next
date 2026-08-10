@@ -6,6 +6,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from uuid import uuid4
 
+from loguru import logger
+
 CLX_TDX_GROUP_DISPLAY_NAME = "clx_18"
 CLX_TDX_BLOCK_KEY = "CLX_18"
 CLX_TDX_BLK_FILENAME = f"{CLX_TDX_BLOCK_KEY}.blk"
@@ -251,6 +253,96 @@ def append_tdx_group_members(
     # 写入 .blk 后确保分组注册到 blocknew.cfg（best-effort，幂等）
     ensure_tdx_group_registered(block_key, display_name, tdx_home=root)
     return result
+
+
+def write_tdx_group_members(
+    symbols: Sequence[object],
+    *,
+    tdx_home: str | Path | None = None,
+    block_key: str = CLX_15_30_TDX_BLOCK_KEY,
+    display_name: str = CLX_15_30_TDX_GROUP_DISPLAY_NAME,
+) -> dict[str, object]:
+    """全量覆盖写入通达信分组（按传入顺序编码为 7 字符行，非追加）。
+
+    - 单码编码失败仅跳过并 warning，不阻断全组；
+    - 空列表（或全部编码失败）为 no-op：不抛错、不触碰旧文件；
+    - 复用 ``_atomic_write_blk``（GBK+CRLF+temp+fsync+os.replace）与
+      ``ensure_tdx_group_registered``（幂等注册 blocknew.cfg）。
+    """
+    with _TDX_BLK_WRITE_LOCK:
+        result = _write_tdx_group_members_locked(
+            symbols,
+            tdx_home=tdx_home,
+            block_key=block_key,
+            display_name=display_name,
+        )
+    if int(str(result.get("written_count") or 0)) > 0:
+        ensure_tdx_group_registered(block_key, display_name, tdx_home=tdx_home)
+    return result
+
+
+def _write_tdx_group_members_locked(
+    symbols: Sequence[object],
+    *,
+    tdx_home: str | Path | None = None,
+    block_key: str = CLX_15_30_TDX_BLOCK_KEY,
+    display_name: str = CLX_15_30_TDX_GROUP_DISPLAY_NAME,
+) -> dict[str, object]:
+    """覆盖写实现；调用方必须已持有 ``_TDX_BLK_WRITE_LOCK``。
+
+    consumer 需要把「查库 → 聚合 → 覆盖写」整体串行（避免旧快照覆盖新快照），
+    因此在锁内直接调用本函数；独立使用请走 ``write_tdx_group_members``。
+    """
+    filename = f"{block_key}.blk"
+    lines: list[str] = []
+    seen: set[str] = set()
+    skipped_count = 0
+    for symbol in symbols or []:
+        try:
+            line = encode_tdx_blk_code(symbol)
+        except Exception as exc:
+            logger.warning(
+                "tdx group overwrite skipped invalid code %r: %s", symbol, exc
+            )
+            skipped_count += 1
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        lines.append(line)
+
+    result = {
+        "group_name": display_name,
+        "file_name": filename,
+        "written_count": len(lines),
+        "skipped_count": skipped_count,
+    }
+    if not lines:
+        # 空列表 / 全部编码失败：no-op，不触碰旧文件
+        return result
+
+    root = Path(tdx_home) if tdx_home is not None else _require_tdx_home()
+    target = root / "T0002" / "blocknew" / filename
+    _atomic_write_blk(lines, target)
+    return result
+
+
+def aggregate_clx_15_30_codes(records: Sequence[Mapping]) -> list[str]:
+    """从 ``realtime_screen_multi_period`` 记录聚合通达信分组代码列表。
+
+    - 每个 code 取 ``max(datetime)``（同 bar 多模型合并；15min/30min 先后命中
+      取最后一次信号时间）；
+    - 按 ``(datetime, code)`` 升序排序（先发生在前，同时间按 code tie-break）。
+    """
+    by_code: dict[str, object] = {}
+    for row in records or []:
+        code = str(row.get("code") or "").strip()
+        ts = row.get("datetime")
+        if code and ts:
+            by_code[code] = ts if code not in by_code else max(by_code[code], ts)
+    return [
+        code for code, _ in sorted(by_code.items(), key=lambda item: (item[1], item[0]))
+    ]
 
 
 def _atomic_write_blk(lines: list[str], target: Path) -> None:
