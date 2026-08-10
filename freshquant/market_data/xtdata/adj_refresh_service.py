@@ -61,14 +61,19 @@ def _default_code_loader() -> list[str]:
             DEFAULT_XTDATA_SCREENING_MODE,
         )
     )
-    max_symbols = int(
-        getattr(
-            system_settings.monitor,
-            "xtdata_max_symbols",
-            DEFAULT_XTDATA_MAX_SYMBOLS,
+    try:
+        max_symbols = int(
+            getattr(
+                system_settings.monitor,
+                "xtdata_max_symbols",
+                DEFAULT_XTDATA_MAX_SYMBOLS,
+            )
+            or DEFAULT_XTDATA_MAX_SYMBOLS
         )
-        or DEFAULT_XTDATA_MAX_SYMBOLS
-    )
+    except (TypeError, ValueError):
+        max_symbols = DEFAULT_XTDATA_MAX_SYMBOLS
+    if max_symbols <= 0:
+        max_symbols = DEFAULT_XTDATA_MAX_SYMBOLS
     return list(
         load_monitor_codes(
             trading_mode=trading_mode,

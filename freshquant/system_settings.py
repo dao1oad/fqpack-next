@@ -23,6 +23,18 @@ from freshquant.system_settings_contract import (
 )
 
 
+def _safe_positive_int(value, default: int) -> int:
+    """把 Mongo 原始值安全解析为正整数，缺失/非法/非正值回退合同默认。"""
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed <= 0:
+        return default
+    return parsed
+
+
 def _migrated_xtdata_trading_mode(monitor_doc) -> bool:
     if get(monitor_doc, "xtdata.mode") is not None:
         return migrate_xtdata_mode(get(monitor_doc, "xtdata.mode"))[0]
@@ -265,36 +277,30 @@ class SystemSettings:
                 get(notification_doc, "webhook.dingtalk.public", "")
             ),
         )
-        max_symbols = int(
+        max_symbols = _safe_positive_int(
             get(
                 monitor_doc,
                 "xtdata.max_symbols",
                 DEFAULT_XTDATA_MAX_SYMBOLS,
-            )
-            or DEFAULT_XTDATA_MAX_SYMBOLS
+            ),
+            DEFAULT_XTDATA_MAX_SYMBOLS,
         )
-        if max_symbols <= 0:
-            max_symbols = DEFAULT_XTDATA_MAX_SYMBOLS
-        queue_backlog_threshold = int(
+        queue_backlog_threshold = _safe_positive_int(
             get(
                 monitor_doc,
                 "xtdata.queue_backlog_threshold",
                 DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
-            )
-            or DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD
+            ),
+            DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
         )
-        if queue_backlog_threshold <= 0:
-            queue_backlog_threshold = DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD
-        prewarm_max_bars = int(
+        prewarm_max_bars = _safe_positive_int(
             get(
                 monitor_doc,
                 "xtdata.prewarm.max_bars",
                 DEFAULT_XTDATA_PREWARM_MAX_BARS,
-            )
-            or DEFAULT_XTDATA_PREWARM_MAX_BARS
+            ),
+            DEFAULT_XTDATA_PREWARM_MAX_BARS,
         )
-        if prewarm_max_bars <= 0:
-            prewarm_max_bars = DEFAULT_XTDATA_PREWARM_MAX_BARS
         self.monitor = MonitorSettings(
             xtdata_trading_mode=_migrated_xtdata_trading_mode(monitor_doc),
             xtdata_screening_mode=_migrated_xtdata_screening_mode(monitor_doc),

@@ -488,3 +488,63 @@ def test_system_settings_rejects_nonpositive_monitor_values_to_contract_defaults
     assert settings.monitor.xtdata_max_symbols == 100
     assert settings.monitor.xtdata_queue_backlog_threshold == 500
     assert settings.monitor.xtdata_prewarm_max_bars == 20000
+
+
+def test_system_settings_falls_back_on_invalid_monitor_value_types():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {
+                        "xtdata": {
+                            "max_symbols": "abc",
+                            "queue_backlog_threshold": {"nested": 1},
+                            "prewarm": {"max_bars": None},
+                        },
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    # 非法类型/None 一律回退合同默认，而不是抛 ValueError。
+    assert settings.monitor.xtdata_max_symbols == 100
+    assert settings.monitor.xtdata_queue_backlog_threshold == 500
+    assert settings.monitor.xtdata_prewarm_max_bars == 20000
+
+
+def test_system_settings_keeps_numeric_string_values():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {
+                        "xtdata": {
+                            "max_symbols": "60",
+                            "queue_backlog_threshold": "400",
+                            "prewarm": {"max_bars": "15000"},
+                        },
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    # 数字字符串可解析，保留显式值，不静默改成默认。
+    assert settings.monitor.xtdata_max_symbols == 60
+    assert settings.monitor.xtdata_queue_backlog_threshold == 400
+    assert settings.monitor.xtdata_prewarm_max_bars == 15000
