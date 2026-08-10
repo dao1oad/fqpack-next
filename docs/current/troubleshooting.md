@@ -1256,3 +1256,26 @@ Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/history/signal
 
 - 先核对容器 env：`docker exec fqnext_20260223-fq_apiserver-1 printenv | findstr TDX`
 - 若命中旧键，改回单键后重建 apiserver（复用现有镜像）
+
+## Supervisor 假启动（FAKE_START_DETECTED）与服务级自愈
+
+现象：
+
+- 部署/重启期间某程序长时间 Exited，supervisor RPC 显示 `startProcess` 已调用但
+  pid 仍为 0、`start` 时间戳不更新、程序日志无任何新写入
+- 根因：supervisord-go 状态机卡死——`startProcess` 返回 True 但从未真正 spawn 新进程
+
+当前行为（P3-C）：
+
+- `script/fqnext_host_runtime.py` 在 `startProcess` 后 3 秒窗口内校验 pid / start
+  时间戳是否变化；无变化即判定 `FAKE_START_DETECTED`，快速失败（不再傻等 RUNNING 超时）
+- `script/fqnext_host_runtime_ctl.ps1` 捕获 `FAKE_START_DETECTED` 后直接重启
+  `fqnext-supervisord` 服务（admin bridge / 管理员），服务起来后按 autostart
+  拉起全部程序——这是已被验证的恢复路径
+- 处理时在部署输出中会看到 `supervisor fake start detected; recovering via service restart`，
+  随后 `wait-settled` 校验 9/9
+
+处理：
+
+- 若部署输出含 FAKE_START_DETECTED 且最终 9/9 Running，属自愈成功，无需人工干预
+- 若服务重启后仍有程序不 Running，按"宿主机运行面没有恢复"一节继续排查
