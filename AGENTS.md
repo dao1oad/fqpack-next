@@ -103,6 +103,10 @@
 - 不再强制先建 GitHub Issue
 - 高影响、破坏性变更应先建 GitHub Issue
 - PR 正文应写清背景、目标、范围、非目标、验收标准、部署影响
+- PR 粒度（合并单元）约定：合并单元 = 「可独立部署 + 可独立回滚」，而非 issue 数量。
+  - 相关小 fix（<5 文件、文件不重叠、同一模块/同一目的）聚合为单 PR，减少 CI 轮次；
+  - 跨模块或高影响改动独立成 PR，避免放大 review 面与回滚面；
+  - 一次需连续合并多个 PR 时，优先按「文件不重叠」排序合并，减少 base 前进触发的全量 CI 重跑。
 - PR 必须满足：
   - CI 全绿（`docs-current-guard`、`pre-commit`、`pytest`）
   - 所有 review discussion 已处理
