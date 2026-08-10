@@ -19,6 +19,8 @@ DEFAULT_POLL_INTERVAL_SECONDS = 1.0
 DEFAULT_RECOVERY_ATTEMPTS = 1
 DEPENDENCY_PROBE_TIMEOUT_SECONDS = 60.0
 STDERR_TAIL_CHARS = 2000
+FAKE_START_VERIFY_WINDOW_S = 3.0
+FAKE_START_VERIFY_POLL_S = 0.5
 TRANSITIONAL_STATES = {"STARTING", "STOPPING"}
 RETRYABLE_START_STATES = {"EXITED", "FATAL", "BACKOFF", "STARTING"}
 TIMEOUT_FLOOR_COMMANDS = {"stop-surfaces", "restart-surfaces", "wait-settled"}
@@ -390,7 +392,17 @@ def restart_programs(
             after: dict[str, object] | None = None
             last_error: RuntimeError | None = None
             for attempt in range(2):
+                pre_start = get_process_info(server, program)
                 server.supervisor.startProcess(program, False)
+                # P3-C：快速识别"假启动"——supervisord-go 状态机卡死时
+                # startProcess 返回 True 但从未真正 spawn 新进程（pid/start 不更新）。
+                # 不再傻等 RUNNING 超时，几秒内判死并走服务级自愈。
+                if detect_fake_start(server, program, before=pre_start):
+                    last_error = RuntimeError(
+                        f"FAKE_START_DETECTED: {program} startProcess returned True "
+                        "but supervisor never spawned a new process (state machine wedged)"
+                    )
+                    break
                 try:
                     after = wait_for_state(
                         server, program, "RUNNING", timeout_seconds=timeout_seconds
@@ -523,6 +535,39 @@ def restart_programs(
         )
 
     return results
+
+
+def detect_fake_start(
+    server: xmlrpc.client.ServerProxy,
+    program: str,
+    *,
+    before: dict[str, object] | None = None,
+    window_seconds: float = FAKE_START_VERIFY_WINDOW_S,
+    poll_interval_seconds: float = FAKE_START_VERIFY_POLL_S,
+) -> bool:
+    """startProcess 后短窗口内验证 supervisor 是否真正动作。
+
+    判据（任一满足即"有动作"，返回 False）：
+    - 进程 pid 变化且 > 0（新进程已出现）
+    - supervisor 记录的 start 时间戳更新（spawn 被记录）
+
+    窗口内始终无动作 → 判定"假启动"，返回 True。必须在 startProcess 之前
+    捕获 ``before`` 基线，否则正常启动也会被误判。
+    """
+    before = before if before is not None else get_process_info(server, program)
+    before_pid = _coerce_int(before.get("pid"))
+    before_start = _coerce_int(before.get("start"))
+    deadline = time.time() + float(window_seconds)
+    while time.time() < deadline:
+        info = get_process_info(server, program)
+        pid = _coerce_int(info.get("pid"))
+        start_ts = _coerce_int(info.get("start"))
+        if pid > 0 and pid != before_pid:
+            return False
+        if start_ts > 0 and start_ts != before_start:
+            return False
+        time.sleep(float(poll_interval_seconds))
+    return True
 
 
 def probe_dependencies(
