@@ -81,6 +81,9 @@ _PROBE_TIMEOUT_S = 2.5
 
 # ---- 服务端 5s 缓存（overview） ----
 _overview_cache: dict[str, Any] = {"at": 0.0, "payload": None}
+# 可注入时钟：测试用固定时钟验证缓存窗口，避免慢 runner 上真实 5s 超时造成
+# 时序类 flaky（两次请求间隔超过 TTL 会被误判为缓存未生效）。
+_monotonic = time.monotonic
 
 # ---- K 线读取探针状态（低频 ≤1 次/分钟 + 近 5 分钟 503 计数窗口） ----
 _probe_state: dict[str, Any] = {
@@ -869,7 +872,7 @@ def _build_overview() -> dict[str, Any]:
 
 
 def _overview_with_cache() -> tuple[dict[str, Any], bool]:
-    now = time.monotonic()
+    now = _monotonic()
     cached_payload = _overview_cache.get("payload")
     if (
         cached_payload is not None

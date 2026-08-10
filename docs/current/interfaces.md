@@ -107,6 +107,13 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/runtime/raw-files/files`
 - `/api/runtime/raw-files/tail`
 
+### `ops`
+
+- `/api/ops/overview`：KPI + 依赖服务 + 账本摘要 + 最近异常摘要；服务端 5s 缓存
+  （`freshquant/rear/ops/routes.py` 的 `_overview_with_cache`），缓存时钟使用可
+  注入的 `_monotonic`（生产为 `time.monotonic`，测试注入固定时钟避免时序 flaky）
+- `/api/ops/host-runtime`：宿主机只读运行面明细（Supervisor 程序表 + Docker 容器表）
+
 ### `system-config`
 
 - `/api/system-config/dashboard`
