@@ -6,6 +6,49 @@ Guardian 是当前 A 股实时策略层。它负责把 XTData consumer 产生的
 
 Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起写入卖单请求，供 Order Management 在正常成交链和差额自动平账链里保持同一套卖出入口语义。
 
+## 双账本（base / t，GitHub Issue #549）
+
+当前订单账本（`om_position_entries` / `om_entry_slices`）按来源拆分为两个逻辑账本：
+
+- **底仓（base）**：首次开仓（must_pool 首开或手动首开）、固定买入线（BUY-1/2/3）触发补仓、手动加仓（manual source，非首开）；读取侧 `position_type != "t"` 一律按 base（缺失/未知默认 base）。
+- **做T（t）**：Guardian 信号加仓、破线区（p ≤ BUY-3）深档买入；由运行时 ingest 按订单 `strategy_context.buy_ledger` / 来源显式打标。
+
+打标规则（`freshquant/order_management/ingest/xt_reports.py::_resolve_entry_position_type`）：
+`buy_ledger == "base_line"` → base；manual 来源 → base；无 open entry（首开）→ base；其余（Guardian 信号加仓）→ t。聚类保留已有标记；重建/回填兜底一律 base。
+
+- 卖出分流：**TPSL 只卖 base**（比例基数 = Σ base remaining），**Guardian 只卖 t**（逐 slice 统一盈利谓词 + mount 过滤）。
+- 手动/外部卖单（无 source plan）分摊三段分桶：① T 盈利低成本（卖单 `avg_filled_price` ≥ `guardian_price × (1 + percent/100)`，`guardian_price` 升序）→ ② 底仓 → ③ T 非盈利兜底；`om_exit_allocations` 记录被扣 slice 的 `position_type`。
+- D/C 占用金额最简实现 = 该账本剩余股数 × 当前市场价（不按成本价聚合、无 cost_price 字段）。
+- 历史回填：`script/maintenance/backfill_position_type.py`（flatten 幂等重建，已有标记保留、缺失 → base；dry-run → execute；不导出备份）。存量止盈档批量激活为部署后的独立步骤 `--activate-takeprofit`（新代码部署并重启后、非交易时段执行，天然幂等可重跑）。
+
+### 固定价格触发买入线（对称阶梯状态机）
+
+买入线执行器挂在 TPSL tick worker（`freshquant/tpsl/consumer.py`），universe = **当前持仓 ∩ 有 `guardian_buy_grid_configs`**（与 TP/SL universe 双集合隔离，不混入）。
+
+- 触发：实时价格（bid1，无则 last）≤ BUY-N 且该线 armed 且 `buy_enabled[N]`；只补仓不建仓（空仓首开走 must_pool/手动）。
+- 数量：`R_N = cap_N − max(D+C, MV) − 在途买单金额`（占用取大；MV 缺失 fail-closed 不买）；`B = R_N`；`B < min_buy_amount` 或不足一手不买（不消耗冷却）；独立冷却键 `base_buy:<code>`（15 分钟，与 T 侧 `buy:<code>` 隔离）。
+- 对称阶梯状态机（`freshquant/strategy/guardian_ladder.py`，字段级原子 `$set` + 事件幂等 + 条件更新，不做整份读改写）：
+  - 买入线触发（提交买单时）→ 关 BUY-N 及以上 + **全开止盈档**；
+  - 止盈卖出成交 → 关 TP-1..TP-N + **全开买入线**（重激活后不当场评估，下一 tick）；
+  - 零成交终态（撤单/废单/部分撤单未成交部分）→ 重开对应档位，按 `broker_order_id`/`intent_id`/`internal_order_id` 幂等；
+  - 事件冲突：tick 路径下一 tick 重试；XT ingest 路径当前事件内有限重试并记录告警。
+- rearm 门控：仅 base 买入事件（首开 + buy 线触发 + 手动加仓）全开止盈档；**T 买入不触发状态机**。
+- 配置校验：`TP1 > BUY-1`（及 BUY/TP 线序单调、caps 递增）倒挂 → fail-closed + 告警。
+- 状态存储：`guardian_buy_grid_states.buy_line_armed`（缺省 `[true,true,true]`）+ `om_takeprofit_states.armed_levels`；`guardian_buy_grid_state` GET/POST/reset 暴露并保留该两字段，reset 语义 = 回缺省态（安全方向：最坏多买一次，受 R/冷却/min_buy_amount 约束）。
+
+### 做T买入（四段走廊金字塔）
+
+Guardian 持仓加仓数量（`build_holding_add_decision`）按价格四段走廊出量：
+
+1. 回补走廊 `(最近止盈线, BUY-1]`：cap1（上界 = 最近高于当前价的止盈线，下界 = BUY-1）；
+2. `[BUY-1, BUY-2]`：cap2；
+3. `[BUY-2, BUY-3]`：cap3；
+4. 破线区 `p ≤ BUY-3`：`global_cap` 基数、`B = R × 1/2` 收敛、冷却用 T 侧 `buy:<code>`。
+
+`t = (上界 − p)/(上界 − 下界)`；`B = R × t²`；`Q = floor(B/p/100)×100`；`B < min_buy_amount`（`params.guardian.stock.min_buy_amount`，默认/下限 10000）不买（不消耗冷却）；`p > 上界`（含 p > TP3 不买入区）不买；触线 `t=1` 归属抄底线 base 补仓，T 侧不重复。
+
+做T买入门槛基准（`_resolve_guardian_buy_fill_reference`）：最近一笔 execution fill 成交价 → 全部持仓（base+T）剩余股数加权平均成本 → `xt_positions.avg_price` 兜底 → 三者皆无不买；无 fill_time 基准时跳过时序校验。已删除 `guardian_slice_next_level` 回退（情况2）及其函数。
+
 ## 入口
 
 - 策略实现
@@ -42,10 +85,9 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 
 - 持仓加仓
   - `_handle_holding_buy`
-  - 数量决策由 `GuardianBuyGridService.build_holding_add_decision()` 完成：先按当前价格所在区间识别最近阶段 CAP（`effective_stage_cap`），以 `effective_stage_cap - 当前实时市值` 得到可用仓位，再按可用仓位的一半截断本次买入量（`capacity_ratio=0.5`，100 股整手向下取整）；`price <= BUY-3` 阶段同样适用该半容量规则，无特例分支
-- `_handle_holding_buy` 的 `timing_check` / `price_threshold_check` 优先读取 order management `om_execution_fills` 的最新真实成交 `trade_time/price` 作为基准，价格阈值继续沿用 `threshold` 配置，避免卖出后又按剩余 Guardian slice 锚点做反向差价
-- 若最新 `execution_fill` 早于当前 open Guardian slices 的最新时间锚点，Guardian 会把它视为历史旧成交并忽略，继续走 Guardian slice fallback，避免把旧成交误用到 `manual_locked / external_inferred / reset` 之后的当前持仓
-- 若当前 symbol 缺失 execution fill，`_handle_holding_buy` 会回退到最低 open Guardian slice 作为价格基准，并按该 slice 的 `grid_interval` 推导“下一档”价格作为买入阈值；Trace 会在 `decision_context.threshold.fill_reference_source / threshold_rule_source / grid_interval` 标明来源与规则
+  - 数量决策由 `GuardianBuyGridService.build_holding_add_decision()` 完成（#549 做T四段走廊，见「做T买入（四段走廊金字塔）」）：`R = cap − max(D+C, MV) − 在途`，`B = R × t²`（破线区 `R × 1/2`），受 `min_buy_amount` 与整手约束
+- `_handle_holding_buy` 的 `timing_check` / `price_threshold_check` 以最近一笔 execution fill 成交价为基准（无 execution fill 时按全部持仓剩余股数加权平均成本、再兜底 `xt_positions.avg_price`），价格阈值沿用 `threshold` 配置；`fill_reference_source` 在 Trace 中标注（`execution_fill` / `ledger_average_cost` / `broker_position_avg_price`）
+- 无 execution fill 基准时无 `fill_time` → 跳过时序校验（timing_check 仅在 fill_time 存在时执行）
 - must_pool 新开仓
   - `_handle_new_open_buy`
   - 只有带 `must_pool_5m_new_open` tag、仍在 enabled `must_pool` 且当前非持仓的买点才能进入该分支
@@ -54,6 +96,7 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 卖出路径：
 
 - 持仓内 `SELL_SHORT` 触发 `_handle_sell`
+- **只扫 T 账本**（`position_type == "t"`）：纯底仓标的直接跳过（`no_t_position`，由 TPSL 止盈卖出）；无 arranged fills 时继续走既有 arrangement 降级检查（`arrangement_degraded` / `entry_without_slices`）
 - `_handle_sell` 依赖 order management arranged fill 的最近 `date/time` 判断切片先后；对 `external_inferred` 历史 lot / slice，当前投影会在读路径按 `trade_time` 回填缺失时间，避免 Trace 在 `timing_check` 后因为 `last_fill date/time=None` 直接中断
 - `_handle_sell` 的 `timing_check` / `price_threshold_check` 仍以 arranged fill 作为 Guardian 切片基准；Trace 同样会在 `decision_context.*.fill_reference_source` 标明该来源
 - 卖出数量判定统一走 `freshquant.order_management.guardian.slice_evaluation.evaluate_guardian_sell_slices`：对每个 open slice 独立计算止盈阈值
@@ -62,6 +105,7 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
   - 可卖判定：`normalized_signal_price >= threshold_price`；信号价先按 `0.01` 最小价位规范化（`Decimal` + `ROUND_HALF_UP`），阈值保留 `0.0001` 精度，不再依赖二进制 float 的 `>` 处理 `21.580000000000002 > 21.58` 边界
   - 返回值含 `raw_quantity / eligible_slices / threshold_evidence`，逐 slice 证据写入 `price_threshold_check` / `quantity_check` 的 Trace
 - `_handle_sell` 只有至少一个 slice 达到独立阈值（`raw_quantity > 0`）才进入后续流程；随后统一按 `xt_positions.can_use_volume` 截断并按一手向下取整；只有 `sellable_volume_check` 通过后才继续冷却判断和下单提交
+- mount 过滤：可卖金额（Σ 可卖 T slice 剩余 × 当前价）< `get_trade_amount`（mount，默认 50000）→ 本次不卖，可卖 slices 保留，不消耗 `sell:<code>` 冷却
 - `_handle_sell` 提交卖单时写入 `guardian_sell_sources` **version=2** 来源计划：`slices[]`（精确执行合同，每 slice 一行，携带 `entry_slice_id / guardian_price / threshold_price`）+ `entries[]`（按 entry 聚合唯一行）；来源计划只包含达到独立阈值的 slice，`sum(slices.quantity) == sum(entries.quantity) == submit_quantity`
 - 历史 v1 请求（只有 `entries[]`，无 `entry_slice_id`）由 Order Management 按 entry 级剩余预算兼容处理
 
@@ -90,15 +134,19 @@ Guardian buy grid 当前区分两类语义：
 - 实时仓位或全局单标的上限读不到时跳过（`position_capacity_unavailable`）
 - 阶段剩余容量（按 `capacity_ratio` 折算后）不足一手时不买入（`grid_position_capacity_exhausted`）
 - `guardian_buy_grid_states` 保留字段与 `last_hit_*` 审计记录；`reset_after_sell_trade` 或价格配置更新仍会把 `buy_active` 重置为全激活，仅作审计信息
+- `guardian_buy_grid_states.buy_line_armed` 与 `om_takeprofit_states.armed_levels` 由 `guardian_ladder` 阶梯状态机统一读写（字段级原子 `$set`）
 
 ## 配置
 
+- `params.guardian.stock.min_buy_amount`
+  - 所有买入路径（买入线 / 破线区 / 做T）最小买入金额门槛，默认 10000、下限钳制 10000
 - `monitor.xtdata.trading_mode`
   - 事件模式必须启用交易模式（默认 true）
   - `screening_mode` 不影响 Guardian 交易主链
 - `monitor.xtdata.max_symbols`
 - buy grid 初始金额与层级配置
 - Redis 冷却键
+  - `base_buy:<code>`（买入线，与 T 侧隔离）
   - `buy:<code>`
   - `sell:<code>`
   - `fq:xtrade:last_new_order_time`

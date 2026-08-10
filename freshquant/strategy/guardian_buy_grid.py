@@ -3,6 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from loguru import logger
+
+from freshquant.order_management.entry_adapter import position_type_of
+from freshquant.strategy.common import get_min_buy_amount
+from freshquant.strategy.guardian_ladder import (
+    DEFAULT_BUY_LINE_ARMED,
+    _coerce_buy_line_armed,
+)
 from freshquant.util.code import normalize_to_base_code
 
 BUY_LEVELS = ("BUY-1", "BUY-2", "BUY-3")
@@ -11,6 +19,17 @@ RESET_BUY_ACTIVE = [True, True, True]
 DEFAULT_BUY_ENABLED = [True, True, True]
 DEFAULT_INITIAL_LOT_AMOUNT = 100000
 AUTOMATED_UPDATERS = {"order_management", "system"}
+_UNSET = object()
+_PENDING_BUY_STATES = {
+    "ACCEPTED",
+    "QUEUED",
+    "SUBMITTING",
+    "SUBMITTED",
+    "PARTIAL_FILLED",
+    "BROKER_BYPASSED",
+    "CANCEL_REQUESTED",
+    "INFERRED_PENDING",
+}
 
 
 def _now_iso() -> str:
@@ -24,6 +43,15 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+
+def _coerce_int(value: Any, default: int | None = None) -> int | None:
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _coerce_bool(value: Any, default: bool = True) -> bool:
@@ -85,6 +113,45 @@ def _amount_to_quantity(amount: float, price: float) -> int:
     return int(amount / price / 100) * 100
 
 
+def validate_tp_buy_config(
+    buy_prices: list[float],
+    *,
+    code: str | None = None,
+) -> list[str]:
+    """配置校验（#549）：TP1 > BUY-1（及线序单调）倒挂 → fail-closed + 告警。
+
+    返回错误列表；空列表表示通过。TP 价格来自 ``om_takeprofit_profiles``。
+    """
+
+    errors: list[str] = []
+    prices = [_coerce_float(item) for item in list(buy_prices or [])]
+    if not (len(prices) == 3 and prices[0] > prices[1] > prices[2] > 0):
+        errors.append("BUY prices must satisfy BUY-1 > BUY-2 > BUY-3 > 0")
+        return errors
+    profile = None
+    if code:
+        try:
+            from freshquant.order_management.db import DBOrderManagement
+
+            profile = DBOrderManagement["om_takeprofit_profiles"].find_one(
+                {"symbol": normalize_to_base_code(code)}
+            )
+        except Exception:
+            profile = None
+    if profile:
+        tp_prices = sorted(
+            _coerce_float(tier.get("price"))
+            for tier in (profile.get("tiers") or [])
+            if _coerce_float(tier.get("price")) > 0
+        )
+        if tp_prices:
+            if not (len(tp_prices) >= 1 and tp_prices[0] > prices[0]):
+                errors.append("TP1 must be > BUY-1 (avoid same-price wash)")
+            if any(left >= right for left, right in zip(tp_prices, tp_prices[1:])):
+                errors.append("TP prices must be strictly ascending")
+    return errors
+
+
 class GuardianBuyGridService:
     config_collection_name = "guardian_buy_grid_configs"
     state_collection_name = "guardian_buy_grid_states"
@@ -97,6 +164,7 @@ class GuardianBuyGridService:
         get_trade_amount_fn=None,
         now_fn=None,
         position_repository=None,
+        order_repository=None,
     ):
         if database is None:
             from freshquant.db import DBfreshquant
@@ -110,6 +178,7 @@ class GuardianBuyGridService:
         self.get_trade_amount_fn = get_trade_amount_fn
         self.now_fn = now_fn or _now_iso
         self.position_repository = position_repository
+        self.order_repository = order_repository
 
     def _config_collection(self):
         return self.database[self.config_collection_name]
@@ -215,6 +284,15 @@ class GuardianBuyGridService:
                 raise ValueError("BUY prices must satisfy BUY-1 > BUY-2 > BUY-3 > 0")
             if any(item <= 0 for item in caps) or not (caps[0] <= caps[1] <= caps[2]):
                 raise ValueError("max_position_amounts must be positive and ascending")
+            tp_errors = validate_tp_buy_config(prices, code=normalized)
+            if tp_errors:
+                message = "; ".join(tp_errors)
+                logger.warning(
+                    "guardian buy grid config rejected for {}: {}",
+                    normalized,
+                    message,
+                )
+                raise ValueError(f"ladder config invalid: {message}")
             _, global_limit = self._load_position_capacity(normalized)
             if global_limit is None or any(item > global_limit for item in caps):
                 raise ValueError(
@@ -259,32 +337,35 @@ class GuardianBuyGridService:
         self,
         code: str,
         *,
-        buy_active: list[bool] | None = None,
-        last_hit_level: str | None = None,
-        last_hit_price: float | None = None,
-        last_hit_signal_time: str | None = None,
-        last_reset_reason: str | None = None,
+        buy_active: list[bool] | object = _UNSET,
+        last_hit_level: str | None | object = _UNSET,
+        last_hit_price: float | None | object = _UNSET,
+        last_hit_signal_time: str | None | object = _UNSET,
+        last_reset_reason: str | None | object = _UNSET,
         updated_by: str = "manual",
         audit: bool = True,
     ) -> dict[str, Any]:
         normalized = normalize_to_base_code(code)
         current = self.get_state(normalized)
-        document = {
-            "code": normalized,
-            "buy_active": _coerce_buy_active(
-                buy_active if buy_active is not None else current.get("buy_active"),
+        # v4.1 R3：字段级原子 $set，只写显式传入的字段，不做 read→整份写回
+        # （防双进程 lost update）。未显式传字段保留现值；显式传 None 写 null。
+        fields: dict[str, Any] = {"updated_at": self.now_fn(), "updated_by": updated_by}
+        if buy_active is not _UNSET:
+            fields["buy_active"] = _coerce_buy_active(
+                buy_active,
                 default=current.get("buy_active"),
-            ),
-            "last_hit_level": last_hit_level,
-            "last_hit_price": last_hit_price,
-            "last_hit_signal_time": last_hit_signal_time,
-            "last_reset_reason": last_reset_reason,
-            "updated_at": self.now_fn(),
-            "updated_by": updated_by,
-        }
+            )
+        if last_hit_level is not _UNSET:
+            fields["last_hit_level"] = last_hit_level
+        if last_hit_price is not _UNSET:
+            fields["last_hit_price"] = last_hit_price
+        if last_hit_signal_time is not _UNSET:
+            fields["last_hit_signal_time"] = last_hit_signal_time
+        if last_reset_reason is not _UNSET:
+            fields["last_reset_reason"] = last_reset_reason
         self._state_collection().update_one(
             {"code": normalized},
-            {"$set": document},
+            {"$set": fields},
             upsert=True,
         )
         result = self.get_state(normalized)
@@ -322,12 +403,43 @@ class GuardianBuyGridService:
                 "skip_reason": "grid_disabled",
                 "stage": None,
             }
-        if config:
-            quantity, context = self._resolve_capped_quantity(
-                normalized, source_price, initial_amount, config
-            )
-        else:
-            quantity, context = _amount_to_quantity(initial_amount, source_price), {}
+        # 首开只受 global_cap（#549）：R = global_cap − max(D+C, MV) − 在途
+        _, global_limit = self._load_position_capacity(normalized)
+        if global_limit is None:
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "position_capacity_unavailable",
+                "stage": "PRE_BUY-1",
+            }
+        capacity = self._resolve_remaining_capacity(
+            normalized,
+            source_price,
+            cap=float(global_limit),
+        )
+        if capacity is None:
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "position_capacity_unavailable",
+                "stage": "PRE_BUY-1",
+            }
+        base_quantity = _amount_to_quantity(initial_amount, source_price)
+        capacity_quantity = _amount_to_quantity(capacity["remaining"], source_price)
+        context = {
+            "stage": "PRE_BUY-1",
+            "effective_stage_cap": float(global_limit),
+            "current_market_value": capacity["market_value"],
+            "remaining_amount": capacity["remaining"],
+            "capacity_ratio": 1.0,
+            "base_quantity": base_quantity,
+            "capacity_quantity": capacity_quantity,
+            "ledger_occupancy": capacity["ledger_occupancy"],
+            "pending_buy_amount": capacity["pending_buy_amount"],
+        }
+        if capacity_quantity <= 0:
+            context["skip_reason"] = "grid_position_capacity_exhausted"
+        quantity = min(base_quantity, capacity_quantity)
         return {**base, "quantity": quantity, **context}
 
     def build_holding_add_decision(self, code: str, price: float) -> dict[str, Any]:
@@ -347,7 +459,7 @@ class GuardianBuyGridService:
             "buy_prices_snapshot": self._build_buy_price_snapshot(config),
             "buy_active_before": list(state["buy_active"]),
         }
-        if config and not _is_grid_enabled(config):
+        if not config or not _is_grid_enabled(config):
             # config 是真正守门人：即使 buy_active 被迟到 sell trade 重置回
             # [T,T,T]，关闭状态下也不产生任何买入数量（双闸不冲突）。
             return {
@@ -356,26 +468,223 @@ class GuardianBuyGridService:
                 "skip_reason": "grid_disabled",
                 "stage": None,
             }
+        # 做T四段走廊（#549 v4）：回补走廊 / [BUY-1,BUY-2] / [BUY-2,BUY-3] /
+        # 破线区；B = R × t²；破线区 B = R × 1/2（global_cap 基数）。
         hit_levels = self._resolve_hit_levels(
             price=source_price,
             config=config,
             buy_active=state["buy_active"],
         )
         grid_level = hit_levels[-1] if hit_levels else None
-        if config:
-            quantity, context = self._resolve_capped_quantity(
-                normalized,
-                source_price,
-                base_amount,
-                config,
-                capacity_ratio=0.5,
-            )
+        corridor, skip_reason, stage = self._resolve_t_corridor(
+            normalized, config, source_price
+        )
+        if corridor is None:
+            return {
+                **base,
+                "grid_level": grid_level,
+                "hit_levels": hit_levels,
+                "quantity": 0,
+                "skip_reason": skip_reason,
+                "stage": stage,
+            }
+        if corridor["below_break"]:
+            _, global_limit = self._load_position_capacity(normalized)
+            if global_limit is None:
+                return {
+                    **base,
+                    "grid_level": grid_level,
+                    "hit_levels": hit_levels,
+                    "quantity": 0,
+                    "skip_reason": "position_capacity_unavailable",
+                    "stage": "BUY-3_BELOW",
+                }
+            effective_cap = float(global_limit)
         else:
-            quantity, context = _amount_to_quantity(base_amount, source_price), {}
+            effective_cap = corridor["cap"]
+        capacity = self._resolve_remaining_capacity(
+            normalized,
+            source_price,
+            cap=effective_cap,
+        )
+        if capacity is None:
+            return {
+                **base,
+                "grid_level": grid_level,
+                "hit_levels": hit_levels,
+                "quantity": 0,
+                "skip_reason": "position_capacity_unavailable",
+                "stage": corridor["stage"],
+            }
+        t_value = corridor["t"]
+        if corridor["below_break"]:
+            buy_amount = capacity["remaining"] * 0.5
+        else:
+            buy_amount = capacity["remaining"] * t_value * t_value
+        min_buy_amount = get_min_buy_amount(normalized)
+        if buy_amount < min_buy_amount:
+            return {
+                **base,
+                "grid_level": grid_level,
+                "hit_levels": hit_levels,
+                "quantity": 0,
+                "skip_reason": "below_min_buy_amount",
+                "stage": corridor["stage"],
+                "buy_amount": round(buy_amount, 2),
+                "min_buy_amount": min_buy_amount,
+                "capacity_ratio": (
+                    0.5 if corridor["below_break"] else t_value * t_value
+                ),
+                "current_market_value": capacity["market_value"],
+                "remaining_amount": capacity["remaining"],
+                "ledger_occupancy": capacity["ledger_occupancy"],
+                "pending_buy_amount": capacity["pending_buy_amount"],
+                "t_value": t_value,
+            }
+        quantity = _amount_to_quantity(buy_amount, source_price)
+        context = {
+            "stage": corridor["stage"],
+            "effective_stage_cap": effective_cap,
+            "current_market_value": capacity["market_value"],
+            "remaining_amount": capacity["remaining"],
+            "capacity_ratio": (0.5 if corridor["below_break"] else t_value * t_value),
+            "base_quantity": _amount_to_quantity(base_amount, source_price),
+            "capacity_quantity": quantity,
+            "buy_amount": round(buy_amount, 2),
+            "min_buy_amount": min_buy_amount,
+            "ledger_occupancy": capacity["ledger_occupancy"],
+            "pending_buy_amount": capacity["pending_buy_amount"],
+            "t_value": t_value,
+        }
+        if quantity < 100:
+            context["skip_reason"] = "below_board_lot"
         return {
             **base,
             "grid_level": grid_level,
             "hit_levels": hit_levels,
+            "quantity": quantity,
+            **context,
+        }
+
+    def build_base_line_decision(self, code: str, price: float) -> dict[str, Any]:
+        """固定价格触发买入线决策（#549，挂 TPSL tick worker）。
+
+        R_N = cap_N − max(D+C, MV) − 在途（占用取大）；MV 缺失 fail-closed；
+        ``B < min_buy_amount`` 或不足一手不买（不消耗冷却）；空仓不触发
+        （universe = 持仓 ∩ 有 buy grid 配置，由调用方保证）。
+        """
+
+        normalized = normalize_to_base_code(code)
+        source_price = _coerce_float(price)
+        config = self.get_config(normalized)
+        state = self.get_state(normalized)
+        base = {
+            "code": normalized,
+            "path": "base_line",
+            "source_price": source_price,
+            "grid_level": None,
+            "hit_levels": [],
+            "multiplier": 1,
+            "buy_prices_snapshot": self._build_buy_price_snapshot(config),
+            "buy_active_before": list(state["buy_active"]),
+        }
+        if config is None or not _is_grid_enabled(config):
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "grid_disabled",
+                "stage": None,
+            }
+        caps = config.get("max_position_amounts")
+        prices = [_coerce_float(config.get(level)) for level in BUY_LEVELS]
+        if caps is None or len(list(caps or [])) != 3:
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "grid_position_cap_unconfigured",
+                "stage": None,
+            }
+        if not (prices[0] > prices[1] > prices[2] > 0):
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "grid_position_config_invalid",
+                "stage": None,
+            }
+        buy_enabled = _coerce_buy_enabled(
+            config.get("buy_enabled"),
+            default=[True, True, True],
+        )
+        buy_line_armed = state["buy_line_armed"]
+        hit_index = None
+        hit_stage = None
+        for index, level in enumerate(BUY_LEVELS):
+            if (
+                source_price <= prices[index]
+                and buy_enabled[index]
+                and bool(buy_line_armed[index])
+            ):
+                hit_index = index
+                hit_stage = level
+                break
+        if hit_index is None:
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "no_armed_buy_line",
+                "stage": None,
+                "buy_line_armed": list(buy_line_armed),
+            }
+        capacity = self._resolve_remaining_capacity(
+            normalized,
+            source_price,
+            cap=float(caps[hit_index]),
+        )
+        if capacity is None:
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "position_capacity_unavailable",
+                "stage": hit_stage,
+                "grid_level": hit_stage,
+            }
+        buy_amount = capacity["remaining"]
+        min_buy_amount = get_min_buy_amount(normalized)
+        if buy_amount < min_buy_amount:
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "below_min_buy_amount",
+                "stage": hit_stage,
+                "grid_level": hit_stage,
+                "buy_amount": round(buy_amount, 2),
+                "min_buy_amount": min_buy_amount,
+                "current_market_value": capacity["market_value"],
+                "remaining_amount": capacity["remaining"],
+                "ledger_occupancy": capacity["ledger_occupancy"],
+                "pending_buy_amount": capacity["pending_buy_amount"],
+            }
+        quantity = _amount_to_quantity(buy_amount, source_price)
+        context = {
+            "stage": hit_stage,
+            "effective_stage_cap": float(caps[hit_index]),
+            "current_market_value": capacity["market_value"],
+            "remaining_amount": capacity["remaining"],
+            "capacity_ratio": 1.0,
+            "base_quantity": quantity,
+            "capacity_quantity": quantity,
+            "buy_amount": round(buy_amount, 2),
+            "min_buy_amount": min_buy_amount,
+            "ledger_occupancy": capacity["ledger_occupancy"],
+            "pending_buy_amount": capacity["pending_buy_amount"],
+            "buy_line_armed": list(buy_line_armed),
+        }
+        if quantity < 100:
+            context["skip_reason"] = "below_board_lot"
+        return {
+            **base,
+            "grid_level": hit_stage,
+            "hit_levels": [hit_stage],
             "quantity": quantity,
             **context,
         }
@@ -530,6 +839,205 @@ class GuardianBuyGridService:
             context["skip_reason"] = "grid_position_capacity_exhausted"
         return min(base_quantity, capacity_quantity), context
 
+    def _resolve_t_corridor(
+        self,
+        code,
+        config,
+        price,
+    ):
+        """做T四段走廊（#549 v4）：返回 (corridor, skip_reason, stage)。
+
+        1. 回补走廊 ``(最近止盈线, BUY-1]``：cap1（上界 = 最近高于当前价的
+           止盈线，下界 = BUY-1）；
+        2. ``[BUY-1, BUY-2]``：cap2；
+        3. ``[BUY-2, BUY-3]``：cap3；
+        4. 破线区 ``p ≤ BUY-3``：global_cap、1/2 收敛（``below_break``）。
+        ``t = (上界 − p)/(上界 − 下界)``；``p > 上界``（含 p > TP3 不买入区）
+        或 ``t >= 1``（触线归属抄底线 base 补仓）→ 不买。
+        """
+
+        caps = list(config.get("max_position_amounts") or [])
+        prices = [_coerce_float(config.get(level)) for level in BUY_LEVELS]
+        if not (prices[0] > prices[1] > prices[2] > 0) or (len(caps) != 3):
+            if len(caps) != 3:
+                return None, "grid_position_cap_unconfigured", None
+            return None, "grid_position_config_invalid", None
+        if any(cap <= 0 for cap in caps) or not (caps[0] <= caps[1] <= caps[2]):
+            return None, "grid_position_config_invalid", None
+        buy_enabled = _coerce_buy_enabled(
+            config.get("buy_enabled"),
+            default=[True, True, True],
+        )
+        if price > prices[0]:
+            if not buy_enabled[0]:
+                return None, "grid_stage_disabled", "TP_TO_BUY-1"
+            upper_candidates = [
+                tp_price
+                for tp_price in self._load_takeprofit_prices(code)
+                if tp_price > price
+            ]
+            if not upper_candidates:
+                return None, "above_takeprofit_zone", "TP_ABOVE"
+            upper = min(upper_candidates)
+            lower = prices[0]
+            cap = float(caps[0])
+            stage = "TP_TO_BUY-1"
+        elif price > prices[1]:
+            if not buy_enabled[1]:
+                return None, "grid_stage_disabled", "BUY-1_TO_BUY-2"
+            upper, lower, cap = prices[0], prices[1], float(caps[1])
+            stage = "BUY-1_TO_BUY-2"
+        elif price > prices[2]:
+            if not buy_enabled[2]:
+                return None, "grid_stage_disabled", "BUY-2_TO_BUY-3"
+            upper, lower, cap = prices[1], prices[2], float(caps[2])
+            stage = "BUY-2_TO_BUY-3"
+        else:
+            return (
+                {
+                    "cap": None,
+                    "below_break": True,
+                    "t": 1.0,
+                    "stage": "BUY-3_BELOW",
+                },
+                None,
+                "BUY-3_BELOW",
+            )
+        if upper <= lower:
+            return None, "corridor_invalid", stage
+        t_value = (upper - price) / (upper - lower)
+        if t_value < 0 or t_value >= 1:
+            return None, "corridor_out_of_band", stage
+        return (
+            {
+                "cap": cap,
+                "below_break": False,
+                "t": t_value,
+                "stage": stage,
+            },
+            None,
+            stage,
+        )
+
+    def _load_takeprofit_prices(self, code) -> list[float]:
+        """读取该标的 TPSL profile 的止盈档价格（用于回补走廊上界）。"""
+
+        try:
+            from freshquant.order_management.db import DBOrderManagement
+
+            profile = DBOrderManagement["om_takeprofit_profiles"].find_one(
+                {"symbol": code}
+            )
+        except Exception:
+            return []
+        prices = []
+        for tier in (profile or {}).get("tiers") or []:
+            try:
+                tier_price = float(tier.get("price") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if tier_price > 0:
+                prices.append(tier_price)
+        return sorted(prices)
+
+    def _load_ledger_occupancy(self, code, price) -> dict[str, Any]:
+        """D/C 最简实现（#549 v4.1）：该账本剩余股数 × 当前市场价。
+
+        不按成本价聚合、不新增 cost_price 字段；剩余股数随部分卖出/分摊
+        自动减少，额度自动释放。
+        """
+
+        base_quantity = 0
+        t_quantity = 0
+        try:
+            from freshquant.order_management.entry_adapter import (
+                list_open_entry_slices_compat,
+            )
+            from freshquant.order_management.repository import (
+                OrderManagementRepository,
+            )
+
+            repository = self.order_repository or OrderManagementRepository()
+            open_slices = list_open_entry_slices_compat(
+                symbol=code,
+                repository=repository,
+            )
+        except Exception:
+            open_slices = []
+        for item in open_slices or []:
+            remaining = int(item.get("remaining_quantity") or 0)
+            if remaining <= 0:
+                continue
+            if position_type_of(item.get("position_type")) == "t":
+                t_quantity += remaining
+            else:
+                base_quantity += remaining
+        current_price = _coerce_float(price)
+        return {
+            "base_quantity": base_quantity,
+            "t_quantity": t_quantity,
+            "d_plus_c": (base_quantity + t_quantity) * current_price,
+        }
+
+    def _load_pending_buy_amount(self, code) -> float:
+        """在途买单金额 = Σ(requested − filled) × price（未完结 buy orders）。"""
+
+        try:
+            from freshquant.order_management.repository import (
+                OrderManagementRepository,
+            )
+
+            repository = self.order_repository or OrderManagementRepository()
+            orders = (
+                repository.list_broker_orders(
+                    symbol=code,
+                    states=_PENDING_BUY_STATES,
+                )
+                if hasattr(repository, "list_broker_orders")
+                else []
+            )
+        except Exception:
+            return 0.0
+        total = 0.0
+        for order in orders or []:
+            if str(order.get("side") or "").lower() != "buy":
+                continue
+            requested = _coerce_int(order.get("requested_quantity"))
+            filled = _coerce_int(order.get("filled_quantity"))
+            if requested is None:
+                continue
+            pending_quantity = max(requested - (filled or 0), 0)
+            if pending_quantity <= 0:
+                continue
+            price = _coerce_float(order.get("price") or order.get("avg_filled_price"))
+            total += pending_quantity * price
+        return round(total, 2)
+
+    def _resolve_remaining_capacity(self, code, price, *, cap) -> dict[str, Any] | None:
+        """R = cap − max(D+C, MV) − 在途（占用取大，更保守）。
+
+        MV 缺失 → fail-closed（返回 None，调用方不买），禁止退化为 D+C
+        单边口径。
+        """
+
+        market_value, _global_limit = self._load_position_capacity(code)
+        if market_value is None:
+            return None
+        market_value = float(market_value or 0.0)
+        occupancy = self._load_ledger_occupancy(code, price)
+        pending = self._load_pending_buy_amount(code)
+        remaining = max(
+            float(cap) - max(occupancy["d_plus_c"], market_value) - pending, 0.0
+        )
+        return {
+            "remaining": round(remaining, 2),
+            "market_value": market_value,
+            "ledger_occupancy": occupancy["d_plus_c"],
+            "base_quantity": occupancy["base_quantity"],
+            "t_quantity": occupancy["t_quantity"],
+            "pending_buy_amount": pending,
+        }
+
     def _load_position_capacity(self, code):
         try:
             from freshquant.position_management.repository import (
@@ -560,6 +1068,7 @@ class GuardianBuyGridService:
         return {
             "code": normalize_to_base_code(code),
             "buy_active": list(MISSING_STATE_BUY_ACTIVE),
+            "buy_line_armed": list(DEFAULT_BUY_LINE_ARMED),
             "last_hit_level": None,
             "last_hit_price": None,
             "last_hit_signal_time": None,
@@ -593,6 +1102,7 @@ class GuardianBuyGridService:
         return {
             "code": normalize_to_base_code(raw.get("code") or ""),
             "buy_active": _coerce_buy_active(raw.get("buy_active")),
+            "buy_line_armed": _coerce_buy_line_armed(raw.get("buy_line_armed")),
             "last_hit_level": raw.get("last_hit_level"),
             "last_hit_price": raw.get("last_hit_price"),
             "last_hit_signal_time": raw.get("last_hit_signal_time"),

@@ -1124,6 +1124,7 @@ def _build_flatten_position_entry(
             f"flatten:{account_id or 'unknown'}:{symbol}:{int(rebuild_ts)}"
         ),
         "entry_type": POSITION_SNAPSHOT_FLATTEN_ENTRY_TYPE,
+        "position_type": "base",
         "symbol": symbol,
         "stock_code": symbol,
         "entry_price": entry_price,

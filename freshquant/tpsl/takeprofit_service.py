@@ -5,12 +5,19 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from freshquant.order_management.ids import new_event_id
+from freshquant.strategy.guardian_ladder import get_guardian_ladder_state
 from freshquant.tpsl.repository import TpslRepository
 
 
 class TakeprofitService:
-    def __init__(self, repository=None):
+    def __init__(self, repository=None, ladder_state=None):
         self.repository = repository or TpslRepository()
+        self.ladder_state = ladder_state
+
+    def _get_ladder_state(self):
+        if self.ladder_state is None:
+            self.ladder_state = get_guardian_ladder_state()
+        return self.ladder_state
 
     def save_profile(self, symbol, *, tiers, updated_by="system"):
         normalized_symbol = _normalize_symbol(symbol)
@@ -85,27 +92,14 @@ class TakeprofitService:
         profile = self.repository.find_takeprofit_profile(normalized_symbol)
         if profile is None:
             raise ValueError("takeprofit profile not found")
-        state = self.get_state(normalized_symbol)
-
-        armed_levels = _normalize_armed_levels(state.get("armed_levels") or {})
-        for tier in profile.get("tiers") or []:
-            tier_level = int(tier["level"])
-            if tier_level <= int(level):
-                armed_levels[tier_level] = False
-
-        updated_state = {
-            **state,
-            "symbol": normalized_symbol,
-            "armed_levels": armed_levels,
-            "last_triggered_level": int(level),
-            "last_triggered_batch_id": batch_id,
-            "last_triggered_at": _now(),
-            "updated_at": _now(),
-            "updated_by": updated_by,
-            "version": int(state.get("version") or 0) + 1,
-        }
-        saved_state = self.repository.upsert_takeprofit_state(
-            _serialize_state_document(updated_state)
+        # #549 对称阶梯（v4）：触发提交时只关闭该档（防重复卖单）；
+        # 字段级原子 $set + 事件幂等（batch_id），不做 read→整份写回。
+        self._get_ladder_state().on_takeprofit_trigger(
+            code=normalized_symbol,
+            level=int(level),
+            event_key=f"batch:{batch_id}",
+            last_triggered_batch_id=batch_id,
+            trigger_price=trigger_price,
         )
         self.repository.insert_exit_trigger_event(
             {
@@ -137,32 +131,20 @@ class TakeprofitService:
                 "created_at": _now(),
             }
         )
-        return _normalize_state_document(saved_state)
+        return self.get_state(normalized_symbol)
 
     def rearm_all_levels(self, symbol, *, updated_by="system", reason="manual"):
         normalized_symbol = _normalize_symbol(symbol)
         profile = self.repository.find_takeprofit_profile(normalized_symbol)
         if profile is None:
             raise ValueError("takeprofit profile not found")
-        state = self.get_state(normalized_symbol)
-        armed_levels = {
-            int(tier["level"]): bool(tier.get("manual_enabled"))
-            for tier in profile.get("tiers") or []
-        }
-        updated_state = {
-            **state,
-            "symbol": normalized_symbol,
-            "armed_levels": armed_levels,
-            "last_rearm_reason": reason,
-            "last_rearmed_at": _now(),
-            "updated_at": _now(),
-            "updated_by": updated_by,
-            "version": int(state.get("version") or 0) + 1,
-        }
-        saved_state = self.repository.upsert_takeprofit_state(
-            _serialize_state_document(updated_state)
+        # #549：rearm 收敛为 LadderState 事件（人工兜底/回填兜底）。
+        self._get_ladder_state().rearm_all_levels(
+            normalized_symbol,
+            updated_by=updated_by,
+            reason=reason,
         )
-        return _normalize_state_document(saved_state)
+        return self.get_state(normalized_symbol)
 
     def set_tier_manual_enabled(self, symbol, *, level, enabled, updated_by="system"):
         detail = self.get_profile_with_state(symbol)
@@ -179,23 +161,14 @@ class TakeprofitService:
             raise ValueError("takeprofit tier not found")
 
         profile = self.save_profile(symbol, tiers=tiers, updated_by=updated_by)
-        state = self.get_state(symbol)
-        armed_levels = _normalize_armed_levels(state.get("armed_levels") or {})
-        armed_levels[target_level] = bool(enabled)
-        updated_state = {
-            **state,
-            "symbol": _normalize_symbol(symbol),
-            "armed_levels": armed_levels,
-            "updated_at": _now(),
-            "updated_by": updated_by,
-            "version": int(state.get("version") or 0) + 1,
-        }
-        saved_state = self.repository.upsert_takeprofit_state(
-            _serialize_state_document(updated_state)
+        # #549：armed_levels 读写经 LadderState 字段级 $set。
+        self._get_ladder_state().set_armed_levels(
+            code=_normalize_symbol(symbol),
+            values={target_level: bool(enabled)},
         )
         return {
             **profile,
-            "state": _normalize_state_document(saved_state),
+            "state": self.get_state(symbol),
         }
 
     def _ensure_state(self, symbol, *, tiers, current_state, updated_by):

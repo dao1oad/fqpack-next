@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 
+from freshquant.order_management.entry_adapter import (
+    POSITION_TYPE_BASE,
+    position_type_of,
+)
+
 
 def build_arranged_fill_read_model(open_slices):
     active_slices = list_active_open_slices(open_slices)
@@ -19,6 +24,9 @@ def build_arranged_fill_read_model(open_slices):
         entry_slice_id = str(item.get("entry_slice_id") or "").strip()
         if entry_slice_id:
             row["entry_slice_id"] = entry_slice_id
+        row["position_type"] = position_type_of(
+            item.get("position_type") or POSITION_TYPE_BASE
+        )
         rows.append(row)
     return rows
 

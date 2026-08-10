@@ -10,6 +10,10 @@ const errorMessage = (error) => {
   return error?.response?.data?.error || error?.message || String(error || 'unknown error')
 }
 
+const DETAIL_UNLOADED_REASON = '标的设置尚未加载完成，禁止保存'
+
+const isPriceDetailLoaded = (state = {}) => Boolean(state?.subjectPriceDetail)
+
 const emitNotify = (notify, level, message) => {
   const handler = notify?.[level]
   if (typeof handler === 'function') {
@@ -124,6 +128,10 @@ const restoreLocalPriceDrafts = (state, draftSnapshot) => {
 }
 
 const buildGuardianPriceSaveDraft = (state = {}) => {
+  // #548：detail 未加载/加载失败/缺失时直接拒绝提交（双保险）。
+  if (!isPriceDetailLoaded(state)) {
+    return { blocked: true, reason: 'detail_unloaded' }
+  }
   const baseline = cloneGuardianDraft(state?.subjectPriceDetail?.guardianDraft || state?.guardianDraft || {})
   return {
     ...baseline,
@@ -132,6 +140,9 @@ const buildGuardianPriceSaveDraft = (state = {}) => {
 }
 
 const buildTakeprofitPriceSaveDrafts = (state = {}) => {
+  if (!isPriceDetailLoaded(state)) {
+    return { blocked: true, reason: 'detail_unloaded' }
+  }
   const baselineRows = cloneTakeprofitDrafts(
     state?.subjectPriceDetail?.takeprofitDrafts || state?.takeprofitDrafts || [],
   )
@@ -150,6 +161,9 @@ const buildTakeprofitPriceSaveDrafts = (state = {}) => {
 }
 
 const buildGuardianEnabledSaveDraft = (state = {}, nextBuyEnabled = [true, true, true]) => {
+  if (!isPriceDetailLoaded(state)) {
+    return { blocked: true, reason: 'detail_unloaded' }
+  }
   const baseline = cloneGuardianDraft(state?.subjectPriceDetail?.guardianDraft || state?.guardianDraft || {})
   const buy_enabled = normalizeBuyEnabled(nextBuyEnabled, baseline.buy_enabled)
   return {
@@ -160,6 +174,9 @@ const buildGuardianEnabledSaveDraft = (state = {}, nextBuyEnabled = [true, true,
 }
 
 const buildTakeprofitEnabledSaveDrafts = (state = {}, nextManualEnabled = [true, true, true]) => {
+  if (!isPriceDetailLoaded(state)) {
+    return { blocked: true, reason: 'detail_unloaded' }
+  }
   const baselineRows = cloneTakeprofitDrafts(
     state?.subjectPriceDetail?.takeprofitDrafts || state?.takeprofitDrafts || [],
   )
@@ -352,6 +369,14 @@ export const saveGuardianPriceGuides = async (
   } = {},
 ) => {
   const guardianDraft = buildGuardianPriceSaveDraft(state)
+  if (guardianDraft?.blocked) {
+    emitNotify(notify, 'warning', DETAIL_UNLOADED_REASON)
+    return {
+      ok: false,
+      reason: 'detail_unloaded',
+      message: DETAIL_UNLOADED_REASON,
+    }
+  }
   const validation = validateGuardianPriceGuideDraft(guardianDraft, { effectivePositionLimit })
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)
@@ -398,6 +423,14 @@ export const saveTakeprofitPriceGuides = async (
   } = {},
 ) => {
   const takeprofitDrafts = buildTakeprofitPriceSaveDrafts(state)
+  if (takeprofitDrafts?.blocked) {
+    emitNotify(notify, 'warning', DETAIL_UNLOADED_REASON)
+    return {
+      ok: false,
+      reason: 'detail_unloaded',
+      message: DETAIL_UNLOADED_REASON,
+    }
+  }
   const validation = validateTakeprofitDrafts(takeprofitDrafts)
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)
@@ -445,6 +478,14 @@ export const savePriceGuides = async (
   } = {},
 ) => {
   const guardianDraft = buildGuardianPriceSaveDraft(state)
+  if (guardianDraft?.blocked) {
+    emitNotify(notify, 'warning', DETAIL_UNLOADED_REASON)
+    return {
+      ok: false,
+      reason: 'detail_unloaded',
+      message: DETAIL_UNLOADED_REASON,
+    }
+  }
   const guardianValidation = validateGuardianPriceGuideDraft(guardianDraft, { effectivePositionLimit })
   if (!guardianValidation.valid) {
     emitNotify(notify, 'warning', guardianValidation.message)
@@ -456,6 +497,14 @@ export const savePriceGuides = async (
   }
 
   const takeprofitDrafts = buildTakeprofitPriceSaveDrafts(state)
+  if (takeprofitDrafts?.blocked) {
+    emitNotify(notify, 'warning', DETAIL_UNLOADED_REASON)
+    return {
+      ok: false,
+      reason: 'detail_unloaded',
+      message: DETAIL_UNLOADED_REASON,
+    }
+  }
   const takeprofitValidation = validateTakeprofitDrafts(takeprofitDrafts)
   if (!takeprofitValidation.valid) {
     emitNotify(notify, 'warning', takeprofitValidation.message)
@@ -507,6 +556,14 @@ export const saveGuardianGuideEnabledState = async (
 ) => {
   const localPriceDrafts = captureLocalPriceDrafts(state)
   const guardianDraft = buildGuardianEnabledSaveDraft(state, nextBuyEnabled)
+  if (guardianDraft?.blocked) {
+    emitNotify(notify, 'warning', DETAIL_UNLOADED_REASON)
+    return {
+      ok: false,
+      reason: 'detail_unloaded',
+      message: DETAIL_UNLOADED_REASON,
+    }
+  }
   const validation = validateGuardianPriceGuideDraft(guardianDraft, { effectivePositionLimit })
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)
@@ -560,6 +617,14 @@ export const saveTakeprofitGuideEnabledState = async (
 ) => {
   const localPriceDrafts = captureLocalPriceDrafts(state)
   const takeprofitDrafts = buildTakeprofitEnabledSaveDrafts(state, nextManualEnabled)
+  if (takeprofitDrafts?.blocked) {
+    emitNotify(notify, 'warning', DETAIL_UNLOADED_REASON)
+    return {
+      ok: false,
+      reason: 'detail_unloaded',
+      message: DETAIL_UNLOADED_REASON,
+    }
+  }
   const validation = validateTakeprofitDrafts(takeprofitDrafts)
   if (!validation.valid) {
     emitNotify(notify, 'warning', validation.message)

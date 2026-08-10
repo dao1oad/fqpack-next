@@ -5,6 +5,7 @@ from datetime import datetime
 from loguru import logger
 
 from freshquant.order_management.entry_adapter import (
+    POSITION_TYPE_BASE,
     list_open_entry_slices_compat,
     list_open_entry_views,
 )
@@ -116,7 +117,9 @@ class OrderManagementManualWriteService:
                 if hasattr(self.repository, "replace_position_entry") and hasattr(
                     self.repository, "replace_entry_slices_for_entry"
                 ):
-                    position_entry = _build_manual_import_entry(trade_fact)
+                    position_entry = _build_manual_import_entry(
+                        trade_fact, position_type=POSITION_TYPE_BASE
+                    )
                     self.repository.replace_position_entry(position_entry)
                     entry_slices = arrange_entry(
                         position_entry,
@@ -127,7 +130,11 @@ class OrderManagementManualWriteService:
                         position_entry["entry_id"],
                         entry_slices,
                     )
-                self._notify_new_buy_trade(symbol=symbol, price=trade_fact["price"])
+                self._notify_new_buy_trade(
+                    symbol=symbol,
+                    price=trade_fact["price"],
+                    position_type=POSITION_TYPE_BASE,
+                )
             else:
                 if hasattr(self.repository, "list_position_entries") and hasattr(
                     self.repository, "list_open_entry_slices"
@@ -306,6 +313,7 @@ class OrderManagementManualWriteService:
                     grid_item=item,
                     source=source,
                 )
+                entry["position_type"] = POSITION_TYPE_BASE
                 self.repository.replace_position_entry(entry)
                 self.repository.replace_entry_slices_for_entry(
                     entry["entry_id"],
@@ -321,11 +329,15 @@ class OrderManagementManualWriteService:
             "projections": self._build_current_projections(symbol),
         }
 
-    def _notify_new_buy_trade(self, *, symbol, price):
+    def _notify_new_buy_trade(self, *, symbol, price, position_type=POSITION_TYPE_BASE):
         if self.tpsl_service is None:
             return
         try:
-            self.tpsl_service.on_new_buy_trade(symbol=symbol, buy_price=price)
+            self.tpsl_service.on_new_buy_trade(
+                symbol=symbol,
+                buy_price=price,
+                position_type=position_type,
+            )
         except Exception:
             logger.exception("failed to notify TPSL service for manual buy trade")
 
@@ -406,13 +418,14 @@ def _ensure_board_lot_quantity(quantity):
     return normalized
 
 
-def _build_manual_import_entry(trade_fact):
+def _build_manual_import_entry(trade_fact, *, position_type=POSITION_TYPE_BASE):
     return build_position_entry_from_trade_fact(
         {
             **trade_fact,
             "source_ref_type": "trade_fact",
             "source_ref_id": trade_fact["trade_fact_id"],
             "entry_type": "manual_import",
+            "position_type": position_type,
         }
     )
 
@@ -461,6 +474,7 @@ def _build_manual_locked_entry_slice(entry):
         "entry_slice_id": new_entry_slice_id(),
         "entry_id": entry["entry_id"],
         "slice_seq": 0,
+        "position_type": entry.get("position_type") or POSITION_TYPE_BASE,
         "guardian_price": guardian_price,
         "original_quantity": quantity,
         "remaining_quantity": quantity,

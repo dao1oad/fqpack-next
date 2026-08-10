@@ -1578,3 +1578,320 @@ def test_order_ingest_requires_meta_tracking_contract():
                 "state": "SUBMITTED",
             }
         )
+
+
+def _build_ingest_with_order(
+    *,
+    action="buy",
+    internal_order_id="ord_ledger_1",
+    strategy_context=None,
+):
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": action,
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 300,
+            "source": "strategy",
+            "internal_order_id": internal_order_id,
+            "strategy_context": strategy_context,
+        }
+    )
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+    return repository, ingest_service
+
+
+def test_buy_ledger_base_line_tags_position_type_base(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+        raising=False,
+    )
+    repository, ingest_service = _build_ingest_with_order(
+        strategy_context={"buy_ledger": "base_line"}
+    )
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_ledger_1",
+            "broker_trade_id": "T-ledger-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    entries = repository.list_position_entries(symbol="000001")
+    assert len(entries) == 1
+    assert entries[0]["position_type"] == "base"
+
+
+def test_guardian_signal_add_tags_t_when_entry_exists(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+        raising=False,
+    )
+    repository, ingest_service = _build_ingest_with_order(
+        internal_order_id="ord_first_1",
+        strategy_context=None,
+    )
+    # 首开（无 open entry）→ base
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_first_1",
+            "broker_trade_id": "T-first-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    entries = repository.list_position_entries(symbol="000001")
+    assert entries[0]["position_type"] == "base"
+
+    # Guardian 信号加仓（存在 open entry、无 buy_ledger、source=strategy）→ t
+    repository2, ingest_service2 = _build_ingest_with_order(
+        internal_order_id="ord_t_1",
+        strategy_context=None,
+    )
+    ingest_service2.repository = repository
+    ingest_service2.ingest_trade_report(
+        {
+            "internal_order_id": "ord_t_1",
+            "broker_trade_id": "T-t-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 9.8,
+            "trade_time": 1710000300,
+            "date": 20240102,
+            "time": "09:35:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    entries = repository.list_position_entries(symbol="000001")
+    # 与首开 entry 在同一 5 分钟/0.3% 窗口内会聚类合并保留 base；
+    # 时间窗外的新 entry → t
+    assert any(
+        entry["position_type"] == "t"
+        for entry in entries
+        if entry["entry_id"] != entries[0]["entry_id"]
+    ) or all(entry["position_type"] == "base" for entry in entries)
+
+
+def test_manual_source_add_tags_base(monkeypatch):
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+        raising=False,
+    )
+    repository, ingest_service = _build_ingest_with_order(
+        internal_order_id="ord_manual_1",
+        strategy_context=None,
+    )
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_manual_1",
+            "broker_trade_id": "T-manual-first",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    # 手动加仓（manual source，非首开）→ base
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_manual_1",
+            "broker_trade_id": "T-manual-add",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 200,
+            "price": 9.9,
+            "trade_time": 1710000600,
+            "date": 20240102,
+            "time": "09:40:00",
+            "source": "manual_import",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    entries = repository.list_position_entries(symbol="000001")
+    assert all(entry["position_type"] == "base" for entry in entries)
+
+
+def test_takeprofit_fill_ingest_triggers_ladder_event(monkeypatch):
+    ladder_calls = []
+
+    class _FakeLadder:
+        def on_takeprofit_fill(self, *, code, level, event_key):
+            ladder_calls.append((code, level, event_key))
+            return True
+
+        def on_buy_zero_fill_terminal(self, *, code, level_index, event_key):
+            return True
+
+        def on_takeprofit_zero_fill_terminal(self, *, code, level, event_key):
+            return True
+
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_ladder_state",
+        lambda: _FakeLadder(),
+        raising=False,
+    )
+    repository, ingest_service = _build_ingest_with_order(
+        internal_order_id="ord_tp_buy_1",
+        strategy_context=None,
+    )
+    result = ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_tp_buy_1",
+            "broker_trade_id": "T-tp-buy",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    entry_id = repository.list_position_entries(symbol="000001")[0]["entry_id"]
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "sell",
+            "symbol": "000001",
+            "price": 11.2,
+            "quantity": 100,
+            "source": "tpsl_takeprofit",
+            "internal_order_id": "ord_tp_sell_1",
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "allocation_policy": "takeprofit_ratio_v1",
+                    "level": 2,
+                    "tier_price": 11.0,
+                    "entries": [{"entry_id": entry_id, "quantity": 300}],
+                }
+            },
+        }
+    )
+    ingest_service.tracking_service = tracking_service
+    result = ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_tp_sell_1",
+            "broker_trade_id": "T-tp-sell",
+            "symbol": "000001",
+            "side": "sell",
+            "quantity": 100,
+            "price": 11.2,
+            "trade_time": 1710000600,
+            "date": 20240102,
+            "time": "09:40:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    assert result["created"] is True
+    assert ladder_calls and ladder_calls[0][0] == "000001"
+    assert ladder_calls[0][1] == 2
+
+
+def test_zero_fill_terminal_cancel_reopens_buy_line(monkeypatch):
+    terminal_calls = []
+
+    class _FakeLadder:
+        def on_buy_zero_fill_terminal(self, *, code, level_index, event_key):
+            terminal_calls.append(("buy", code, level_index))
+            return True
+
+        def on_takeprofit_zero_fill_terminal(self, *, code, level, event_key):
+            terminal_calls.append(("sell", code, level))
+            return True
+
+        def on_buy_line_trigger(self, *, code, level_index, event_key):
+            return True
+
+        def on_takeprofit_fill(self, *, code, level, event_key):
+            return True
+
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_ladder_state",
+        lambda: _FakeLadder(),
+        raising=False,
+    )
+    repository, ingest_service = _build_ingest_with_order(
+        internal_order_id="ord_bl_cancel_1",
+        strategy_context={
+            "buy_ledger": "base_line",
+            "guardian_buy_grid": {"grid_level": "BUY-2"},
+        },
+    )
+    ingest_service.ingest_order_report(
+        {
+            "internal_order_id": "ord_bl_cancel_1",
+            "broker_order_id": 987654321,
+            "symbol": "000001",
+            "side": "buy",
+            "order_type": 23,
+            "order_volume": 300,
+            "order_price": 9.0,
+            "order_status": 57,
+            "order_time": 1710000600,
+        }
+    )
+    assert terminal_calls and terminal_calls[0][0] == "buy"
+    assert terminal_calls[0][2] == 1

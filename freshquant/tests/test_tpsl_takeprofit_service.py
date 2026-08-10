@@ -38,6 +38,68 @@ class MongoSafeStateRepository(InMemoryTpslRepository):
         return stored
 
 
+class InMemoryLadderState:
+    """与 GuardianLadderState 同接口的测试替身，落在 InMemoryTpslRepository 上。"""
+
+    def __init__(self, repository):
+        self.repository = repository
+
+    def _ensure_state(self, symbol):
+        if self.repository.find_takeprofit_state(symbol) is None:
+            self.repository.upsert_takeprofit_state(
+                {
+                    "symbol": symbol,
+                    "armed_levels": {},
+                    "version": 0,
+                    "updated_at": "now",
+                }
+            )
+
+    def on_takeprofit_trigger(
+        self,
+        *,
+        code,
+        level,
+        event_key,
+        last_triggered_batch_id=None,
+        trigger_price=None,
+    ):
+        self._ensure_state(code)
+        state = self.repository.find_takeprofit_state(code)
+        armed = dict(state["armed_levels"])
+        armed[int(level)] = False
+        state["armed_levels"] = armed
+        state["last_triggered_level"] = int(level)
+        state["last_triggered_batch_id"] = last_triggered_batch_id
+        state["version"] = int(state.get("version") or 0) + 1
+        self.repository.upsert_takeprofit_state(state)
+        return True
+
+    def rearm_all_levels(self, code, *, updated_by="system", reason="manual"):
+        self._ensure_state(code)
+        state = self.repository.find_takeprofit_state(code)
+        armed = dict(state["armed_levels"])
+        profile = self.repository.find_takeprofit_profile(code) or {}
+        for tier in profile.get("tiers") or []:
+            armed[int(tier["level"])] = bool(tier.get("manual_enabled", True))
+        state["armed_levels"] = armed
+        state["last_rearm_reason"] = reason
+        state["version"] = int(state.get("version") or 0) + 1
+        self.repository.upsert_takeprofit_state(state)
+        return True
+
+    def set_armed_levels(self, *, code, values):
+        self._ensure_state(code)
+        state = self.repository.find_takeprofit_state(code)
+        armed = dict(state["armed_levels"])
+        for raw_level, raw_enabled in dict(values or {}).items():
+            armed[int(raw_level)] = bool(raw_enabled)
+        state["armed_levels"] = armed
+        state["version"] = int(state.get("version") or 0) + 1
+        self.repository.upsert_takeprofit_state(state)
+        return state
+
+
 def _build_tiers():
     return [
         {"level": 1, "price": 10.2, "manual_enabled": True},
@@ -64,7 +126,10 @@ def test_save_takeprofit_profile_updates_price_and_manual_enabled():
 
 def test_disable_triggered_and_lower_levels_after_hit():
     repo = InMemoryTpslRepository()
-    service = TakeprofitService(repository=repo)
+    service = TakeprofitService(
+        repository=repo,
+        ladder_state=InMemoryLadderState(repo),
+    )
     service.save_profile(
         "000001",
         tiers=[
@@ -78,14 +143,17 @@ def test_disable_triggered_and_lower_levels_after_hit():
 
     state = service.mark_level_triggered("000001", level=2, batch_id="tp_batch_1")
 
-    assert state["armed_levels"] == {1: False, 2: False, 3: True}
+    assert state["armed_levels"] == {1: True, 2: False, 3: True}
     assert state["last_triggered_level"] == 2
     assert repo.events[-1]["event_type"] == "takeprofit_hit"
 
 
 def test_rearm_all_levels_only_restores_manual_enabled_tiers():
     repo = InMemoryTpslRepository()
-    service = TakeprofitService(repository=repo)
+    service = TakeprofitService(
+        repository=repo,
+        ladder_state=InMemoryLadderState(repo),
+    )
     service.save_profile("000001", tiers=_build_tiers(), updated_by="api")
     service.mark_level_triggered("000001", level=3, batch_id="tp_batch_3")
 

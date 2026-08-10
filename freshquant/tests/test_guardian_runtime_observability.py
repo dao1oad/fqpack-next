@@ -446,7 +446,7 @@ def test_guardian_holding_buy_price_threshold_emits_structured_skip_finish(
     assert finish_event["status"] == "skipped"
 
 
-def test_guardian_holding_buy_guardian_slice_fallback_emits_slice_threshold_rule(
+def test_guardian_holding_buy_execution_fill_threshold_rule(
     monkeypatch,
 ):
     runtime_logger = FakeRuntimeLogger()
@@ -481,18 +481,8 @@ def test_guardian_holding_buy_guardian_slice_fallback_emits_slice_threshold_rule
         ],
     )
     monkeypatch.setattr(
-        "freshquant.strategy.guardian._get_guardian_buy_slice_grid_interval",
-        lambda _code, _fill_reference: 1.03,
-    )
-    monkeypatch.setattr(
-        "freshquant.strategy.guardian.fq_util_code_append_market_code_suffix",
-        lambda _code: f"SZ{_code}",
-    )
-    monkeypatch.setattr(
         "freshquant.strategy.guardian.eval_stock_threshold_price",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("threshold config should not be used for guardian fallback")
-        ),
+        lambda _code, _price: {"bot_river_price": 10.0, "top_river_price": 12.0},
     )
     monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
     monkeypatch.setattr(
@@ -521,15 +511,13 @@ def test_guardian_holding_buy_guardian_slice_fallback_emits_slice_threshold_rule
 
     assert (
         price_event["decision_context"]["threshold"]["fill_reference_source"]
-        == "guardian_arranged_fill_fallback"
+        == "execution_fill"
     )
     assert (
         price_event["decision_context"]["threshold"]["threshold_rule_source"]
-        == "guardian_slice_next_level"
+        == "threshold_config"
     )
-    assert price_event["decision_context"]["threshold"]["grid_interval"] == 1.03
     assert price_event["decision_context"]["threshold"]["bot_river_price"] == 10.0
-    assert price_event["decision_context"]["threshold"]["top_river_price"] == 10.3
     assert price_event["decision_outcome"]["outcome"] == "skip"
     assert finish_event["reason_code"] == "price_threshold_not_met"
 
@@ -790,18 +778,7 @@ def test_guardian_holding_buy_unexpected_exception_emits_error_at_timing_check(
     monkeypatch.setattr("freshquant.strategy.guardian.queryMustPoolCodes", lambda: [])
     monkeypatch.setattr(
         "freshquant.strategy.guardian._get_latest_execution_fill_reference",
-        lambda _code: None,
-    )
-    monkeypatch.setattr(
-        "freshquant.strategy.guardian.get_arranged_stock_fill_list",
-        lambda _code: [
-            {
-                "date": None,
-                "time": None,
-                "price": 10.0,
-                "quantity": 100,
-            }
-        ],
+        lambda _code: (_ for _ in ()).throw(ValueError("boom")),
     )
     monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
     monkeypatch.setattr(
@@ -816,7 +793,7 @@ def test_guardian_holding_buy_unexpected_exception_emits_error_at_timing_check(
         ),
     )
 
-    with pytest.raises(ValueError, match="None None"):
+    with pytest.raises(ValueError, match="boom"):
         guardian.on_signal(signal)
 
     error_event = next(
@@ -826,7 +803,7 @@ def test_guardian_holding_buy_unexpected_exception_emits_error_at_timing_check(
     )
     assert error_event["reason_code"] == "unexpected_exception"
     assert error_event["payload"]["error_type"] == "ValueError"
-    assert "None None" in error_event["payload"]["error_message"]
+    assert "boom" in error_event["payload"]["error_message"]
     assert runtime_logger.events[-1] == error_event
 
 
@@ -959,12 +936,17 @@ def test_guardian_sell_unexpected_exception_emits_error_and_failed_finish(monkey
         "freshquant.strategy.guardian.get_arranged_stock_fill_list",
         lambda _code: [
             {
+                "position_type": "t",
                 "date": None,
                 "time": None,
                 "price": 10.0,
                 "quantity": 100,
             }
         ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_trade_amount",
+        lambda *_args, **_kwargs: 100,
     )
     monkeypatch.setattr("freshquant.strategy.guardian.redis_db", FakeRedis())
     monkeypatch.setattr(
@@ -1006,12 +988,17 @@ def test_guardian_sell_board_lot_check_emits_structured_skip_finish(monkeypatch)
         "freshquant.strategy.guardian.get_arranged_stock_fill_list",
         lambda _code: [
             {
+                "position_type": "t",
                 "date": int(fire_time.subtract(minutes=2).format("YYYYMMDD")),
                 "time": fire_time.subtract(minutes=2).format("HH:mm:ss"),
                 "price": 10.0,
                 "quantity": 50,
             }
         ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_trade_amount",
+        lambda *_args, **_kwargs: 100,
     )
     monkeypatch.setattr(
         "freshquant.strategy.guardian.get_stock_holding_codes",

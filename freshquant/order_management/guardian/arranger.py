@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from freshquant.order_management.entry_adapter import (
+    POSITION_TYPE_BASE,
+    position_type_of,
+)
 from freshquant.order_management.ids import (
     new_buy_lot_id,
     new_entry_slice_id,
@@ -55,6 +59,9 @@ def build_position_entry_from_trade_fact(
         "entry_type": entry_type
         or trade_fact.get("entry_type")
         or "broker_execution_fill",
+        "position_type": position_type_of(
+            trade_fact.get("position_type") or POSITION_TYPE_BASE
+        ),
         "entry_price": entry_price,
         "buy_price_real": trade_fact.get("buy_price_real", entry_price),
         "original_quantity": original_quantity,
@@ -93,7 +100,6 @@ def arrange_entry(entry, lot_amount, grid_interval):
         slices=slices,
         entry=entry,
         remaining_quantity=remaining_quantity,
-        remaining_amount=remaining_quantity * float(entry["entry_price"]),
         current_price=entry["entry_price"],
         lot_amount=lot_amount,
         grid_interval=grid_interval,
@@ -110,6 +116,7 @@ def build_buy_lot_from_trade_fact(trade_fact):
         "buy_lot_id": new_buy_lot_id(),
         "origin_trade_fact_id": trade_fact["trade_fact_id"],
         "symbol": trade_fact["symbol"],
+        "position_type": position_type_of(trade_fact.get("position_type")),
         "buy_price_real": trade_fact["price"],
         "original_quantity": trade_fact["quantity"],
         "remaining_quantity": trade_fact["quantity"],
@@ -136,7 +143,6 @@ def arrange_buy_lot(buy_lot, lot_amount, grid_interval):
         slices=slices,
         buy_lot=buy_lot,
         remaining_quantity=buy_lot["original_quantity"],
-        remaining_amount=buy_lot["original_quantity"] * buy_lot["buy_price_real"],
         current_price=buy_lot["buy_price_real"],
         lot_amount=lot_amount,
         grid_interval=grid_interval,
@@ -149,7 +155,6 @@ def _arrange_entry_remaining(
     slices,
     entry,
     remaining_quantity,
-    remaining_amount,
     current_price,
     lot_amount,
     grid_interval,
@@ -181,6 +186,7 @@ def _arrange_entry_remaining(
         "entry_slice_id": new_entry_slice_id(),
         "entry_id": entry["entry_id"],
         "slice_seq": slice_seq,
+        "position_type": position_type_of(entry.get("position_type")),
         "guardian_price": guardian_price,
         "original_quantity": quantity,
         "remaining_quantity": quantity,
@@ -198,12 +204,10 @@ def _arrange_entry_remaining(
     if next_quantity <= 0:
         return
 
-    next_amount = next_quantity * next_price
     _arrange_entry_remaining(
         slices=slices,
         entry=entry,
         remaining_quantity=next_quantity,
-        remaining_amount=next_amount,
         current_price=next_price,
         lot_amount=lot_amount,
         grid_interval=grid_interval,
@@ -260,7 +264,6 @@ def _arrange_remaining(
     slices,
     buy_lot,
     remaining_quantity,
-    remaining_amount,
     current_price,
     lot_amount,
     grid_interval,
@@ -288,6 +291,7 @@ def _arrange_remaining(
         "lot_slice_id": new_lot_slice_id(),
         "buy_lot_id": buy_lot["buy_lot_id"],
         "slice_seq": slice_seq,
+        "position_type": position_type_of(buy_lot.get("position_type")),
         "guardian_price": guardian_price,
         "original_quantity": quantity,
         "remaining_quantity": quantity,
@@ -305,12 +309,10 @@ def _arrange_remaining(
     if next_quantity <= 0:
         return
 
-    next_amount = next_quantity * next_price
     _arrange_remaining(
         slices=slices,
         buy_lot=buy_lot,
         remaining_quantity=next_quantity,
-        remaining_amount=next_amount,
         current_price=next_price,
         lot_amount=lot_amount,
         grid_interval=grid_interval,

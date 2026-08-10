@@ -23,8 +23,11 @@ from freshquant.order_management.broker_identity import (
 )
 from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_adapter import (
+    POSITION_TYPE_BASE,
+    POSITION_TYPE_T,
     list_open_entry_slices_compat,
     list_open_entry_views,
+    position_type_of,
 )
 from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
@@ -90,6 +93,15 @@ _SELL_ORDER_TYPES = {
     "sell",
     "SELL",
 }
+
+_MANUAL_BUY_SOURCES = {
+    "manual",
+    "manual_import",
+    "reset",
+    "manual_reset",
+    "manual_locked",
+}
+_BUY_LEVEL_INDEX = {"BUY-1": 0, "BUY-2": 1, "BUY-3": 2}
 
 
 class OrderManagementXtIngestService:
@@ -217,6 +229,9 @@ class OrderManagementXtIngestService:
                     self._notify_new_buy_trade(
                         symbol=symbol,
                         price=trade_fact["price"],
+                        position_type=position_type_of(
+                            (position_entry or {}).get("position_type")
+                        ),
                     )
                 if not holdings_changed and hasattr(
                     self.repository, "list_open_slices"
@@ -324,6 +339,29 @@ class OrderManagementXtIngestService:
                                     self.repository.insert_exit_allocations(
                                         exit_allocations
                                     )
+                                    takeprofit_level = _resolve_takeprofit_fill_level(
+                                        self.repository,
+                                        request_id=request_id,
+                                        internal_order_id=internal_order_id,
+                                        report=report,
+                                        execution_fill=execution_fill,
+                                        trade_fact=trade_fact,
+                                    )
+                                    if takeprofit_level is not None:
+                                        _call_ladder_with_retry(
+                                            _get_ladder_state().on_takeprofit_fill,
+                                            code=symbol,
+                                            level=takeprofit_level,
+                                            event_key=(
+                                                internal_order_id
+                                                or str(
+                                                    trade_fact.get("internal_order_id")
+                                                )
+                                                or f"tp_fill:{trade_fact.get('trade_fact_id')}"
+                                            ),
+                                            operation="takeprofit_fill",
+                                            symbol=symbol,
+                                        )
                                 entry_slices = open_entry_slices
                                 holdings_changed = holdings_changed or bool(
                                     exit_allocations
@@ -414,11 +452,15 @@ class OrderManagementXtIngestService:
             mark_exception_emitted(exc)
             raise
 
-    def _notify_new_buy_trade(self, *, symbol, price):
+    def _notify_new_buy_trade(self, *, symbol, price, position_type=POSITION_TYPE_BASE):
         if self.tpsl_service is None:
             return
         try:
-            self.tpsl_service.on_new_buy_trade(symbol=symbol, buy_price=price)
+            self.tpsl_service.on_new_buy_trade(
+                symbol=symbol,
+                buy_price=price,
+                position_type=position_type_of(position_type),
+            )
         except Exception:
             logger.exception("failed to notify TPSL service for new buy trade")
 
@@ -442,6 +484,7 @@ class OrderManagementXtIngestService:
             )
             if not ingest_result.get("changed"):
                 return normalized_report
+            self._handle_ladder_terminal_report(normalized_report)
             self._emit_runtime(
                 "report_receive",
                 normalized_report,
@@ -465,6 +508,74 @@ class OrderManagementXtIngestService:
             )
             mark_exception_emitted(exc)
             raise
+
+    def _handle_ladder_terminal_report(self, normalized_report):
+        """终态非 FILLED 的订单按 strategy_context 重开对应档位。
+
+        #549 零成交终态：买单被撤/失效重开该买入线；卖单（止盈）被撤/失效
+        重开该止盈档。按 ``internal_order_id`` 幂等；部分成交后撤单时，已成交
+        部分先按成交事件处理（幂等），未成交部分在此重开。
+        """
+
+        state = str(normalized_report.get("state") or "").upper()
+        if state in {"FILLED", "PARTIAL_FILLED", "SUBMITTED", "ACCEPTED"}:
+            return
+        if state not in {"CANCELED", "FAILED"}:
+            return
+        symbol = str(normalized_report.get("symbol") or "").strip()
+        internal_order_id = str(
+            normalized_report.get("internal_order_id") or ""
+        ).strip()
+        if not symbol or not internal_order_id:
+            return
+        request = _load_order_request(
+            self.repository,
+            request_id=normalized_report.get("request_id"),
+            internal_order_id=internal_order_id,
+        )
+        context = dict((request or {}).get("strategy_context") or {})
+        side = str(normalized_report.get("side") or "").lower()
+        event_key = f"ladder_terminal:{internal_order_id}"
+        if side == "buy":
+            grid = dict(context.get("guardian_buy_grid") or {})
+            # 只处理买入线（base_line）订单：T 侧 Guardian 买单不联动阶梯状态机。
+            is_base_line = (
+                str(context.get("buy_ledger") or "") == "base_line"
+                or str(grid.get("buy_ledger") or "") == "base_line"
+            )
+            if not is_base_line:
+                return
+            level_index = _BUY_LEVEL_INDEX.get(
+                str(grid.get("grid_level") or "").upper()
+            )
+            if level_index is None:
+                return
+            _call_ladder_with_retry(
+                _get_ladder_state().on_buy_zero_fill_terminal,
+                code=symbol,
+                level_index=level_index,
+                event_key=event_key,
+                operation="buy_zero_fill_terminal",
+                symbol=symbol,
+            )
+            return
+        if side == "sell":
+            sell_sources = dict(context.get("guardian_sell_sources") or {})
+            level = sell_sources.get("level")
+            try:
+                level_int = int(level) if level is not None else None
+            except (TypeError, ValueError):
+                level_int = None
+            if level_int is None or level_int <= 0:
+                return
+            _call_ladder_with_retry(
+                _get_ladder_state().on_takeprofit_zero_fill_terminal,
+                code=symbol,
+                level=level_int,
+                event_key=event_key,
+                operation="takeprofit_zero_fill_terminal",
+                symbol=symbol,
+            )
 
     def _emit_runtime(
         self,
@@ -881,6 +992,156 @@ def _find_position_entry_for_broker_order(repository, *, symbol, broker_order_ke
     )
 
 
+def _resolve_buy_ledger(repository, *, broker_order):
+    """从内部订单 ``strategy_context.buy_ledger`` 读取账本来源标记。"""
+
+    internal_order_id = str((broker_order or {}).get("internal_order_id") or "").strip()
+    if not internal_order_id or not hasattr(repository, "find_order"):
+        return None
+    try:
+        order = repository.find_order(internal_order_id) or {}
+    except Exception:
+        return None
+    context = dict((order or {}).get("strategy_context") or {})
+    return str(context.get("buy_ledger") or "").strip() or None
+
+
+def _resolve_entry_position_type(
+    *,
+    repository,
+    broker_order,
+    existing_entries,
+    buy_group_trade_fact,
+):
+    """双账本打标：base_line / manual / 首开 → base；Guardian 信号加仓 → t。
+
+    规则（#549 v4.1）：无 open entry（持仓 0→有）→ base；``buy_ledger ==
+    "base_line"`` → base；手动加仓（manual source，非首开）→ base；其余
+    （Guardian 信号加仓）→ t。
+    """
+
+    buy_ledger = _resolve_buy_ledger(repository, broker_order=broker_order)
+    if buy_ledger == "base_line":
+        return POSITION_TYPE_BASE
+    source = str(buy_group_trade_fact.get("source") or "").strip().lower()
+    if source in _MANUAL_BUY_SOURCES:
+        return POSITION_TYPE_BASE
+    has_open_entry = any(
+        int(item.get("remaining_quantity") or 0) > 0 for item in existing_entries
+    )
+    if not has_open_entry:
+        return POSITION_TYPE_BASE
+    return POSITION_TYPE_T
+
+
+def _load_order_request(repository, *, request_id=None, internal_order_id=None):
+    """按 request_id / internal_order_id 读取订单请求（含 strategy_context）。"""
+
+    normalized_request_id = str(request_id or "").strip()
+    if normalized_request_id and hasattr(repository, "find_order_request"):
+        try:
+            request = repository.find_order_request(normalized_request_id)
+            if request:
+                return request
+        except Exception:
+            pass
+    normalized_internal_order_id = str(internal_order_id or "").strip()
+    if not normalized_internal_order_id or not hasattr(repository, "find_order"):
+        return None
+    try:
+        order = repository.find_order(normalized_internal_order_id) or {}
+    except Exception:
+        return None
+    resolved_request_id = str(order.get("request_id") or "").strip()
+    if resolved_request_id and hasattr(repository, "find_order_request"):
+        try:
+            return repository.find_order_request(resolved_request_id)
+        except Exception:
+            return None
+    return None
+
+
+def _resolve_takeprofit_fill_level(
+    repository,
+    *,
+    request_id=None,
+    internal_order_id=None,
+    report=None,
+    execution_fill=None,
+    trade_fact=None,
+):
+    """识别止盈卖单成交：从订单请求 strategy_context 提取阶梯档位。"""
+
+    request = _load_order_request(
+        repository,
+        request_id=request_id,
+        internal_order_id=internal_order_id,
+    )
+    if request is None:
+        request_id_from_fill = str(
+            (report or {}).get("request_id")
+            or (execution_fill or {}).get("request_id")
+            or ""
+        ).strip()
+        request = _load_order_request(
+            repository,
+            request_id=request_id_from_fill or None,
+            internal_order_id=(
+                (trade_fact or {}).get("internal_order_id")
+                or (report or {}).get("internal_order_id")
+                or (execution_fill or {}).get("internal_order_id")
+                or None
+            ),
+        )
+    if request is None:
+        return None
+    context = dict(request.get("strategy_context") or {})
+    sell_sources = dict(context.get("guardian_sell_sources") or {})
+    level = sell_sources.get("level")
+    if level is None:
+        return None
+    try:
+        return int(level)
+    except (TypeError, ValueError):
+        return None
+
+
+def _call_ladder_with_retry(
+    fn,
+    *,
+    code,
+    event_key,
+    operation,
+    symbol,
+    attempts=3,
+    **kwargs,
+):
+    """XT ingest 事件内有限重试阶梯状态写回；失败记录告警不阻断主链。"""
+
+    last_exc = None
+    for attempt in range(max(int(attempts), 1)):
+        try:
+            fn(code=code, event_key=event_key, **kwargs)
+            return True
+        except Exception as exc:  # pragma: no cover - 防御性重试
+            last_exc = exc
+            logger.warning(
+                "ladder {} retry {} failed for {}: {}",
+                operation,
+                attempt + 1,
+                symbol,
+                exc,
+            )
+    if last_exc is not None:  # pragma: no cover
+        logger.exception(
+            "ladder {} exhausted retries for {}: {}",
+            operation,
+            symbol,
+            last_exc,
+        )
+    return False
+
+
 def _upsert_broker_position_entry(
     *,
     repository,
@@ -915,11 +1176,25 @@ def _upsert_broker_position_entry(
         ),
         "source": trade_fact.get("source", "xt_trade_callback"),
     }
+    existing_entries = repository.list_position_entries(symbol=symbol)
     existing_entry = select_cluster_entry(
-        repository.list_position_entries(symbol=symbol),
+        existing_entries,
         buy_group_trade_fact,
         broker_order_key,
     )
+    # 双账本（#549）：聚类保留已有 position_type；新 entry 按来源打标
+    # （base_line / manual / 首开 → base；Guardian 信号加仓 → t）。
+    if (existing_entry or {}).get("position_type"):
+        buy_group_trade_fact["position_type"] = position_type_of(
+            existing_entry["position_type"]
+        )
+    else:
+        buy_group_trade_fact["position_type"] = _resolve_entry_position_type(
+            repository=repository,
+            broker_order=broker_order,
+            existing_entries=existing_entries,
+            buy_group_trade_fact=buy_group_trade_fact,
+        )
     entry = build_clustered_position_entry(
         group_trade_fact=buy_group_trade_fact,
         broker_order_key=broker_order_key,
@@ -993,6 +1268,12 @@ def _get_guardian_buy_grid_service():
     from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
 
     return get_guardian_buy_grid_service()
+
+
+def _get_ladder_state():
+    from freshquant.strategy.guardian_ladder import get_guardian_ladder_state
+
+    return get_guardian_ladder_state()
 
 
 def _sync_stock_fills_compat(symbol, *, repository):

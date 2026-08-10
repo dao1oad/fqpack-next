@@ -600,7 +600,7 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
     assert fake_redis.events[0][1] == "buy:000001"
 
 
-def test_holding_buy_ignores_stale_execution_fill_when_slices_are_newer(monkeypatch):
+def test_holding_buy_uses_latest_execution_fill_as_threshold_base(monkeypatch):
     captured = {}
     fake_redis = FakeRedis()
     fake_order_alert = FakeOrderAlert()
@@ -652,21 +652,11 @@ def test_holding_buy_ignores_stale_execution_fill_when_slices_are_newer(monkeypa
             },
         ],
     )
-    monkeypatch.setattr(
-        "freshquant.strategy.guardian._get_guardian_buy_slice_grid_interval",
-        lambda _code, _fill_reference: 1.03,
-    )
-    monkeypatch.setattr(
-        "freshquant.strategy.guardian.fq_util_code_append_market_code_suffix",
-        lambda _code: f"SZ{_code}",
-    )
+    threshold_prices = []
     monkeypatch.setattr(
         "freshquant.strategy.guardian.eval_stock_threshold_price",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError(
-                "stale execution fill should not drive holding buy threshold"
-            )
-        ),
+        lambda _code, price: threshold_prices.append(price)
+        or {"bot_river_price": 11.0, "top_river_price": 12.0},
     )
     monkeypatch.setattr("freshquant.strategy.guardian.redis_db", fake_redis)
     monkeypatch.setattr("freshquant.strategy.guardian.order_alert", fake_order_alert)
@@ -709,10 +699,12 @@ def test_holding_buy_ignores_stale_execution_fill_when_slices_are_newer(monkeypa
 
     assert captured["action"] == "buy"
     assert captured["quantity"] == 300
+    # #549：最近 execution fill（10.8）是做T买入门槛基准，不再回退切片下一档。
+    assert threshold_prices == [10.8]
     assert fake_redis.events[0][1] == "buy:000001"
 
 
-def test_holding_buy_fallback_uses_next_guardian_slice_threshold(monkeypatch):
+def test_holding_buy_fallback_uses_broker_avg_price_when_no_fill(monkeypatch):
     captured = {}
     fake_redis = FakeRedis()
     fake_order_alert = FakeOrderAlert()
@@ -759,18 +751,22 @@ def test_holding_buy_fallback_uses_next_guardian_slice_threshold(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        "freshquant.strategy.guardian._get_guardian_buy_slice_grid_interval",
-        lambda _code, _fill_reference: 1.03,
+        "freshquant.strategy.guardian._get_ledger_average_cost_reference",
+        lambda _code: None,
     )
     monkeypatch.setattr(
-        "freshquant.strategy.guardian.fq_util_code_append_market_code_suffix",
-        lambda _code: f"SZ{_code}",
+        "freshquant.strategy.guardian._get_broker_position_average_cost_reference",
+        lambda _code: {
+            "fill_time": None,
+            "fill_price": 10.2,
+            "fill_reference_source": "broker_position_avg_price",
+        },
     )
+    threshold_prices = []
     monkeypatch.setattr(
         "freshquant.strategy.guardian.eval_stock_threshold_price",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("threshold config should not be used for guardian fallback")
-        ),
+        lambda _code, price: threshold_prices.append(price)
+        or {"bot_river_price": 11.0, "top_river_price": 12.0},
     )
     monkeypatch.setattr("freshquant.strategy.guardian.redis_db", fake_redis)
     monkeypatch.setattr("freshquant.strategy.guardian.order_alert", fake_order_alert)
@@ -813,6 +809,8 @@ def test_holding_buy_fallback_uses_next_guardian_slice_threshold(monkeypatch):
 
     assert captured["action"] == "buy"
     assert captured["quantity"] == 300
+    # #549：无 execution fill 且无 OM entries → xt_positions.avg_price 兜底门槛。
+    assert threshold_prices == [10.2]
     assert fake_redis.events[0][1] == "buy:000001"
 
 
@@ -982,12 +980,17 @@ def test_guardian_sell_caps_quantity_by_can_use_volume_and_board_lot(monkeypatch
         "freshquant.strategy.guardian.get_arranged_stock_fill_list",
         lambda _code: [
             {
+                "position_type": "t",
                 "date": int(fire_time.subtract(minutes=2).format("YYYYMMDD")),
                 "time": fire_time.subtract(minutes=2).format("HH:mm:ss"),
                 "price": 10.0,
                 "quantity": 300,
             }
         ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_trade_amount",
+        lambda *_args, **_kwargs: 100,
     )
     monkeypatch.setattr(
         "freshquant.strategy.guardian.get_stock_holding_codes",
@@ -1051,6 +1054,7 @@ def test_guardian_sell_carries_selected_source_entries_in_strategy_context(
         lambda _code: [
             {
                 "entry_id": "entry_old",
+                "position_type": "t",
                 "date": int(fire_time.subtract(minutes=4).format("YYYYMMDD")),
                 "time": fire_time.subtract(minutes=4).format("HH:mm:ss"),
                 "price": 9.8,
@@ -1058,6 +1062,7 @@ def test_guardian_sell_carries_selected_source_entries_in_strategy_context(
             },
             {
                 "entry_id": "entry_mid_1",
+                "position_type": "t",
                 "date": int(fire_time.subtract(minutes=3).format("YYYYMMDD")),
                 "time": fire_time.subtract(minutes=3).format("HH:mm:ss"),
                 "price": 9.7,
@@ -1065,6 +1070,7 @@ def test_guardian_sell_carries_selected_source_entries_in_strategy_context(
             },
             {
                 "entry_id": "entry_mid_2",
+                "position_type": "t",
                 "date": int(fire_time.subtract(minutes=2).format("YYYYMMDD")),
                 "time": fire_time.subtract(minutes=2).format("HH:mm:ss"),
                 "price": 9.6,
@@ -1072,12 +1078,17 @@ def test_guardian_sell_carries_selected_source_entries_in_strategy_context(
             },
             {
                 "entry_id": "entry_new",
+                "position_type": "t",
                 "date": int(fire_time.subtract(minutes=1).format("YYYYMMDD")),
                 "time": fire_time.subtract(minutes=1).format("HH:mm:ss"),
                 "price": 9.5,
                 "quantity": 1000,
             },
         ],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_trade_amount",
+        lambda *_args, **_kwargs: 100,
     )
     monkeypatch.setattr(
         "freshquant.strategy.guardian.get_stock_holding_codes",

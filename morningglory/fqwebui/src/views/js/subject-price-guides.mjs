@@ -445,7 +445,8 @@ export const clampTakeprofitGuidePrice = ({
 }
 
 export const buildKlineSubjectPriceDetail = (detail = {}) => {
-  const guardianDraft = normalizeGuardianConfig(detail?.guardian_buy_grid_config || {})
+  const rawGuardianConfig = detail?.guardian_buy_grid_config || {}
+  const guardianDraft = normalizeGuardianConfig(rawGuardianConfig)
   const guardianState = normalizeGuardianState(detail?.guardian_buy_grid_state || {})
   const takeprofitTiers = (Array.isArray(detail?.takeprofit?.tiers) ? detail.takeprofit.tiers : [])
     .map((row) => normalizeTakeprofitTier(row))
@@ -460,10 +461,25 @@ export const buildKlineSubjectPriceDetail = (detail = {}) => {
     : []
   const costBasisPriceGuide = buildCostBasisPriceGuide(costBasisPrice)
   const entryPriceGuides = buildEntryPriceGuides(openEntries)
+  // #548：后端为空时展示默认值的「默认」标记（UX 提示，不影响保存语义）。
+  const rawCaps = rawGuardianConfig?.max_position_amounts
+  const usesDefaultCaps = !Array.isArray(rawCaps) || rawCaps.length < 3
+  const rawBuyPrices = [
+    rawGuardianConfig?.buy_1,
+    rawGuardianConfig?.buy_2,
+    rawGuardianConfig?.buy_3,
+  ]
+  const usesDefaultBuyPrices = rawBuyPrices.every(
+    (value) => value === null || value === undefined || value === '',
+  )
 
   return {
     guardianDraft,
     guardianState,
+    guardianDefaults: {
+      buy_prices: usesDefaultBuyPrices,
+      caps: usesDefaultCaps,
+    },
     guardianPriceGuides: buildGuardianPriceGuides(guardianDraft, guardianState),
     takeprofitDrafts,
     takeprofitState,

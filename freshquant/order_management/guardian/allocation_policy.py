@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from freshquant.order_management.entry_adapter import position_type_of
 from freshquant.order_management.guardian.sell_semantics import (
     normalize_preferred_entry_quantities,
 )
@@ -27,6 +28,61 @@ def stable_open_entry_slice_order(slices):
             str(item.get("entry_slice_id") or item.get("lot_slice_id") or ""),
         ),
     )
+
+
+def _safe_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _resolve_sell_percent(sell_trade_fact) -> float:
+    """做T盈利判定百分比：guardian.stock.threshold.percent（默认 1%）。"""
+
+    symbol = str((sell_trade_fact or {}).get("symbol") or "").strip()
+    if not symbol:
+        return 1.0
+    try:
+        from freshquant.strategy.common import get_threshold_config
+
+        threshold = get_threshold_config(symbol) or {}
+        return float(threshold.get("percent") or 1.0)
+    except Exception:
+        return 1.0
+
+
+def _bucketed_no_plan_slice_order(slices, sell_trade_fact):
+    """#549 §6.1 三段分桶（无 source plan fallback）。
+
+    ① T 账本盈利且成本低（卖单 ``avg_filled_price`` ≥
+       ``guardian_price × (1 + percent/100)``，``guardian_price`` 升序）；
+    ② 底仓 slices（``guardian_price`` 升序，成本低优先）；
+    ③ T 非盈利兜底（``guardian_price`` 升序）。
+    """
+
+    exit_price = _safe_float(
+        (sell_trade_fact or {}).get("avg_filled_price")
+        or (sell_trade_fact or {}).get("price")
+    )
+    percent = _resolve_sell_percent(sell_trade_fact)
+    t_profitable: list = []
+    base_rows: list = []
+    t_unprofitable: list = []
+    for item in stable_open_entry_slice_order(slices):
+        if position_type_of(item.get("position_type")) == "t":
+            guardian_price = _safe_float(item.get("guardian_price"))
+            if (
+                exit_price > 0
+                and guardian_price > 0
+                and exit_price >= guardian_price * (1 + percent / 100)
+            ):
+                t_profitable.append(item)
+            else:
+                t_unprofitable.append(item)
+        else:
+            base_rows.append(item)
+    return t_profitable + base_rows + t_unprofitable
 
 
 def allocate_sell_to_slices(buy_lots, open_slices, sell_trade_fact):
@@ -89,7 +145,7 @@ def allocate_sell_to_entry_slices(
     remaining_sell_quantity = sell_trade_fact["quantity"]
     allocations = []
     entry_by_id = {item["entry_id"]: item for item in entries}
-    open_slices = stable_open_entry_slice_order(open_slices)
+    open_slices = _bucketed_no_plan_slice_order(open_slices, sell_trade_fact)
 
     preferred_plan = normalize_preferred_entry_quantities(
         preferred_entry_quantities,
@@ -138,6 +194,7 @@ def allocate_sell_to_entry_slices(
             "exit_trade_fact_id": sell_trade_fact["trade_fact_id"],
             "entry_id": slice_document["entry_id"],
             "entry_slice_id": slice_document["entry_slice_id"],
+            "position_type": position_type_of(slice_document.get("position_type")),
             "guardian_price": slice_document["guardian_price"],
             "allocated_quantity": allocated_quantity,
             "request_id": request_id,
@@ -180,12 +237,16 @@ def allocate_sell_to_entry_slices_with_budget(
         return []
     allocations: list[dict[str, Any]] = []
     entry_by_id = {item["entry_id"]: item for item in entries}
-    open_slices = stable_open_entry_slice_order(open_slices)
 
     plan = dict(source_plan or {})
     plan_slices = list(plan.get("slices") or [])
     plan_entries = list(plan.get("entries") or [])
     has_plan = bool(plan_slices or plan_entries)
+    open_slices = (
+        stable_open_entry_slice_order(open_slices)
+        if has_plan
+        else _bucketed_no_plan_slice_order(open_slices, sell_trade_fact)
+    )
 
     already_by_slice = {
         str(key or ""): int(value or 0)
@@ -395,6 +456,7 @@ def _consume_entry_slice(
         "exit_trade_fact_id": sell_trade_fact["trade_fact_id"],
         "entry_id": slice_document["entry_id"],
         "entry_slice_id": slice_document["entry_slice_id"],
+        "position_type": position_type_of(slice_document.get("position_type")),
         "guardian_price": slice_document["guardian_price"],
         "allocated_quantity": int(allocated_quantity or 0),
         "request_id": request_id,

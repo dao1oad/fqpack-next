@@ -35,7 +35,10 @@ from freshquant.position.cn_future import queryArrangedCnFutureFillList
 from freshquant.research.cjsd.main import getCjsdList
 from freshquant.trading.dt import fq_trading_fetch_trade_dates
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
-from freshquant.util.code import fq_util_code_append_market_code_suffix
+from freshquant.util.code import (
+    fq_util_code_append_market_code_suffix,
+    normalize_to_base_code,
+)
 from freshquant.util.encoder import FqJsonEncoder
 from freshquant.util.period import (
     get_redis_cache_key,
@@ -96,6 +99,12 @@ def _get_guardian_buy_grid_service():
     from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
 
     return get_guardian_buy_grid_service()
+
+
+def _get_guardian_ladder_state():
+    from freshquant.strategy.guardian_ladder import get_guardian_ladder_state
+
+    return get_guardian_ladder_state()
 
 
 def _request_json_payload():
@@ -594,9 +603,18 @@ def delete_from_stock_pre_pools_by_code():
 @stock_bp.route("/get_stock_position_list")
 def get_stock_position_list():
     stock_positions: List = get_stock_positions()
+    ledger_summary = _load_position_ledger_summary()
 
     # 将amount_adjusted字段的值赋给amount字段，然后删除amount_adjusted字段
     for position in stock_positions:
+        base_code = normalize_to_base_code(
+            position.get("symbol") or position.get("stock_code") or position.get("code")
+        )
+        ledger = ledger_summary.get(base_code) or {}
+        position["base_quantity"] = ledger.get("base_quantity", 0)
+        position["base_amount"] = round(ledger.get("base_amount", 0.0), 2)
+        position["t_quantity"] = ledger.get("t_quantity", 0)
+        position["t_amount"] = round(ledger.get("t_amount", 0.0), 2)
         if "amount_adjusted" in position:
             position["amount"] = position["amount_adjusted"]
             del position["amount_adjusted"]
@@ -608,6 +626,54 @@ def get_stock_position_list():
         json.dumps(stock_positions, cls=FqJsonEncoder),
         mimetype="application/json",
     )
+
+
+def _load_position_ledger_summary() -> dict:
+    """#549：OM 账本 base/t 汇总（按 base code；剩余股数 × guardian_price）。"""
+
+    try:
+        from freshquant.order_management.entry_adapter import position_type_of
+        from freshquant.order_management.repository import OrderManagementRepository
+
+        repository = OrderManagementRepository()
+        if not hasattr(repository, "list_open_entry_slices"):
+            return {}
+        open_slices = repository.list_open_entry_slices()
+    except Exception:
+        return {}
+    summary: dict = {}
+    for item in open_slices or []:
+        symbol = normalize_to_base_code(str(item.get("symbol") or ""))
+        remaining = 0
+        try:
+            remaining = int(item.get("remaining_quantity") or 0)
+        except (TypeError, ValueError):
+            remaining = 0
+        if not symbol or remaining <= 0:
+            continue
+        try:
+            guardian_price = float(item.get("guardian_price") or 0.0)
+        except (TypeError, ValueError):
+            guardian_price = 0.0
+        row = summary.setdefault(
+            symbol,
+            {
+                "base_quantity": 0,
+                "t_quantity": 0,
+                "base_amount": 0.0,
+                "t_amount": 0.0,
+            },
+        )
+        if position_type_of(item.get("position_type")) == "t":
+            row["t_quantity"] += remaining
+            row["t_amount"] += remaining * guardian_price
+        else:
+            row["base_quantity"] += remaining
+            row["base_amount"] += remaining * guardian_price
+    for symbol, row in summary.items():
+        row["base_amount"] = round(row["base_amount"], 2)
+        row["t_amount"] = round(row["t_amount"], 2)
+    return summary
 
 
 @stock_bp.route("/stock_hold_position")
@@ -655,33 +721,53 @@ def guardian_buy_grid_config_post():
 @stock_bp.route("/guardian_buy_grid_state", methods=["GET"])
 def guardian_buy_grid_state_get():
     code = request.args.get("code")
-    result = _get_guardian_buy_grid_service().get_state(code)
+    result = _get_guardian_ladder_state().get_state(code)
     return jsonify(result or {})
 
 
 @stock_bp.route("/guardian_buy_grid_state", methods=["POST"])
 def guardian_buy_grid_state_post():
     payload = _request_json_payload()
-    result = _get_guardian_buy_grid_service().upsert_state(
-        payload.get("code"),
-        buy_active=payload.get("buy_active"),
-        last_hit_level=payload.get("last_hit_level"),
-        last_hit_price=payload.get("last_hit_price"),
-        last_hit_signal_time=payload.get("last_hit_signal_time"),
-        last_reset_reason=payload.get("last_reset_reason"),
-        updated_by=payload.get("updated_by", "api"),
-    )
+    code = payload.get("code")
+    # v4.1 R3：字段级写回——只写 payload 中显式出现的字段，保留其余现值。
+    grid_kwargs = {
+        key: payload[key]
+        for key in (
+            "buy_active",
+            "last_hit_level",
+            "last_hit_price",
+            "last_hit_signal_time",
+            "last_reset_reason",
+        )
+        if key in payload
+    }
+    if grid_kwargs:
+        _get_guardian_buy_grid_service().upsert_state(
+            code,
+            updated_by=payload.get("updated_by", "api"),
+            audit=True,
+            **grid_kwargs,
+        )
+    if "buy_line_armed" in payload:
+        _get_guardian_ladder_state().set_buy_line_armed(
+            code=code,
+            values=payload["buy_line_armed"],
+        )
+    if "armed_levels" in payload:
+        _get_guardian_ladder_state().set_armed_levels(
+            code=code,
+            values=payload["armed_levels"],
+        )
+    result = _get_guardian_ladder_state().get_state(code)
     return jsonify(result)
 
 
 @stock_bp.route("/guardian_buy_grid_state/reset", methods=["POST"])
 def guardian_buy_grid_state_reset():
     payload = _request_json_payload()
-    result = _get_guardian_buy_grid_service().reset_after_sell_trade(
-        payload.get("code"),
-        updated_by=payload.get("updated_by", "api"),
-        reason=payload.get("reason", "manual_reset"),
-    )
+    # reset 语义 = 回缺省态（安全方向：最坏多买一次，受 R/冷却/min_buy_amount
+    # 约束）；止盈档 armed_levels 由阶梯事件管理，保留不覆盖。
+    result = _get_guardian_ladder_state().reset(payload.get("code"))
     return jsonify(result)
 
 

@@ -6,31 +6,67 @@ from freshquant.database.cache import in_memory_cache
 from freshquant.db import DBfreshquant
 
 
+def _code_base(instrument_code: Optional[str]) -> Optional[str]:
+    if not instrument_code:
+        return None
+    return instrument_code.upper().removesuffix(".SH").removesuffix(".SZ")
+
+
+def _coerce_int(value, *, default=None):
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _resolve_guardian_config_value(
+    instrument_code: Optional[str],
+    *,
+    strategy_key: str,
+    must_pool_key: Optional[str] = None,
+    params_path: Optional[str] = None,
+):
+    """共享参数解析链：``instrument_strategy`` → ``must_pool`` → ``params``。
+
+    返回解析链上第一个非空值；全部缺失时返回 ``None``。供
+    ``get_trade_amount`` / ``get_threshold_config`` /
+    ``get_grid_interval_config`` / ``get_min_buy_amount`` 复用，避免第 4 份
+    拷贝，并修正“字段缺失即 ``int(None)`` TypeError”的旧模式。
+    """
+
+    if instrument_code:
+        strategy = DBfreshquant["instrument_strategy"].find_one(
+            {"instrument_code": instrument_code}
+        )
+        if strategy is not None:
+            value = pydash.get(strategy, strategy_key)
+            if value is not None:
+                return value
+    code_base = _code_base(instrument_code)
+    if code_base:
+        if must_pool := DBfreshquant["must_pool"].find_one({"code": code_base}):
+            value = pydash.get(must_pool, must_pool_key) if must_pool_key else None
+            if value is not None:
+                return value
+    if param := DBfreshquant["params"].find_one({"code": "guardian"}):
+        value = pydash.get(param["value"], params_path) if params_path else None
+        if value is not None:
+            return value
+    return None
+
+
 @in_memory_cache.memoize(expiration=900)
 def get_trade_amount(instrument_code: Optional[str] = None) -> int:
     """获取交易手数配置，按优先级从多个数据源查找配置"""
-    lot_amount: Optional[int] = None
-
-    # 1. 从 instrument_strategy 集合查询
-    if instrument_code:
-        if strategy := DBfreshquant["instrument_strategy"].find_one(
-            {"instrument_code": instrument_code}
-        ):
-            lot_amount = int(pydash.get(strategy, "lot_amount"))
-
-    # 2. 从 must_pool 集合查询（去除交易所后缀）
-    if lot_amount is None and instrument_code:
-        code_base = instrument_code.upper().removesuffix(".SH").removesuffix(".SZ")
-        if must_pool := DBfreshquant["must_pool"].find_one({"code": code_base}):
-            lot_amount = int(pydash.get(must_pool, "lot_amount"))
-
-    # 3. 从 guardian 参数配置获取默认值
-    if lot_amount is None:
-        if param := DBfreshquant["params"].find_one({"code": "guardian"}):
-            # 合并重复的获取逻辑
-            lot_amount = int(pydash.get(param["value"], "stock.lot_amount", 50000))
-
-    # 返回最终值或默认值
+    lot_amount = _resolve_guardian_config_value(
+        instrument_code,
+        strategy_key="lot_amount",
+        must_pool_key="lot_amount",
+        params_path="stock.lot_amount",
+    )
+    lot_amount = _coerce_int(lot_amount)
     return lot_amount or 50000
 
 
@@ -41,21 +77,13 @@ def get_threshold_config(instrument_code: Optional[str] = None) -> dict:
         "mode": "percent",
         "percent": 1,
     }
-    # 1. 从 instrument_strategy 集合读取（按标的覆盖）
-    if instrument_code:
-        strategy = DBfreshquant["instrument_strategy"].find_one(
-            {"instrument_code": instrument_code}
-        )
-        if strategy:
-            strategy_threshold = pydash.get(strategy, "threshold")
-            if isinstance(strategy_threshold, dict) and strategy_threshold:
-                return strategy_threshold
-
-    # 2. 回退到 guardian 参数配置
-    if param := DBfreshquant["params"].find_one({"code": "guardian"}):
-        return pydash.get(param["value"], "stock.threshold", default)
-
-    # 3. 默认值
+    value = _resolve_guardian_config_value(
+        instrument_code,
+        strategy_key="threshold",
+        params_path="stock.threshold",
+    )
+    if isinstance(value, dict) and value:
+        return value
     return default
 
 
@@ -66,22 +94,34 @@ def get_grid_interval_config(instrument_code: Optional[str] = None) -> dict:
         "mode": "percent",
         "percent": 3,
     }
-    # 1. 从 instrument_strategy 集合读取（按标的覆盖）
-    if instrument_code:
-        strategy = DBfreshquant["instrument_strategy"].find_one(
-            {"instrument_code": instrument_code}
-        )
-        if strategy:
-            strategy_grid_interval = pydash.get(strategy, "grid_interval")
-            if isinstance(strategy_grid_interval, dict) and strategy_grid_interval:
-                return strategy_grid_interval
-
-    # 2. 回退到 guardian 参数配置
-    if param := DBfreshquant["params"].find_one({"code": "guardian"}):
-        return pydash.get(param["value"], "stock.grid_interval", default)
-
-    # 3. 默认值
+    value = _resolve_guardian_config_value(
+        instrument_code,
+        strategy_key="grid_interval",
+        params_path="stock.grid_interval",
+    )
+    if isinstance(value, dict) and value:
+        return value
     return default
+
+
+@in_memory_cache.memoize(expiration=900)
+def get_min_buy_amount(instrument_code: Optional[str] = None) -> int:
+    """新增全局最小买入金额（#549）：所有买入路径通用门槛。
+
+    来源：``params.guardian.stock.min_buy_amount``（允许 instrument_strategy
+    按标的覆盖），默认 10000、下限钳制 10000。``B < min_buy_amount`` 不买
+    （不消耗冷却）；只约束取整前 B。
+    """
+
+    value = _resolve_guardian_config_value(
+        instrument_code,
+        strategy_key="min_buy_amount",
+        params_path="stock.min_buy_amount",
+    )
+    parsed = _coerce_int(value)
+    if parsed is None:
+        parsed = 10000
+    return max(parsed, 10000)
 
 
 if __name__ == "__main__":

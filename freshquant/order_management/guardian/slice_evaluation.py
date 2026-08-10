@@ -22,6 +22,12 @@ from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from freshquant.order_management.entry_adapter import (
+    POSITION_TYPE_BASE,
+    POSITION_TYPE_T,
+    position_type_of,
+)
+
 PRICE_TICK = Decimal("0.01")
 THRESHOLD_PRECISION = Decimal("0.0001")
 DEFAULT_THRESHOLD_MODE = "percent"
@@ -115,6 +121,7 @@ def evaluate_guardian_sell_slices(
     slices: list[dict[str, Any]],
     signal_price: Any,
     threshold_config: dict[str, Any] | None = None,
+    position_types: list[str] | None = None,
 ) -> dict[str, Any]:
     """逐 slice 独立判定卖出资格，返回可卖数量与逐 slice 阈值证据。
 
@@ -123,12 +130,22 @@ def evaluate_guardian_sell_slices(
 
     - slice 文档：``guardian_price / remaining_quantity``
     - arranged fill 行：``price / quantity``
+    - ``position_types``：可选账本过滤（如只扫 ``["t"]``）。默认 None 不过滤。
 
     边界规则：``normalized_signal_price >= threshold_price``（阈值保留 4 位小数，
     信号价先按 0.01 规范化），不依赖二进制 float 的 ``>``。
     """
 
     normalized_signal = normalize_price_to_tick(signal_price)
+    allowed_position_types = (
+        {
+            str(item).strip().lower()
+            for item in list(position_types or [])
+            if str(item).strip()
+        }
+        if position_types is not None
+        else None
+    )
     eligible_slices: list[dict[str, Any]] = []
     threshold_evidence: list[dict[str, Any]] = []
     raw_quantity = 0
@@ -149,9 +166,14 @@ def evaluate_guardian_sell_slices(
             remaining = 0
         if remaining <= 0:
             continue
+        if allowed_position_types is not None:
+            item_position_type = position_type_of(item.get("position_type"))
+            if item_position_type not in allowed_position_types:
+                continue
 
         entry_id = str(item.get("entry_id") or "").strip() or None
         entry_slice_id = str(item.get("entry_slice_id") or "").strip() or None
+        item_position_type = position_type_of(item.get("position_type"))
         guardian_decimal = normalize_price_to_tick(guardian_price)
         threshold = build_slice_threshold(guardian_decimal, threshold_config)
         threshold_price = to_decimal(threshold["threshold_price"])
@@ -160,6 +182,7 @@ def evaluate_guardian_sell_slices(
         evidence: dict[str, Any] = {
             "entry_id": entry_id,
             "entry_slice_id": entry_slice_id,
+            "position_type": item_position_type,
             "guardian_price": str(guardian_decimal),
             "guardian_price_normalized": str(guardian_decimal),
             "threshold_mode": threshold["threshold_mode"],

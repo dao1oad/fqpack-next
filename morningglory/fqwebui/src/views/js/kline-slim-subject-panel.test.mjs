@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   buildInitialKlineSlimSubjectPanelState,
   createKlineSlimSubjectPanelActions,
+  isSubjectPanelDetailLoaded,
   normalizeKlineSlimSubjectPanelDetail,
   restoreKlineSlimPositionLimitDefault,
 } from './kline-slim-subject-panel.mjs'
@@ -236,4 +237,35 @@ test('buildInitialKlineSlimSubjectPanelState starts closed and idle', () => {
   assert.equal(Object.hasOwn(state.mustPoolDraft, 'forever'), false)
   assert.equal(Object.hasOwn(state.positionLimitDraft, 'use_default'), false)
   assert.deepEqual(state.positionLimitDraft, { limit: null })
+})
+
+test('#548 isSubjectPanelDetailLoaded gates position-limit writes', async () => {
+  const state = buildInitialKlineSlimSubjectPanelState()
+  assert.equal(isSubjectPanelDetailLoaded(state), false)
+
+  state.subjectPanelDetail = { symbol: '600000', positionLimit: {} }
+  assert.equal(isSubjectPanelDetailLoaded(state), true)
+})
+
+test('#548 restoreKlineSlimPositionLimitDefault rejects when detail not loaded', async () => {
+  const calls = []
+  const state = buildInitialKlineSlimSubjectPanelState()
+
+  await assert.rejects(
+    restoreKlineSlimPositionLimitDefault(state, {
+      actions: {
+        async savePositionLimit(symbol, payload) {
+          calls.push(['savePositionLimit', symbol, payload.limit])
+        },
+      },
+      symbol: '600000',
+      async refresh() {
+        calls.push(['refresh'])
+        return true
+      },
+    }),
+    /标的设置尚未加载完成，禁止保存/,
+  )
+
+  assert.deepEqual(calls, [])
 })

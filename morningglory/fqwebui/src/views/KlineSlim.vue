@@ -356,6 +356,13 @@
                     <span class="price-panel-section-note">
                       价格下跌进入对应区间后，每次按基础买入量补仓；阶段 CAP 限制该区间可达到的最大仓位，总仓位上限是最终硬门禁。
                     </span>
+                    <span
+                      v-if="subjectPriceDetail?.guardianDefaults?.caps || subjectPriceDetail?.guardianDefaults?.buy_prices"
+                      class="price-panel-section-note price-panel-default-badge"
+                    >
+                      {{ subjectPriceDetail?.guardianDefaults?.buy_prices ? '默认价格' : '' }}
+                      {{ subjectPriceDetail?.guardianDefaults?.caps ? '默认CAP' : '' }}
+                    </span>
                   </div>
                 </div>
 
@@ -390,7 +397,7 @@
                         size="small"
                         type="primary"
                         :loading="subjectPanelState.savingSubjectConfigBundle"
-                        :disabled="!positionLimitAvailable"
+                        :disabled="!positionLimitAvailable || !subjectPanelState.subjectPanelDetail"
                         @click="handleSaveSubjectPositionLimit"
                       >
                         保存总上限
@@ -399,7 +406,7 @@
                         v-if="positionLimitSummary.using_override"
                         size="small"
                         :loading="subjectPanelState.savingSubjectConfigBundle"
-                        :disabled="!positionLimitAvailable"
+                        :disabled="!positionLimitAvailable || !subjectPanelState.subjectPanelDetail"
                         @click="handleRestoreSubjectPositionLimitDefault"
                       >
                         恢复系统默认
@@ -474,13 +481,13 @@
                 </div>
 
                 <div class="guardian-tier-actions">
-                  <el-button size="small" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked" @click="handleGuardianGuideEnabledAll(true)">
+                  <el-button size="small" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked || !subjectPriceDetail" @click="handleGuardianGuideEnabledAll(true)">
                     全部开启
                   </el-button>
-                  <el-button size="small" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked" @click="handleGuardianGuideEnabledAll(false)">
+                  <el-button size="small" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked || !subjectPriceDetail" @click="handleGuardianGuideEnabledAll(false)">
                     全部关闭
                   </el-button>
-                  <el-button size="small" type="primary" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked" @click="handleSaveGuardianPriceGuides">
+                  <el-button size="small" type="primary" :loading="savingGuardianPriceGuides" :disabled="priceGuideEditLocked || !subjectPriceDetail" @click="handleSaveGuardianPriceGuides">
                     保存买入设置
                   </el-button>
                 </div>

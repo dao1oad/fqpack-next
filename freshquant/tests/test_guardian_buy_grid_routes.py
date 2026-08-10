@@ -65,6 +65,8 @@ def _install_route_stubs(monkeypatch):
 
     db = types.ModuleType("freshquant.db")
     db.DBfreshquant = {}
+    db.DBQuantAxis = {}
+    db.DBOrderManagement = {}
 
     instrument_general = types.ModuleType("freshquant.instrument.general")
     instrument_general.query_instrument_info = lambda *args, **kwargs: {}
@@ -84,6 +86,7 @@ def _install_route_stubs(monkeypatch):
 
     util_code = types.ModuleType("freshquant.util.code")
     util_code.fq_util_code_append_market_code_suffix = lambda code: code
+    util_code.normalize_to_base_code = lambda code: str(code or "")
 
     util_encoder = types.ModuleType("freshquant.util.encoder")
 
@@ -202,10 +205,41 @@ def test_guardian_buy_grid_state_routes_get_post_and_reset(monkeypatch, stock_ro
             captured["reset"] = (code, kwargs)
             return {"code": code, "buy_active": [True, True, True]}
 
+    class FakeLadderService:
+        def get_state(self, code):
+            captured["ladder_get_code"] = code
+            return {
+                "code": code,
+                "buy_line_armed": [True, True, True],
+                "armed_levels": {"1": True, "2": True, "3": True},
+            }
+
+        def set_buy_line_armed(self, *, code, values):
+            captured["set_buy_line_armed"] = (code, values)
+            return {"code": code, "buy_line_armed": values}
+
+        def set_armed_levels(self, *, code, values):
+            captured["set_armed_levels"] = (code, values)
+            return {"code": code, "armed_levels": values}
+
+        def reset(self, code):
+            captured["ladder_reset"] = code
+            return {
+                "code": code,
+                "buy_line_armed": [True, True, True],
+                "armed_levels": {"1": True, "2": True, "3": True},
+            }
+
     monkeypatch.setattr(
         stock_routes,
         "_get_guardian_buy_grid_service",
         lambda: FakeService(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stock_routes,
+        "_get_guardian_ladder_state",
+        lambda: FakeLadderService(),
         raising=False,
     )
 
@@ -213,7 +247,13 @@ def test_guardian_buy_grid_state_routes_get_post_and_reset(monkeypatch, stock_ro
     response = stock_routes.guardian_buy_grid_state_get()
 
     assert response.status_code == 200
-    assert response.get_json()["buy_active"] == [True, False, False]
+    assert captured["ladder_get_code"] == "000001"
+    assert response.get_json()["buy_line_armed"] == [True, True, True]
+    assert response.get_json()["armed_levels"] == {
+        "1": True,
+        "2": True,
+        "3": True,
+    }
 
     stock_routes.request.json = {
         "code": "000001",
@@ -231,17 +271,28 @@ def test_guardian_buy_grid_state_routes_get_post_and_reset(monkeypatch, stock_ro
             "buy_active": [False, True, True],
             "last_hit_level": "BUY-1",
             "last_hit_price": 9.8,
-            "last_hit_signal_time": None,
-            "last_reset_reason": None,
             "updated_by": "pytest",
+            "audit": True,
         },
     )
 
-    stock_routes.request.json = {"code": "000001", "updated_by": "pytest"}
+    stock_routes.request.json = {
+        "code": "000001",
+        "buy_line_armed": [False, True, True],
+        "armed_levels": {"1": False, "2": True, "3": True},
+        "updated_by": "pytest",
+    }
+    response = stock_routes.guardian_buy_grid_state_post()
+
+    assert response.status_code == 200
+    assert captured["set_buy_line_armed"] == ("000001", [False, True, True])
+    assert captured["set_armed_levels"] == (
+        "000001",
+        {"1": False, "2": True, "3": True},
+    )
+
+    stock_routes.request.json = {"code": "000001"}
     response = stock_routes.guardian_buy_grid_state_reset()
 
     assert response.status_code == 200
-    assert captured["reset"] == (
-        "000001",
-        {"updated_by": "pytest", "reason": "manual_reset"},
-    )
+    assert captured["ladder_reset"] == "000001"

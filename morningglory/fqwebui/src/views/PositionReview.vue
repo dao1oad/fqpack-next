@@ -263,6 +263,26 @@
                   {{ item.label }} <strong>{{ item.value }}</strong>
                 </StatusChip>
               </WorkbenchSummaryRow>
+
+              <div v-if="selectedDetail.ledger" class="position-review-ledger-strip">
+                <StatusChip variant="info">
+                  底仓 <strong>{{ ledgerBaseLabel }}</strong>
+                </StatusChip>
+                <StatusChip variant="warning">
+                  做T <strong>{{ ledgerTLabel }}</strong>
+                </StatusChip>
+                <StatusChip variant="muted">
+                  T 可卖 <strong>{{ ledgerEligibleLabel }}</strong>
+                  <span v-if="ledgerMount > 0"> / mount {{ formatAmount(ledgerMount) }}</span>
+                </StatusChip>
+                <StatusChip
+                  v-for="tier in selectedDetail.ledger.takeprofit_tiers || []"
+                  :key="tier.level"
+                  :variant="tier.armed ? 'success' : 'muted'"
+                >
+                  TP{{ tier.level }} {{ tier.armed ? '已布防' : '未布防' }}
+                </StatusChip>
+              </div>
             </template>
 
             <div v-else class="workbench-empty">
@@ -1140,6 +1160,22 @@ const formatTimestamp = (value) => formatBeijingTimestamp(value)
 const formatSignedInteger = (value) => formatPositionReviewSignedInteger(value)
 const isFiniteNonZero = (value) => isPositionReviewFiniteNonZero(value)
 const prettyJson = (value) => JSON.stringify(value ?? {}, null, 2)
+const formatAmount = (value) => {
+  const parsed = Number(value ?? 0)
+  if (!Number.isFinite(parsed)) {
+    return '--'
+  }
+  return parsed.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+}
+const ledgerSummary = computed(() => selectedDetail.value?.ledger || {})
+const ledgerBaseLabel = computed(() => (
+  `${formatInteger(ledgerSummary.value.base_quantity ?? 0)} 股 · ${formatAmount(ledgerSummary.value.base_amount)} 元`
+))
+const ledgerTLabel = computed(() => (
+  `${formatInteger(ledgerSummary.value.t_quantity ?? 0)} 股 · ${formatAmount(ledgerSummary.value.t_amount)} 元`
+))
+const ledgerEligibleLabel = computed(() => formatAmount(ledgerSummary.value.t_eligible_amount))
+const ledgerMount = computed(() => Number(ledgerSummary.value.min_sell_amount ?? 0))
 const conditionSummaryTitle = (row) => {
   const rows = (row.conditions || []).map((item) => {
     const threshold = item.thresholdMissing ? '缺失' : (item.thresholdDisplay || '—')
