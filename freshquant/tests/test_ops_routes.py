@@ -264,14 +264,26 @@ def test_ops_overview_5s_cache_avoids_repeated_queries(ops_app, monkeypatch):
     monkeypatch.setattr(ops_routes, "get_runtime_query_service", lambda: service)
     _patch_mongo(monkeypatch, positions=[{"sync_last_seen_at": int(time.time()) - 5}])
 
+    # 注入固定时钟：缓存窗口判定与机器速度解耦，避免慢 runner 上真实 5s
+    # 超时导致第二次请求被误判为缓存未生效（时序类 flaky）。
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(ops_routes, "_monotonic", lambda: clock["now"])
+
     client = ops_app.test_client()
     first = client.get("/api/ops/overview").get_json()
+    clock["now"] += 1.0  # TTL 窗口内
     second = client.get("/api/ops/overview").get_json()
 
     assert service.calls == 1
     assert first["cache"]["cached"] is False
     assert second["cache"]["cached"] is True
     assert first["generated_at"] == second["generated_at"]
+
+    # 超过 TTL 后应重新查询并重建缓存
+    clock["now"] += 10.0
+    third = client.get("/api/ops/overview").get_json()
+    assert service.calls == 2
+    assert third["cache"]["cached"] is False
 
 
 def test_ops_kline_health_segment_status(ops_app, monkeypatch):
