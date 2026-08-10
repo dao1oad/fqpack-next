@@ -8,11 +8,13 @@ from freshquant.clx_daily_selection.tdx_export import (
     BLOCKNEW_CFG_GROUP_SIZE,
     BLOCKNEW_CFG_NAME,
     CLX_15_30_TDX_BLK_FILENAME,
+    aggregate_clx_15_30_codes,
     append_tdx_group_members,
     encode_tdx_blk_code,
     ensure_tdx_group_registered,
     read_tdx_blk_lines,
     write_clx_tdx_group,
+    write_tdx_group_members,
 )
 
 
@@ -236,3 +238,94 @@ def test_append_tdx_group_members_registers_group_when_cfg_present(tmp_path):
     name2 = data[170:240].split(b"\x00", 1)[0].decode("gbk")
     assert name1 == "clx_15_30"
     assert name2 == "CLX_15_30"
+
+
+def test_write_tdx_group_members_overwrites_in_passed_order(tmp_path):
+    target = tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME
+    target.parent.mkdir(parents=True)
+    target.write_bytes("1510050\r\n".encode("gbk"))
+
+    result = write_tdx_group_members(
+        ["sz000001", "sh600000", "sz000001"], tdx_home=tmp_path
+    )
+
+    assert result == {
+        "group_name": "clx_15_30",
+        "file_name": "CLX_15_30.blk",
+        "written_count": 2,
+        "skipped_count": 0,
+    }
+    # 全量覆盖：旧成员消失，按传入顺序去重保留
+    assert target.read_bytes() == b"0000001\r\n1600000\r\n"
+
+
+def test_write_tdx_group_members_empty_list_is_noop(tmp_path):
+    result = write_tdx_group_members([], tdx_home=tmp_path)
+
+    assert result["written_count"] == 0
+    # 空列表不触碰旧文件：文件不存在则保持不存在
+    assert not (tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME).exists()
+
+
+def test_write_tdx_group_members_all_invalid_is_noop(tmp_path):
+    result = write_tdx_group_members(["700001", "bad-code"], tdx_home=tmp_path)
+
+    assert result["written_count"] == 0
+    assert result["skipped_count"] == 2
+    assert not (tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME).exists()
+
+
+def test_write_tdx_group_members_skips_invalid_code_keeps_rest(tmp_path):
+    result = write_tdx_group_members(
+        ["sz000001", "700001", "sh600000"], tdx_home=tmp_path
+    )
+
+    assert result["written_count"] == 2
+    assert result["skipped_count"] == 1
+    target = tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME
+    assert target.read_bytes() == b"0000001\r\n1600000\r\n"
+
+
+def test_write_tdx_group_members_atomic_failure_preserves_old(monkeypatch, tmp_path):
+    target = tmp_path / "T0002" / "blocknew" / CLX_15_30_TDX_BLK_FILENAME
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"old-group\r\n")
+
+    def fail_replace(_source, _target):
+        raise OSError("replace denied")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+
+    with pytest.raises(RuntimeError, match="旧分组已保留"):
+        write_tdx_group_members(["sh600000"], tdx_home=tmp_path)
+
+    assert target.read_bytes() == b"old-group\r\n"
+    assert list(target.parent.glob(".CLX_15_30.blk.*.tmp")) == []
+
+
+def test_write_tdx_group_members_registers_group_when_cfg_present(tmp_path):
+    cfg = _seed_blocknew_cfg(tmp_path)
+
+    write_tdx_group_members(["sh600000"], tdx_home=tmp_path)
+
+    data = cfg.read_bytes()
+    name1 = data[120:170].split(b"\x00", 1)[0].decode("gbk")
+    name2 = data[170:240].split(b"\x00", 1)[0].decode("gbk")
+    assert name1 == "clx_15_30"
+    assert name2 == "CLX_15_30"
+
+
+def test_aggregate_clx_15_30_codes_merges_same_bar_and_orders_by_last_time():
+    records = [
+        {"code": "sh600000", "datetime": "2026-08-10T10:00"},
+        {"code": "sh600000", "datetime": "2026-08-10T11:00"},
+        {"code": "sz000001", "datetime": "2026-08-10T11:00"},
+        {"code": "sh600000", "datetime": "2026-08-10T10:45"},
+        {"code": "", "datetime": "2026-08-10T09:30"},
+        {"code": "sz000002", "datetime": None},
+    ]
+
+    assert aggregate_clx_15_30_codes(records) == [
+        "sh600000",
+        "sz000001",
+    ]
