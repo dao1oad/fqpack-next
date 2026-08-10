@@ -83,6 +83,11 @@ def _doc_matches_query(doc, query):
             if allowed_values is None or value not in allowed_values:
                 return False
             continue
+        # Mongo 数组字段用字符串匹配即“包含该元素”（如 tags 数组）
+        if isinstance(value, list) and not isinstance(expected, list):
+            if expected not in value:
+                return False
+            continue
         if value != expected:
             return False
     return True
@@ -115,7 +120,7 @@ def _import_stock_service_with_stubs(monkeypatch):
     )
 
     must_pool_module = types.ModuleType("freshquant.data.astock.must_pool")
-    must_pool_module.import_pool = lambda *args, **kwargs: None
+    must_pool_module.import_pool = lambda *args, **kwargs: True
 
     signal_common_module = types.ModuleType("freshquant.signal.a_stock_common")
     signal_common_module.save_a_stock_pools = lambda *args, **kwargs: None
@@ -547,12 +552,14 @@ def test_get_stock_signal_list_for_must_pool_buys_filters_current_non_holding_mu
     fake_db = FakeDB(
         stock_signals=FakeCollection(
             [
+                # 命中：5m + must_pool_5m_new_open tag + enabled 池代码 + 非持仓 BUY_LONG
                 {
                     "_id": "1",
                     "symbol": "sz000001",
                     "code": "000001",
                     "name": "alpha",
-                    "period": "1m",
+                    "period": "5m",
+                    "tags": ["must_pool_5m_new_open"],
                     "remark": "回拉中枢上涨",
                     "fire_time": datetime(2026, 3, 15, 9, 31),
                     "price": 10.2,
@@ -560,12 +567,14 @@ def test_get_stock_signal_list_for_must_pool_buys_filters_current_non_holding_mu
                     "position": "BUY_LONG",
                     "is_holding": False,
                 },
+                # 5m 无 tag：非监控产出，排除
                 {
                     "_id": "2",
                     "symbol": "sz000002",
                     "code": "000002",
                     "name": "beta",
-                    "period": "1m",
+                    "period": "5m",
+                    "tags": [],
                     "remark": "回拉中枢上涨",
                     "fire_time": datetime(2026, 3, 15, 9, 32),
                     "price": 11.2,
@@ -573,67 +582,74 @@ def test_get_stock_signal_list_for_must_pool_buys_filters_current_non_holding_mu
                     "position": "BUY_LONG",
                     "is_holding": False,
                 },
+                # 1m 带 tag：周期不符，排除
                 {
                     "_id": "3",
                     "symbol": "sz000003",
                     "code": "000003",
                     "name": "gamma",
                     "period": "1m",
+                    "tags": ["must_pool_5m_new_open"],
                     "remark": "回拉中枢上涨",
                     "fire_time": datetime(2026, 3, 15, 9, 33),
                     "price": 12.2,
                     "stop_lose_price": 11.7,
                     "position": "BUY_LONG",
-                    "is_holding": True,
+                    "is_holding": False,
                 },
+                # 5m 带 tag 但代码不在 enabled 池（fund_cn / disabled）：排除
                 {
                     "_id": "4",
                     "symbol": "sz000004",
                     "code": "000004",
                     "name": "delta",
-                    "period": "1m",
+                    "period": "5m",
+                    "tags": ["must_pool_5m_new_open"],
                     "remark": "回拉中枢下跌",
                     "fire_time": datetime(2026, 3, 15, 9, 34),
                     "price": 13.2,
                     "stop_lose_price": 13.7,
-                    "position": "SELL_SHORT",
+                    "position": "BUY_LONG",
                     "is_holding": False,
                 },
             ]
         ),
         must_pool=FakeCollection(
             [
-                {"code": "000001"},
-                {"code": "000003"},
-                {"code": "000004"},
+                {"code": "000001", "instrument_type": "stock_cn"},
+                {"code": "000002", "instrument_type": "stock_cn"},
+                {"code": "000003", "instrument_type": "stock_cn"},
+                {"code": "000004", "instrument_type": "fund_cn"},
+                {"code": "000005", "instrument_type": "stock_cn", "disabled": True},
             ]
         ),
     )
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
 
+    # 与 freshquant/pool/general.py::queryMustPoolCodes 同口径的假实现：
+    # enabled + instrument_type ∈ {stock_cn, etf_cn}，禁用/基金代码被排除。
+    def fake_query_must_pool_codes():
+        return sorted(
+            str(doc.get("code"))
+            for doc in fake_db["must_pool"].docs
+            if doc.get("code")
+            and doc.get("instrument_type") in ("stock_cn", "etf_cn")
+            and not doc.get("disabled")
+        )
+
+    monkeypatch.setattr(stock_service, "queryMustPoolCodes", fake_query_must_pool_codes)
+
     result = stock_service.get_stock_signal_list(
         page=1, size=1000, category="must_pool_buys"
     )
 
-    assert result == [
-        {
-            "symbol": "sz000001",
-            "code": "000001",
-            "name": "alpha",
-            "period": "1m",
-            "remark": "回拉中枢上涨",
-            "fire_time": "2026-03-15 09:31",
-            "created_at": "2026-03-15 09:31",
-            "price": 10.2,
-            "stop_lose_price": 9.7,
-            "position": "BUY_LONG",
-            "is_holding": False,
-        }
-    ]
+    assert [row["code"] for row in result] == ["000001"]
     assert fake_db["stock_signals"].last_query == {
         "is_holding": False,
         "position": "BUY_LONG",
-        "code": {"$in": ["000001", "000003", "000004"]},
+        "period": "5m",
+        "tags": "must_pool_5m_new_open",
+        "code": {"$in": ["000001", "000002", "000003"]},
     }
     assert fake_db["stock_signals"].last_skip == 0
     assert fake_db["stock_signals"].last_limit == 1000

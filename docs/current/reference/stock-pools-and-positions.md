@@ -62,7 +62,7 @@
   - `stock_pre_pools -> stock_pools`
 - `/stock-control` 的 `must_pools买入信号`
   - `stock_signals`
-  - 条件是 `position=BUY_LONG`、`is_holding=False`，且 code 当前仍在 `must_pool`
+  - 条件是 `position=BUY_LONG`、`is_holding=False`、`period=5m`、带 `must_pool_5m_new_open` tag，且 code 当前在 enabled `must_pool`（`instrument_type ∈ {stock_cn, etf_cn}`、`disabled ≠ True`）；面板口径与 5 分钟监控产出一致（复用 `queryMustPoolCodes()`，见 `freshquant/pool/general.py`）
 - `/stock-control` 当前页面布局
   - 左列展示“持仓股信号”
   - 中列展示“stock_pools模型信号”
