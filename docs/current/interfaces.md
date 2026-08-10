@@ -264,6 +264,8 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 
 - memory bootstrap 脚本
   - `py -3.12 runtime/memory/scripts/bootstrap_freshquant_memory.py --repo-root . --service-root D:/fqpack/runtime`
+- memory 保留/整合脚本（90 天归档旧 pack、清理 stale knowledge、输出报告；`--dry-run` 预演）
+  - `py -3.12 runtime/memory/scripts/consolidate_freshquant_memory.py --repo-root . --service-root D:/fqpack/runtime --dry-run`
 - Codex CLI 启动入口
   - `codex_run/start_codex_cli.bat`
 - Codex app-server 启动入口

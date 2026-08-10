@@ -46,7 +46,9 @@ class RedisBootstrapConfig:
 class MemoryMongoBootstrapConfig:
     host: str = "127.0.0.1"
     port: int = 27027
-    db: str = "fq_memory"
+    # 记忆系统 v2（#545）：新库 fq_memory_v2 并行，旧库 fq_memory 冻结保留；
+    # 回滚可用环境变量 FRESHQUANT_MEMORY__MONGODB__DB=fq_memory 覆盖。
+    db: str = "fq_memory_v2"
 
 
 @dataclass(frozen=True)

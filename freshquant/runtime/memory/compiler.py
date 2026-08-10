@@ -15,10 +15,29 @@ def _format_knowledge_items(items: list[dict[str, Any]]) -> str:
     if not items:
         return "- No cold-memory knowledge items were loaded.\n"
 
-    sections: list[str] = []
+    # 索引化：每个文件一行（标题 + 一句话摘要 + 相对路径），
+    # 不再嵌入冷记忆全文；agent 需要细节时按路径按需读取。
+    lines = []
     for item in items:
-        sections.append(f"### {item['title']}\n\n{item['content']}\n")
-    return "\n".join(sections)
+        title = item.get("title") or item.get("knowledge_item_id") or "?"
+        relative_path = item.get("knowledge_item_id") or item.get("source_path") or "?"
+        summary = _summarize_content(item.get("content") or "")
+        lines.append(f"- [{title}] (`{relative_path}`) - {summary}")
+    return "\n".join(lines) + "\n"
+
+
+def _summarize_content(content: str, *, max_length: int = 160) -> str:
+    """从冷记忆全文提取一句话摘要：首个非标题、非空行，去 markdown 标记。"""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        cleaned = stripped.lstrip("-* ").strip()
+        if cleaned:
+            if len(cleaned) > max_length:
+                return cleaned[: max_length - 1].rstrip() + "…"
+            return cleaned
+    return ""
 
 
 def _format_module_status(items: list[dict[str, Any]]) -> str:
@@ -194,6 +213,16 @@ If any conflict appears, formal truth wins over memory context.
                 "role": role,
                 "path": str(output_path),
                 "generated_at": generated_at,
+                # 注入可观测性：记录本次 pack 实际注入的内容清单
+                "injected_cold_memory_files": [
+                    str(item.get("knowledge_item_id") or item.get("source_path"))
+                    for item in knowledge_items
+                ],
+                "injected_knowledge_items": len(knowledge_items),
+                "injected_module_status": len(module_status),
+                "injected_task_events": len(task_events),
+                "injected_deploy_runs": len(deploy_runs),
+                "injected_health_results": len(health_results),
             }
         ],
         key_fields=("context_pack_id",),

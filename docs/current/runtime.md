@@ -79,7 +79,7 @@
 - formal deploy 状态根目录：`D:/fqpack/runtime/formal-deploy`
 - memory context pack 产物根目录：`D:/fqpack/runtime/artifacts/memory/context-packs`
 - 冷记忆目录：`.codex/memory`
-- 热记忆 Mongo database：`fq_memory`
+- 热记忆 Mongo database：`fq_memory_v2`（旧库 `fq_memory` 冻结保留，回滚用环境变量 `FRESHQUANT_MEMORY__MONGODB__DB=fq_memory`）
 
 ## XTData QFQ A/B 运行口径
 

@@ -272,6 +272,13 @@ pprint(svc.load_latest_snapshot())
 - `py -3.12 runtime/memory/scripts/refresh_freshquant_memory.py --issue-identifier LOCAL-session --issue-state "Local Session" --branch-name <branch> --git-status clean`
 - `py -3.12 runtime/memory/scripts/compile_freshquant_context_pack.py --issue-identifier LOCAL-session --role codex`
 
+记忆库为 `fq_memory_v2`（旧库 `fq_memory` 已冻结保留）；需要回滚时用环境变量
+`FRESHQUANT_MEMORY__MONGODB__DB=fq_memory` 后重新 bootstrap。context pack 是
+「索引 + 快照」（冷记忆只含标题/摘要/路径，不再嵌入全文）；pack 中冷记忆区只有
+索引是预期行为，细节按需读取 `.codex/memory/*.md`。长期未整合时可用
+`runtime/memory/scripts/consolidate_freshquant_memory.py` 归档旧 pack 与清理
+stale knowledge（先 `--dry-run` 预演）。
+
 常见根因：
 
 - 没有先执行 `bootstrap_freshquant_memory.py`。
