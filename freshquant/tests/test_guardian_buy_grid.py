@@ -615,6 +615,137 @@ def test_enabled_true_without_buy_enabled_reopens_all_levels_for_legacy_callers(
     assert result["enabled"] is True
 
 
+def test_disable_grid_flips_buy_enabled_and_state_off_without_caps_validation():
+    # M2：config 带 max_position_amounts 且 capacity 不可用（全局限额无法解析）
+    # 时，upsert_config 的 caps 校验会失败；disable_grid 必须直写绕过、仍能关闭。
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                        "max_position_amounts": [999999, 1999999, 2999999],
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(
+                [{"code": "000001", "buy_active": [True, True, True]}]
+            ),
+            "audit_log": FakeCollection(),
+        }
+    )
+    service = _build_service(database)
+
+    result = service.disable_grid("000001", updated_by="xt_account_sync")
+
+    assert result["buy_enabled"] == [False, False, False]
+    assert result["enabled"] is False
+    # 价位保留（历史配置供重配参考）
+    assert result["BUY-1"] == 10.0
+    assert service.get_state("000001")["buy_active"] == [False, False, False]
+
+
+def test_disable_grid_missing_config_is_noop():
+    database = FakeDatabase({})
+    service = _build_service(database)
+
+    assert service.disable_grid("000001") is None
+    assert database["guardian_buy_grid_configs"].docs == []
+
+
+def test_disabled_grid_blocks_new_open_until_reconfigured(monkeypatch):
+    # M3：关闭后 build_new_open_decision 被阻断（quantity=0）；重配后恢复
+    database = FakeDatabase(
+        {
+            "must_pool": FakeCollection(
+                [{"code": "000001", "initial_lot_amount": 80000}]
+            ),
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                        "max_position_amounts": [10000, 20000, 30000],
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(),
+            "audit_log": FakeCollection(),
+        }
+    )
+    service = _build_service(database)
+    # 注入 position capacity：未注入时 _load_position_capacity 会连真实
+    # PositionManagementRepository（Mongo），CI 无 Mongo 时返回 None 导致
+    # quantity=0，测试与运行环境耦合。
+    monkeypatch.setattr(
+        service, "_load_position_capacity", lambda code: (0.0, 999999.0)
+    )
+
+    before = service.build_new_open_decision("000001", 9.5)
+    assert before["quantity"] > 0
+
+    service.disable_grid("000001", updated_by="xt_account_sync")
+    blocked = service.build_new_open_decision("000001", 9.5)
+    assert blocked["quantity"] == 0
+    assert blocked["skip_reason"] == "grid_disabled"
+
+    # 重新开仓必须重配价位：恢复 enabled 后可正常开仓
+    service.upsert_config(
+        "000001",
+        buy_1=10.0,
+        buy_2=9.0,
+        buy_3=8.0,
+        buy_enabled=[True, True, True],
+        enabled=True,
+        max_position_amounts=[10000, 20000, 30000],
+        updated_by="manual",
+    )
+    restored = service.build_new_open_decision("000001", 9.5)
+    assert restored["quantity"] > 0
+
+
+def test_disabled_config_gates_holding_add_even_after_late_sell_reset():
+    # 顺序竞态：先关闭，后迟到 sell trade 触发 reset_after_sell_trade
+    # （buy_active 变回 [T,T,T]）；config buy_enabled=[F,F,F] 是真正守门人，
+    # _resolve_hit_levels 仍返回空，双闸不冲突。
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "buy_enabled": [False, False, False],
+                        "enabled": False,
+                        "max_position_amounts": [10000, 20000, 30000],
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(
+                [{"code": "000001", "buy_active": [True, True, True]}]
+            ),
+            "audit_log": FakeCollection(),
+        }
+    )
+    service = _build_service(database)
+
+    decision = service.build_holding_add_decision("000001", 8.5)
+
+    assert decision["hit_levels"] == []
+    assert decision["quantity"] == 0
+
+
 def test_manual_state_changes_and_manual_reset_are_audited():
     database = FakeDatabase({"audit_log": FakeCollection()})
     service = _build_service(database)

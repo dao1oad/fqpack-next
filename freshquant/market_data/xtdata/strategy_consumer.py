@@ -59,6 +59,7 @@ except Exception as e:  # pragma: no cover
 
 
 REALTIME_CLX_MODEL_IDS = list(range(10000, 10018))
+_CLX_DATETIME_INDEX_ENSURED = False
 
 
 def resolve_consumer_runtime_config(*, settings_provider=None) -> dict[str, int | str]:
@@ -852,31 +853,48 @@ class StrategyConsumer:
             )
         except Exception as e:
             logger.error(f"[Consumer] insert clx docs failed: {e}")
+            # 以数据库为真值：入库失败则跳过通达信分组重写，避免「库无、文件有」假信号
+            return
 
-        # 通达信 clx_15_30 分组：去重追加（best-effort，不影响信号主链）
+        # 通达信 clx_15_30 分组：当天覆盖写（best-effort，不影响信号主链）
         try:
-            from freshquant.clx_daily_selection.tdx_export import (
-                append_tdx_group_members,
-            )
+            global _CLX_DATETIME_INDEX_ENSURED
+            if not _CLX_DATETIME_INDEX_ENSURED:
+                try:
+                    DBfreshquant["realtime_screen_multi_period"].create_index(
+                        "datetime"
+                    )
+                except Exception:
+                    pass  # 索引缺失只影响当天查询性能，不阻断主链
+                finally:
+                    _CLX_DATETIME_INDEX_ENSURED = True
 
-            result = append_tdx_group_members(
-                sorted(
-                    {
-                        str(d.get("code") or "").strip()
-                        for d in docs
-                        if str(d.get("code") or "").strip()
-                    }
+            from freshquant.clx_daily_selection import tdx_export
+
+            # 锁内整体串行：查当天记录 → 聚合 → 覆盖写，
+            # 避免线程池回调的旧快照覆盖新快照。
+            with tdx_export._TDX_BLK_WRITE_LOCK:
+                day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                records = list(
+                    DBfreshquant["realtime_screen_multi_period"].find(
+                        {"datetime": {"$gte": day_start}},
+                        {"code": 1, "datetime": 1},
+                    )
                 )
-            )
-            appended_count = int(str(result.get("appended_count") or 0))
-            if appended_count > 0:
+                codes = tdx_export.aggregate_clx_15_30_codes(records)
+                result = tdx_export._write_tdx_group_members_locked(codes)
+            written_count = int(str(result.get("written_count") or 0))
+            if written_count > 0:
+                tdx_export.ensure_tdx_group_registered(
+                    tdx_export.CLX_15_30_TDX_BLOCK_KEY,
+                    tdx_export.CLX_15_30_TDX_GROUP_DISPLAY_NAME,
+                )
                 logger.info(
-                    f"[Consumer] clx_15_30 tdx group appended "
-                    f"{appended_count} new member(s), "
-                    f"total {result.get('written_count')}"
+                    f"[Consumer] clx_15_30 tdx group rewritten "
+                    f"{written_count} member(s) for {dt.date()}"
                 )
         except Exception as e:
-            logger.warning(f"[Consumer] append clx_15_30 tdx group failed: {e}")
+            logger.warning(f"[Consumer] rewrite clx_15_30 tdx group failed: {e}")
 
         # DingTalk: minimal aggregation
         try:

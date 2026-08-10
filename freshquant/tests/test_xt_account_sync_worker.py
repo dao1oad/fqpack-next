@@ -54,6 +54,16 @@ class SequencedSyncService:
         return dict(outcome)
 
 
+class FakePositionsCollection:
+    def __init__(self, docs=None):
+        self.docs = list(docs or [])
+        self.last_query = None
+
+    def find(self, query=None, projection=None):
+        self.last_query = query
+        return [dict(doc) for doc in self.docs]
+
+
 def test_sync_service_runs_expected_tasks_in_order_and_optionally_credit_subjects():
     from freshquant.xt_account_sync.service import XtAccountSyncService
 
@@ -625,6 +635,7 @@ def test_build_default_sync_positions_skips_reconcile_on_empty_snapshot_guard(
         client=FakeQueryClient(),
         reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
+        position_cleanup_fn=lambda **kwargs: {"disabled_total": 0},
     )
 
     result = service.sync_positions()
@@ -634,6 +645,146 @@ def test_build_default_sync_positions_skips_reconcile_on_empty_snapshot_guard(
     assert result["reconcile"] is None
     assert len(persist_calls) == 1
     assert reconcile_calls == []
+
+
+def test_build_default_sync_positions_skips_cleanup_on_empty_snapshot_guard(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "STOCK"
+
+        def query_stock_positions(self):
+            return []
+
+    cleanup_calls = []
+    persist_calls = []
+
+    def _capture_persist(*args, **kwargs):
+        persist_calls.append((args, kwargs))
+        return {
+            "count": 0,
+            "account_id": "acct-sync",
+            "empty_snapshot_guard": True,
+            "deleted_missing": [],
+            "cleared_zero_volume": [],
+        }
+
+    def _capture_cleanup(**kwargs):
+        cleanup_calls.append(kwargs)
+        return {"disabled_total": 0}
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        positions_collection=FakePositionsCollection(),
+        position_cleanup_fn=_capture_cleanup,
+    )
+
+    result = service.sync_positions()
+
+    assert result["empty_snapshot_guard"] is True
+    # 空快照守卫：收敛不得执行（防空快照全量误关）
+    assert cleanup_calls == []
+
+
+def test_build_default_sync_positions_runs_cleanup_after_persist(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "STOCK"
+
+        def query_stock_positions(self):
+            return []
+
+    cleanup_calls = []
+
+    def _capture_persist(*args, **kwargs):
+        return {
+            "count": 0,
+            "account_id": "acct-sync",
+            "empty_snapshot_guard": False,
+            "deleted_missing": [],
+            "cleared_zero_volume": [],
+        }
+
+    def _capture_cleanup(**kwargs):
+        cleanup_calls.append(kwargs)
+        return {"disabled_total": 2, "buy_configs_disabled": ["600001"]}
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        reconcile_service=SimpleNamespace(
+            reconcile_account=lambda *args, **kwargs: {"confirmed_candidates": []}
+        ),
+        positions_collection=FakePositionsCollection(),
+        position_cleanup_fn=_capture_cleanup,
+    )
+
+    result = service.sync_positions()
+
+    assert len(cleanup_calls) == 1
+    assert result["position_cleanup"] == {
+        "disabled_total": 2,
+        "buy_configs_disabled": ["600001"],
+    }
+    assert result["reconcile_skipped"] is False
+
+
+def test_build_default_sync_positions_cleanup_failure_is_best_effort(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from freshquant.xt_account_sync.service import XtAccountSyncService
+
+    class FakeQueryClient:
+        account_id = "acct-sync"
+        account_type = "STOCK"
+
+        def query_stock_positions(self):
+            return []
+
+    def _capture_persist(*args, **kwargs):
+        return {
+            "count": 0,
+            "account_id": "acct-sync",
+            "empty_snapshot_guard": False,
+            "deleted_missing": [],
+            "cleared_zero_volume": [],
+        }
+
+    def _explode_cleanup(**kwargs):
+        raise RuntimeError("cleanup boom")
+
+    monkeypatch.setattr(
+        "freshquant.xt_account_sync.service.persist_positions",
+        _capture_persist,
+    )
+    service = XtAccountSyncService.build_default(
+        client=FakeQueryClient(),
+        reconcile_service=SimpleNamespace(
+            reconcile_account=lambda *args, **kwargs: {"confirmed_candidates": []}
+        ),
+        positions_collection=FakePositionsCollection(),
+        position_cleanup_fn=_explode_cleanup,
+    )
+
+    # 收敛失败不阻塞持仓同步主链
+    result = service.sync_positions()
+
+    assert result["reconcile_skipped"] is False
+    assert result["position_cleanup"] == {}
 
 
 def test_build_default_sync_positions_passes_effective_view_with_hysteresis_retained_symbol(
@@ -701,6 +852,7 @@ def test_build_default_sync_positions_passes_effective_view_with_hysteresis_reta
         client=FakeQueryClient(),
         reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
+        position_cleanup_fn=lambda **kwargs: {"disabled_total": 0},
     )
 
     result = service.sync_positions()
@@ -779,6 +931,7 @@ def test_build_default_sync_positions_excludes_cleared_zero_volume_from_effectiv
         client=FakeQueryClient(),
         reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
+        position_cleanup_fn=lambda **kwargs: {"disabled_total": 0},
     )
 
     result = service.sync_positions()
@@ -843,6 +996,7 @@ def test_build_default_sync_positions_uses_effective_view_from_persisted_collect
         client=FakeQueryClient(),
         reconcile_service=SimpleNamespace(reconcile_account=_capture_reconcile),
         positions_collection=FakePositionsCollection(),
+        position_cleanup_fn=lambda **kwargs: {"disabled_total": 0},
     )
 
     result = service.sync_positions()

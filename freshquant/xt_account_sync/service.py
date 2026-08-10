@@ -3,6 +3,8 @@
 import time
 from datetime import datetime, timezone
 
+from loguru import logger
+
 from freshquant.order_management.credit_subjects.repository import (
     CreditSubjectRepository,
 )
@@ -20,6 +22,26 @@ from freshquant.xt_account_sync.persistence import (
     save_sync_cursor,
     sync_credit_subjects,
 )
+
+_runtime_event_logger = None
+
+
+def _emit_cleanup_event(event: dict) -> None:
+    global _runtime_event_logger
+    if _runtime_event_logger is None:
+        from freshquant.runtime_observability.logger import RuntimeEventLogger
+
+        _runtime_event_logger = RuntimeEventLogger(component="xt_account_sync")
+    _runtime_event_logger.emit(event)
+
+
+def _default_position_cleanup(*, positions_collection):
+    from freshquant.xt_account_sync.position_cleanup import converge_position_configs
+
+    return converge_position_configs(
+        positions_collection=positions_collection,
+        event_emitter=_emit_cleanup_event,
+    )
 
 
 class XtAccountSyncService:
@@ -75,6 +97,7 @@ class XtAccountSyncService:
         now_provider=None,
         sync_state_collection=None,
         positions_collection=None,
+        position_cleanup_fn=None,
     ):
         query_client = client or XtAccountQueryClient()
         position_repository = position_repository or PositionManagementRepository()
@@ -87,6 +110,7 @@ class XtAccountSyncService:
         )
         now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         positions_collection = positions_collection or _load_positions_collection()
+        position_cleanup_fn = position_cleanup_fn or _default_position_cleanup
 
         def sync_assets_once():
             puppet = _load_puppet_module()
@@ -142,6 +166,22 @@ class XtAccountSyncService:
                     reconcile_skipped=True,
                     reconcile=None,
                 )
+
+            # 未持仓即关闭价位配置：启用配置 ∩ 未持仓 → 止盈/买入三档全部关闭。
+            # best-effort、幂等；空快照守卫已在上方拦截（防空快照全量误关）。
+            cleanup_result = None
+            try:
+                cleanup_result = (
+                    position_cleanup_fn(positions_collection=positions_collection) or {}
+                )
+                if cleanup_result.get("disabled_total"):
+                    logger.info(
+                        f"[xt_account_sync] position cleanup disabled "
+                        f"{cleanup_result['disabled_total']} config(s)"
+                    )
+            except Exception as exc:
+                logger.warning(f"[xt_account_sync] position cleanup failed: {exc}")
+
             effective_positions = _resolve_effective_positions(
                 collection=positions_collection,
                 account_id=query_client.account_id,
@@ -157,6 +197,7 @@ class XtAccountSyncService:
                 account_type=query_client.account_type,
                 reconcile=reconcile_result,
                 reconcile_skipped=False,
+                position_cleanup=cleanup_result or {},
             )
 
         def seed_symbol_snapshots_once():

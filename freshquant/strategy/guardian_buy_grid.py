@@ -54,6 +54,22 @@ def _coerce_buy_enabled(
     return fallback
 
 
+def _is_grid_enabled(config: dict[str, Any] | None) -> bool:
+    """网格配置是否处于启用状态（config 是真正守门人）。
+
+    ``enabled=False`` 或 ``buy_enabled`` 全 False 视为关闭；未配置时视为启用
+    （兼容无配置直接下单的旧路径）。
+    """
+    if not config or not config.get("enabled", True):
+        return False
+    return any(
+        _coerce_buy_enabled(
+            config.get("buy_enabled"),
+            default=[bool(config.get("enabled", True))] * 3,
+        )
+    )
+
+
 def _coerce_caps(value: Any) -> list[int]:
     if not isinstance(value, list) or len(value) != 3:
         return []
@@ -113,6 +129,33 @@ class GuardianBuyGridService:
         if raw is None:
             return None
         return self._normalize_config(raw)
+
+    def disable_grid(
+        self, code: str, *, updated_by: str = "xt_account_sync"
+    ) -> dict[str, Any] | None:
+        """关闭某标的买入三档配置（未持仓/清仓收敛用）。
+
+        - 配置不存在时 no-op，返回 None；
+        - 直写 ``$set`` 绕过 caps 校验、不 upsert：清仓后 position capacity
+          可能不可用，走 ``upsert_config`` 会因 caps 校验抛错导致关闭失败；
+        - 不修改 BUY-1/2/3 价位（保留历史配置供重新开仓重配参考）；
+        - 同步把 state ``buy_active`` 置为全 False。
+        """
+        normalized = normalize_to_base_code(code)
+        current = self.get_config(normalized)
+        if current is None:
+            return None
+        self._config_collection().update_one(
+            {"code": normalized},
+            {"$set": {"buy_enabled": [False, False, False], "enabled": False}},
+        )
+        self.upsert_state(
+            normalized,
+            buy_active=[False, False, False],
+            updated_by=updated_by,
+            audit=False,
+        )
+        return self.get_config(normalized)
 
     def upsert_config(
         self,
@@ -260,13 +303,7 @@ class GuardianBuyGridService:
         initial_amount = self.get_initial_lot_amount(normalized)
         source_price = _coerce_float(price)
         config = self.get_config(normalized)
-        if config:
-            quantity, context = self._resolve_capped_quantity(
-                normalized, source_price, initial_amount, config
-            )
-        else:
-            quantity, context = _amount_to_quantity(initial_amount, source_price), {}
-        return {
+        base = {
             "code": normalized,
             "path": "new_open",
             "initial_amount": initial_amount,
@@ -276,9 +313,22 @@ class GuardianBuyGridService:
             "multiplier": 1,
             "buy_prices_snapshot": None,
             "buy_active_before": None,
-            "quantity": quantity,
-            **context,
         }
+        if config and not _is_grid_enabled(config):
+            # 未持仓收敛已关闭该标的配置：开仓被阻断，重新开仓必须重配价位
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "grid_disabled",
+                "stage": None,
+            }
+        if config:
+            quantity, context = self._resolve_capped_quantity(
+                normalized, source_price, initial_amount, config
+            )
+        else:
+            quantity, context = _amount_to_quantity(initial_amount, source_price), {}
+        return {**base, "quantity": quantity, **context}
 
     def build_holding_add_decision(self, code: str, price: float) -> dict[str, Any]:
         normalized = normalize_to_base_code(code)
@@ -286,6 +336,26 @@ class GuardianBuyGridService:
         base_amount = int(self.get_trade_amount_fn(normalized))
         config = self.get_config(normalized)
         state = self.get_state(normalized)
+        base = {
+            "code": normalized,
+            "path": "holding_add",
+            "base_amount": base_amount,
+            "source_price": source_price,
+            "grid_level": None,
+            "hit_levels": [],
+            "multiplier": 1,
+            "buy_prices_snapshot": self._build_buy_price_snapshot(config),
+            "buy_active_before": list(state["buy_active"]),
+        }
+        if config and not _is_grid_enabled(config):
+            # config 是真正守门人：即使 buy_active 被迟到 sell trade 重置回
+            # [T,T,T]，关闭状态下也不产生任何买入数量（双闸不冲突）。
+            return {
+                **base,
+                "quantity": 0,
+                "skip_reason": "grid_disabled",
+                "stage": None,
+            }
         hit_levels = self._resolve_hit_levels(
             price=source_price,
             config=config,
@@ -303,15 +373,9 @@ class GuardianBuyGridService:
         else:
             quantity, context = _amount_to_quantity(base_amount, source_price), {}
         return {
-            "code": normalized,
-            "path": "holding_add",
-            "base_amount": base_amount,
-            "source_price": source_price,
+            **base,
             "grid_level": grid_level,
             "hit_levels": hit_levels,
-            "multiplier": 1,
-            "buy_prices_snapshot": self._build_buy_price_snapshot(config),
-            "buy_active_before": list(state["buy_active"]),
             "quantity": quantity,
             **context,
         }
