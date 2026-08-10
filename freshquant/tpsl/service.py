@@ -267,6 +267,23 @@ class TpslService:
                 for item in open_slices
                 if position_type_of(item.get("position_type")) != "t"
             ]
+            t_slices = [
+                item
+                for item in open_slices
+                if position_type_of(item.get("position_type")) == "t"
+            ]
+            ledger_filter = {
+                "base_slice_count": len(base_slices),
+                "base_quantity": sum(
+                    max(int(item.get("remaining_quantity") or 0), 0)
+                    for item in base_slices
+                ),
+                "t_slice_count": len(t_slices),
+                "t_quantity": sum(
+                    max(int(item.get("remaining_quantity") or 0), 0)
+                    for item in t_slices
+                ),
+            }
             if not base_slices:
                 self._emit_runtime(
                     "trigger_eval",
@@ -278,6 +295,8 @@ class TpslService:
                         **trigger_payload,
                         "quantity": 0,
                         "trigger_consumed": False,
+                        "skip_reason": "no_base_position",
+                        "ledger_filter": ledger_filter,
                     },
                 )
                 return None
@@ -312,6 +331,8 @@ class TpslService:
                         **trigger_payload,
                         "quantity": 0,
                         "trigger_consumed": False,
+                        "skip_reason": "no_submittable_quantity",
+                        "ledger_filter": ledger_filter,
                     },
                 )
                 return {
@@ -347,7 +368,11 @@ class TpslService:
                 "trigger_eval",
                 symbol=base_symbol,
                 trace_id=trace_id_value,
-                payload=trigger_payload,
+                payload={
+                    **trigger_payload,
+                    "quantity": order_quantity,
+                    "ledger_filter": ledger_filter,
+                },
             )
             capped = _cap_takeprofit_breakdown(
                 quantity_result.get("profit_slices") or [],
@@ -626,7 +651,7 @@ class TpslService:
         )
         quantity = int(decision.get("quantity") or 0)
         if quantity <= 0:
-            return {
+            result = {
                 "status": "skipped",
                 "symbol": base_symbol,
                 "quantity": 0,
@@ -637,7 +662,29 @@ class TpslService:
                 "tick_time": int(tick_time or 0),
                 "trigger_consumed": False,
             }
-        return {
+            self._emit_runtime(
+                "trigger_eval",
+                symbol=base_symbol,
+                trace_id=trace_id or new_trace_id(),
+                status="skipped",
+                reason_code=decision.get("skip_reason") or "no_quantity",
+                payload={
+                    "kind": "base_buyline",
+                    "hit_level": decision.get("grid_level"),
+                    "triggered": False,
+                    "quantity": 0,
+                    "skip_reason": decision.get("skip_reason") or "no_quantity",
+                    "stage": decision.get("stage"),
+                    "ledger_occupancy": decision.get("ledger_occupancy"),
+                    "pending_buy_amount": decision.get("pending_buy_amount"),
+                    "current_market_value": decision.get("current_market_value"),
+                    "remaining_amount": decision.get("remaining_amount"),
+                    "min_buy_amount": decision.get("min_buy_amount"),
+                    "trigger_consumed": False,
+                },
+            )
+            return result
+        result = {
             "status": "ready",
             "symbol": base_symbol,
             "quantity": quantity,
@@ -652,6 +699,24 @@ class TpslService:
             "tick_time": int(tick_time or 0),
             "decision": decision,
         }
+        self._emit_runtime(
+            "trigger_eval",
+            symbol=base_symbol,
+            trace_id=trace_id or new_trace_id(),
+            payload={
+                "kind": "base_buyline",
+                "hit_level": decision.get("grid_level"),
+                "triggered": True,
+                "quantity": quantity,
+                "stage": decision.get("stage"),
+                "ledger_occupancy": decision.get("ledger_occupancy"),
+                "pending_buy_amount": decision.get("pending_buy_amount"),
+                "current_market_value": decision.get("current_market_value"),
+                "remaining_amount": decision.get("remaining_amount"),
+                "min_buy_amount": decision.get("min_buy_amount"),
+            },
+        )
+        return result
 
     def submit_base_buy_batch(self, decision, *, trace_id=None):
         """提交买入线补仓单（base 账本，buy_ledger=base_line）。
@@ -783,6 +848,8 @@ class TpslService:
                 "kind": "base_buyline",
                 "grid_level": grid_level,
                 "quantity": quantity,
+                "ladder_triggered": triggered,
+                "ladder_event_key": intent_id,
             },
         )
         return submit_result

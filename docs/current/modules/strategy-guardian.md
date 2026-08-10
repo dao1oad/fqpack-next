@@ -191,6 +191,17 @@ Guardian 会把关键判断路径写入 `guardian_strategy` runtime event，不�
 signal_price_normalized / eligible / eligible_quantity`），供 Position Review
 与 `guardian.sell simulate` 共用同一份逐切片语义。
 
+#549 阶梯/双账本运行时事件载荷（复用既有节点，不新增页面结构）：
+- `tpsl_worker.trigger_eval`：TP 命中/跳过携带 `ledger_filter`（base/t 切片数与
+  剩余数量）与 `skip_reason`（`no_base_position` / `no_submittable_quantity`）；
+  base-buyline 评估携带 `ledger_occupancy`、`pending_buy_amount`、
+  `current_market_value`、`remaining_amount`、`min_buy_amount` 与 `skip_reason`；
+  提交侧 `submit_intent` 携带 `ladder_triggered` / `ladder_event_key`。
+- `xt_report_ingest.trade_match`：载荷携带 `ladder`（止盈成交阶梯重算的
+  `kind / level / event_key / result{ok,attempts}`）与买入打标 `position_type`；
+  `order_match` 携带零成交终态重开结果（`processed / kind /
+  level_index|level / event_key / result`）。
+
 首次开仓 scope 的关键 `decision_branch / reason_code` 为：
 
 - 允许首开：`decision_branch=must_pool_5m_new_open_buy`，reason 为空

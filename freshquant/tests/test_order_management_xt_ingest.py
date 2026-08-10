@@ -1769,6 +1769,14 @@ def test_manual_source_add_tags_base(monkeypatch):
 
 def test_takeprofit_fill_ingest_triggers_ladder_event(monkeypatch):
     ladder_calls = []
+    runtime_logger = type(
+        "FakeRuntimeLogger",
+        (),
+        {
+            "events": [],
+            "emit": lambda self, event: self.events.append(dict(event)),
+        },
+    )()
 
     class _FakeLadder:
         def on_takeprofit_fill(self, *, code, level, event_key):
@@ -1791,6 +1799,7 @@ def test_takeprofit_fill_ingest_triggers_ladder_event(monkeypatch):
         internal_order_id="ord_tp_buy_1",
         strategy_context=None,
     )
+    ingest_service.runtime_logger = runtime_logger
     result = ingest_service.ingest_trade_report(
         {
             "internal_order_id": "ord_tp_buy_1",
@@ -1847,6 +1856,13 @@ def test_takeprofit_fill_ingest_triggers_ladder_event(monkeypatch):
     assert result["created"] is True
     assert ladder_calls and ladder_calls[0][0] == "000001"
     assert ladder_calls[0][1] == 2
+    # runtime trade_match 载荷携带阶梯更新结果（#549 可观测性）
+    trade_match = [
+        event for event in runtime_logger.events if event["node"] == "trade_match"
+    ][-1]
+    assert trade_match["payload"]["ladder"]["kind"] == "takeprofit_fill"
+    assert trade_match["payload"]["ladder"]["level"] == 2
+    assert trade_match["payload"]["ladder"]["result"]["ok"] is True
 
 
 def test_zero_fill_terminal_cancel_reopens_buy_line(monkeypatch):

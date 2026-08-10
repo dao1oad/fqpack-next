@@ -146,6 +146,7 @@ class OrderManagementXtIngestService:
             entry_slices = []
             exit_allocations = []
             holdings_changed = False
+            ladder_payload = None
 
             if not created:
                 if trade_fact["side"] == "buy":
@@ -233,6 +234,12 @@ class OrderManagementXtIngestService:
                             (position_entry or {}).get("position_type")
                         ),
                     )
+                    ladder_payload = {
+                        "position_type": position_type_of(
+                            (position_entry or {}).get("position_type")
+                        ),
+                        "tpsl_rearm": "base",
+                    }
                 if not holdings_changed and hasattr(
                     self.repository, "list_open_slices"
                 ):
@@ -348,7 +355,7 @@ class OrderManagementXtIngestService:
                                         trade_fact=trade_fact,
                                     )
                                     if takeprofit_level is not None:
-                                        _call_ladder_with_retry(
+                                        ladder_result = _call_ladder_with_retry(
                                             _get_ladder_state().on_takeprofit_fill,
                                             code=symbol,
                                             level=takeprofit_level,
@@ -362,10 +369,27 @@ class OrderManagementXtIngestService:
                                             operation="takeprofit_fill",
                                             symbol=symbol,
                                         )
+                                        ladder_payload = {
+                                            "kind": "takeprofit_fill",
+                                            "level": takeprofit_level,
+                                            "event_key": (
+                                                internal_order_id
+                                                or str(
+                                                    trade_fact.get("internal_order_id")
+                                                )
+                                                or f"tp_fill:{trade_fact.get('trade_fact_id')}"
+                                            ),
+                                            "result": ladder_result,
+                                        }
                                 entry_slices = open_entry_slices
                                 holdings_changed = holdings_changed or bool(
                                     exit_allocations
                                 )
+                                if exit_allocations and takeprofit_level is None:
+                                    ladder_payload = {
+                                        "kind": "external_sell",
+                                        "level": None,
+                                    }
                         if hasattr(self.repository, "list_buy_lots") and hasattr(
                             self.repository, "list_open_slices"
                         ):
@@ -425,6 +449,7 @@ class OrderManagementXtIngestService:
                     "holdings_changed": holdings_changed,
                     "created": True,
                     "dedup_hit": False,
+                    "ladder": ladder_payload,
                 },
             )
 
@@ -484,7 +509,7 @@ class OrderManagementXtIngestService:
             )
             if not ingest_result.get("changed"):
                 return normalized_report
-            self._handle_ladder_terminal_report(normalized_report)
+            ladder_payload = self._handle_ladder_terminal_report(normalized_report)
             self._emit_runtime(
                 "report_receive",
                 normalized_report,
@@ -494,7 +519,10 @@ class OrderManagementXtIngestService:
                 "order_match",
                 normalized_report,
                 internal_order_id=normalized_report["internal_order_id"],
-                extra_payload={"state": normalized_report["state"]},
+                extra_payload={
+                    "state": normalized_report["state"],
+                    "ladder": ladder_payload,
+                },
             )
             return normalized_report
         except Exception as exc:
@@ -515,19 +543,20 @@ class OrderManagementXtIngestService:
         #549 零成交终态：买单被撤/失效重开该买入线；卖单（止盈）被撤/失效
         重开该止盈档。按 ``internal_order_id`` 幂等；部分成交后撤单时，已成交
         部分先按成交事件处理（幂等），未成交部分在此重开。
+        返回结构化结果供 runtime order_match 事件展示。
         """
 
         state = str(normalized_report.get("state") or "").upper()
         if state in {"FILLED", "PARTIAL_FILLED", "SUBMITTED", "ACCEPTED"}:
-            return
+            return None
         if state not in {"CANCELED", "FAILED"}:
-            return
+            return None
         symbol = str(normalized_report.get("symbol") or "").strip()
         internal_order_id = str(
             normalized_report.get("internal_order_id") or ""
         ).strip()
         if not symbol or not internal_order_id:
-            return
+            return None
         request = _load_order_request(
             self.repository,
             request_id=normalized_report.get("request_id"),
@@ -544,13 +573,13 @@ class OrderManagementXtIngestService:
                 or str(grid.get("buy_ledger") or "") == "base_line"
             )
             if not is_base_line:
-                return
+                return {"processed": False, "reason": "not_base_line_buy"}
             level_index = _BUY_LEVEL_INDEX.get(
                 str(grid.get("grid_level") or "").upper()
             )
             if level_index is None:
-                return
-            _call_ladder_with_retry(
+                return {"processed": False, "reason": "no_buy_line_index"}
+            result = _call_ladder_with_retry(
                 _get_ladder_state().on_buy_zero_fill_terminal,
                 code=symbol,
                 level_index=level_index,
@@ -558,7 +587,13 @@ class OrderManagementXtIngestService:
                 operation="buy_zero_fill_terminal",
                 symbol=symbol,
             )
-            return
+            return {
+                "processed": True,
+                "kind": "buy_line_reopen",
+                "level_index": level_index,
+                "event_key": event_key,
+                "result": result,
+            }
         if side == "sell":
             sell_sources = dict(context.get("guardian_sell_sources") or {})
             level = sell_sources.get("level")
@@ -567,8 +602,8 @@ class OrderManagementXtIngestService:
             except (TypeError, ValueError):
                 level_int = None
             if level_int is None or level_int <= 0:
-                return
-            _call_ladder_with_retry(
+                return {"processed": False, "reason": "not_takeprofit_sell"}
+            result = _call_ladder_with_retry(
                 _get_ladder_state().on_takeprofit_zero_fill_terminal,
                 code=symbol,
                 level=level_int,
@@ -576,6 +611,14 @@ class OrderManagementXtIngestService:
                 operation="takeprofit_zero_fill_terminal",
                 symbol=symbol,
             )
+            return {
+                "processed": True,
+                "kind": "takeprofit_reopen",
+                "level": level_int,
+                "event_key": event_key,
+                "result": result,
+            }
+        return {"processed": False, "reason": "unsupported_side"}
 
     def _emit_runtime(
         self,
@@ -1116,13 +1159,25 @@ def _call_ladder_with_retry(
     attempts=3,
     **kwargs,
 ):
-    """XT ingest 事件内有限重试阶梯状态写回；失败记录告警不阻断主链。"""
+    """XT ingest 事件内有限重试阶梯状态写回；失败记录告警不阻断主链。
+
+    返回结构化结果（attempts / ok / error），供 runtime trade_match /
+    order_match 事件载荷展示。
+    """
 
     last_exc = None
+    attempts_used = 0
     for attempt in range(max(int(attempts), 1)):
+        attempts_used = attempt + 1
         try:
             fn(code=code, event_key=event_key, **kwargs)
-            return True
+            return {
+                "operation": operation,
+                "event_key": str(event_key or ""),
+                "ok": True,
+                "attempts": attempts_used,
+                "error": None,
+            }
         except Exception as exc:  # pragma: no cover - 防御性重试
             last_exc = exc
             logger.warning(
@@ -1139,7 +1194,20 @@ def _call_ladder_with_retry(
             symbol,
             last_exc,
         )
-    return False
+        return {
+            "operation": operation,
+            "event_key": str(event_key or ""),
+            "ok": False,
+            "attempts": attempts_used,
+            "error": f"{type(last_exc).__name__}: {last_exc}",
+        }
+    return {
+        "operation": operation,
+        "event_key": str(event_key or ""),
+        "ok": False,
+        "attempts": attempts_used,
+        "error": None,
+    }
 
 
 def _upsert_broker_position_entry(
