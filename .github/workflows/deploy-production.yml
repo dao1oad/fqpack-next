@@ -43,13 +43,8 @@ jobs:
     steps:
       # matrix 上下文在 job 级 if 不可用（workflow_dispatch 解析失败），
       # 目标筛选移到 step 级 if：push main 只自动部署 101（本机/开发机）；
-      # 100/116 是生产机，仅在人工 workflow_dispatch 指定时才部署。
-      - name: Skip non-target runner
-        if: >-
-          !((github.event_name == 'push' && matrix.runner == '101') ||
-            (github.event_name == 'workflow_dispatch' &&
-             contains(github.event.inputs.targets, matrix.runner)))
-        run: echo "runner ${{ matrix.runner }} not selected for this trigger; skip"
+      # 100/116 是生产机，仅在人工 workflow_dispatch 指定时才部署；
+      # 未选中的 runner 全部步骤跳过，job 正常完成。
       - name: Preflight selected runner guard
         if: >-
           (github.event_name == 'push' && matrix.runner == '101') ||
