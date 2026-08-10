@@ -479,7 +479,7 @@ def test_sync_must_pool_new_code_uses_system_default_params(monkeypatch, tmp_pat
     assert call["lot_amount"] == 60000
 
 
-def test_sync_must_pool_new_code_without_default_stop_loss_fails_but_continues(
+def test_sync_must_pool_new_code_without_default_stop_loss_imports_with_none(
     monkeypatch, tmp_path
 ):
     target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
@@ -504,12 +504,13 @@ def test_sync_must_pool_new_code_without_default_stop_loss_fails_but_continues(
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
 
-    assert result["synced_codes"] == []
-    assert result["failed_codes"] == [
-        {"code": "300127", "reason": "默认止损/资金参数不可用"},
-        {"code": "000002", "reason": "默认止损/资金参数不可用"},
-    ]
-    assert calls == []
+    # 通达信分组不承载止损配置：无默认止损配置时新代码仍同步，止损以 None 导入
+    assert result["synced_codes"] == ["300127", "000002"]
+    assert result["failed_codes"] == []
+    assert [call["code"] for call in calls] == ["300127", "000002"]
+    assert all(call["stop_loss_price"] is None for call in calls)
+    assert all(call["initial_lot_amount"] is None for call in calls)
+    assert all(call["lot_amount"] is None for call in calls)
 
 
 def test_sync_stock_pools_second_run_is_idempotent(monkeypatch, tmp_path):
@@ -605,5 +606,48 @@ def test_sync_must_pool_writes_default_params_into_stored_documents(
     stored = fake_db["must_pool"].find_one({"code": "300127"})
     assert stored is not None
     assert stored["stop_loss_price"] == 7.77
+    assert stored["initial_lot_amount"] == 60000
+    assert stored["lot_amount"] == 60000
+
+
+def test_sync_must_pool_without_default_stop_loss_writes_none_into_stored_documents(
+    monkeypatch, tmp_path
+):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("0300127\n", encoding="gbk")
+
+    class AttrDB(dict):
+        def __getattr__(self, name):
+            return dict.__getitem__(self, name)
+
+    fake_db = AttrDB(
+        {
+            "stock_pools": FakeStockPoolsCollection(),
+            "must_pool": FakeStockPoolsCollection(),
+            "xt_positions": FakeStockPoolsCollection(),
+            "params": FakeStockPoolsCollection(),
+            "instrument_strategy": FakeStockPoolsCollection(),
+        }
+    )
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service.must_pool, "DBfreshquant", fake_db)
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "query_instrument_info",
+        lambda code: {"name": "测试标的", "sec": "stock_cn"},
+    )
+    monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 60000)
+    # lot_amount=None 时 import_pool 内部走 must_pool 模块自己的 get_trade_amount
+    monkeypatch.setattr(stock_service.must_pool, "get_trade_amount", lambda code: 60000)
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert result["synced_codes"] == ["300127"]
+    assert result["failed_codes"] == []
+    # 真实 must_pool.import_pool 在无默认止损配置时必须落库 None，而不是阻断同步
+    stored = fake_db["must_pool"].find_one({"code": "300127"})
+    assert stored is not None
+    assert stored["stop_loss_price"] is None
     assert stored["initial_lot_amount"] == 60000
     assert stored["lot_amount"] == 60000
