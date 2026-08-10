@@ -286,7 +286,7 @@ def test_position_cap_limits_each_buy_to_base_amount_and_remaining_capacity(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     database = FakeDatabase(
@@ -386,7 +386,7 @@ def test_new_open_uses_full_capacity_ratio():
 
 def test_holding_add_half_capacity_below_one_lot_skips(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     database = FakeDatabase(

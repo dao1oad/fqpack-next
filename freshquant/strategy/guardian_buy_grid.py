@@ -6,7 +6,6 @@ from typing import Any
 from loguru import logger
 
 from freshquant.order_management.entry_adapter import position_type_of
-from freshquant.strategy.common import get_min_buy_amount
 from freshquant.strategy.guardian_ladder import (
     DEFAULT_BUY_LINE_ARMED,
     _coerce_buy_line_armed,
@@ -30,6 +29,18 @@ _PENDING_BUY_STATES = {
     "CANCEL_REQUESTED",
     "INFERRED_PENDING",
 }
+
+
+def _get_min_buy_amount(instrument_code):
+    """惰性获取全局最小买入金额（#549）。
+
+    采用函数内导入：测试桩会整体替换 ``freshquant.strategy.common``，
+    模块级导入在部分 shard 组合下会因桩缺少新函数而 ImportError。
+    """
+
+    from freshquant.strategy.common import get_min_buy_amount
+
+    return get_min_buy_amount(instrument_code)
 
 
 def _now_iso() -> str:
@@ -521,7 +532,7 @@ class GuardianBuyGridService:
             buy_amount = capacity["remaining"] * 0.5
         else:
             buy_amount = capacity["remaining"] * t_value * t_value
-        min_buy_amount = get_min_buy_amount(normalized)
+        min_buy_amount = _get_min_buy_amount(normalized)
         if buy_amount < min_buy_amount:
             return {
                 **base,
@@ -649,7 +660,7 @@ class GuardianBuyGridService:
                 "grid_level": hit_stage,
             }
         buy_amount = capacity["remaining"]
-        min_buy_amount = get_min_buy_amount(normalized)
+        min_buy_amount = _get_min_buy_amount(normalized)
         if buy_amount < min_buy_amount:
             return {
                 **base,

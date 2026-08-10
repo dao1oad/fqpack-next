@@ -3,11 +3,24 @@
 
 from __future__ import annotations
 
+import importlib.util
 from types import SimpleNamespace
+from pathlib import Path
 
 from click.testing import CliRunner
 
-import script.maintenance.backfill_position_type as backfill_module
+_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "script"
+    / "maintenance"
+    / "backfill_position_type.py"
+)
+_SPEC = importlib.util.spec_from_file_location(
+    "backfill_position_type",
+    _SCRIPT_PATH,
+)
+backfill_module = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(backfill_module)
 
 
 class FakeCollection:

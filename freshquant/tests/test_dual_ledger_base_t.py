@@ -352,7 +352,7 @@ def _grid_config_docs(**overrides):
 
 def test_base_line_decision_uses_cap_minus_max_dc_mv_minus_pending(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     service = _build_grid_service(
@@ -381,7 +381,7 @@ def test_base_line_decision_uses_cap_minus_max_dc_mv_minus_pending(monkeypatch):
 
 def test_base_line_decision_skips_disarmed_and_disabled_lines(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     service = _build_grid_service(
@@ -404,7 +404,7 @@ def test_base_line_decision_skips_disarmed_and_disabled_lines(monkeypatch):
 
 def test_base_line_decision_fails_closed_when_mv_missing(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     service = _build_grid_service(
@@ -452,7 +452,7 @@ def test_base_line_decision_quantity_and_config_invalid():
 
 def test_holding_add_break_zone_uses_global_cap_half_convergence(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     service = _build_grid_service(
@@ -476,7 +476,7 @@ def test_holding_add_break_zone_uses_global_cap_half_convergence(monkeypatch):
 
 def test_holding_add_corridor_uses_t_squared_with_min_buy_gate(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     service = _build_grid_service(
@@ -499,7 +499,7 @@ def test_holding_add_corridor_uses_t_squared_with_min_buy_gate(monkeypatch):
 
 def test_holding_add_above_tp_zone_does_not_buy(monkeypatch):
     monkeypatch.setattr(
-        "freshquant.strategy.guardian_buy_grid.get_min_buy_amount",
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
         lambda *_args, **_kwargs: 10000,
     )
     service = _build_grid_service(
