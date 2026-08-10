@@ -50,6 +50,9 @@ jobs:
           (github.event_name == 'push' && matrix.runner == '101') ||
           (github.event_name == 'workflow_dispatch' &&
            contains(github.event.inputs.targets, matrix.runner))
+        # 必须显式指定 Bypass shell：runner 默认 dot-source 方式在 Restricted
+        # 执行策略下失败（100/116 workflow_dispatch 实测 PSSecurityException）
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: echo "deploying to ${{ matrix.runner }}"
       - name: Run production deploy entrypoint
         if: >-
