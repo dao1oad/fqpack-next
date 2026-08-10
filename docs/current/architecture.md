@@ -60,8 +60,13 @@
 - 热记忆
   - 当前会话通过 `FQ_MEMORY_CONTEXT_PATH` 加载的 context pack
 - 冷记忆
-  - `runtime/memory/**` 中由 bootstrap / archive / retrieval 维护的长期记忆材料
+  - `.codex/memory/*.md`（git 版本化）为真值源；`freshquant.runtime.memory.refresh` 从 `origin/main` 汇总
+  - context pack 为「索引 + 快照」：冷记忆每文件一行（标题 + 一句话摘要 + 相对路径），细节按需读取；不嵌入全文
   - 自由会话通过 `runtime/memory/scripts/bootstrap_freshquant_memory.py` 生成并加载 context pack
+- 写入端有界
+  - `task_events` 每 issue 有界（memory_refresh 为 upsert latest，超 N 条自动裁剪）；`git_status` 摘要化 ≤1KB
+  - 保留/整合脚本：`runtime/memory/scripts/consolidate_freshquant_memory.py`（90 天归档旧 pack、清理 stale knowledge、输出报告）
+  - 热记忆 Mongo database：`fq_memory_v2`（旧库 `fq_memory` 冻结保留，`FRESHQUANT_MEMORY__MONGODB__DB=fq_memory` 可回滚）
 - 正式边界
   - 记忆层只提供上下文，不覆盖 GitHub、`docs/current/**` 与最新远程 `origin/main` / `main` 的正式真值
   - 涉及运行交付时，以最新远程 `main` 的正式 deploy 与 health check 为准

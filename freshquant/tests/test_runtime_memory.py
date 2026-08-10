@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from freshquant.runtime.memory import (
@@ -484,7 +486,8 @@ def test_refresh_memory_reads_deployment_comment_and_cleanup_result_artifacts(
     cold_root = repo_root / ".codex" / "memory"
 
     _write(
-        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+        cold_root / "workflow-rules.md",
+        "# Workflow Rules\n\n- Read memory first.\n",
     )
     _write(
         service_root / "artifacts" / "GH-166" / "deployment-comment.md",
@@ -580,7 +583,8 @@ def test_refresh_memory_reads_cleanup_request_metadata_into_task_state(
     cold_root = repo_root / ".codex" / "memory"
 
     _write(
-        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+        cold_root / "workflow-rules.md",
+        "# Workflow Rules\n\n- Read memory first.\n",
     )
     _write(
         service_root / "artifacts" / "cleanup-requests" / "GH-166.json",
@@ -644,7 +648,8 @@ def test_compile_context_pack_writes_markdown_and_persists_pack_record(
     cold_root = repo_root / ".codex" / "memory"
 
     _write(
-        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+        cold_root / "workflow-rules.md",
+        "# Workflow Rules\n\n- Read memory first.\n- Deep detail not summarized.\n",
     )
 
     config = MemoryRuntimeConfig(
@@ -690,14 +695,21 @@ def test_compile_context_pack_writes_markdown_and_persists_pack_record(
     assert "# FreshQuant Memory Context Pack" in content
     assert "Issue: `GH-166`" in content
     assert "Role: `codex`" in content
+    # 冷记忆索引化：只含标题 + 一句话摘要 + 相对路径，不再嵌入全文
     assert "Workflow Rules" in content
-    assert "Read memory first." in content
+    assert "workflow-rules.md" in content
+    assert "Read memory first." in content  # 摘要行保留首句
+    assert "Deep detail not summarized." not in content  # 全文其余内容不嵌入
 
     context_packs = store.find("context_packs")
     assert len(context_packs) == 1
     assert context_packs[0]["issue_identifier"] == "GH-166"
     assert context_packs[0]["role"] == "codex"
     assert context_packs[0]["path"] == str(output_path)
+    # 注入可观测性：记录 pack 实际注入的内容清单
+    assert context_packs[0]["injected_knowledge_items"] == 1
+    assert context_packs[0]["injected_module_status"] >= 0
+    assert context_packs[0]["injected_cold_memory_files"] == ["workflow-rules.md"]
 
 
 def test_compile_context_pack_includes_recent_task_events(tmp_path: Path) -> None:
@@ -1019,12 +1031,12 @@ def test_repo_declares_memory_runtime_defaults() -> None:
     )
 
     assert "memory:" in config_text
-    assert "db: fq_memory" in config_text
+    assert "db: fq_memory_v2" in config_text
     assert "cold_root: .codex/memory" in config_text
     assert "reference_ref: origin/main" in config_text
     assert "artifact_root: D:/fqpack/runtime/artifacts/memory" in config_text
 
-    assert "FRESHQUANT_MEMORY__MONGODB__DB=fq_memory" in env_text
+    assert "FRESHQUANT_MEMORY__MONGODB__DB=fq_memory_v2" in env_text
     assert "FRESHQUANT_MEMORY__REFERENCE_REF=origin/main" in env_text
     assert (
         "FRESHQUANT_MEMORY__ARTIFACT_ROOT=D:/fqpack/runtime/artifacts/memory"
@@ -1170,3 +1182,215 @@ def test_bootstrap_memory_script_runs_from_repo_without_installed_package(
     assert payload["role"] == "codex"
     assert Path(payload["context_pack_path"]).exists()
     assert payload["context_pack_path"].startswith(str(service_root))
+
+
+def test_refresh_memory_summarizes_oversized_git_status(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    service_root = tmp_path / "service"
+    cold_root = repo_root / ".codex" / "memory"
+    _write(
+        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+    )
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=cold_root,
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+
+    huge_status = "M " + "x" * 5000
+    refresh_memory(
+        config,
+        store,
+        issue_identifier="GH-166",
+        issue_state="In Progress",
+        branch_name="main",
+        git_status=huge_status,
+    )
+
+    task_state = store.find("task_state")[0]
+    assert len(task_state["git_status"]) <= 1100
+    assert "truncated" in task_state["git_status"]
+
+
+def test_refresh_memory_bounds_task_events_per_issue(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    service_root = tmp_path / "service"
+    cold_root = repo_root / ".codex" / "memory"
+    _write(
+        cold_root / "workflow-rules.md", "# Workflow Rules\n\n- Read memory first.\n"
+    )
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=cold_root,
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+    store.upsert_many(
+        "task_events",
+        [
+            {
+                "event_id": f"GH-166:extra:{i}",
+                "issue_identifier": "GH-166",
+                "event_type": "manual",
+                "summary": f"extra {i}",
+                "generated_at": f"2026-08-{i:02d}T00:00:00+00:00",
+            }
+            for i in range(1, 8)
+        ],
+        key_fields=("event_id",),
+    )
+
+    summary = refresh_memory(
+        config,
+        store,
+        issue_identifier="GH-166",
+        issue_state="In Progress",
+        branch_name="main",
+        git_status="clean",
+    )
+    refresh_memory(
+        config,
+        store,
+        issue_identifier="GH-166",
+        issue_state="In Progress",
+        branch_name="main",
+        git_status="clean",
+    )
+
+    events = store.find("task_events", filters={"issue_identifier": "GH-166"})
+    assert len(events) <= 5
+    assert summary["task_events_pruned"] >= 1
+    refresh_events = [
+        event
+        for event in store.find("task_events")
+        if event["event_type"] == "memory_refresh"
+    ]
+    # memory_refresh 用固定 event_id：多次 refresh 只有一条 latest
+    assert len(refresh_events) == 1
+    assert refresh_events[0]["event_id"] == "GH-166:refresh:latest"
+
+
+def test_store_delete_many_in_memory_store() -> None:
+    store = InMemoryMemoryStore()
+    store.upsert_many(
+        "task_events",
+        [
+            {"event_id": "a", "issue_identifier": "GH-1"},
+            {"event_id": "b", "issue_identifier": "GH-1"},
+            {"event_id": "c", "issue_identifier": "GH-2"},
+        ],
+        key_fields=("event_id",),
+    )
+
+    assert store.delete_many("task_events", {"issue_identifier": "GH-1"}) == 2
+    assert store.count("task_events") == 1
+    assert store.delete_many("task_events", {"issue_identifier": "GH-9"}) == 0
+
+
+def _load_consolidate_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "consolidate_freshquant_memory",
+        Path("runtime/memory/scripts/consolidate_freshquant_memory.py"),
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_consolidate_archives_stale_context_packs(tmp_path: Path) -> None:
+    module = _load_consolidate_module()
+    service_root = tmp_path / "service"
+    config = MemoryRuntimeConfig(
+        repo_root=tmp_path / "repo",
+        service_root=service_root,
+        cold_memory_root=tmp_path / "repo" / ".codex" / "memory",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    pack_root = config.artifact_root / "context-packs" / "GH-OLD"
+    _write(pack_root / "codex.md", "# old pack")
+    old_ts = time.time() - 200 * 86400
+    os.utime(pack_root, (old_ts, old_ts))
+    for child in pack_root.rglob("*"):
+        os.utime(child, (old_ts, old_ts))
+
+    archived = module.archive_stale_context_packs(
+        config,
+        archive_root=config.artifact_root / "archive",
+        days=90,
+        dry_run=False,
+    )
+
+    assert len(archived) == 1
+    assert not pack_root.exists()
+    archive_dir = config.artifact_root / "archive" / "context-packs"
+    assert list(archive_dir.glob("GH-OLD-legacy-*"))
+
+
+def test_consolidate_prunes_missing_knowledge_items(tmp_path: Path) -> None:
+    module = _load_consolidate_module()
+    repo_root = _seed_origin_main_reference_repo(tmp_path)
+    service_root = tmp_path / "service"
+    config = MemoryRuntimeConfig(
+        repo_root=repo_root,
+        service_root=service_root,
+        cold_memory_root=repo_root / ".codex" / "memory",
+        artifact_root=service_root / "artifacts" / "memory",
+        reference_ref="origin/main",
+        mongo_host="127.0.0.1",
+        mongo_port=27027,
+        mongo_db="fq_memory",
+    )
+    store = InMemoryMemoryStore()
+    store.upsert_many(
+        "knowledge_items",
+        [
+            {
+                "knowledge_item_id": "workflow-rules.md",
+                "source_path": "origin/main:.codex/memory/workflow-rules.md",
+                "source_ref": "origin/main",
+                "title": "Workflow Rules",
+                "content": "exists",
+            },
+            {
+                "knowledge_item_id": "stale.md",
+                "source_path": "origin/main:.codex/memory/stale.md",
+                "source_ref": "origin/main",
+                "title": "Stale",
+                "content": "missing in ref",
+            },
+            {
+                "knowledge_item_id": "local.md",
+                "source_path": str(repo_root / ".codex" / "memory" / "local.md"),
+                "source_ref": "",
+                "title": "Local",
+                "content": "missing on disk",
+            },
+        ],
+        key_fields=("knowledge_item_id",),
+    )
+
+    removed_dry = module.prune_missing_knowledge_items(config, store, dry_run=True)
+    assert len(removed_dry) == 2
+    assert store.count("knowledge_items") == 3
+
+    removed = module.prune_missing_knowledge_items(config, store, dry_run=False)
+    assert len(removed) == 2
+    remaining = store.find("knowledge_items")
+    assert [item["knowledge_item_id"] for item in remaining] == ["workflow-rules.md"]

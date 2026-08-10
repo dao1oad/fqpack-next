@@ -10,9 +10,23 @@ from typing import Any
 from .cold_memory import build_cold_memory_item, load_cold_memory_items
 from .config import MemoryRuntimeConfig
 
+GIT_STATUS_MAX_LENGTH = 1000
+MAX_TASK_EVENTS_PER_ISSUE = 5
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _summarize_git_status(git_status: str) -> str:
+    """git_status 摘要化：超长截断至 ≤1KB，避免大状态快照污染记忆库。"""
+    text = (git_status or "").strip()
+    if len(text) <= GIT_STATUS_MAX_LENGTH:
+        return text
+    return (
+        text[:GIT_STATUS_MAX_LENGTH]
+        + f" ...(truncated {len(text)} -> {GIT_STATUS_MAX_LENGTH} chars)"
+    )
 
 
 def _extract_title_from_content(content: str, fallback: str) -> str:
@@ -540,6 +554,25 @@ def _load_cleanup_request(
     return task_state_patch, task_events
 
 
+def _prune_task_events(
+    store: Any,
+    *,
+    issue_identifier: str,
+    max_per_issue: int = MAX_TASK_EVENTS_PER_ISSUE,
+) -> int:
+    """同一 issue 的 task_events 有界：超出 N 条的旧事件删除，返回删除数。"""
+    events = store.find("task_events", filters={"issue_identifier": issue_identifier})
+    events.sort(
+        key=lambda item: item.get("generated_at") or "",
+        reverse=True,
+    )
+    stale = events[max_per_issue:]
+    deleted = 0
+    for event in stale:
+        deleted += store.delete_many("task_events", {"event_id": event.get("event_id")})
+    return deleted
+
+
 def refresh_memory(
     config: MemoryRuntimeConfig,
     store: Any,
@@ -568,7 +601,7 @@ def refresh_memory(
         "issue_identifier": issue_identifier,
         "issue_state": issue_state,
         "branch_name": branch_name,
-        "git_status": git_status,
+        "git_status": _summarize_git_status(git_status),
         "reference_ref": config.reference_ref,
         "repo_root": str(config.repo_root),
         "service_root": str(config.service_root),
@@ -580,7 +613,8 @@ def refresh_memory(
     task_state = [task_state_payload]
     task_events = [
         {
-            "event_id": f"{issue_identifier}:refresh:{generated_at}",
+            # 同 issue 的 memory_refresh 用固定 event_id：upsert 覆盖，不无限累积
+            "event_id": f"{issue_identifier}:refresh:latest",
             "issue_identifier": issue_identifier,
             "event_type": "memory_refresh",
             "summary": "Refreshed cold memory, task state, and runtime summaries.",
@@ -650,6 +684,10 @@ def refresh_memory(
             module_status,
             key_fields=("source_ref", "module_id"),
         )
+    pruned_events = _prune_task_events(
+        store,
+        issue_identifier=issue_identifier,
+    )
 
     return {
         "task_state": len(task_state),
@@ -658,4 +696,5 @@ def refresh_memory(
         "health_results": len(health_results),
         "knowledge_items": len(knowledge_items),
         "module_status": len(module_status),
+        "task_events_pruned": pruned_events,
     }

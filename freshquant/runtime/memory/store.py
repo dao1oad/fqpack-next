@@ -47,6 +47,23 @@ class InMemoryMemoryStore:
     def count(self, collection: str) -> int:
         return len(self._collections.get(collection, []))
 
+    def delete_many(
+        self,
+        collection: str,
+        filters: Mapping[str, Any] | None = None,
+    ) -> int:
+        filters = dict(filters or {})
+        bucket = self._collections.get(collection, [])
+        remaining = [
+            item
+            for item in bucket
+            if not all(item.get(key) == value for key, value in filters.items())
+        ]
+        deleted = len(bucket) - len(remaining)
+        if deleted:
+            self._collections[collection] = remaining
+        return deleted
+
 
 class MongoMemoryStore:
     def __init__(self, *, host: str, port: int, db_name: str) -> None:
@@ -86,3 +103,11 @@ class MongoMemoryStore:
 
     def count(self, collection: str) -> int:
         return self._db[collection].count_documents({})
+
+    def delete_many(
+        self,
+        collection: str,
+        filters: Mapping[str, Any] | None = None,
+    ) -> int:
+        result = self._db[collection].delete_many(filters or {})
+        return int(result.deleted_count or 0)

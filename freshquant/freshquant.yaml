@@ -11,7 +11,7 @@ memory:
   mongodb:
     host: 127.0.0.1
     port: 27027
-    db: fq_memory
+    db: fq_memory_v2
 
 order_management:
   mongo_database: freshquant_order_management

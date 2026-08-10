@@ -25,6 +25,13 @@ def test_memory_runtime_config_reads_bootstrap_file(tmp_path, monkeypatch):
     import freshquant.bootstrap_config as bootstrap_module
     import freshquant.runtime.memory.config as memory_config_module
 
+    pristine_db = memory_config_module.MemoryRuntimeConfig.from_settings(
+        repo_root=tmp_path / "repo",
+        service_root=tmp_path / "service",
+        environ={},
+    ).mongo_db
+    assert pristine_db != "fq_memory_bootstrap"
+
     bootstrap_module = importlib.reload(bootstrap_module)
     memory_config_module = importlib.reload(memory_config_module)
     config = memory_config_module.MemoryRuntimeConfig.from_settings(
@@ -40,3 +47,16 @@ def test_memory_runtime_config_reads_bootstrap_file(tmp_path, monkeypatch):
     assert config.cold_memory_root.as_posix().endswith(".memory/cold")
     assert config.artifact_root.as_posix().endswith("artifacts/bootstrap-memory")
     assert config.reference_ref == "upstream/release-main"
+
+    # importlib.reload 会原地修改共享模块对象：必须恢复 pristine 单例，
+    # 否则后续用例（如 test_runtime_memory）会读到 bootstrap-memory 污染值。
+    monkeypatch.delenv("FRESHQUANT_BOOTSTRAP_FILE", raising=False)
+    bootstrap_module.reload_bootstrap_config()
+    importlib.reload(memory_config_module)
+    restored = memory_config_module.MemoryRuntimeConfig.from_settings(
+        repo_root=tmp_path / "repo",
+        service_root=tmp_path / "service",
+        environ={},
+    )
+    assert restored.mongo_db == pristine_db
+    assert restored.mongo_db != "fq_memory_bootstrap"
