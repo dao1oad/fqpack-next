@@ -388,8 +388,9 @@ def sync_must_pool_from_tdx_self_select(
     覆盖同步契约与 stock_pools 相同（文件阻断、完整持仓排除、先批量 upsert 后删除）；
     差异：
     - 已有记录保留原交易参数（stop_loss_price / initial_lot_amount / lot_amount）；
-    - 新代码自动解析统一系统默认参数；默认参数不可用时该代码同步失败并在结果中列出，
-      其他有效代码继续同步。
+    - 新代码自动解析统一系统默认参数；通达信「待买」分组不承载止损配置，系统默认止损
+      （params.guardian.value.stock.stop_loss_default）未配置时以 stop_loss_price=None
+      导入（与既有 must_pool 数据一致），资金参数仍走统一默认，不再因缺省止损阻断同步。
     """
     if not filename:
         filename = resolve_tdx_block_filename(
@@ -428,11 +429,16 @@ def sync_must_pool_from_tdx_self_select(
         else:
             default_params = resolve_must_pool_default_params(code)
             if default_params is None:
-                failed_codes.append({"code": code, "reason": "默认止损/资金参数不可用"})
-                continue
-            stop_loss_price = default_params["stop_loss_price"]
-            initial_lot_amount = default_params["initial_lot_amount"]
-            lot_amount = default_params["lot_amount"]
+                # 通达信「待买」分组不承载止损配置：默认止损未配置时不阻断同步，
+                # 以 stop_loss_price=None 导入（与既有 must_pool 数据一致）；
+                # 资金参数由 import_pool 内部兜底 get_trade_amount 解析。
+                stop_loss_price = None
+                initial_lot_amount = None
+                lot_amount = None
+            else:
+                stop_loss_price = default_params["stop_loss_price"]
+                initial_lot_amount = default_params["initial_lot_amount"]
+                lot_amount = default_params["lot_amount"]
 
         provenance = {
             "sources": [source],
