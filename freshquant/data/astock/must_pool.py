@@ -3,6 +3,7 @@ from copy import deepcopy
 
 import pyperclip
 from bson import ObjectId
+from loguru import logger
 
 from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info
@@ -317,6 +318,11 @@ def import_pool(
         raise ValueError("category 或 provenance.category 参数必须提供")
 
     instrument = query_instrument_info(code)
+    if instrument is None:
+        # 标的库查不到该代码：跳过导入（返回 False 让调用方计入失败统计），
+        # 避免后续 instrument["name"] 抛 TypeError 导致整批同步失败。
+        logger.warning("must_pool import skipped: instrument not found for %s", code)
+        return False
 
     if existing:
         # 更新现有记录
@@ -363,6 +369,7 @@ def import_pool(
                 "updated_at": datetime.datetime.now(),
             }
         )
+    return True
 
 
 def copy(category: str):

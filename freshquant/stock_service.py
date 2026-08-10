@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pendulum
 import pymongo
+from loguru import logger
 
 import freshquant.util.df_helper as df_helper
 from freshquant.bootstrap_config import bootstrap_config
@@ -18,6 +19,7 @@ from freshquant.clx_daily_selection.tdx_export import (
 from freshquant.data.astock import must_pool
 from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_type
+from freshquant.pool.general import queryMustPoolCodes
 from freshquant.pre_pool_service import PrePoolService
 from freshquant.signal.a_stock_common import save_a_stock_pools
 from freshquant.strategy.common import get_trade_amount
@@ -48,6 +50,9 @@ TDX_MUST_POOL_FILENAME = "待买.blk"
 TDX_MUST_POOL_DISPLAY_NAME = "待买"
 TDX_MUST_POOL_CATEGORY = "待买"
 TDX_MUST_POOL_SOURCE = "tdx_must_pool"
+# 与 freshquant/strategy/guardian.py 的 MUST_POOL_5M_NEW_OPEN_TAG 同值互指：
+# 5 分钟监控只对带该 tag 的非持仓买点开放，面板查询必须与监控产出口径一致。
+MUST_POOL_5M_NEW_OPEN_TAG = "must_pool_5m_new_open"
 
 
 def _normalize_stock_code6(value):
@@ -456,19 +461,30 @@ def sync_must_pool_from_tdx_self_select(
                 }
             ],
         }
-        must_pool.import_pool(
-            code=code,
-            category=category,
-            stop_loss_price=stop_loss_price,
-            initial_lot_amount=initial_lot_amount,
-            lot_amount=lot_amount,
-            forever=True,
-            provenance=provenance,
-        )
+        try:
+            ok = must_pool.import_pool(
+                code=code,
+                category=category,
+                stop_loss_price=stop_loss_price,
+                initial_lot_amount=initial_lot_amount,
+                lot_amount=lot_amount,
+                forever=True,
+                provenance=provenance,
+            )
+            if not ok:
+                logger.warning("must_pool import skipped for %s", code)
+                failed_codes.append(code)
+                continue
+        except Exception as exc:
+            # 单条失败不整批失败：跳过并计入失败统计，旧记录保留。
+            logger.warning("must_pool import failed for %s: %s", code, exc)
+            failed_codes.append(code)
+            continue
         synced_codes.append(code)
 
     # 全部 upsert 成功后再删除旧成员（覆盖语义：must 只以通达信 DM 分组为来源）
-    target_code_set = set(synced_codes)
+    # 失败的代码保留旧记录，避免同步失败导致误删。
+    target_code_set = set(synced_codes) | set(failed_codes)
     existing_docs = (
         list(DBfreshquant["must_pool"].find({}, {"code": 1})) if target_code_set else []
     )
@@ -555,17 +571,22 @@ def get_stock_signal_list(page=1, size=1000, category="candidates"):
         cond["is_holding"] = True
 
     if category == "must_pool_buys":
-        must_pool_codes = sorted(
-            str(doc.get("code") or "")
-            for doc in DBfreshquant["must_pool"].find({})
-            if doc.get("code")
-        )
+        # 与 monitor_stock_zh_a_min.py 的监控口径同源：queryMustPoolCodes()
+        # 过滤 enabled + stock_cn/etf_cn，面板与监控永不分叉。
+        must_pool_codes = sorted(str(code) for code in queryMustPoolCodes() if code)
         if not must_pool_codes:
             data = []
         else:
             data = list(
                 DBfreshquant["stock_signals"]
-                .find({**cond, "code": {"$in": must_pool_codes}})
+                .find(
+                    {
+                        **cond,
+                        "period": "5m",  # 前端格式，与 save_a_stock_signal 写入一致
+                        "tags": MUST_POOL_5M_NEW_OPEN_TAG,  # Mongo 数组包含匹配
+                        "code": {"$in": must_pool_codes},
+                    }
+                )
                 .sort("fire_time", pymongo.DESCENDING)
                 .skip((page - 1) * size)
                 .limit(size)
@@ -912,7 +933,7 @@ def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount):
     provenance = must_pool.build_stock_pool_provenance(record)
 
     # 将记录写入must_pool
-    must_pool.import_pool(
+    ok = must_pool.import_pool(
         code=code,
         category=record.get("category"),
         stop_loss_price=stop_loss_price,
@@ -921,6 +942,9 @@ def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount):
         forever=True,
         provenance=provenance,
     )
+    if not ok:
+        logger.warning("must_pool import skipped for %s", code)
+        return False
     return True
 
 

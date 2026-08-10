@@ -198,7 +198,7 @@ def test_sync_must_pool_from_tdx_self_select_reads_dai_mai_group(monkeypatch, tm
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
@@ -244,7 +244,7 @@ def test_sync_must_pool_from_tdx_self_select_preserves_existing_params(
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
@@ -284,7 +284,7 @@ def test_sync_must_pool_from_tdx_self_select_keeps_records_outside_group(
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
@@ -320,7 +320,7 @@ def test_sync_must_pool_from_tdx_self_select_skips_current_holdings(
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
@@ -328,6 +328,46 @@ def test_sync_must_pool_from_tdx_self_select_skips_current_holdings(
     assert result["synced_codes"] == ["000002"]
     assert result["skipped_holding_codes"] == ["300127"]
     assert [call["code"] for call in calls] == ["000002"]
+
+
+def test_sync_must_pool_from_tdx_self_select_keeps_failed_existing_record(
+    monkeypatch, tmp_path
+):
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("0300127\n", encoding="gbk")
+    collection = FakeStockPoolsCollection(
+        [
+            {
+                "code": "300127",
+                "category": "人工",
+                "stop_loss_price": 9.8,
+                "initial_lot_amount": 80000,
+                "lot_amount": 50000,
+            }
+        ]
+    )
+    fake_db = {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": collection,
+        "xt_positions": FakeStockPoolsCollection(),
+        "params": FakeStockPoolsCollection(
+            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
+        ),
+        "instrument_strategy": FakeStockPoolsCollection(),
+    }
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 50000)
+    # 本次同步 import_pool 失败（如标的库查不到该代码）：返回 False
+    monkeypatch.setattr(stock_service.must_pool, "import_pool", lambda **kwargs: False)
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert result["failed_codes"] == ["300127"]
+    assert result["synced_codes"] == []
+    assert result["removed_codes"] == []
+    # 失败代码的旧记录保留，不被覆盖删除
+    assert collection.find_one({"code": "300127"}) is not None
 
 
 def test_read_tdx_blocknew_cfg_mapping_maps_display_to_file(tmp_path):
@@ -372,7 +412,7 @@ def test_sync_must_pool_reads_dai_mai_group_by_mapped_file(monkeypatch, tmp_path
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
@@ -405,7 +445,7 @@ def test_sync_must_pool_accepts_explicit_filename_override(monkeypatch, tmp_path
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(
@@ -466,7 +506,7 @@ def test_sync_must_pool_new_code_uses_system_default_params(monkeypatch, tmp_pat
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
@@ -499,7 +539,7 @@ def test_sync_must_pool_new_code_without_default_stop_loss_imports_with_none(
     monkeypatch.setattr(
         stock_service.must_pool,
         "import_pool",
-        lambda **kwargs: calls.append(kwargs),
+        lambda **kwargs: calls.append(kwargs) or True,
     )
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)

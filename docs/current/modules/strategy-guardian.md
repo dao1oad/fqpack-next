@@ -36,6 +36,8 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 - 5 分钟只处理 enabled `must_pool` 中的当前非持仓标的，只接受 `buy_v_reverse` 与 `macd_bullish_divergence`；`buy_zs_huila` 和全部卖点直接忽略。
 - 5 分钟允许信号会在原 tags 后追加 `must_pool_5m_new_open`，再复用 `save_a_stock_signal -> StrategyGuardian.on_signal`。
 
+`/stock-control` 的「must_pools买入信号」面板与上述 5 分钟监控产出口径一致（`period=5m` + `must_pool_5m_new_open` tag + enabled `must_pool`），避免口径再次分叉。
+
 买入路径分为两类：
 
 - 持仓加仓
