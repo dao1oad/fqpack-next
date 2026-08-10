@@ -381,3 +381,170 @@ def test_system_settings_reload_keeps_last_good_values_after_retry_exhausted():
     assert isinstance(settings.last_reload_error, RuntimeError)
     assert settings.xtquant.account == "068000076370"
     assert settings.xtquant.account_type == "CREDIT"
+
+
+def test_system_settings_uses_contract_defaults_when_monitor_fields_missing():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {"xtdata": {"trading_mode": True}},
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    assert settings.monitor.xtdata_trading_mode is True
+    assert settings.monitor.xtdata_screening_mode is False
+    assert settings.monitor.xtdata_max_symbols == 100
+    assert settings.monitor.xtdata_queue_backlog_threshold == 500
+    assert settings.monitor.xtdata_prewarm_max_bars == 20000
+
+
+def test_system_settings_does_not_overwrite_explicit_mongo_max_symbols_60():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {
+                        "xtdata": {
+                            "trading_mode": True,
+                            "screening_mode": False,
+                            "max_symbols": 60,
+                            "queue_backlog_threshold": 500,
+                            "prewarm": {"max_bars": 20000},
+                        },
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    # 缺省值是 100，但不静默覆盖 Mongo 中显式保存的 60。
+    assert settings.monitor.xtdata_max_symbols == 60
+
+
+def test_system_settings_normalizes_invalid_broker_submit_mode_to_normal():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "xtquant",
+                    "value": {
+                        "broker_submit_mode": "paper_trade",
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    assert settings.xtquant.broker_submit_mode == "normal"
+
+
+def test_system_settings_rejects_nonpositive_monitor_values_to_contract_defaults():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {
+                        "xtdata": {
+                            "max_symbols": 0,
+                            "queue_backlog_threshold": -1,
+                            "prewarm": {"max_bars": 0},
+                        },
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    assert settings.monitor.xtdata_max_symbols == 100
+    assert settings.monitor.xtdata_queue_backlog_threshold == 500
+    assert settings.monitor.xtdata_prewarm_max_bars == 20000
+
+
+def test_system_settings_falls_back_on_invalid_monitor_value_types():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {
+                        "xtdata": {
+                            "max_symbols": "abc",
+                            "queue_backlog_threshold": {"nested": 1},
+                            "prewarm": {"max_bars": None},
+                        },
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    # 非法类型/None 一律回退合同默认，而不是抛 ValueError。
+    assert settings.monitor.xtdata_max_symbols == 100
+    assert settings.monitor.xtdata_queue_backlog_threshold == 500
+    assert settings.monitor.xtdata_prewarm_max_bars == 20000
+
+
+def test_system_settings_keeps_numeric_string_values():
+    from freshquant.system_settings import SystemSettings
+
+    database = FakeDatabase(
+        {
+            "params": [
+                {
+                    "code": "monitor",
+                    "value": {
+                        "xtdata": {
+                            "max_symbols": "60",
+                            "queue_backlog_threshold": "400",
+                            "prewarm": {"max_bars": "15000"},
+                        },
+                    },
+                },
+            ],
+            "pm_configs": [],
+            "instrument_strategy": [],
+        }
+    )
+
+    settings = SystemSettings(database=database)
+
+    # 数字字符串可解析，保留显式值，不静默改成默认。
+    assert settings.monitor.xtdata_max_symbols == 60
+    assert settings.monitor.xtdata_queue_backlog_threshold == 400
+    assert settings.monitor.xtdata_prewarm_max_bars == 15000

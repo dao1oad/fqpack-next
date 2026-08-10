@@ -5,6 +5,10 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
+from freshquant.system_settings_contract import (
+    DEFAULT_BROKER_SUBMIT_MODE,
+    VALID_BROKER_SUBMIT_MODES,
+)
 from freshquant.xt_auto_repay.repository import XtAutoRepayRepository
 
 INTRADAY_MODE = "intraday"
@@ -67,10 +71,19 @@ class XtAutoRepayService:
     @property
     def observe_only(self):
         xtquant_settings = getattr(self.settings_provider, "xtquant", None)
-        submit_mode = str(
-            getattr(xtquant_settings, "broker_submit_mode", "normal") or "normal"
+        submit_mode = (
+            str(
+                getattr(
+                    xtquant_settings, "broker_submit_mode", DEFAULT_BROKER_SUBMIT_MODE
+                )
+                or DEFAULT_BROKER_SUBMIT_MODE
+            )
+            .strip()
+            .lower()
         )
-        return submit_mode.strip().lower() == "observe_only"
+        if submit_mode not in VALID_BROKER_SUBMIT_MODES:
+            submit_mode = DEFAULT_BROKER_SUBMIT_MODE
+        return submit_mode == "observe_only"
 
     def load_latest_snapshot(self):
         account_id = self.account_id

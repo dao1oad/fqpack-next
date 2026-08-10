@@ -236,6 +236,15 @@ const buildLedgerSection = (section, scope, options = {}) => {
       const currentValue = cloneValue(readPath(currentValues, fullPath))
       const baselineValue = cloneValue(readPath(baselineValues, fullPath))
       const inactive = scope === 'settings' ? resolveInactiveState(fullPath, currentValues) : false
+      const restartRequired = Boolean(
+        item?.restart_required ?? section?.restart_required,
+      )
+      const restartSurfaces = Array.isArray(item?.restart_surfaces)
+        ? item.restart_surfaces.map((surface) => toText(surface)).filter(Boolean)
+        : []
+      const refreshSurfaces = Array.isArray(item?.refresh_surfaces)
+        ? item.refresh_surfaces.map((surface) => toText(surface)).filter(Boolean)
+        : []
       return {
         key: fullPath,
         scope,
@@ -251,7 +260,9 @@ const buildLedgerSection = (section, scope, options = {}) => {
         inactive,
         readonly: item?.editable === false || Boolean(section?.readonly),
         source: toText(item?.source || section?.source),
-        restart_required: Boolean(section?.restart_required),
+        restart_required: restartRequired,
+        restart_surfaces: restartSurfaces,
+        refresh_surfaces: refreshSurfaces,
         restart_label: section?.restart_label,
         column: resolveSectionColumn(scope, sectionKey),
         editor: resolveEditorMeta(fullPath),

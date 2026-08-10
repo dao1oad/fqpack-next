@@ -36,9 +36,17 @@ python -m freshquant.script.inventory_guardian_grid_position_caps
 
 - `freshquant/bootstrap_config.py`
 - `freshquant/system_settings.py`
+- `freshquant/system_settings_contract.py`（运行/业务参数的唯一缺省值与枚举合同）
 - `freshquant/runtime_constants.py`
 
 旧 `freshquant/config.py`、旧 `queryParam(...)`、旧 `/api/get_settings` `/api/update_settings` 不再属于新系统正式配置入口。
+
+运行/业务参数（例如 `monitor.xtdata.max_symbols`、`queue_backlog_threshold`、
+`prewarm.max_bars`、`xtquant.broker_submit_mode`）的缺省值只在
+`freshquant/system_settings_contract.py` 定义一次：缺省
+`max_symbols=100`、`queue_backlog_threshold=500`、`prewarm.max_bars=20000`、
+`broker_submit_mode=normal`。Mongo 中显式保存的历史值（例如 `max_symbols=60`）
+不会被缺省值静默覆盖。
 
 ## Bootstrap 文件
 

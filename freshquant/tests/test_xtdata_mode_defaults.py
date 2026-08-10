@@ -244,6 +244,7 @@ def test_init_param_dict_persists_dual_boolean_defaults_when_mode_missing(
     monitor_doc = fake_db.params.docs["monitor"]
     assert monitor_doc["value"]["xtdata"]["trading_mode"] is True
     assert monitor_doc["value"]["xtdata"]["screening_mode"] is False
+    assert "mode" not in monitor_doc["value"]["xtdata"]
 
 
 def test_init_param_dict_migrates_legacy_clx_mode(monkeypatch):
@@ -271,6 +272,7 @@ def test_init_param_dict_migrates_legacy_clx_mode(monkeypatch):
     assert monitor_doc["value"]["xtdata"]["screening_mode"] is True
     assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
     assert monitor_doc["value"]["xtdata"]["prewarm"]["max_bars"] == 12345
+    assert "mode" not in monitor_doc["value"]["xtdata"]
 
 
 def test_init_param_dict_migrates_legacy_clx_only_mode(monkeypatch):
@@ -297,6 +299,7 @@ def test_init_param_dict_migrates_legacy_clx_only_mode(monkeypatch):
     assert monitor_doc["value"]["xtdata"]["trading_mode"] is False
     assert monitor_doc["value"]["xtdata"]["screening_mode"] is True
     assert monitor_doc["value"]["xtdata"]["max_symbols"] == 88
+    assert "mode" not in monitor_doc["value"]["xtdata"]
 
 
 def test_init_param_dict_does_not_persist_removed_guardian_and_monitor_fields(

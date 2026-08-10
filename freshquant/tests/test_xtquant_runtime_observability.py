@@ -856,13 +856,27 @@ def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
     broker._runtime_logger = collector
 
     observed = {}
-    broker.prepare_submit_execution = lambda *args, **kwargs: (_ for _ in ()).throw(
-        AssertionError("prepare_submit_execution should not run in observe_only")
-    )
+    prepared = {}
+    broker.prepare_submit_execution = lambda order, **kwargs: prepared.update(
+        {
+            "internal_order_id": order.get("internal_order_id"),
+            "kwargs": sorted(kwargs.keys()),
+        }
+    ) or {
+        "status": "execute",
+        "order_message": {
+            **order,
+            "broker_price_type": 11,
+            "broker_order_type": 23,
+            "price_mode_resolved": "limit",
+            "broker_correlation_token": "FQOMobserve-token-1",
+        },
+    }
     broker.finalize_submit_execution = lambda *args, **kwargs: observed.update(
         {
             "broker_submit_mode": kwargs.get("broker_submit_mode"),
             "broker_order_id": kwargs.get("broker_order_id"),
+            "order_message": args[0],
         }
     ) or {"status": "broker_bypassed"}
 
@@ -886,13 +900,100 @@ def test_broker_observe_only_submit_emits_bypass_event_without_calling_executor(
     )
 
     assert result["status"] == "broker_bypassed"
+    assert prepared["internal_order_id"] == "ord-observe-1"
+    assert "repository" in prepared["kwargs"]
+    assert "tracking_service" in prepared["kwargs"]
     assert observed == {
         "broker_submit_mode": "observe_only",
         "broker_order_id": None,
+        "order_message": observed["order_message"],
     }
+    assert observed["order_message"]["broker_price_type"] == 11
+    assert (
+        observed["order_message"]["broker_correlation_token"] == "FQOMobserve-token-1"
+    )
     assert collector.events[-1]["node"] == "execution_bypassed"
     assert collector.events[-1]["action"] == "buy"
     assert collector.events[-1]["payload"]["reason"] == "observe_only"
+
+
+def test_broker_observe_only_keeps_strategy_buy_cooldown(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_observe_cooldown", BROKER_PATH)
+    collector = EventCollector()
+    broker._runtime_logger = collector
+
+    class FakeRedis:
+        def __init__(self):
+            self.deleted = []
+
+        def delete(self, key):
+            self.deleted.append(key)
+            return 1
+
+    fake_redis = FakeRedis()
+    broker.redis_db = fake_redis
+    broker.prepare_submit_execution = lambda order, **kwargs: {
+        "status": "execute",
+        "order_message": order,
+    }
+    broker.finalize_submit_execution = lambda *args, **kwargs: {
+        "status": "broker_bypassed"
+    }
+
+    result = broker._handle_submit_action(
+        {
+            "action": "buy",
+            "symbol": "002123",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "price": 10.0,
+            "quantity": 5000,
+            "internal_order_id": "ord-observe-cooldown-1",
+        },
+        action="buy",
+        submit_executor=lambda _resolved_order: (_ for _ in ()).throw(
+            AssertionError("submit executor should not be called in observe_only")
+        ),
+        broker_submit_mode="observe_only",
+    )
+
+    assert result["status"] == "broker_bypassed"
+    # observe-only 演练不清理策略 buy 冷却键
+    assert fake_redis.deleted == []
+
+
+def test_broker_observe_only_prepare_failure_does_not_bypass(monkeypatch):
+    _install_broker_stubs(monkeypatch)
+    broker = _load_module("test_runtime_broker_observe_prepare_error", BROKER_PATH)
+    collector = EventCollector()
+    broker._runtime_logger = collector
+
+    broker.prepare_submit_execution = lambda order, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("credit detail unavailable")
+    )
+    broker.finalize_submit_execution = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("prepare failure must not be finalized as bypass")
+    )
+
+    with pytest.raises(RuntimeError, match="credit detail unavailable"):
+        broker._handle_submit_action(
+            {
+                "action": "buy",
+                "symbol": "600000",
+                "price": 10.0,
+                "quantity": 100,
+                "internal_order_id": "ord-observe-prepare-error-1",
+            },
+            action="buy",
+            submit_executor=lambda _resolved_order: (_ for _ in ()).throw(
+                AssertionError("submit executor should not be called")
+            ),
+            broker_submit_mode="observe_only",
+        )
+
+    assert collector.events[-1]["node"] == "submit_result"
+    assert collector.events[-1]["status"] == "error"
 
 
 def test_broker_missing_internal_order_fails_closed(monkeypatch):

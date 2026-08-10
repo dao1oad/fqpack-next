@@ -119,11 +119,29 @@ consumer 还会把本批命中标的（带前缀代码，如 `sh600000`）去重
     `clx_15_30_only` → screening only，运行时不保留旧别名逻辑。
 - `monitor.xtdata.max_symbols`
   - 限制订阅池大小。
+  - 缺省值 `100`（唯一合同：`freshquant/system_settings_contract.py`）。
+  - Mongo 显式保存的历史值不被缺省值静默覆盖。
 - `monitor.xtdata.queue_backlog_threshold`
   - 决定 consumer 何时进入 catchup 模式。
+  - 缺省值 `500`。
+- `monitor.xtdata.prewarm.max_bars`
+  - 决定 consumer 预热和窗口回填保留的最大 bar 数。
+  - 缺省值 `20000`。
+  - 实际优先级：CLI 显式 `--max-bars N` > Mongo > 合同默认 `20000`。
+  - 正式 supervisor 命令为 `python -m freshquant.market_data.xtdata.strategy_consumer --prewarm`，
+    不再硬编码 `--max-bars 20000`，由 Mongo 参数生效。
 - `XTQUANT_PORT`
   - XTData 连接端口。
   - QFQ worker 通过 `bootstrap_config.xtdata.port` 读取同一端口，默认 `58610`。
+
+启动观测：
+
+- producer 启动时输出 `config_resolve` 事件，记录 trading / screening / max_symbols。
+- consumer 启动时输出 `bootstrap` 事件，记录 trading / screening / max_symbols /
+  queue_backlog_threshold / prewarm_max_bars。
+- Guardian event 启动时输出 `bootstrap` 事件，记录 trading / screening / enabled_lines。
+
+以上事件不记录账户号、webhook、密码等敏感信息。
 
 对 Guardian 主链最重要的是：
 

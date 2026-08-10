@@ -36,13 +36,28 @@
   "code": "monitor",
   "value": {
     "xtdata": {
-      "mode": "guardian_1m"
+      "trading_mode": true,
+      "screening_mode": false
     }
   }
 }
 ```
 
 读取方式以 `queryParam("<code>.<path>")` 为主；缺字段时由代码默认值兜底。
+
+## 唯一默认值合同
+
+后端所有运行/业务参数的缺省值与枚举只定义一次，位置：
+
+- `freshquant/system_settings_contract.py`
+
+该模块不依赖 DB、pools、system_settings 或业务服务。以下参数的缺省值
+（100 / 500 / 20000 / normal 等）只在该模块中书写，其他 Python 模块
+一律引用合同常量；文档数值与代码合同保持一致，若发现不一致以代码合同为准。
+
+`DEFAULT_XTDATA_MAX_SYMBOLS = 100` 是缺省值：Mongo 中显式保存的历史值
+（例如 60）不会被静默覆盖，仍按显式值生效；若希望使用 100，通过
+`/system-settings` 显式修改后再重启对应运行面。
 
 ## notification
 
@@ -120,15 +135,16 @@ CLX 实时链路复用当前 DingTalk webhook 配置；只有 `monitor.xtdata.sc
 - 含义：XTData 最大监控标的数。
 - 类型：`int`
 - 是否必填：否
-- 缺省值：`50`
-- 非法值行为：小于等于 `0` 或无法解析时回退到 `50`
+- 缺省值：`100`
+- 非法值行为：小于等于 `0` 或无法解析时回退到 `100`
+- 备注：`100` 是券商订阅最大值的业务口径；不静默覆盖 Mongo 显式保存的历史值
 
 ### monitor.xtdata.queue_backlog_threshold
 
 - 含义：consumer 进入 backlog / catchup 的阈值。
 - 类型：`int`
 - 是否必填：否
-- 缺省值：`200`
+- 缺省值：`500`
 - 用途：控制 `strategy_consumer` 在队列积压时的处理策略
 
 ### monitor.xtdata.prewarm.max_bars
@@ -137,6 +153,11 @@ CLX 实时链路复用当前 DingTalk webhook 配置；只有 `monitor.xtdata.sc
 - 类型：`int`
 - 是否必填：否
 - 缺省值：`20000`
+- 实际优先级：
+  1. consumer CLI 显式 `--max-bars N`
+  2. Mongo `monitor.xtdata.prewarm.max_bars`
+  3. 合同默认 `20000`
+- 正式 supervisor 命令不再硬编码 `--max-bars`，由 Mongo 参数生效
 
 示例：
 
@@ -145,9 +166,10 @@ CLX 实时链路复用当前 DingTalk webhook 配置；只有 `monitor.xtdata.sc
   "code": "monitor",
   "value": {
     "xtdata": {
-      "mode": "guardian_1m",
-      "max_symbols": 50,
-      "queue_backlog_threshold": 200,
+      "trading_mode": true,
+      "screening_mode": false,
+      "max_symbols": 100,
+      "queue_backlog_threshold": 500,
       "prewarm": {
         "max_bars": 20000
       }

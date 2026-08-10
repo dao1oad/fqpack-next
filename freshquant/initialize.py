@@ -43,7 +43,8 @@ BOOTSTRAP_PROMPTS = [
 SETTINGS_PROMPTS = [
     ("notification.webhook.dingtalk.private", "私人钉钉机器人", "text"),
     ("notification.webhook.dingtalk.public", "公共钉钉机器人", "text"),
-    ("monitor.xtdata.mode", "XTData 模式", "text"),
+    ("monitor.xtdata.trading_mode", "XTData 交易模式", "bool"),
+    ("monitor.xtdata.screening_mode", "XTData 选股模式", "bool"),
     ("monitor.xtdata.max_symbols", "XTData 最大订阅数", "int"),
     ("monitor.xtdata.queue_backlog_threshold", "XTData 背压阈值", "int"),
     ("monitor.xtdata.prewarm.max_bars", "XTData 预热 bars", "int"),
@@ -270,6 +271,9 @@ def run_runtime_bootstrap(
     xt_summary = xt_runtime_sync_runner()
     credit_subject_summary = credit_subject_sync_runner()
     strategy_id = str(settings_provider.get_strategy_id("Guardian") or "")
+    # instrument_strategy 是沉淀映射。即使 trading_mode=False，
+    # 仍按 Guardian 池补齐映射，便于切回交易模式直接使用；
+    # 此处不等同于启用 Guardian 实时交易线。
     monitor_codes = monitor_code_loader(
         max_symbols=settings_provider.monitor.xtdata_max_symbols
     )

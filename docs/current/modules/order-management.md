@@ -291,6 +291,26 @@ FQOM 或完整 canonical identity 能证明归属时才挂回内部订单；完�
 - `system_settings` 读取失败时当前会先重试；若进程内已经存在上一版有效配置，则保留上一版，不再回退成空 `xtquant.path/account`
 - `xt_auto_repay.worker` 启动后下一次盘中巡检当前按 `last_checked_at + 30 分钟` 对齐；若已错过应跑时间，会在 1 秒级快速补跑，而不是从重启时刻重新整等 30 分钟
 
+### Broker 提交模式
+
+`xtquant.broker_submit_mode`（`normal` / `observe_only`，缺省 `normal`）当前语义：
+
+- `broker` 主循环启动时读取一次作为启动快照，切换模式需要重启 broker。
+- `xt_auto_repay.worker` 每轮刷新该设置，`observe_only` 时只记录事件不真实提交还款。
+- `normal`：Guardian 信号链运行并真实提交券商。
+- `observe_only`：Guardian 信号链运行，订单演练但不提交券商。
+
+observe-only 买卖路径当前先执行 `prepare_submit_execution`（解析价格模式、
+信用订单类型、可用额度与关联 token 并落库），再跳过 `submit_executor`，
+由 `finalize_submit_execution` 落 `BROKER_BYPASSED`；prepare 校验失败按正常
+失败路径处理，不伪装成成功演练。`BROKER_BYPASSED` 不清理策略 buy 冷却键，
+避免同一信号在演练环境持续重复生成演练订单；normal 提交失败仍沿用现有清理逻辑。
+
+`freshquant/order_management/submit/execution_bridge.py` 的
+`finalize_submit_execution` / `dispatch_cancel_execution` 当前要求
+`broker_submit_mode` 为 keyword-only 必传参数，不再提供隐式 `normal` 默认值；
+broker 与 execution_bridge 必须同批部署。
+
 ### 手工导入
 
 `manual import/reset -> om_trade_facts -> om_position_entries / om_entry_slices -> stock_fills_compat mirror sync`

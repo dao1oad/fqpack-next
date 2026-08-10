@@ -11,18 +11,42 @@ from bson import ObjectId
 from pydash import get
 
 from freshquant.market_data.xtdata.pools import migrate_xtdata_mode
+from freshquant.system_settings_contract import (
+    DEFAULT_BROKER_SUBMIT_MODE,
+    DEFAULT_XTDATA_MAX_SYMBOLS,
+    DEFAULT_XTDATA_PREWARM_MAX_BARS,
+    DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
+    DEFAULT_XTDATA_SCREENING_MODE,
+    DEFAULT_XTDATA_TRADING_MODE,
+    DEFAULT_XTQUANT_ACCOUNT_TYPE,
+    VALID_BROKER_SUBMIT_MODES,
+)
+
+
+def _safe_positive_int(value, default: int) -> int:
+    """把 Mongo 原始值安全解析为正整数，缺失/非法/非正值回退合同默认。"""
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed <= 0:
+        return default
+    return parsed
 
 
 def _migrated_xtdata_trading_mode(monitor_doc) -> bool:
     if get(monitor_doc, "xtdata.mode") is not None:
         return migrate_xtdata_mode(get(monitor_doc, "xtdata.mode"))[0]
-    return bool(get(monitor_doc, "xtdata.trading_mode", True))
+    return bool(get(monitor_doc, "xtdata.trading_mode", DEFAULT_XTDATA_TRADING_MODE))
 
 
 def _migrated_xtdata_screening_mode(monitor_doc) -> bool:
     if get(monitor_doc, "xtdata.mode") is not None:
         return migrate_xtdata_mode(get(monitor_doc, "xtdata.mode"))[1]
-    return bool(get(monitor_doc, "xtdata.screening_mode", False))
+    return bool(
+        get(monitor_doc, "xtdata.screening_mode", DEFAULT_XTDATA_SCREENING_MODE)
+    )
 
 
 def strict_settings_env_enabled() -> bool:
@@ -40,18 +64,18 @@ DEFAULT_NOTIFICATION = {
 }
 DEFAULT_MONITOR = {
     "xtdata": {
-        "trading_mode": True,
-        "screening_mode": False,
-        "max_symbols": 60,
-        "queue_backlog_threshold": 500,
-        "prewarm": {"max_bars": 240},
+        "trading_mode": DEFAULT_XTDATA_TRADING_MODE,
+        "screening_mode": DEFAULT_XTDATA_SCREENING_MODE,
+        "max_symbols": DEFAULT_XTDATA_MAX_SYMBOLS,
+        "queue_backlog_threshold": DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
+        "prewarm": {"max_bars": DEFAULT_XTDATA_PREWARM_MAX_BARS},
     },
 }
 DEFAULT_XTQUANT = {
     "path": "",
     "account": "",
-    "account_type": "STOCK",
-    "broker_submit_mode": "normal",
+    "account_type": DEFAULT_XTQUANT_ACCOUNT_TYPE,
+    "broker_submit_mode": DEFAULT_BROKER_SUBMIT_MODE,
     "auto_repay": {
         "enabled": True,
         "reserve_cash": 5000,
@@ -100,19 +124,19 @@ class NotificationSettings:
 
 @dataclass(frozen=True)
 class MonitorSettings:
-    xtdata_trading_mode: bool = True
-    xtdata_screening_mode: bool = False
-    xtdata_max_symbols: int = 60
-    xtdata_queue_backlog_threshold: int = 500
-    xtdata_prewarm_max_bars: int = 240
+    xtdata_trading_mode: bool = DEFAULT_XTDATA_TRADING_MODE
+    xtdata_screening_mode: bool = DEFAULT_XTDATA_SCREENING_MODE
+    xtdata_max_symbols: int = DEFAULT_XTDATA_MAX_SYMBOLS
+    xtdata_queue_backlog_threshold: int = DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD
+    xtdata_prewarm_max_bars: int = DEFAULT_XTDATA_PREWARM_MAX_BARS
 
 
 @dataclass(frozen=True)
 class XtquantSettings:
     path: str = ""
     account: str = ""
-    account_type: str = "STOCK"
-    broker_submit_mode: str = "normal"
+    account_type: str = DEFAULT_XTQUANT_ACCOUNT_TYPE
+    broker_submit_mode: str = DEFAULT_BROKER_SUBMIT_MODE
     auto_repay_enabled: bool = True
     auto_repay_reserve_cash: float = 5000.0
 
@@ -253,28 +277,62 @@ class SystemSettings:
                 get(notification_doc, "webhook.dingtalk.public", "")
             ),
         )
+        max_symbols = _safe_positive_int(
+            get(
+                monitor_doc,
+                "xtdata.max_symbols",
+                DEFAULT_XTDATA_MAX_SYMBOLS,
+            ),
+            DEFAULT_XTDATA_MAX_SYMBOLS,
+        )
+        queue_backlog_threshold = _safe_positive_int(
+            get(
+                monitor_doc,
+                "xtdata.queue_backlog_threshold",
+                DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
+            ),
+            DEFAULT_XTDATA_QUEUE_BACKLOG_THRESHOLD,
+        )
+        prewarm_max_bars = _safe_positive_int(
+            get(
+                monitor_doc,
+                "xtdata.prewarm.max_bars",
+                DEFAULT_XTDATA_PREWARM_MAX_BARS,
+            ),
+            DEFAULT_XTDATA_PREWARM_MAX_BARS,
+        )
         self.monitor = MonitorSettings(
             xtdata_trading_mode=_migrated_xtdata_trading_mode(monitor_doc),
             xtdata_screening_mode=_migrated_xtdata_screening_mode(monitor_doc),
-            xtdata_max_symbols=int(get(monitor_doc, "xtdata.max_symbols", 60) or 60),
-            xtdata_queue_backlog_threshold=int(
-                get(monitor_doc, "xtdata.queue_backlog_threshold", 500) or 500
-            ),
-            xtdata_prewarm_max_bars=int(
-                get(monitor_doc, "xtdata.prewarm.max_bars", 240) or 240
-            ),
+            xtdata_max_symbols=max_symbols,
+            xtdata_queue_backlog_threshold=queue_backlog_threshold,
+            xtdata_prewarm_max_bars=prewarm_max_bars,
         )
         broker_submit_mode = (
-            str(get(xtquant_doc, "broker_submit_mode", "normal") or "normal")
+            str(
+                get(
+                    xtquant_doc,
+                    "broker_submit_mode",
+                    DEFAULT_BROKER_SUBMIT_MODE,
+                )
+                or DEFAULT_BROKER_SUBMIT_MODE
+            )
             .strip()
             .lower()
         )
-        if broker_submit_mode not in {"normal", "observe_only"}:
-            broker_submit_mode = "normal"
+        if broker_submit_mode not in VALID_BROKER_SUBMIT_MODES:
+            broker_submit_mode = DEFAULT_BROKER_SUBMIT_MODE
         self.xtquant = XtquantSettings(
             path=str(get(xtquant_doc, "path", "") or ""),
             account=str(get(xtquant_doc, "account", "") or ""),
-            account_type=str(get(xtquant_doc, "account_type", "STOCK") or "STOCK")
+            account_type=str(
+                get(
+                    xtquant_doc,
+                    "account_type",
+                    DEFAULT_XTQUANT_ACCOUNT_TYPE,
+                )
+                or DEFAULT_XTQUANT_ACCOUNT_TYPE
+            )
             .strip()
             .upper(),
             broker_submit_mode=broker_submit_mode,

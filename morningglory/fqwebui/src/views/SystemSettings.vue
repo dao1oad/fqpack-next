@@ -29,7 +29,7 @@
           <el-button @click="loadDashboard">刷新</el-button>
           <el-button
             type="primary"
-            :disabled="bootstrapDirtyCount === 0"
+            :disabled="!dashboardReady || bootstrapDirtyCount === 0"
             :loading="savingBootstrap"
             @click="saveBootstrap"
           >
@@ -38,7 +38,7 @@
           <el-button
             type="primary"
             plain
-            :disabled="settingsDirtyCount === 0"
+            :disabled="!dashboardReady || settingsDirtyCount === 0"
             :loading="savingSettings"
             @click="saveSettings"
           >
@@ -188,9 +188,25 @@
                     </div>
 
                     <div class="settings-ledger__cell settings-ledger__cell--badge">
-                      <StatusChip class="settings-inline-chip" :variant="restartModeChipVariant(row.restart_required)">
-                        {{ row.restart_required ? '重启' : '即时' }}
-                      </StatusChip>
+                      <div class="settings-ledger__effect">
+                        <StatusChip class="settings-inline-chip" :variant="restartModeChipVariant(row.restart_required)">
+                          {{ row.restart_required ? '重启' : (row.refresh_surfaces?.length ? '刷新' : '即时') }}
+                        </StatusChip>
+                        <small
+                          v-if="row.restart_surfaces?.length"
+                          class="settings-ledger__cell-hint"
+                          :title="`保存后需重启：${row.restart_surfaces.join(' / ')}`"
+                        >
+                          重启: {{ row.restart_surfaces.join(' / ') }}
+                        </small>
+                        <small
+                          v-else-if="row.refresh_surfaces?.length"
+                          class="settings-ledger__cell-hint"
+                          :title="`保存后按刷新生效：${row.refresh_surfaces.join(' / ')}`"
+                        >
+                          刷新: {{ row.refresh_surfaces.join(' / ') }}
+                        </small>
+                      </div>
                     </div>
 
                     <div class="settings-ledger__cell settings-ledger__cell--badge">
@@ -276,6 +292,11 @@ const bootstrapSaveLabel = computed(() => (
 const settingsSaveLabel = computed(() => (
   settingsDirtyCount.value > 0 ? `保存系统设置 (${settingsDirtyCount.value})` : '保存系统设置'
 ))
+const dashboardReady = computed(() => (
+  !pageError.value
+  && !!dashboard.value?.settings?.values
+  && Object.keys(dashboard.value.settings.values).length > 0
+))
 
 function defaultBootstrapForm () {
   return {
@@ -296,6 +317,8 @@ function defaultBootstrapForm () {
 }
 
 function defaultSettingsForm () {
+  // 前端不维护业务默认真值：只保留空结构 / null 占位。
+  // 成功加载 dashboard 后，以 API 返回的 settings.values 为唯一初始化来源。
   return {
     notification: {
       webhook: {
@@ -307,43 +330,43 @@ function defaultSettingsForm () {
     },
     monitor: {
       xtdata: {
-        trading_mode: true,
-        screening_mode: false,
-        max_symbols: 60,
-        queue_backlog_threshold: 500,
-        prewarm: { max_bars: 240 },
+        trading_mode: null,
+        screening_mode: null,
+        max_symbols: null,
+        queue_backlog_threshold: null,
+        prewarm: { max_bars: null },
       },
     },
     xtquant: {
       path: '',
       account: '',
-      account_type: 'STOCK',
-      broker_submit_mode: 'normal',
+      account_type: null,
+      broker_submit_mode: null,
       auto_repay: {
-        enabled: true,
-        reserve_cash: 5000,
+        enabled: null,
+        reserve_cash: null,
       },
     },
     guardian: {
       stock: {
-        initial_lot_amount_default: 100000,
-        lot_amount: 50000,
+        initial_lot_amount_default: null,
+        lot_amount: null,
         threshold: {
-          mode: 'percent',
-          percent: 1,
-          atr: { period: 14, multiplier: 1 },
+          mode: null,
+          percent: null,
+          atr: { period: null, multiplier: null },
         },
         grid_interval: {
-          mode: 'percent',
-          percent: 3,
-          atr: { period: 14, multiplier: 1 },
+          mode: null,
+          percent: null,
+          atr: { period: null, multiplier: null },
         },
       },
     },
     position_management: {
-      allow_open_min_bail: 800000,
-      holding_only_min_bail: 100000,
-      single_symbol_position_limit: 800000,
+      allow_open_min_bail: null,
+      holding_only_min_bail: null,
+      single_symbol_position_limit: null,
     },
   }
 }
