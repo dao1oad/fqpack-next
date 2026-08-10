@@ -193,9 +193,27 @@ jobs:
         id: shard
         run: python script/ci/select_pytest_shard.py --durations-json script/ci/pytest_file_durations.json --shard-index ${{ matrix.shard }} --shard-count 6 --github-output "$GITHUB_OUTPUT"
 
-      - name: Run pytest shard (unit tests only, xdist loadfile)
+      # flaky 自动重试（P1-1，Issue #555）：
+      # 不加 pytest-rerunfailures 依赖（uv.lock 受 quantaxis/pyconvert 上游限制无法重新生成），
+      # 改为作业级 --lf 重试：首轮失败（exit 1）时在同一 job 内以全新进程只重跑失败子集一次。
+      # 全新进程重跑保证 fixture/缓存状态干净；仅 exit 1（测试失败）触发重试，
+      # 收集/参数等基础错误（exit 2/4）不重试，避免掩盖真实问题。
+      # 注意：必须在 else 分支内捕获 $?（if 条件为假且无 else 时 if 复合命令退出码为 0）。
+      - name: Run pytest shard (unit tests only, xdist loadfile, flaky auto-retry)
         if: steps.shard.outputs.selected_count != '0'
-        run: uv run pytest -q ${{ steps.shard.outputs.pytest_args }} -n auto --dist loadfile --durations=20
+        run: |
+          if uv run pytest -q ${{ steps.shard.outputs.pytest_args }} -n auto --dist loadfile --durations=20; then
+            echo "pytest shard ${{ matrix.shard }} passed on first run."
+            exit 0
+          else
+            first_exit=$?
+          fi
+          if [ "$first_exit" -ne 1 ]; then
+            echo "::error::pytest exited with $first_exit; only exit code 1 (test failure) is auto-retried, collection/usage errors are not."
+            exit "$first_exit"
+          fi
+          echo "::warning::pytest shard ${{ matrix.shard }} had failures on first run; auto-retrying the failed subset once via --lf (flaky guard)."
+          uv run pytest -q ${{ steps.shard.outputs.pytest_args }} -n auto --dist loadfile --durations=20 --lf
 
   pytest:
     name: pytest
