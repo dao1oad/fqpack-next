@@ -280,12 +280,22 @@ def collect_import_sources(config_path: Path) -> dict[str, dict[str, str | None]
         check=False,
         env=child_env,
     )
-    if completed.returncode != 0:
-        error = (completed.stderr or completed.stdout).strip() or (
-            f"subprocess exited with {completed.returncode}"
-        )
-        return {name: {"path": None, "error": error} for name in MODULE_NAMES}
-    return json.loads(completed.stdout)
+    # The import probe may exit with a non-zero code even when every module
+    # imported fine and stdout already carries the full JSON payload (observed
+    # on production runners running as LocalSystem: QUANTAXIS import side
+    # effects terminate the interpreter with code 255 after the final print).
+    # Prefer parsing stdout; only fall back to an error payload when it does
+    # not contain a parseable JSON document.
+    start = completed.stdout.find("{")
+    if start >= 0:
+        try:
+            return json.loads(completed.stdout[start:])
+        except Exception:
+            pass
+    error = (completed.stderr or completed.stdout).strip() or (
+        f"subprocess exited with {completed.returncode}"
+    )
+    return {name: {"path": None, "error": error} for name in MODULE_NAMES}
 
 
 def inspect_supervisor_config(
