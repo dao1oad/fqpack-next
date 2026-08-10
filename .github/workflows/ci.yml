@@ -139,6 +139,28 @@ jobs:
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
+    # 提供与本地一致的 Mongo/Redis：大量测试路径真实连接 127.0.0.1:27027/6379，
+    # 无服务时每个用例等 30s 连接超时后才走 fallback（6-shard 下 shard(2)(4)
+    # 最慢片 17 分钟的主要来源）。容器为临时实例，随 job 销毁，测试写入无副作用。
+    services:
+      mongo:
+        image: mongo:8.2.2
+        ports:
+          - "27027:27017"
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7.0-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     strategy:
       fail-fast: false
       matrix:
