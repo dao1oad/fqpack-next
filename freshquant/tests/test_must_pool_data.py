@@ -269,3 +269,28 @@ def test_import_pool_accepts_none_stop_loss_price(monkeypatch):
     assert collection.inserted["stop_loss_price"] is None
     assert collection.inserted["initial_lot_amount"] == 50000
     assert collection.inserted["lot_amount"] == 50000
+
+
+def test_import_pool_skips_unknown_instrument(monkeypatch):
+    collection = FakeMustPoolCollection()
+    must_pool = _import_must_pool_with_stubs(monkeypatch, collection=collection)
+    # 覆盖 _import_must_pool_with_stubs 中返回 dict 的默认桩：标的库查不到
+    monkeypatch.setattr(must_pool, "query_instrument_info", lambda code: None)
+
+    ok = must_pool.import_pool(
+        code="000001",
+        category="待买",
+        stop_loss_price=None,
+        initial_lot_amount=None,
+        lot_amount=None,
+        forever=True,
+        provenance={
+            "sources": ["tdx_must_pool"],
+            "categories": ["待买"],
+            "memberships": [],
+        },
+    )
+
+    assert ok is False
+    assert collection.inserted is None
+    assert collection.updated is None
