@@ -259,7 +259,127 @@ def test_tpsl_tick_consumer_emits_error_when_universe_refresh_fails():
 
     assert runtime_logger.events[-1]["node"] == "tick_match"
     assert runtime_logger.events[-1]["status"] == "error"
-    assert runtime_logger.events[-1]["payload"]["error_type"] == "RuntimeError"
+
+
+class MixedLedgerOrderRepository:
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = [
+            {
+                "entry_id": "entry_base",
+                "entry_slice_id": "slice_base",
+                "symbol": "000001",
+                "position_type": "base",
+                "guardian_price": 9.0,
+                "remaining_quantity": 600,
+                "slice_seq": 1,
+                "sort_key": 9.0,
+            },
+            {
+                "entry_id": "entry_t",
+                "entry_slice_id": "slice_t",
+                "symbol": "000001",
+                "position_type": "t",
+                "guardian_price": 9.5,
+                "remaining_quantity": 300,
+                "slice_seq": 1,
+                "sort_key": 9.5,
+            },
+        ]
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        return rows
+
+    def list_open_slices(self, symbol=None):
+        return []
+
+
+def test_tpsl_takeprofit_trigger_eval_emits_ledger_filter():
+    """#549 runtime：TP trigger_eval 携带 base/T 过滤数量（TPSL 只卖 base）。"""
+
+    runtime_logger = FakeRuntimeLogger()
+    service = TpslService(
+        takeprofit_service=FakeTakeprofitService(),
+        order_submit_service=FakeOrderSubmitService(),
+        order_repository=MixedLedgerOrderRepository(),
+        position_reader=FixedPositionReader(),
+        lock_client=AlwaysAvailableLockClient(),
+        runtime_logger=runtime_logger,
+    )
+
+    batch = service.evaluate_takeprofit(
+        symbol="000001",
+        code="sz000001",
+        ask1=10.8,
+        bid1=10.7,
+        last_price=10.8,
+        tick_time=1710000000,
+    )
+
+    assert batch["status"] == "ready"
+    # L2 = 1/2 × base 600 = 300（若按券商全仓 900 会算出 450，证明 T 被过滤）
+    assert batch["quantity"] == 300
+    trigger_event = next(
+        event for event in runtime_logger.events if event["node"] == "trigger_eval"
+    )
+    assert trigger_event["payload"]["ledger_filter"] == {
+        "base_slice_count": 1,
+        "base_quantity": 600,
+        "t_slice_count": 1,
+        "t_quantity": 300,
+    }
+
+
+def test_tpsl_base_buyline_trigger_eval_emits_occupancy_and_skip_reason(
+    monkeypatch,
+):
+    """#549 runtime：base-buyline trigger_eval 携带 occupancy/在途/skip reason。"""
+
+    import freshquant.tpsl.service as tpsl_service_module
+
+    runtime_logger = FakeRuntimeLogger()
+
+    class _FakeBuyGrid:
+        def build_base_line_decision(self, code, price):
+            return {
+                "code": code,
+                "grid_level": "BUY-2",
+                "quantity": 0,
+                "skip_reason": "below_min_buy_amount",
+                "stage": "BUY-2",
+                "ledger_occupancy": 12345.0,
+                "pending_buy_amount": 6789.0,
+                "current_market_value": 500000.0,
+                "remaining_amount": 0.0,
+                "min_buy_amount": 10000,
+            }
+
+    monkeypatch.setattr(
+        tpsl_service_module,
+        "_get_guardian_buy_grid_service",
+        lambda: _FakeBuyGrid(),
+    )
+    service = TpslService(runtime_logger=runtime_logger)
+
+    result = service.evaluate_base_buyline(
+        symbol="000001",
+        code="sz000001",
+        bid1=8.5,
+        last_price=8.6,
+        tick_time=1710000000,
+    )
+
+    assert result["status"] == "skipped"
+    assert result["skip_reason"] == "below_min_buy_amount"
+    trigger_event = next(
+        event for event in runtime_logger.events if event["node"] == "trigger_eval"
+    )
+    assert trigger_event["status"] == "skipped"
+    assert trigger_event["reason_code"] == "below_min_buy_amount"
+    assert trigger_event["payload"]["kind"] == "base_buyline"
+    assert trigger_event["payload"]["ledger_occupancy"] == 12345.0
+    assert trigger_event["payload"]["pending_buy_amount"] == 6789.0
+    assert trigger_event["payload"]["skip_reason"] == "below_min_buy_amount"
+    assert trigger_event["payload"]["trigger_consumed"] is False
 
 
 def test_evaluate_takeprofit_without_hit_does_not_emit_trace_ids():

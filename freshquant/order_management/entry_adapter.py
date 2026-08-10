@@ -4,6 +4,22 @@ from __future__ import annotations
 
 from freshquant.order_management.repository import OrderManagementRepository
 
+POSITION_TYPE_BASE = "base"
+POSITION_TYPE_T = "t"
+
+
+def position_type_of(value) -> str:
+    """读取侧统一口径：``position_type`` 缺失/未知一律按 base 处理。
+
+    双账本（#549）约定：T 账本由运行时 ingest 显式打标 ``t``；底仓、回填、
+    重建与旧数据默认按 base。消除"回填后、部署前旧代码写入无标记 slice"
+    窗口期两账本都不可见的问题。
+    """
+
+    if str(value or "").strip().lower() == POSITION_TYPE_T:
+        return POSITION_TYPE_T
+    return POSITION_TYPE_BASE
+
 
 def get_entry_view(entry_id, repository=None):
     repository = repository or OrderManagementRepository()

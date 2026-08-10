@@ -1,5 +1,8 @@
 import { buildDetailViewModel } from '../subjectManagement.mjs'
 
+export const isSubjectPanelDetailLoaded = (state = {}) =>
+  Boolean(state?.subjectPanelDetail)
+
 const cloneMustPoolDraft = (draft = {}) => ({
   category: String(draft?.category || '').trim(),
   stop_loss_price: draft?.stop_loss_price ?? null,
@@ -81,6 +84,9 @@ export const restoreKlineSlimPositionLimitDefault = async (
     refresh,
   } = {},
 ) => {
+  if (!isSubjectPanelDetailLoaded(state)) {
+    throw new Error('标的设置尚未加载完成，禁止保存')
+  }
   const refreshed = await refresh()
   if (refreshed !== true) {
     throw new Error('刷新最新系统默认仓位上限失败')

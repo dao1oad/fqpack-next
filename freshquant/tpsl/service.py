@@ -10,6 +10,7 @@ from freshquant.db import DBfreshquant
 from freshquant.order_management.entry_adapter import (
     list_entry_stoploss_bindings_compat,
     list_open_entry_slices_compat,
+    position_type_of,
 )
 from freshquant.order_management.ids import new_event_id
 from freshquant.order_management.repository import OrderManagementRepository
@@ -34,6 +35,19 @@ from freshquant.tpsl.takeprofit_quantity import (
 )
 from freshquant.tpsl.takeprofit_service import TakeprofitService
 from freshquant.util.code import normalize_to_base_code
+
+_BUY_LEVEL_INDEX = {"BUY-1": 0, "BUY-2": 1, "BUY-3": 2}
+_BASE_BUY_COOLDOWN_SECONDS = 15 * 60
+_PENDING_BUY_STATES = {
+    "ACCEPTED",
+    "QUEUED",
+    "SUBMITTING",
+    "SUBMITTED",
+    "PARTIAL_FILLED",
+    "BROKER_BYPASSED",
+    "CANCEL_REQUESTED",
+    "INFERRED_PENDING",
+}
 
 try:
     from freshquant.database.redis import redis_db  # type: ignore
@@ -247,6 +261,48 @@ class TpslService:
                 symbol=base_symbol,
                 repository=self.order_repository,
             )
+            # #549：TPSL 只卖 base；过滤一次，quantity 与 breakdown 共用。
+            base_slices = [
+                item
+                for item in open_slices
+                if position_type_of(item.get("position_type")) != "t"
+            ]
+            t_slices = [
+                item
+                for item in open_slices
+                if position_type_of(item.get("position_type")) == "t"
+            ]
+            ledger_filter = {
+                "base_slice_count": len(base_slices),
+                "base_quantity": sum(
+                    max(int(item.get("remaining_quantity") or 0), 0)
+                    for item in base_slices
+                ),
+                "t_slice_count": len(t_slices),
+                "t_quantity": sum(
+                    max(int(item.get("remaining_quantity") or 0), 0)
+                    for item in t_slices
+                ),
+            }
+            if not base_slices:
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    trace_id=trace_id or new_trace_id(),
+                    status="skipped",
+                    reason_code="no_base_position",
+                    payload={
+                        **trigger_payload,
+                        "quantity": 0,
+                        "trigger_consumed": False,
+                        "skip_reason": "no_base_position",
+                        "ledger_filter": ledger_filter,
+                    },
+                )
+                return None
+            total_base_quantity = sum(
+                max(int(item.get("remaining_quantity") or 0), 0) for item in base_slices
+            )
             if hasattr(self.position_reader, "get_position_volumes"):
                 position_volumes = self.position_reader.get_position_volumes(
                     base_symbol
@@ -258,10 +314,10 @@ class TpslService:
                     "can_use_volume": legacy_volume,
                 }
             quantity_result = resolve_takeprofit_sell_quantity(
-                open_slices=open_slices,
+                open_slices=base_slices,
                 tier_price=hit["price"],
                 level=int(hit["level"]),
-                total_position_quantity=position_volumes["volume"],
+                total_position_quantity=total_base_quantity,
                 can_use_volume=position_volumes["can_use_volume"],
             )
             if int(quantity_result["quantity"] or 0) <= 0:
@@ -275,6 +331,8 @@ class TpslService:
                         **trigger_payload,
                         "quantity": 0,
                         "trigger_consumed": False,
+                        "skip_reason": "no_submittable_quantity",
+                        "ledger_filter": ledger_filter,
                     },
                 )
                 return {
@@ -310,7 +368,11 @@ class TpslService:
                 "trigger_eval",
                 symbol=base_symbol,
                 trace_id=trace_id_value,
-                payload=trigger_payload,
+                payload={
+                    **trigger_payload,
+                    "quantity": order_quantity,
+                    "ledger_filter": ledger_filter,
+                },
             )
             capped = _cap_takeprofit_breakdown(
                 quantity_result.get("profit_slices") or [],
@@ -536,12 +598,17 @@ class TpslService:
             mark_exception_emitted(exc)
             raise
 
-    def on_new_buy_trade(self, *, symbol, buy_price):
+    def on_new_buy_trade(self, *, symbol, buy_price, position_type="base"):
+        """#549 rearm 门控：仅 base 买入事件（首开 + buy 线触发 + 手动加仓）
+        全开止盈档；T 买入不触发状态机（Guardian 做T与固定触发机制解耦）。
+        """
+
+        if position_type_of(position_type) != "base":
+            return None
         try:
             profile = self.takeprofit_service.get_profile_with_state(symbol)
         except ValueError:
             return None
-
         prices = [
             float(item["price"])
             for item in profile.get("tiers") or []
@@ -549,14 +616,243 @@ class TpslService:
         ]
         if not prices:
             return None
+        return self.takeprofit_service.rearm_all_levels(
+            symbol,
+            updated_by="buy_trade",
+            reason="base_buy_rearm",
+        )
 
-        if float(buy_price) < min(prices):
-            return self.takeprofit_service.rearm_all_levels(
-                symbol,
-                updated_by="buy_trade",
-                reason="new_buy_below_lowest_tier",
+    def evaluate_base_buyline(
+        self,
+        *,
+        symbol=None,
+        code=None,
+        bid1=None,
+        last_price=None,
+        tick_time=None,
+        trace_id=None,
+    ):
+        """固定价格触发买入线评估（#549，挂在 TPSL tick worker）。
+
+        R_N = cap_N − max(D+C, MV) − 在途（占用取大）；MV 缺失 fail-closed；
+        ``B < min_buy_amount`` 或不足一手不买（不消耗冷却）。
+        """
+
+        base_symbol = _normalize_symbol(symbol or code)
+        try:
+            source_price = float(bid1 if bid1 not in (None, "") else last_price or 0.0)
+        except (TypeError, ValueError):
+            source_price = 0.0
+        if source_price <= 0:
+            return None
+        decision = _get_guardian_buy_grid_service().build_base_line_decision(
+            base_symbol,
+            source_price,
+        )
+        quantity = int(decision.get("quantity") or 0)
+        if quantity <= 0:
+            result = {
+                "status": "skipped",
+                "symbol": base_symbol,
+                "quantity": 0,
+                "skip_reason": decision.get("skip_reason") or "no_quantity",
+                "stage": decision.get("stage"),
+                "grid_level": decision.get("grid_level"),
+                "price": source_price,
+                "tick_time": int(tick_time or 0),
+                "trigger_consumed": False,
+            }
+            self._emit_runtime(
+                "trigger_eval",
+                symbol=base_symbol,
+                trace_id=trace_id or new_trace_id(),
+                status="skipped",
+                reason_code=decision.get("skip_reason") or "no_quantity",
+                payload={
+                    "kind": "base_buyline",
+                    "hit_level": decision.get("grid_level"),
+                    "triggered": False,
+                    "quantity": 0,
+                    "skip_reason": decision.get("skip_reason") or "no_quantity",
+                    "stage": decision.get("stage"),
+                    "ledger_occupancy": decision.get("ledger_occupancy"),
+                    "pending_buy_amount": decision.get("pending_buy_amount"),
+                    "current_market_value": decision.get("current_market_value"),
+                    "remaining_amount": decision.get("remaining_amount"),
+                    "min_buy_amount": decision.get("min_buy_amount"),
+                    "trigger_consumed": False,
+                },
             )
-        return None
+            return result
+        result = {
+            "status": "ready",
+            "symbol": base_symbol,
+            "quantity": quantity,
+            "price": source_price,
+            "grid_level": decision.get("grid_level"),
+            "stage": decision.get("stage"),
+            "effective_stage_cap": decision.get("effective_stage_cap"),
+            "current_market_value": decision.get("current_market_value"),
+            "remaining_amount": decision.get("remaining_amount"),
+            "ledger_occupancy": decision.get("ledger_occupancy"),
+            "pending_buy_amount": decision.get("pending_buy_amount"),
+            "tick_time": int(tick_time or 0),
+            "decision": decision,
+        }
+        self._emit_runtime(
+            "trigger_eval",
+            symbol=base_symbol,
+            trace_id=trace_id or new_trace_id(),
+            payload={
+                "kind": "base_buyline",
+                "hit_level": decision.get("grid_level"),
+                "triggered": True,
+                "quantity": quantity,
+                "stage": decision.get("stage"),
+                "ledger_occupancy": decision.get("ledger_occupancy"),
+                "pending_buy_amount": decision.get("pending_buy_amount"),
+                "current_market_value": decision.get("current_market_value"),
+                "remaining_amount": decision.get("remaining_amount"),
+                "min_buy_amount": decision.get("min_buy_amount"),
+            },
+        )
+        return result
+
+    def submit_base_buy_batch(self, decision, *, trace_id=None):
+        """提交买入线补仓单（base 账本，buy_ledger=base_line）。
+
+        触发即关（阶梯事件）+ 全开止盈档；独立冷却 ``base_buy:<code>``；
+        提交前在途复核（超 cap 放弃）；不取消 T 侧在途买单。
+        """
+
+        symbol = str(decision.get("symbol") or "").strip()
+        if not symbol:
+            return None
+        quantity = int(decision.get("quantity") or 0)
+        price = float(decision.get("price") or 0.0)
+        grid_level = str(decision.get("grid_level") or "").upper()
+        level_index = _BUY_LEVEL_INDEX.get(grid_level)
+        if quantity <= 0 or price <= 0 or level_index is None:
+            return {
+                "status": "blocked",
+                "symbol": symbol,
+                "blocked_reason": "invalid_decision",
+                "quantity": 0,
+            }
+        cooldown_key = f"base_buy:{symbol}"
+        if not self.lock_client.acquire(
+            cooldown_key,
+            ttl_seconds=_BASE_BUY_COOLDOWN_SECONDS,
+        ):
+            return {
+                "status": "cooldown",
+                "symbol": symbol,
+                "blocked_reason": "base_buy_cooldown",
+                "quantity": 0,
+            }
+        # 提交侧在途复核：超 cap 放弃（不采用共用冷却键，与独立冷却承诺一致）。
+        try:
+            from freshquant.strategy.guardian_buy_grid import (
+                get_guardian_buy_grid_service,
+            )
+
+            capacity = get_guardian_buy_grid_service()._resolve_remaining_capacity(
+                symbol,
+                price,
+                cap=float(decision.get("effective_stage_cap") or 0.0),
+            )
+        except Exception:
+            capacity = None
+        if capacity is not None and capacity["remaining"] <= 0:
+            return {
+                "status": "blocked",
+                "symbol": symbol,
+                "blocked_reason": "in_flight_capacity_exhausted",
+                "quantity": 0,
+            }
+        intent_id = new_intent_id()
+        trace_id_value = str(trace_id or "").strip() or new_trace_id()
+        ladder = _get_ladder_state()
+        triggered = ladder.on_buy_line_trigger(
+            code=symbol,
+            level_index=level_index,
+            event_key=intent_id,
+        )
+        if not triggered:
+            # 已被其他进程/事件处理：本轮放弃（下一 tick 重试）。
+            return {
+                "status": "blocked",
+                "symbol": symbol,
+                "blocked_reason": "ladder_conflict",
+                "quantity": 0,
+            }
+        strategy_context = {
+            "buy_ledger": "base_line",
+            "guardian_buy_grid": {
+                "path": "base_line",
+                "grid_level": grid_level,
+                "source_price": price,
+                "buy_prices_snapshot": decision.get("buy_prices_snapshot"),
+                "effective_stage_cap": decision.get("effective_stage_cap"),
+                "current_market_value": decision.get("current_market_value"),
+                "remaining_amount": decision.get("remaining_amount"),
+                "ledger_occupancy": decision.get("ledger_occupancy"),
+                "pending_buy_amount": decision.get("pending_buy_amount"),
+                # 不带 hit_levels：_mark_guardian_buy_grid_after_accept 天然跳过，
+                # 不污染旧 buy_active 审计态。
+            },
+        }
+        try:
+            from freshquant.order_management.submit.guardian import (
+                submit_guardian_order,
+            )
+
+            submit_result = submit_guardian_order(
+                "buy",
+                symbol,
+                price,
+                quantity,
+                remark=f"base_buyline:{symbol}:{grid_level}",
+                strategy_context=strategy_context,
+                trace_id=trace_id_value,
+                intent_id=intent_id,
+            )
+        except Exception as exc:
+            # 本地提交失败：补偿重开该买入线 + 冷却，避免每 tick 重试风暴。
+            ladder.on_buy_zero_fill_terminal(
+                code=symbol,
+                level_index=level_index,
+                event_key=f"{intent_id}:submit_failed",
+            )
+            self._emit_runtime(
+                "submit_intent",
+                symbol=symbol,
+                trace_id=trace_id_value,
+                intent_id=intent_id,
+                status="error",
+                reason_code="unexpected_exception",
+                payload=build_exception_payload(
+                    exc,
+                    extra={"grid_level": grid_level, "quantity": quantity},
+                ),
+            )
+            raise
+        self._emit_runtime(
+            "submit_intent",
+            symbol=symbol,
+            trace_id=trace_id_value,
+            intent_id=intent_id,
+            request_id=submit_result.get("request_id"),
+            internal_order_id=submit_result.get("internal_order_id"),
+            payload={
+                "kind": "base_buyline",
+                "grid_level": grid_level,
+                "quantity": quantity,
+                "ladder_triggered": triggered,
+                "ladder_event_key": intent_id,
+            },
+        )
+        return submit_result
 
     def _submit_batch(self, *, batch, scope_type, source, strategy_name):
         if not batch or batch.get("status") == "blocked":
@@ -818,3 +1114,15 @@ def _get_runtime_logger():
     if _runtime_logger is None:
         _runtime_logger = RuntimeEventLogger("tpsl_worker")
     return _runtime_logger
+
+
+def _get_guardian_buy_grid_service():
+    from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
+
+    return get_guardian_buy_grid_service()
+
+
+def _get_ladder_state():
+    from freshquant.strategy.guardian_ladder import get_guardian_ladder_state
+
+    return get_guardian_ladder_state()

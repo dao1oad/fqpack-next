@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from freshquant.instrument.general import query_instrument_info
 from freshquant.order_management.broker_match import side_from_order_type
+from freshquant.order_management.entry_adapter import position_type_of
 from freshquant.order_management.execution_archive import (
     build_execution_archive_key,
     build_execution_key,
@@ -1119,6 +1120,7 @@ class PositionReviewService:
                 "is_holding": current_quantity > 0,
             },
             "summary": summary,
+            "ledger": self._build_ledger_summary(symbol, bundle),
             "executions": [_serialize_execution(item) for item in canonical_trades],
             "charts": _build_charts(
                 canonical_trades=canonical_trades,
@@ -1161,6 +1163,114 @@ class PositionReviewService:
                     1 for item in canonical_trades if not item.get("request_id")
                 ),
                 "warnings": warnings,
+            },
+        }
+
+    def _build_ledger_summary(self, symbol, bundle) -> dict[str, Any]:
+        """#549：双账本汇总（base/t 数量与金额）+ T 可卖明细 + 底仓止盈档状态。"""
+
+        entries = list(bundle.get("entries") or [])
+        slices = list(bundle.get("slices") or [])
+        base_quantity = 0
+        t_quantity = 0
+        for item in slices:
+            remaining = int(item.get("remaining_quantity") or 0)
+            if remaining <= 0:
+                continue
+            if position_type_of(item.get("position_type")) == "t":
+                t_quantity += remaining
+            else:
+                base_quantity += remaining
+
+        current_price = _resolve_ledger_current_price(bundle)
+        base_amount = round(base_quantity * current_price, 2)
+        t_amount = round(t_quantity * current_price, 2)
+
+        t_slices = [
+            item
+            for item in slices
+            if position_type_of(item.get("position_type")) == "t"
+            and int(item.get("remaining_quantity") or 0) > 0
+        ]
+        sell_eligible = []
+        eligible_amount = 0.0
+        if t_slices and current_price > 0:
+            try:
+                from freshquant.order_management.guardian.slice_evaluation import (
+                    evaluate_guardian_sell_slices,
+                )
+                from freshquant.strategy.common import get_threshold_config
+
+                threshold_config = get_threshold_config(symbol)
+                sell_evaluation = evaluate_guardian_sell_slices(
+                    t_slices,
+                    signal_price=current_price,
+                    threshold_config=threshold_config,
+                )
+                for item in sell_evaluation.get("eligible_slices") or []:
+                    quantity = int(item.get("eligible_quantity") or 0)
+                    if quantity <= 0:
+                        continue
+                    sell_eligible.append(
+                        {
+                            "entry_slice_id": item.get("entry_slice_id"),
+                            "entry_id": item.get("entry_id"),
+                            "guardian_price": item.get("guardian_price_normalized"),
+                            "threshold_price": item.get("threshold_price"),
+                            "eligible_quantity": quantity,
+                            "eligible_amount": round(quantity * current_price, 2),
+                        }
+                    )
+                    eligible_amount += quantity * current_price
+            except Exception:
+                sell_eligible = []
+                eligible_amount = 0.0
+
+        min_sell_amount = 0
+        try:
+            from freshquant.strategy.common import get_trade_amount
+
+            min_sell_amount = int(get_trade_amount(symbol) or 0)
+        except Exception:
+            min_sell_amount = 0
+
+        takeprofit_tiers = []
+        try:
+            from freshquant.tpsl.takeprofit_service import TakeprofitService
+
+            detail = TakeprofitService().get_profile_with_state(symbol)
+            state = detail.get("state") or {}
+            for tier in detail.get("tiers") or []:
+                level = int(tier.get("level") or 0)
+                takeprofit_tiers.append(
+                    {
+                        "level": level,
+                        "price": tier.get("price"),
+                        "armed": bool(
+                            (state.get("armed_levels") or {}).get(level, False)
+                        ),
+                    }
+                )
+        except Exception:
+            takeprofit_tiers = []
+
+        return {
+            "base_quantity": base_quantity,
+            "base_amount": base_amount,
+            "t_quantity": t_quantity,
+            "t_amount": t_amount,
+            "current_price": current_price,
+            "t_sell_eligible": sell_eligible,
+            "t_eligible_amount": round(eligible_amount, 2),
+            "min_sell_amount": min_sell_amount,
+            "takeprofit_tiers": takeprofit_tiers,
+            "position_type_count": {
+                "entries_with_position_type": sum(
+                    1
+                    for item in entries
+                    if position_type_of(item.get("position_type")) is not None
+                ),
+                "entry_count": len(entries),
             },
         }
 
@@ -3389,6 +3499,30 @@ def _current_position_snapshot(positions):
                 available = True
                 break
     return total, available
+
+
+def _resolve_ledger_current_price(bundle) -> float:
+    """#549 双账本展示的现价口径：券商市值 → 均价 → 账本成本兜底。"""
+
+    positions = list(bundle.get("positions") or [])
+    for item in positions:
+        volume = _int(item.get("volume")) or 0
+        market_value = _float_or_none(item.get("market_value"))
+        if volume > 0 and market_value is not None and market_value > 0:
+            return round(market_value / volume, 4)
+    for item in positions:
+        avg_price = _float_or_none(item.get("avg_price"))
+        if avg_price is not None and avg_price > 0:
+            return round(avg_price, 4)
+    entries = list(bundle.get("entries") or [])
+    prices = [
+        _float_or_none(item.get("entry_price"))
+        for item in entries
+        if _float_or_none(item.get("entry_price")) is not None
+    ]
+    if prices:
+        return round(sum(prices) / len(prices), 4)
+    return 0.0
 
 
 def _execution_account_partition(item):

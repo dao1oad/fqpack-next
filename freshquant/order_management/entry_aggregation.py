@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from freshquant.order_management.entry_adapter import (
+    POSITION_TYPE_BASE,
+    position_type_of,
+)
 from freshquant.order_management.guardian.arranger import (
     build_position_entry_from_trade_fact,
 )
@@ -154,6 +158,12 @@ def build_clustered_position_entry(
         "source": group_trade_fact.get("source")
         or (existing_entry or {}).get("source")
         or "order_management",
+        # 双账本（#549）：聚类保留已有标记，缺失/未知一律按 base。
+        "position_type": position_type_of(
+            (existing_entry or {}).get("position_type")
+            or group_trade_fact.get("position_type")
+            or POSITION_TYPE_BASE
+        ),
     }
     entry = build_position_entry_from_trade_fact(
         trade_payload,

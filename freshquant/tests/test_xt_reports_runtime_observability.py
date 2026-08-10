@@ -65,6 +65,12 @@ class InMemoryRepository:
                 return order
         return None
 
+    def find_order_request(self, request_id):
+        for request in self.order_requests:
+            if request["request_id"] == request_id:
+                return request
+        return None
+
     def find_order_by_broker_order_id(self, broker_order_id):
         for order in self.orders:
             if str(order.get("broker_order_id")) == str(broker_order_id):
@@ -527,3 +533,83 @@ def test_try_ingest_xt_order_dict_emits_runtime_error_when_wrapper_catches_excep
     assert runtime_logger.events[-1]["reason_code"] == "unexpected_exception"
     assert runtime_logger.events[-1]["payload"]["error_type"] == "RuntimeError"
     assert runtime_logger.events[-1]["payload"]["error_message"] == "bad order report"
+
+
+def test_order_match_emits_ladder_terminal_reopen_result(monkeypatch):
+    """#549 runtime：order_match 携带阶梯零成交终态重开结果与幂等键。"""
+
+    ladder_calls = []
+
+    class _FakeLadder:
+        def on_buy_zero_fill_terminal(self, *, code, level_index, event_key):
+            ladder_calls.append((code, level_index, event_key))
+            return True
+
+        def on_takeprofit_zero_fill_terminal(self, *, code, level, event_key):
+            ladder_calls.append((code, level, event_key))
+            return True
+
+        def on_takeprofit_fill(self, *, code, level, event_key):
+            return True
+
+        def on_buy_line_trigger(self, *, code, level_index, event_key):
+            return True
+
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_ladder_state",
+        lambda: _FakeLadder(),
+        raising=False,
+    )
+    runtime_logger = FakeRuntimeLogger()
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "symbol": "000001",
+            "price": 10.0,
+            "quantity": 300,
+            "source": "strategy",
+            "internal_order_id": "ord_xt_ladder_1",
+            "request_id": "req_xt_ladder_1",
+            "trace_id": "trc_xt_ladder_1",
+            "intent_id": "int_xt_ladder_1",
+            "strategy_context": {
+                "buy_ledger": "base_line",
+                "guardian_buy_grid": {"grid_level": "BUY-2"},
+            },
+        }
+    )
+    service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        runtime_logger=runtime_logger,
+    )
+
+    service.ingest_order_report(
+        {
+            "internal_order_id": "ord_xt_ladder_1",
+            "broker_order_id": 90010,
+            "symbol": "000001",
+            "side": "buy",
+            "order_type": 23,
+            "order_volume": 300,
+            "order_price": 9.0,
+            "order_status": 57,
+            "order_time": 1710000600,
+        }
+    )
+
+    order_match = next(
+        event for event in runtime_logger.events if event["node"] == "order_match"
+    )
+    assert order_match["payload"]["state"] == "FAILED"
+    ladder_payload = order_match["payload"]["ladder"]
+    assert ladder_payload["processed"] is True
+    assert ladder_payload["kind"] == "buy_line_reopen"
+    assert ladder_payload["level_index"] == 1
+    assert ladder_payload["event_key"] == "ladder_terminal:ord_xt_ladder_1"
+    assert ladder_payload["result"]["ok"] is True
+    assert ladder_payload["result"]["operation"] == "buy_zero_fill_terminal"
+    assert ladder_calls == [("000001", 1, "ladder_terminal:ord_xt_ladder_1")]

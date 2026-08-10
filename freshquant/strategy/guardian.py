@@ -9,13 +9,15 @@ from loguru import logger
 import freshquant.util.datetime_helper as datetime_helper
 from freshquant.basic.singleton_type import SingletonType
 from freshquant.data.astock.holding import (
-    _query_grid_interval,
     get_arranged_stock_fill_list,
     get_stock_holding_codes,
 )
 from freshquant.database.redis import redis_db
 from freshquant.db import DBfreshquant
-from freshquant.order_management.entry_adapter import list_open_entry_views
+from freshquant.order_management.entry_adapter import (
+    list_open_entry_views,
+    position_type_of,
+)
 from freshquant.order_management.guardian.sell_semantics import (
     build_guardian_sell_source_plan_v2,
 )
@@ -39,9 +41,9 @@ from freshquant.runtime_observability.failures import (
 )
 from freshquant.runtime_observability.ids import new_intent_id, new_trace_id
 from freshquant.runtime_observability.logger import RuntimeEventLogger
+from freshquant.strategy.common import get_trade_amount
 from freshquant.strategy.guardian_buy_grid import get_guardian_buy_grid_service
 from freshquant.strategy.toolkit.threshold import eval_stock_threshold_price
-from freshquant.util.code import fq_util_code_append_market_code_suffix
 from freshquant.util.datetime_helper import fq_util_datetime_localize
 
 order_alert = signal("order_alert")
@@ -810,6 +812,53 @@ class StrategyGuardian(metaclass=SingletonType):
         current_node = "timing_check"
         try:
             fill_list = get_arranged_stock_fill_list(code) or []
+            # #549：Guardian 只卖 T（不动底仓；底仓由 TPSL 止盈卖出）。
+            t_fill_list = [
+                item
+                for item in fill_list
+                if position_type_of(item.get("position_type")) == "t"
+            ]
+            if fill_list and not t_fill_list:
+                self._emit_runtime(
+                    signal,
+                    "holding_scope_resolve",
+                    action="sell",
+                    status="skipped",
+                    reason_code="no_t_position",
+                    decision_branch="sell_ledger_scope",
+                    decision_expr="t_slice_count > 0",
+                    decision_context={
+                        "scope": {
+                            "position": "SELL_SHORT",
+                            "t_slice_count": 0,
+                            "base_slice_count": len(fill_list),
+                        }
+                    },
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code="no_t_position",
+                    outcome="skip",
+                    decision_branch="sell_ledger_scope",
+                    decision_expr="t_slice_count > 0",
+                    decision_context={
+                        "scope": {
+                            "position": "SELL_SHORT",
+                            "t_slice_count": 0,
+                            "base_slice_count": len(fill_list),
+                        }
+                    },
+                )
+                logger.info(
+                    "{code} {name} 无做T切片（纯底仓由 TPSL 卖出），跳过下单指令",
+                    code=code,
+                    name=name,
+                )
+                return
+            fill_list = t_fill_list
             last_fill = fill_list[-1] if fill_list else None
             if last_fill is None:
                 arrangement_scope = _resolve_guardian_arrangement_scope(code)
@@ -951,6 +1000,53 @@ class StrategyGuardian(metaclass=SingletonType):
                     decision_context=threshold_context,
                 )
                 logger.info("条件未达，跳过下单指令")
+                return
+
+            # mount 过滤（#549）：可卖金额 < mount → 本次不卖，可卖 slices
+            # 保留，不消耗 sell:<code> 冷却。
+            mount_amount = int(get_trade_amount(code) or 0)
+            sellable_amount = sum(
+                int(item.get("eligible_quantity") or 0)
+                * float(item.get("guardian_price_normalized") or 0.0)
+                for item in sell_evaluation["eligible_slices"]
+            )
+            if mount_amount > 0 and sellable_amount < mount_amount:
+                self._emit_runtime(
+                    signal,
+                    "price_threshold_check",
+                    action="sell",
+                    status="skipped",
+                    reason_code="below_mount",
+                    decision_branch="sell_mount",
+                    decision_expr="sellable_amount >= mount",
+                    decision_context={
+                        "mount": {
+                            "mount_amount": mount_amount,
+                            "sellable_amount": round(sellable_amount, 2),
+                        }
+                    },
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="sell",
+                    status="skipped",
+                    reason_code="below_mount",
+                    outcome="skip",
+                    decision_branch="sell_mount",
+                    decision_expr="sellable_amount >= mount",
+                    decision_context={
+                        "mount": {
+                            "mount_amount": mount_amount,
+                            "sellable_amount": round(sellable_amount, 2),
+                        }
+                    },
+                )
+                logger.info(
+                    "{code} {name} 可卖金额低于 mount，跳过下单指令",
+                    code=code,
+                    name=name,
+                )
                 return
 
             self._emit_runtime(
@@ -1430,27 +1526,6 @@ class StrategyGuardian(metaclass=SingletonType):
         )
 
 
-def test_order_alert_signal():
-    test_signal = {
-        "code": "TEST001",
-        "name": "测试股票",
-        "period": "1m",
-        "position": "BUY_LONG",
-        "price": 10.0,
-        "fire_time": pendulum.now(),
-        "tags": ["test"],
-        "zsdata": [],
-        "fills": [],
-    }
-
-    order_alert.send("guardian", payload=test_signal)
-    order_alert.send("guardian", private=True, payload=test_signal)
-
-
-if __name__ == "__main__":
-    test_order_alert_signal()
-
-
 _runtime_logger = None
 _position_reader = None
 _order_management_repository = None
@@ -1503,6 +1578,9 @@ def _prepare_guardian_buy_orders(code):
         for item in repository.list_broker_orders(symbol=code, states=states)
         if str(item.get("side") or "").lower() == "buy"
     ]
+    # #549：跳过 base_line（买入线补仓）在途买单——buy 线评估器不复用本函数，
+    # 若不跳过会误杀 buy 线补仓单。
+    orders = [item for item in orders if not _is_base_line_buy_order(repository, item)]
     if not orders:
         return {
             "blocked": False,
@@ -1559,6 +1637,28 @@ def _prepare_guardian_buy_orders(code):
     }
 
 
+def _is_base_line_buy_order(repository, order):
+    """判断某在途买单是否属于买入线（base_line）系统。"""
+
+    internal_order_id = str(order.get("internal_order_id") or "").strip()
+    if not internal_order_id or not hasattr(repository, "find_order"):
+        return False
+    try:
+        order_doc = repository.find_order(internal_order_id) or {}
+    except Exception:
+        return False
+    request_id = str(order_doc.get("request_id") or "").strip()
+    if request_id and hasattr(repository, "find_order_request"):
+        try:
+            request = repository.find_order_request(request_id) or {}
+        except Exception:
+            request = {}
+    else:
+        request = {}
+    context = dict((request or {}).get("strategy_context") or {})
+    return str(context.get("buy_ledger") or "") == "base_line"
+
+
 def _resolve_guardian_arrangement_scope(code):
     entries = list_open_entry_views(symbol=code)
     open_entries = [
@@ -1611,28 +1711,28 @@ def _resolve_guardian_sell_threshold_config(threshold):
 
 
 def _resolve_guardian_buy_fill_reference(code):
-    fill_list = get_arranged_stock_fill_list(code) or []
-    fallback_reference = _build_arranged_fill_reference(
-        fill_list[-1] if fill_list else None,
-        source="guardian_arranged_fill_fallback",
-    )
-    latest_arranged_reference = _get_latest_arranged_fill_reference(fill_list)
+    """#549 做T买入门槛基准：execution fill → 平均成本 → xt avg 兜底。
+
+    基准来源优先级：
+    1. 最近一笔 execution fill 成交价（含 fill_time，参与时序校验）；
+    2. 无成交记录 → 全部持仓（base+T 所有 open entries 按剩余股数加权）
+       平均成本价（无 fill_time，跳过时序校验）；
+    3. 无 execution fill 且无 OM entries → ``xt_positions.avg_price`` 兜底；
+    4. 三者皆无 → 返回 None（不买）。
+    """
+
     execution_fill_reference = _get_latest_execution_fill_reference(code)
     if execution_fill_reference is not None:
-        if (
-            latest_arranged_reference is None
-            or execution_fill_reference["fill_time"]
-            >= latest_arranged_reference["fill_time"]
-        ):
-            return execution_fill_reference
-    return fallback_reference
+        return execution_fill_reference
+    ledger_reference = _get_ledger_average_cost_reference(code)
+    if ledger_reference is not None:
+        return ledger_reference
+    return _get_broker_position_average_cost_reference(code)
 
 
 def _resolve_guardian_buy_threshold(code, fill_reference):
     if fill_reference is None:
         return None
-    if fill_reference["fill_reference_source"] == "guardian_arranged_fill_fallback":
-        return _build_guardian_slice_next_level_threshold(code, fill_reference)
     threshold = dict(eval_stock_threshold_price(code, fill_reference["fill_price"]))
     threshold["threshold_rule_source"] = "threshold_config"
     return threshold
@@ -1671,48 +1771,66 @@ def _build_arranged_fill_reference(fill, *, source):
     }
 
 
-def _get_latest_arranged_fill_reference(fill_list):
-    arranged_references = [
-        _build_arranged_fill_reference(
-            item,
-            source="guardian_arranged_fill_anchor",
-        )
-        for item in list(fill_list or [])
+def _get_ledger_average_cost_reference(code):
+    """无 execution fill 时：全部持仓（base+T）open entries 剩余股数加权成本。"""
+
+    entries = list_open_entry_views(symbol=code)
+    open_entries = [
+        item for item in entries if int(item.get("remaining_quantity") or 0) > 0
     ]
-    arranged_references = [item for item in arranged_references if item is not None]
-    if not arranged_references:
+    if not open_entries:
         return None
-    return max(arranged_references, key=lambda item: item["fill_time"])
-
-
-def _build_guardian_slice_next_level_threshold(code, fill_reference):
-    grid_interval = _get_guardian_buy_slice_grid_interval(code, fill_reference)
-    base_price = float(fill_reference["fill_price"])
-    next_level_price = float(f"{(base_price / grid_interval):.2f}")
+    total_quantity = sum(
+        int(item.get("remaining_quantity") or 0) for item in open_entries
+    )
+    if total_quantity <= 0:
+        return None
+    total_cost = sum(
+        int(item.get("remaining_quantity") or 0)
+        * float(item.get("entry_price") or item.get("buy_price_real") or 0.0)
+        for item in open_entries
+    )
     return {
-        "instrument_code": fq_util_code_append_market_code_suffix(code),
-        "base_price": base_price,
-        "top_river_price": base_price,
-        "bot_river_price": next_level_price,
-        "config": {
-            "mode": "guardian_slice_next_level",
-            "grid_interval": grid_interval,
-        },
-        "threshold_rule_source": "guardian_slice_next_level",
-        "grid_interval": grid_interval,
+        "fill_time": None,
+        "fill_price": round(total_cost / total_quantity, 6),
+        "fill_reference_source": "ledger_average_cost",
     }
 
 
-def _get_guardian_buy_slice_grid_interval(code, fill_reference):
-    fill_time = fill_reference.get("fill_time")
-    if fill_time is None:
-        raise ValueError("guardian arranged fill fallback requires fill_time")
-    grid_interval = float(_query_grid_interval(code, fill_time.strftime("%Y-%m-%d")))
-    if grid_interval <= 0:
-        raise ValueError(
-            "guardian arranged fill fallback requires positive grid_interval"
+def _get_broker_position_average_cost_reference(code):
+    """无 execution fill 且无 OM entries：xt_positions.avg_price 兜底。"""
+
+    try:
+        position = DBfreshquant["xt_positions"].find_one(
+            {
+                "$or": [
+                    {"stock_code": code},
+                    {"code": code},
+                    {"symbol": code},
+                ]
+            },
+            {"avg_price": 1, "volume": 1},
         )
-    return grid_interval
+    except Exception:
+        return None
+    if not position:
+        return None
+    if int(position.get("volume") or 0) <= 0:
+        return None
+    avg_price = position.get("avg_price")
+    if avg_price in {None, ""}:
+        return None
+    try:
+        avg_price_float = float(avg_price)
+    except (TypeError, ValueError):
+        return None
+    if avg_price_float <= 0:
+        return None
+    return {
+        "fill_time": None,
+        "fill_price": round(avg_price_float, 6),
+        "fill_reference_source": "broker_position_avg_price",
+    }
 
 
 def _execution_fill_sort_key(item):

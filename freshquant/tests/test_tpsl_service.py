@@ -38,6 +38,68 @@ class InMemoryTpslRepository:
         return rows[:limit]
 
 
+class InMemoryLadderState:
+    """与 GuardianLadderState 同接口的测试替身，落在 InMemoryTpslRepository 上。"""
+
+    def __init__(self, repository):
+        self.repository = repository
+
+    def _ensure_state(self, symbol):
+        if self.repository.find_takeprofit_state(symbol) is None:
+            self.repository.upsert_takeprofit_state(
+                {
+                    "symbol": symbol,
+                    "armed_levels": {},
+                    "version": 0,
+                    "updated_at": "now",
+                }
+            )
+
+    def on_takeprofit_trigger(
+        self,
+        *,
+        code,
+        level,
+        event_key,
+        last_triggered_batch_id=None,
+        trigger_price=None,
+    ):
+        self._ensure_state(code)
+        state = self.repository.find_takeprofit_state(code)
+        armed = dict(state["armed_levels"])
+        armed[int(level)] = False
+        state["armed_levels"] = armed
+        state["last_triggered_level"] = int(level)
+        state["last_triggered_batch_id"] = last_triggered_batch_id
+        state["version"] = int(state.get("version") or 0) + 1
+        self.repository.upsert_takeprofit_state(state)
+        return True
+
+    def rearm_all_levels(self, code, *, updated_by="system", reason="manual"):
+        self._ensure_state(code)
+        state = self.repository.find_takeprofit_state(code)
+        armed = dict(state["armed_levels"])
+        profile = self.repository.find_takeprofit_profile(code) or {}
+        for tier in profile.get("tiers") or []:
+            armed[int(tier["level"])] = bool(tier.get("manual_enabled", True))
+        state["armed_levels"] = armed
+        state["last_rearm_reason"] = reason
+        state["version"] = int(state.get("version") or 0) + 1
+        self.repository.upsert_takeprofit_state(state)
+        return True
+
+    def set_armed_levels(self, *, code, values):
+        self._ensure_state(code)
+        state = self.repository.find_takeprofit_state(code)
+        armed = dict(state["armed_levels"])
+        for raw_level, raw_enabled in dict(values or {}).items():
+            armed[int(raw_level)] = bool(raw_enabled)
+        state["armed_levels"] = armed
+        state["version"] = int(state.get("version") or 0) + 1
+        self.repository.upsert_takeprofit_state(state)
+        return state
+
+
 class FakeOrderSubmitService:
     def __init__(self):
         self.calls = []
@@ -262,7 +324,10 @@ def test_submit_symbol_stoploss_batch_uses_full_position_scope_and_event_type():
 
 def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
     repo = InMemoryTpslRepository()
-    tp_service = TakeprofitService(repository=repo)
+    tp_service = TakeprofitService(
+        repository=repo,
+        ladder_state=InMemoryLadderState(repo),
+    )
     tp_service.save_profile(
         "000001",
         tiers=[
@@ -301,7 +366,10 @@ def test_evaluate_takeprofit_blocks_when_sellable_volume_is_zero():
 
 def test_evaluate_takeprofit_uses_other_slice_to_meet_position_ratio():
     repo = InMemoryTpslRepository()
-    tp_service = TakeprofitService(repository=repo)
+    tp_service = TakeprofitService(
+        repository=repo,
+        ladder_state=InMemoryLadderState(repo),
+    )
     tp_service.save_profile(
         "000001",
         tiers=[

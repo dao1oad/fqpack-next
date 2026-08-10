@@ -347,6 +347,7 @@ def test_arranged_fill_projection_does_not_require_legacy_buy_lots_when_v2_entri
             "price": 10.93,
             "quantity": 200,
             "amount": 2186.0,
+            "position_type": "base",
         }
     ]
 
@@ -394,6 +395,7 @@ def test_arranged_fill_projection_resolves_trade_time_in_china_timezone(monkeypa
             "price": 10.93,
             "quantity": 200,
             "amount": 2186.0,
+            "position_type": "base",
         }
     ]
 
@@ -632,6 +634,7 @@ def test_arranged_fill_projection_does_not_fallback_to_legacy_when_v2_api_is_emp
             "price": 10.93,
             "quantity": 200,
             "amount": 2186.0,
+            "position_type": "base",
         }
     ]
 

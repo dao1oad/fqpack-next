@@ -140,6 +140,7 @@ def test_holding_add_uses_deepest_active_hit_level():
     assert decision["multiplier"] == 1
     assert decision["quantity"] == 0
     assert decision["skip_reason"] == "grid_position_cap_unconfigured"
+    assert decision["stage"] is None
     assert decision["buy_active_before"] == [True, True, True]
 
 
@@ -170,6 +171,8 @@ def test_holding_add_skips_inactive_levels_and_uses_next_active_match():
     assert decision["hit_levels"] == ["BUY-1", "BUY-2"]
     assert decision["multiplier"] == 1
     assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_cap_unconfigured"
+    assert decision["stage"] is None
 
 
 def test_holding_add_skips_levels_disabled_by_manual_config_switch():
@@ -200,9 +203,11 @@ def test_holding_add_skips_levels_disabled_by_manual_config_switch():
     assert decision["hit_levels"] == ["BUY-1", "BUY-3"]
     assert decision["multiplier"] == 1
     assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_position_cap_unconfigured"
+    assert decision["stage"] is None
 
 
-def test_holding_add_without_config_falls_back_to_base_amount():
+def test_holding_add_without_config_fails_closed():
     service = _build_service(FakeDatabase())
 
     decision = service.build_holding_add_decision("000001", 10.0)
@@ -210,7 +215,8 @@ def test_holding_add_without_config_falls_back_to_base_amount():
     assert decision["grid_level"] is None
     assert decision["hit_levels"] == []
     assert decision["multiplier"] == 1
-    assert decision["quantity"] == 5000
+    assert decision["quantity"] == 0
+    assert decision["skip_reason"] == "grid_disabled"
 
 
 def test_missing_state_is_audit_only_and_does_not_gate_levels():
@@ -276,7 +282,13 @@ def test_accepting_buy_keeps_buy_active_as_audit_only_state():
     assert state["last_hit_price"] == 7.8
 
 
-def test_position_cap_limits_each_buy_to_base_amount_and_remaining_capacity():
+def test_position_cap_limits_each_buy_to_base_amount_and_remaining_capacity(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
+        lambda *_args, **_kwargs: 10000,
+    )
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
@@ -298,16 +310,16 @@ def test_position_cap_limits_each_buy_to_base_amount_and_remaining_capacity():
         }
     )
     service = _build_service(database)
-    service._load_position_capacity = lambda _code: (330000.0, 800000.0)
+    service._load_position_capacity = lambda _code: (200000.0, 800000.0)
 
     decision = service.build_holding_add_decision("000001", 9.5)
 
     assert decision["stage"] == "BUY-1_TO_BUY-2"
     assert decision["effective_stage_cap"] == 350000
-    assert decision["remaining_amount"] == 20000
-    assert decision["capacity_ratio"] == 0.5
-    assert decision["capacity_quantity"] == 1000
-    assert decision["quantity"] == 1000
+    assert decision["remaining_amount"] == 150000
+    assert decision["capacity_ratio"] == 0.25
+    assert decision["capacity_quantity"] == 3900
+    assert decision["quantity"] == 3900
 
 
 def test_holding_add_half_capacity_applies_to_buy3_below_stage():
@@ -365,14 +377,18 @@ def test_new_open_uses_full_capacity_ratio():
     decision = service.build_new_open_decision("000001", 9.5)
 
     assert decision["path"] == "new_open"
-    assert decision["stage"] == "BUY-1_TO_BUY-2"
-    assert decision["remaining_amount"] == 350000
+    assert decision["stage"] == "PRE_BUY-1"
+    assert decision["remaining_amount"] == 800000
     assert decision["capacity_ratio"] == 1.0
-    assert decision["capacity_quantity"] == 36800
+    assert decision["capacity_quantity"] == 84200
     assert decision["quantity"] == 10500
 
 
-def test_holding_add_half_capacity_below_one_lot_skips():
+def test_holding_add_half_capacity_below_one_lot_skips(monkeypatch):
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
+        lambda *_args, **_kwargs: 10000,
+    )
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
@@ -397,13 +413,12 @@ def test_holding_add_half_capacity_below_one_lot_skips():
 
     assert decision["stage"] == "BUY-1_TO_BUY-2"
     assert decision["remaining_amount"] == 1000
-    assert decision["capacity_ratio"] == 0.5
-    assert decision["capacity_quantity"] == 0
+    assert decision["capacity_ratio"] == 0.25
     assert decision["quantity"] == 0
-    assert decision["skip_reason"] == "grid_position_capacity_exhausted"
+    assert decision["skip_reason"] == "below_min_buy_amount"
 
 
-def test_new_open_with_existing_grid_and_missing_caps_fails_closed():
+def test_new_open_with_existing_grid_and_missing_caps_uses_global_cap():
     database = FakeDatabase(
         {
             "guardian_buy_grid_configs": FakeCollection(
@@ -421,10 +436,14 @@ def test_new_open_with_existing_grid_and_missing_caps_fails_closed():
         }
     )
 
-    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+    service = _build_service(database)
+    service._load_position_capacity = lambda _code: (0.0, 800000.0)
 
-    assert decision["quantity"] == 0
-    assert decision["skip_reason"] == "grid_position_cap_unconfigured"
+    decision = service.build_new_open_decision("000001", 9.5)
+
+    assert decision["quantity"] == 10500
+    assert decision["stage"] == "PRE_BUY-1"
+    assert decision["effective_stage_cap"] == 800000.0
 
 
 def test_grid_with_invalid_cap_shape_fails_closed_as_invalid():
@@ -444,10 +463,10 @@ def test_grid_with_invalid_cap_shape_fails_closed_as_invalid():
         }
     )
 
-    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+    decision = _build_service(database).build_holding_add_decision("000001", 9.5)
 
     assert decision["quantity"] == 0
-    assert decision["skip_reason"] == "grid_position_config_invalid"
+    assert decision["skip_reason"] == "grid_position_cap_unconfigured"
 
 
 def test_grid_with_invalid_cap_type_fails_closed_as_invalid():
@@ -467,10 +486,10 @@ def test_grid_with_invalid_cap_type_fails_closed_as_invalid():
         }
     )
 
-    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+    decision = _build_service(database).build_holding_add_decision("000001", 9.5)
 
     assert decision["quantity"] == 0
-    assert decision["skip_reason"] == "grid_position_config_invalid"
+    assert decision["skip_reason"] == "grid_position_cap_unconfigured"
 
 
 def test_grid_with_non_positive_caps_fails_closed_as_invalid():
@@ -490,7 +509,7 @@ def test_grid_with_non_positive_caps_fails_closed_as_invalid():
         }
     )
 
-    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+    decision = _build_service(database).build_holding_add_decision("000001", 9.5)
 
     assert decision["quantity"] == 0
     assert decision["skip_reason"] == "grid_position_config_invalid"
@@ -513,7 +532,7 @@ def test_grid_with_descending_caps_fails_closed_as_invalid():
         }
     )
 
-    decision = _build_service(database).build_new_open_decision("000001", 9.5)
+    decision = _build_service(database).build_holding_add_decision("000001", 9.5)
 
     assert decision["quantity"] == 0
     assert decision["skip_reason"] == "grid_position_config_invalid"

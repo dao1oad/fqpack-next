@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FreshQuant 交易体系可视化教程 · 从选股到止盈止损</title>
   <meta name="description" content="面向量化新手：用动态模拟器讲清楚日线选股、15/30分钟确认、5分钟首开、1分钟做T、Tick级止盈止损的完整交易体系。" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="/trading-guide/style.css" />
 </head>
 <body>
 
@@ -17,43 +17,193 @@
         <span>FreshQuant 交易体系课堂</span>
       </a>
       <nav class="nav" aria-label="页面导航">
-        <a href="#overview">一图看懂</a>
-        <a href="#pipeline">多周期漏斗</a>
-        <a href="#first-open">首次开仓</a>
-        <a href="#sim">核心模拟器</a>
-        <a href="#tp">三档止盈</a>
-        <a href="#sl">止损防线</a>
-        <a href="#guard">风险护栏</a>
+        <a href="#arch">系统架构</a>
+        <a href="#viz">可视化系统</a>
+        <a href="#dual-ledger">v4 方案</a>
+        <a href="#sim">模拟器</a>
+        <a href="#overview">当前线上</a>
         <a href="#glossary">术语表</a>
       </nav>
+      <div class="sys-entry" aria-label="系统入口">
+        <span class="sys-entry-label">系统</span>
+        <a href="/stock-control" target="_top">持仓列表</a>
+        <a href="/position-review" target="_top">持仓复盘</a>
+        <a href="/position-management" target="_top">仓位管理</a>
+        <a href="/runtime-observability" target="_top">运行观测</a>
+        <a href="/daily-screening" target="_top">每日选股</a>
+      </div>
     </div>
   </header>
 
   <!-- ============ Hero ============ -->
   <section class="hero" id="hero">
     <div class="hero-inner">
-      <p class="eyebrow">量化交易入门 · 零基础友好</p>
-      <h1>一只股票，从「被选中」到「止盈离场」，<br />系统是如何一步步操作的？</h1>
+      <p class="eyebrow">量化交易系统 · 架构与运行逻辑</p>
+      <h1>从行情到屏幕：<br />FreshQuant Web 可视化系统如何运行？</h1>
       <p class="lead">
-        这套系统不做「一次性买卖」，而是像一位有纪律的操盘手：<b>多周期选股、分级建仓、下跌补仓降成本、分档止盈、明确止损</b>。
-        下面的动态模拟器会让你像看动画一样，看懂每一个操作背后的原因。
+        系统分四层：<b>策略 Worker（决策）→ 订单账本（记录）→ Web API（输出）→ 前端可视化（展示）</b>。
+        本页先讲系统架构与可视化运行逻辑，再讲 <b>v4 双账本方案</b>如何落地，最后是当前线上交易链路细节。
       </p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="#sim">▶ 直接看动画模拟</a>
-        <a class="btn btn-ghost" href="#pipeline">先看体系全貌</a>
+        <a class="btn btn-primary" href="#arch">▶ 看系统架构</a>
+        <a class="btn btn-ghost" href="#dual-ledger">v4 方案预览</a>
       </div>
       <div class="hero-meta">
-        <span>5 分钟读完</span><i></i>
-        <span>2 个可播放场景</span><i></i>
-        <span>30+ 个新手词条</span>
+        <span>5 层数据链路</span><i></i>
+        <span>3 个核心视图</span><i></i>
+        <span>v4 双账本方案</span>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ 01 系统架构总览 ============ -->
+  <section class="section" id="arch">
+    <div class="section-head">
+      <p class="eyebrow">01 · 系统架构总览 <span class="badge-live">当前线上</span></p>
+      <h2>从行情到屏幕：一条数据，经过 5 个环节</h2>
+      <p class="section-sub">交易系统与可视化系统共享同一条数据链路：<b>行情/成交 → 策略 Worker → 订单账本 → Web API → 前端视图</b>。前端只读数据、不做交易决策。</p>
+    </div>
+
+    <div class="arch-flow">
+      <div class="arch-node an-source">
+        <span class="an-tag">数据源</span>
+        <h4>XT 行情 / 成交 / 持仓</h4>
+        <p>1 分钟 K、Tick 行情；券商成交回执；持仓快照</p>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node an-worker">
+        <span class="an-tag">策略 Worker</span>
+        <h4>决策与执行</h4>
+        <p>guardian event（信号→买卖决策）<br/>tpsl tick（止盈/止损评估）<br/>xt ingest（成交回执→账本）</p>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node an-store">
+        <span class="an-tag">存储</span>
+        <h4>订单账本（Mongo）</h4>
+        <p>om_position_entries / om_entry_slices<br/>broker orders / guardian_buy_grid_states<br/>XT 持仓快照</p>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node an-api">
+        <span class="an-tag">Web API（rear）</span>
+        <h4>只读接口</h4>
+        <p>/api/get_stock_position_list<br/>/api/position-review/**<br/>/api/stock_data · /api/tpsl/**</p>
+      </div>
+      <div class="arch-arrow">→</div>
+      <div class="arch-node an-web">
+        <span class="an-tag">Web 前端（fqwebui）</span>
+        <h4>可视化视图</h4>
+        <p>持仓列表 / 复盘工作台 / K线大图<br/>vue-query 轮询刷新</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>端到端时序：一笔买卖如何走完全链路</h3>
+      <div class="seq-flow">
+        <div class="seq-node"><span class="seq-no">1</span><b>行情 / 信号</b><p>Tick 或 1 分钟信号进入策略 worker</p></div>
+        <div class="seq-arrow">→</div>
+        <div class="seq-node"><span class="seq-no">2</span><b>决策</b><p>guardian / tpsl 评估：门槛、容量、冷却、状态机</p></div>
+        <div class="seq-arrow">→</div>
+        <div class="seq-node"><span class="seq-no">3</span><b>下单</b><p>submit_guardian_order / TPSL batch 提交券商</p></div>
+        <div class="seq-arrow">→</div>
+        <div class="seq-node"><span class="seq-no">4</span><b>成交回执</b><p>xt ingest 解析 trade 报告</p></div>
+        <div class="seq-arrow">→</div>
+        <div class="seq-node"><span class="seq-no">5</span><b>账本更新</b><p>entry / slice 打标 position_type，写 Mongo</p></div>
+        <div class="seq-arrow">→</div>
+        <div class="seq-node"><span class="seq-no">6</span><b>前端展示</b><p>rear API 读库 → 前端轮询刷新视图（异步）</p></div>
+      </div>
+      <p class="text-muted text-small">第 1–5 步在同一策略/账本链路内完成；第 6 步由 Web 侧异步轮询获得，前端不做决策。</p>
+    </div>
+
+    <div class="note-box">
+      <b>架构要点：</b>Worker 与 Web 是<b>两套进程</b>，通过 Mongo 共享状态；前端看到的所有数据都来自 rear API，按轮询周期刷新；行情/账本由 Worker 侧写入，Web 侧不直接触碰交易状态。
+    </div>
+
+    <div class="card">
+      <h3>运行拓扑：双机 + 进程 + 存储</h3>
+      <div class="topo">
+        <div class="topo-node topo-host"><b>主机 100 / 116</b><p>guardian event · tpsl tick · xt ingest<br/>rear API · WebUI（18080）</p></div>
+        <div class="topo-arrow">⇄</div>
+        <div class="topo-node topo-store"><b>Mongo</b><p>账本 / 订单 / 状态 / 持仓快照</p></div>
+        <div class="topo-arrow">⇄</div>
+        <div class="topo-node topo-store"><b>Redis</b><p>冷却 / 内存缓存</p></div>
+      </div>
+      <p class="text-muted text-small">生产部署为 100 / 116 双机同步；本地开发则在同一主机上运行全部进程。</p>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>层</th><th>模块（代码现状）</th><th>职责</th><th>进程/入口</th></tr></thead>
+        <tbody>
+          <tr><td>策略</td><td><code>strategy/guardian.py</code> StrategyGuardian</td><td>信号 → 买入门槛/数量决策、卖出评估、提交包装</td><td>guardian event（monitor_stock_zh_a_min --mode event）</td></tr>
+          <tr><td>策略</td><td><code>strategy/guardian_buy_grid.py</code></td><td>补仓决策、仓位上限（cap）、冷却/状态</td><td>guardian event</td></tr>
+          <tr><td>策略</td><td><code>tpsl/service.py</code> + <code>consumer.py</code></td><td>Tick 止盈（三档）/ 止损评估与提交</td><td>tpsl tick worker</td></tr>
+          <tr><td>账本</td><td><code>order_management/ingest/xt_reports.py</code></td><td>成交回执 → entry/slice 账本、卖出分摊、对账</td><td>xt ingest worker</td></tr>
+          <tr><td>账本</td><td><code>order_management/guardian/*</code>（arranger / allocation_policy / slice_evaluation）</td><td>切片生成、卖出分摊、盈利判定</td><td>ingest / 策略共用</td></tr>
+          <tr><td>账本</td><td><code>order_management/rebuild/service.py</code></td><td>从券商成交重建账本（flatten / 逐笔）</td><td>初始化 / CLI</td></tr>
+          <tr><td>API</td><td><code>rear/stock/routes.py</code></td><td>Web 接口（持仓列表 / 复盘 / 配置）</td><td>Web 服务</td></tr>
+          <tr><td>前端</td><td><code>morningglory/fqwebui/src/views/*</code></td><td>持仓列表 / 复盘工作台 / K线大图</td><td>浏览器（轮询）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 02 Web 可视化系统运行逻辑 ============ -->
+  <section class="section" id="viz">
+    <div class="section-head">
+      <p class="eyebrow">02 · Web 可视化系统运行逻辑 <span class="badge-live">当前线上</span></p>
+      <h2>前端怎么把账本画到屏幕上</h2>
+      <p class="section-sub">技术栈：Vue3 + Element Plus；请求统一走 <code>src/api/*.js</code> → <code>@/http</code>（axios）；刷新统一用 <code>@tanstack/vue-query</code> 的轮询策略（<code>pollingNormal</code>）。</p>
+    </div>
+
+    <div class="overview-grid">
+      <div class="overview-card">
+        <h3>① 持仓列表 StockPositionList.vue</h3>
+        <p>挂载即发起 <code>useQuery(['stockPositionList'])</code> + pollingNormal → <code>GET /api/get_stock_position_list?page=1&amp;size=1000</code>；一次拉全量（当前数据源 = XT 持仓快照），前端 lodash 切片分页；翻页/改页大小 → <code>invalidateQueries</code> 重拉；点品种 → 新窗口开 <code>/kline-big?symbol=&amp;period=1m</code>。</p>
+      </div>
+      <div class="overview-card">
+        <h3>② 复盘工作台 PositionReview.vue</h3>
+        <p>Workbench 布局（Toolbar / SummaryRow / Panel / Sidebar / Ledger / Detail / StatusChip）；接口族 <code>/api/position-review/**</code>：summary、symbols、symbols/{symbol}、symbols/{symbol}/chart、events/{id}/conditions、portfolio/summary|series|contributions；打开流程 = 总览 → 标的列表 → 选中标的明细 + 走势。</p>
+      </div>
+      <div class="overview-card">
+        <h3>③ K线大图 /kline-big</h3>
+        <p>数据来自 <code>/api/stock_data?period=&amp;symbol=</code>（K线），可叠加 CLX 模型 / 信号标注；持仓列表与复盘页均可跳转进入。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>前端数据流：视图 → API → 后端</h3>
+      <div class="tree-flow">
+        <div class="tree-level tree-views">
+          <span class="tree-node">StockPositionList.vue</span>
+          <span class="tree-node">PositionReview.vue</span>
+          <span class="tree-node">KlineBig.vue</span>
+        </div>
+        <div class="tree-down">↓ useQuery + pollingNormal（轮询）↓</div>
+        <div class="tree-level tree-api">
+          <span class="tree-node">stockApi.js</span>
+          <span class="tree-node">positionReviewApi.js</span>
+          <span class="tree-node">stockApi.js / tpslApi.js</span>
+        </div>
+        <div class="tree-down">↓ @/http（axios）→ rear 路由 ↓</div>
+        <div class="tree-level tree-backend">
+          <span class="tree-node">/api/get_stock_position_list</span>
+          <span class="tree-node">/api/position-review/**</span>
+          <span class="tree-node">/api/stock_data</span>
+        </div>
+        <div class="tree-down">↓ Mongo（账本 / 快照）↓</div>
+      </div>
+      <p class="text-muted text-small">轮询周期由 queryPolicies 控制；前端只读、不写交易状态。</p>
+    </div>
+
+    <div class="note-box">
+      <b>运行逻辑一句话：</b>Worker 写库 → rear 读库出 API → 前端轮询渲染。前端<b>不做交易决策、不直接写交易状态</b>，看到的永远是账本的最新投影。
     </div>
   </section>
 
   <!-- ============ 01 一图看懂 ============ -->
   <section class="section" id="overview">
     <div class="section-head">
-      <p class="eyebrow">01 · 系统总览</p>
+      <p class="eyebrow">03 · 一图看懂 · 一句话模型 <span class="badge-live">当前线上</span></p>
       <h2>一图看懂：整个体系的「一句话模型」</h2>
       <p class="section-sub">把复杂系统压缩成一条主线：<b>选股 → 确认 → 开仓 → 管理 → 退出</b>。每一步都有独立的周期和职责。</p>
     </div>
@@ -100,7 +250,7 @@
   <!-- ============ 02 多周期漏斗 ============ -->
   <section class="section" id="pipeline">
     <div class="section-head">
-      <p class="eyebrow">02 · 多周期漏斗</p>
+      <p class="eyebrow">04 · 多周期漏斗 <span class="badge-live">当前线上</span></p>
       <h2>五层周期，各司其职</h2>
       <p class="section-sub">周期越短，越接近交易本身。点击任一节点，查看这一层「在做什么、为什么不直接下单」。</p>
     </div>
@@ -156,7 +306,7 @@
   <!-- ============ 03 首次开仓 ============ -->
   <section class="section" id="first-open">
     <div class="section-head">
-      <p class="eyebrow">03 · 首次开仓条件</p>
+      <p class="eyebrow">05 · 首次开仓条件 <span class="badge-live">当前线上</span></p>
       <h2>「第一次买入」不是想买就买，要同时满足 4 个条件</h2>
       <p class="section-sub">系统用「与」的关系把条件串起来：缺任何一个，这笔单子都不会发生。</p>
     </div>
@@ -205,7 +355,7 @@
   <!-- ============ 04 核心模拟器 ============ -->
   <section class="section section-sim" id="sim">
     <div class="section-head">
-      <p class="eyebrow">04 · 动态模拟器</p>
+      <p class="eyebrow">06 · 核心模拟器 <span class="badge-live">当前线上语义</span></p>
       <h2>亲手看一遍：从首开到止盈 / 止损的完整一生</h2>
       <p class="section-sub">这是本页的核心。两条剧情线任选，点击播放，K 线会逐根推进，左侧实时显示持仓、成本、盈亏和系统日志。</p>
     </div>
@@ -296,10 +446,288 @@
     </div>
   </section>
 
+  <!-- ============ ★ 双账本方案预览 ============ -->
+  <section class="section" id="dual-ledger">
+    <div class="section-head">
+      <p class="eyebrow">★ v4 最终方案 · Issue #549 · 可视化确认（2026-08-10） <span class="badge-plan">方案预览</span></p>
+      <h2>底仓与做T：两本并行账本 + 金字塔补仓</h2>
+      <p class="section-sub">
+        把「首次开仓 + 3 条抄底线补仓」和「中间做T」拆成两本独立账本：
+        <span class="hl-base">底仓（靛蓝）</span>由 3 条抄底线买入（<b>只买扣减做T后的剩余</b>）、3 条止盈线卖出（1/3 → 1/2 → 全部）；
+        <span class="hl-t">做T（琥珀）</span>在四段走廊按金字塔曲线补仓、按统一盈利谓词逐档卖出。
+        两套策略并行叠加，总仓 = 底仓 + 做T。
+      </p>
+    </div>
+
+    <!-- 两本账 -->
+    <div class="dl-ledgers">
+      <div class="dl-ledger dl-base">
+        <div class="dl-ledger-head">
+          <span class="dl-dot"></span>
+          <h3>底仓账本（base）</h3>
+          <span class="viz-badge">首次开仓</span>
+        </div>
+        <ul>
+          <li><b>谁进来：</b>首次开仓（must_pool 首开 / 手动首开）+ <b>3 条抄底线补仓</b>（固定价格触发，计入底仓）</li>
+          <li><b>买入：</b>价格触及 BUY-1/2/3 → 买入 <code>cap_N − 占用 − 在途</code>（<b>只买扣减做T后的剩余</b>）；触发即关该线及以上</li>
+          <li><b>卖出：</b>只走三档止盈线，按底仓总量卖 1/3 → 1/2 → 全部，<b>3 次触发清空</b>；触发即关该档、成交后关该档及以下并全开抄底线、零成交重开</li>
+        </ul>
+      </div>
+      <div class="dl-ledger dl-t">
+        <div class="dl-ledger-head">
+          <span class="dl-dot"></span>
+          <h3>做T账本（t / Garden）</h3>
+          <span class="viz-badge">1 分钟加仓</span>
+        </div>
+        <ul>
+          <li><b>谁进来：</b>Guardian 信号加仓全部归做T（<b>T 买入不触发状态机</b>）</li>
+          <li><b>买入：</b>先过下跌阈值（threshold），再按<b>四段走廊</b>金字塔数量：回补走廊 [最近止盈线, BUY-1]/cap1、[BUY-1,BUY-2]/cap2、[BUY-2,BUY-3]/cap3、破线区 global_cap（1/2 收敛）</li>
+          <li><b>卖出：</b>统一盈利谓词 <code>signal ≥ guardian_price × (1 + percent/100)</code> + mount（默认 5 万）；手动/外部卖单分摊 = ① T 盈利低成本 → ② 底仓 → ③ T 非盈利兜底</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 双账本数据流 -->
+    <div class="card">
+      <h3>双账本数据流：一笔买入从下单到展示</h3>
+      <div class="flow-rows">
+        <div class="flow-row"><span class="fr-tag fr-buy">买入事件</span><p>首开（无持仓）／抄底线触发（buy_ledger="base_line"）／Guardian 做T</p></div>
+        <div class="flow-arrow">↓ ingest 按 buy_ledger 打标 position_type</div>
+        <div class="flow-row">
+          <span class="fr-tag fr-base">base 账本</span>
+          <p>首开 + 抄底线补仓 → 只走 TPSL 三档止盈卖出（1/3 → 1/2 → 全部）</p>
+          <span class="fr-tag fr-t">t 账本</span>
+          <p>Guardian 做T → 只走网格卖出 + mount 门槛</p>
+        </div>
+        <div class="flow-arrow">↓ rear API 读库</div>
+        <div class="flow-row"><span class="fr-tag fr-api">接口</span><p>持仓列表行加 base/t 字段；复盘 detail 加 ledger 汇总（数量/金额、T 可卖、mount、底仓 tiers）</p></div>
+        <div class="flow-arrow">↓ 前端渲染</div>
+        <div class="flow-row"><span class="fr-tag fr-web">展示</span><p>持仓列表展开卡双账本；复盘 Tab（全部 / 底仓 / 做T）+ 汇总条（底仓靛蓝 #6366F1 / 做T琥珀 #F59E0B）</p></div>
+      </div>
+    </div>
+
+    <!-- 六线价格轴 -->
+    <div class="card dl-axis-card">
+      <h3>做T四段走廊：回补走廊（上界=最近止盈线 / 下界=BUY-1 / cap1）+ 两个 BUY 线间走廊（cap2 / cap3）+ 破线区（global_cap）</h3>
+      <div class="dl-axis">
+        <div class="dl-axis-track"></div>
+        <div class="dl-band band-below" style="left:0%;width:6.25%"></div>
+        <div class="dl-band band-b3" style="left:6.25%;width:25%"></div>
+        <div class="dl-band band-b2" style="left:31.25%;width:25%"></div>
+        <div class="dl-band band-rebuy" style="left:56.25%;width:37.5%"></div>
+        <span class="dl-marker" style="left:6.25%"><i></i>BUY-3 6.0</span>
+        <span class="dl-marker" style="left:31.25%"><i></i>BUY-2 8.0</span>
+        <span class="dl-marker" style="left:56.25%"><i></i>BUY-1 10.0</span>
+        <span class="dl-marker mk-tp" style="left:68.75%"><i></i>TP1 11.0</span>
+        <span class="dl-marker mk-tp" style="left:81.25%"><i></i>TP2 12.0</span>
+        <span class="dl-marker mk-tp" style="left:93.75%"><i></i>TP3 13.0</span>
+      </div>
+      <div class="dl-legend">
+        <span><i class="lg-band-rebuy"></i>回补走廊 [U, BUY-1] cap1（U=最近止盈线，动态）</span>
+        <span><i class="lg-band-b2"></i>[BUY-1, BUY-2] cap2</span>
+        <span><i class="lg-band-b3"></i>[BUY-2, BUY-3] cap3</span>
+        <span><i class="lg-band-below"></i>破线区 p≤BUY-3：global_cap，B = R × 1/2</span>
+      </div>
+    </div>
+
+    <!-- 公式 -->
+    <div class="card dl-formula">
+      <h3>买入数量公式（α = 2：做T金字塔；抄底线触线 t=1 用满 cap−占用；破线区 B = R/2）</h3>
+      <div class="dl-formula-grid">
+        <div class="dl-f-item">
+          <span class="dl-f-name">门槛</span>
+          <code>price ≤ bot_river_price</code>
+          <p>threshold 配置；基准 = 最近成交；无成交 = 全部持仓平均成本价</p>
+        </div>
+        <div class="dl-f-item">
+          <span class="dl-f-name">剩余额度（占用取大）</span>
+          <code>R = cap − max(底仓D + 做T C, 市值 MV) − 在途</code>
+          <p>抄底线触发即"只买扣减做T后的剩余"；与市值比取更大者更保守；在途 = 已下单未成交</p>
+        </div>
+        <div class="dl-f-item">
+          <span class="dl-f-name">买入金额</span>
+          <code>B = R × t²</code>
+          <p>t = (上界−p)/(上界−下界)；触线 t=1 → B=R，正好用满 cap−占用（归属抄底线 base）</p>
+        </div>
+        <div class="dl-f-item">
+          <span class="dl-f-name">下限与整手</span>
+          <code>B ≥ min_buy_amount(1万) 且 Q ≥ 100 股</code>
+          <p>Q = floor(B / p / 100) × 100；不足则不买，不消耗冷却</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 对称阶梯状态机 -->
+    <div class="card dl-ladder">
+      <h3>对称阶梯状态机：6 条线的开关联动</h3>
+      <div class="dl-ladder-rules">
+        <p><b>抄底线触发</b>（提交买单）→ 关闭 BUY-N 及以上 + <b>全开止盈档</b>（底仓增加，准备卖）</p>
+        <p><b>止盈成交</b> → 关闭 TP-1..N + <b>全开买入线</b>（底仓减少，释放补仓额度）</p>
+        <p><b>触发即关</b>防重复下单；<b>成交阶梯重算</b>；<b>零成交终态重开</b>；重激活后<b>不当场评估</b>（下一 tick 才触发）</p>
+        <p><b>T 买入不触发状态机</b>；破线区冷却用 <code>buy:&lt;code&gt;</code>，与抄底线 <code>base_buy:&lt;code&gt;</code> 隔离（两套系统互不卡冷却）</p>
+      </div>
+      <div class="ladder-trans">
+        <div class="lt-side">
+          <p class="lt-title">事件 B：抄底线触发（提交买单）</p>
+          <p>关闭 BUY-N 及以上 → <b>全开止盈档</b>（底仓增加，准备卖）</p>
+        </div>
+        <div class="lt-arrow">⇄</div>
+        <div class="lt-side">
+          <p class="lt-title">事件 A：止盈成交</p>
+          <p>关闭 TP-1..N → <b>全开买入线</b>（底仓减少，释放补仓额度）</p>
+        </div>
+        <div class="lt-note">零成交终态 → 重开对应档位；重激活后不当场评估（下一 tick 才触发）；T 买入不触发状态机</div>
+      </div>
+      <div class="dl-ladder-panel">
+        <div class="dl-ladder-side">
+          <span class="dl-ladder-title">止盈档（TP1/2/3）</span>
+          <span class="dl-lamp" id="dl-tp1">TP1</span>
+          <span class="dl-lamp" id="dl-tp2">TP2</span>
+          <span class="dl-lamp" id="dl-tp3">TP3</span>
+        </div>
+        <div class="dl-ladder-side">
+          <span class="dl-ladder-title">抄底线（BUY-1/2/3）</span>
+          <span class="dl-lamp" id="dl-buy1">BUY-1</span>
+          <span class="dl-lamp" id="dl-buy2">BUY-2</span>
+          <span class="dl-lamp" id="dl-buy3">BUY-3</span>
+        </div>
+        <p class="dl-ladder-event" id="dl-ladder-event">初始：抄底线全开、止盈档全关（首次抄底触发后全开）</p>
+      </div>
+    </div>
+
+    <!-- 迷你模拟器 -->
+    <div class="card dl-sim">
+      <h3>交互确认：拖动价格，看四段走廊怎么买、状态机怎么联动</h3>
+      <p class="text-muted text-small">示例参数：TP3=13 / TP2=12 / TP1=11 / BUY-1=10 / BUY-2=8 / BUY-3=6；cap=5万/8万/12万（破线区 global_cap=12万）；底仓 D=2万；做T 初始 C=0.5万；min_buy_amount=1万。市值偏离 = 模拟市值 vs 成本（占用取大）；在途 = 已下单未成交的买单金额。本模拟默认已通过价格门槛，只演示数量与状态机。</p>
+      <div class="dl-sim-controls">
+        <label for="dl-price">当前价</label>
+        <input type="range" id="dl-price" min="500" max="1300" step="10" value="1030" />
+        <span class="dl-price-val" id="dl-price-val">10.3</span>
+        <span class="text-muted">元</span>
+        <label for="dl-mv">市值偏离</label>
+        <input type="range" id="dl-mv" min="-20" max="20" step="5" value="0" />
+        <span id="dl-mv-val" class="text-muted">0%</span>
+        <label for="dl-inflight">在途</label>
+        <input type="range" id="dl-inflight" min="0" max="30000" step="1000" value="0" />
+        <span id="dl-inflight-val" class="text-muted">¥0</span>
+      </div>
+      <div class="dl-sim-actions">
+        <button type="button" id="dl-buy" class="btn btn-primary">模拟抄底/做T买入</button>
+        <button type="button" id="dl-tp" class="btn btn-primary">模拟止盈成交</button>
+        <button type="button" id="dl-reset" class="btn">重置</button>
+      </div>
+      <div class="dl-readouts">
+        <div class="dl-ro"><span>走廊</span><b id="dl-corridor">--</b></div>
+        <div class="dl-ro"><span>上界 U / 下界</span><b id="dl-u">--</b></div>
+        <div class="dl-ro"><span>本档 cap</span><b id="dl-cap">--</b></div>
+        <div class="dl-ro"><span>接近度 t</span><b id="dl-t">--</b></div>
+        <div class="dl-ro"><span>占用 max(D+C, MV)</span><b id="dl-occupy">--</b></div>
+        <div class="dl-ro"><span>在途</span><b id="dl-inflight-ro">--</b></div>
+        <div class="dl-ro"><span>剩余额度 R</span><b id="dl-R">--</b></div>
+        <div class="dl-ro"><span>买入金额 B</span><b id="dl-B">--</b></div>
+        <div class="dl-ro"><span>本次股数 Q</span><b id="dl-Q">--</b></div>
+        <div class="dl-ro"><span>归属账本</span><b id="dl-ledger">--</b></div>
+        <div class="dl-ro dl-ro-decision"><span>结论</span><b id="dl-decision">--</b></div>
+      </div>
+      <table class="table table-sm dl-log-table">
+        <thead>
+          <tr><th>价格</th><th>走廊</th><th>t</th><th>金额</th><th>股数</th><th>归属</th><th>底仓 D</th><th>做T C</th></tr>
+        </thead>
+        <tbody id="dl-log"></tbody>
+      </table>
+    </div>
+
+    <!-- 静态逐档示例 -->
+    <div class="card">
+      <h3>完整下跌序列：金字塔逐档示例（按上表参数）</h3>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead>
+            <tr><th>价格</th><th>走廊 / U</th><th>t</th><th>R</th><th>B</th><th>股数</th><th>累计 C</th><th>结果</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>12.5</td><td>回补 / TP3=13</td><td>0.17</td><td>2.50 万</td><td>694</td><td>0</td><td>0.5 万</td><td class="dl-skip">不足 1 万，不买</td></tr>
+            <tr><td>11.5</td><td>回补 / TP2=12</td><td>0.25</td><td>2.50 万</td><td>1,563</td><td>0</td><td>0.5 万</td><td class="dl-skip">不足 1 万，不买</td></tr>
+            <tr><td>10.8</td><td>回补 / TP1=11</td><td>0.20</td><td>2.50 万</td><td>1,000</td><td>0</td><td>0.5 万</td><td class="dl-skip">不足 1 万，不买</td></tr>
+            <tr class="dl-row-buy"><td>10.3</td><td>回补 / TP1=11</td><td>0.70</td><td>2.50 万</td><td>12,250</td><td>1,100</td><td>1.73 万</td><td class="dl-ok">✅ 买入</td></tr>
+            <tr class="dl-row-buy"><td>10.0</td><td>触 BUY-1</td><td>1.00</td><td>1.28 万</td><td>12,750</td><td>1,200</td><td>3.00 万</td><td class="dl-ok">✅ 触线用满 cap1−D−C（抄底线）</td></tr>
+            <tr><td>9.2</td><td>[BUY-1, BUY-2]</td><td>0.40</td><td>3.00 万</td><td>4,800</td><td>0</td><td>3.0 万</td><td class="dl-skip">不足 1 万，不买</td></tr>
+            <tr class="dl-row-buy"><td>8.6</td><td>[BUY-1, BUY-2]</td><td>0.70</td><td>3.00 万</td><td>14,700</td><td>1,700</td><td>4.47 万</td><td class="dl-ok">✅ 买入</td></tr>
+            <tr class="dl-row-buy"><td>8.0</td><td>触 BUY-2</td><td>1.00</td><td>1.53 万</td><td>15,300</td><td>1,900</td><td>6.00 万</td><td class="dl-ok">✅ 触线用满 cap2−D−C（抄底线）</td></tr>
+            <tr><td>7.2</td><td>[BUY-2, BUY-3]</td><td>0.40</td><td>4.00 万</td><td>6,400</td><td>0</td><td>6.0 万</td><td class="dl-skip">不足 1 万，不买</td></tr>
+            <tr class="dl-row-buy"><td>6.6</td><td>[BUY-2, BUY-3]</td><td>0.70</td><td>4.00 万</td><td>19,600</td><td>2,900</td><td>7.96 万</td><td class="dl-ok">✅ 买入</td></tr>
+            <tr class="dl-row-buy"><td>6.0</td><td>触 BUY-3</td><td>1.00</td><td>2.04 万</td><td>20,400</td><td>3,400</td><td>10.0 万</td><td class="dl-ok">✅ 触线用满 cap3−D−C（抄底线）</td></tr>
+            <tr><td>5.4</td><td>破线区（1/2 模式）</td><td>--</td><td>0</td><td>0</td><td>0</td><td>10.0 万</td><td class="dl-skip">已满 global_cap−D−C，不再买</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-muted text-small">破线区若未买满（如 C=6 万、R=4 万）：每笔买 R×1/2 = 2 万 → 1 万 → 0.5 万…收敛到 global_cap−D−C，永不超限；冷却用 <code>buy:&lt;code&gt;</code>（T 侧），与抄底线 <code>base_buy:&lt;code&gt;</code> 隔离。</p>
+    </div>
+
+    <!-- 卖出规则 -->
+    <div class="dl-sell">
+      <div class="dl-sell-card card">
+        <h3>底仓卖出：三档止盈，3 次清空</h3>
+        <div class="dl-sell-bar">
+          <div class="dl-sell-fill" id="dl-tp-fill"></div>
+          <span class="dl-sell-mark" style="left:33.3%">L1 1/3</span>
+          <span class="dl-sell-mark" style="left:66.6%">L2 1/2</span>
+          <span class="dl-sell-mark" style="left:100%">L3 全部</span>
+        </div>
+        <p class="text-muted text-small">只卖底仓；比例按底仓总量计算（总量 1/3、1/2、全部 → 3 次触发清空）；触发即关该档防重复卖单，成交后关该档及以下并全开抄底线，零成交终态重开。</p>
+      </div>
+      <div class="dl-sell-card card">
+        <h3>做T卖出：统一盈利谓词 + mount 门槛</h3>
+        <p class="text-muted text-small">逐 slice <code>signal ≥ guardian_price × (1 + percent/100)</code> 达标可卖（与手动/外部卖单分摊同一判定）；只扫做T账本，不动底仓；可卖金额 ≥ mount 才卖，未凑够不卖且不消耗冷却。</p>
+        <div class="dl-mount">
+          <div class="dl-mount-label"><span>可卖金额</span><b>¥12,000</b><span>mount 门槛</span><b>¥50,000</b></div>
+          <div class="dl-mount-bar"><div class="dl-mount-fill" style="width:24%"></div></div>
+          <p class="dl-mount-status">未凑够 mount：本次不卖，可卖切片保留，等凑够再卖（不消耗冷却）</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 系统落地改动点 + 新旧对照 -->
+    <div class="card">
+      <h3>方案在系统里怎么落地（改哪里）</h3>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>层</th><th>改动</th></tr></thead>
+          <tbody>
+            <tr><td>数据</td><td><code>om_position_entries</code> / <code>om_entry_slices</code> 增 <code>position_type</code>（base/t）；读取侧 <code>!= "t"</code> 即 base；回填脚本（flatten 幂等重建 + 存量止盈档批量激活）</td></tr>
+            <tr><td>策略</td><td>tpsl tick worker 新增<b>抄底线评估</b>（双集合 universe：持仓 ∩ 有 buy grid 配置）；新模块 <code>strategy/guardian_ladder.py</code>（对称阶梯状态机）；做T复用 <code>evaluate_guardian_sell_slices</code> 统一盈利谓词；删除情况2 回退链</td></tr>
+            <tr><td>接口</td><td><code>get_stock_position_list</code> 行加 <code>base_quantity / base_amount / t_quantity / t_amount</code>；position-review detail 加 <code>ledger</code> 汇总（base/t 数量金额、T 可卖状态、mount、底仓 tiers）</td></tr>
+            <tr><td>前端</td><td>StockPositionList 展开卡双账本；PositionReview Tab（全部 / 底仓 / 做T）+ 汇总条（底仓靛蓝 #6366F1 / 做T琥珀 #F59E0B）；API 层透传新字段</td></tr>
+            <tr><td>运维</td><td>回填 → 部署后端（guardian event / xt ingest / tpsl / API）→ 前端重建 → 100/116 同步 + 健康检查</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>新旧对照：一次看懂变化</h3>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>维度</th><th>当前线上</th><th>v4 方案</th></tr></thead>
+          <tbody>
+            <tr><td>买入</td><td>1 分钟信号 → Guardian 金字塔加仓，与首开混在同一账本</td><td>底仓：3 条抄底线固定价触发（<b>只买扣减做T后的剩余</b>，cap1/2/3）；做T：四段走廊金字塔</td></tr>
+            <tr><td>卖出</td><td>Guardian 逐 slice 网格卖出 + TPSL 三档止盈对同一批持仓<b>重叠覆盖</b></td><td>底仓只走 TPSL 三档止盈（1/3 → 1/2 → 全部）；做T只走网格 + mount，两账本互不重叠</td></tr>
+            <tr><td>账本</td><td>单账本（entry/slice 不区分来源）</td><td>双账本（position_type = base/t），读取侧缺失按 base</td></tr>
+            <tr><td>展示</td><td>持仓列表单列数量/金额；复盘单账本</td><td>持仓列表加底仓/做T分列 + 展开卡；复盘 Tab（全部 / 底仓 / 做T）+ 汇总条</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="note-box note-warn">
+      <b>v4 最终方案可视化确认页（2026-08-10）：</b>本页与 <code>docs/plans/2026-08-10-dual-ledger-base-t-final.md</code> 一致（四段走廊 + 对称阶梯状态机 + R=cap−max(D+C,MV)−在途 + min_buy_amount + 模块化分解）；前端 P0（持仓总览展开卡 + 复盘账本 Tab）将按此设计落地；本页仅用于方案确认，不代表当前线上行为。
+    </div>
+  </section>
+
   <!-- ============ 05 三档止盈 ============ -->
   <section class="section" id="tp">
     <div class="section-head">
-      <p class="eyebrow">05 · 三档止盈</p>
+      <p class="eyebrow">07 · 三档止盈 <span class="badge-live">当前线上</span></p>
       <h2>止盈不是「一次卖光」，而是三档分批兑现</h2>
       <p class="section-sub">系统为每只股票设定 L1 / L2 / L3 三个固定价位，价格每上一档，就卖掉「当时总仓位」的一部分。</p>
     </div>
@@ -352,7 +780,7 @@
   <!-- ============ 06 止损防线 ============ -->
   <section class="section" id="sl">
     <div class="section-head">
-      <p class="eyebrow">06 · 止损防线</p>
+      <p class="eyebrow">08 · 止损防线 <span class="badge-live">当前线上</span></p>
       <h2>补仓不是「无限接飞刀」：两层止损守住底线</h2>
       <p class="section-sub">很多新手以为系统只补仓不止损，其实它有两条明确的纪律线，专门防止「越跌越买、越买越亏」。</p>
     </div>
@@ -397,7 +825,7 @@
   <!-- ============ 07 风险护栏 ============ -->
   <section class="section" id="guard">
     <div class="section-head">
-      <p class="eyebrow">07 · 风险护栏</p>
+      <p class="eyebrow">09 · 风险护栏 <span class="badge-live">当前线上</span></p>
       <h2>除了价格，系统还有 4 道「看不见的护栏」</h2>
       <p class="section-sub">这些护栏不产生买卖信号，但任何一笔单子都必须通过它们，否则会被拦下。</p>
     </div>
@@ -429,45 +857,250 @@
   <!-- ============ 08 术语表 ============ -->
   <section class="section" id="glossary">
     <div class="section-head">
-      <p class="eyebrow">08 · 新手词典</p>
+      <p class="eyebrow">10 · 新手词典</p>
       <h2>30 个词，读完就能看懂这套系统</h2>
       <p class="section-sub">按「出现频率」排序。遇到不懂的词，随时回来查。</p>
     </div>
     <div class="glossary" id="glossary"></div>
   </section>
 
-  <!-- ============ 09 代码对照 ============ -->
-  <section class="section" id="sources">
-    <div class="section-head">
-      <p class="eyebrow">09 · 进阶：与代码的对应关系</p>
-      <h2>每个机制，都能在真实代码里找到</h2>
-      <p class="section-sub">本教程基于 FreshQuant 仓库当前实现整理，以下为关键落点，供进阶学习者对照源码。</p>
-    </div>
-    <div class="table-responsive">
-      <table class="table table-sm">
-        <thead>
-          <tr><th>机制</th><th>代码位置</th><th>一句话说明</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>5 分钟首开信号路由</td><td><code>signal/astock/job/monitor_stock_zh_a_min.py</code></td><td>1 分钟只处理持仓，5 分钟只处理候选池新开仓</td></tr>
-          <tr><td>缠论买点计算</td><td><code>signal/astock/job/monitor_helpers_event.py</code></td><td>V 反、MACD 背驰、回拉中枢六类信号</td></tr>
-          <tr><td>三档补仓与仓位上限</td><td><code>strategy/guardian_buy_grid.py</code></td><td>B1/B2/B3 价格 + 每档累计仓位上限</td></tr>
-          <tr><td>买卖决策门禁</td><td><code>strategy/guardian.py</code></td><td>scope、时效、阈值、结构、冷却、门禁检查链</td></tr>
-          <tr><td>三档止盈数量</td><td><code>tpsl/takeprofit_quantity.py</code></td><td>L1=1/3、L2=1/2、L3=全部</td></tr>
-          <tr><td>止盈止损评估</td><td><code>tpsl/service.py</code></td><td>全仓止损优先，再逐 entry 止损</td></tr>
-          <tr><td>日线 CLX 18 模型</td><td><code>clx_daily_selection/</code></td><td>production_v1 / S0000–S0017</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="note-box note-warn">
-      <b>免责声明：</b> 页面中的价格、持仓、盈亏均为教学用合成数据，不构成任何投资建议，也不代表真实行情。量化交易存在风险，请充分了解规则后再参与。
-    </div>
-  </section>
+  <div class="note-box note-warn" style="max-width: 960px; margin: 24px auto;">
+    <b>免责声明：</b> 页面中的价格、持仓、盈亏均为教学用合成数据，不构成任何投资建议，也不代表真实行情。量化交易存在风险，请充分了解规则后再参与。
+  </div>
 
   <footer class="footer">
-    <p>FreshQuant 交易体系可视化教程 · 基于仓库当前代码与文档整理 · 仅供学习交流</p>
+    <p>FreshQuant Web 可视化系统 · 架构与运行逻辑（当前线上 + v4 方案预览）· 仅供学习交流</p>
   </footer>
 
-  <script src="app.js"></script>
+  <style>
+    .dl-ladder-rules p { margin: 4px 0; font-size: 13px; }
+    .dl-ladder-panel { margin-top: 10px; padding: 10px; background: #f8fafc; border-radius: 8px; }
+    .dl-ladder-side { margin: 6px 0; }
+    .dl-ladder-title { display: inline-block; min-width: 130px; font-size: 12px; color: #64748b; }
+    .dl-lamp { display: inline-block; padding: 2px 12px; margin: 0 4px; border-radius: 12px; background: #e2e8f0; color: #94a3b8; font-size: 12px; font-weight: 600; }
+    .dl-lamp.on { background: #6366F1; color: #fff; }
+    .dl-ladder-event { margin-top: 8px; font-size: 12px; color: #64748b; }
+    .dl-sim-actions { margin: 8px 0; }
+    .dl-sim-actions .btn { margin-right: 8px; }
+    .dl-sim-controls label { margin-left: 12px; font-size: 12px; color: #64748b; }
+    .dl-sim-controls input[type=range] { vertical-align: middle; }
+    .arch-flow { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; margin: 16px 0; }
+    .arch-node { flex: 1 1 170px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #fff; }
+    .arch-node .an-tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-bottom: 6px; }
+    .arch-node.an-source .an-tag { background: #fef3c7; color: #92400e; }
+    .arch-node.an-worker .an-tag { background: #dbeafe; color: #1e40af; }
+    .arch-node.an-store .an-tag { background: #dcfce7; color: #166534; }
+    .arch-node.an-api .an-tag { background: #ede9fe; color: #5b21b6; }
+    .arch-node.an-web .an-tag { background: #fce7f3; color: #9d174d; }
+    .arch-node h4 { margin: 2px 0 6px; font-size: 14px; }
+    .arch-node p { font-size: 12px; color: #475569; margin: 2px 0; line-height: 1.5; }
+    .arch-arrow { align-self: center; font-size: 20px; color: #94a3b8; }
+    .badge-live { display: inline-block; background: #e2e8f0; color: #475569; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 4px; vertical-align: middle; }
+    .badge-plan { display: inline-block; background: #ede9fe; color: #5b21b6; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 4px; vertical-align: middle; }
+    .sys-entry { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 12px; }
+    .sys-entry-label { color: #64748b; margin-right: 2px; }
+    .sys-entry a { color: #94a3b8; text-decoration: none; padding: 2px 6px; border-radius: 6px; }
+    .sys-entry a:hover { color: #6366F1; background: #f1f5f9; }
+    .seq-flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 12px 0; }
+    .seq-node { flex: 1 1 150px; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 10px; background: #f8fafc; }
+    .seq-node .seq-no { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 50%; background: #6366F1; color: #fff; font-size: 11px; margin-right: 6px; }
+    .seq-node b { font-size: 13px; }
+    .seq-node p { font-size: 12px; color: #475569; margin: 4px 0 0; }
+    .seq-arrow { align-self: center; color: #94a3b8; font-size: 16px; }
+    .tree-flow { text-align: center; margin: 12px 0; }
+    .tree-level { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    .tree-node { border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; background: #fff; font-size: 12px; }
+    .tree-views .tree-node { border-color: #a5b4fc; background: #eef2ff; }
+    .tree-api .tree-node { border-color: #fcd34d; background: #fffbeb; }
+    .tree-backend .tree-node { border-color: #6ee7b7; background: #ecfdf5; }
+    .tree-down { margin: 6px 0; color: #94a3b8; font-size: 12px; }
+    .flow-rows { max-width: 820px; margin: 12px 0; }
+    .flow-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 12px; background: #f8fafc; font-size: 13px; }
+    .flow-row p { margin: 0; color: #475569; }
+    .flow-arrow { text-align: center; color: #94a3b8; font-size: 12px; margin: 4px 0; }
+    .fr-tag { flex-shrink: 0; display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+    .fr-buy { background: #fef3c7; color: #92400e; }
+    .fr-base { background: #e0e7ff; color: #3730a3; }
+    .fr-t { background: #fde68a; color: #92400e; }
+    .fr-api { background: #ede9fe; color: #5b21b6; }
+    .fr-web { background: #fce7f3; color: #9d174d; }
+    .ladder-trans { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; padding: 10px; background: #f8fafc; border-radius: 8px; }
+    .lt-side { flex: 1 1 260px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; background: #fff; font-size: 13px; }
+    .lt-side p { margin: 4px 0; }
+    .lt-title { font-weight: 600; color: #334155; }
+    .lt-arrow { font-size: 18px; color: #94a3b8; }
+    .lt-note { flex-basis: 100%; font-size: 12px; color: #64748b; }
+    .topo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+    .topo-node { border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px 14px; background: #f8fafc; font-size: 12px; }
+    .topo-node p { margin: 4px 0 0; color: #475569; }
+    .topo-host { border-color: #93c5fd; background: #eff6ff; }
+    .topo-store { border-color: #6ee7b7; background: #ecfdf5; }
+    .topo-arrow { font-size: 16px; color: #94a3b8; }
+  </style>
+
+  <script src="/trading-guide/app.js"></script>
+  <script>
+    /* ===== 双账本 v4 方案预览：四段走廊 + 对称阶梯状态机 + 金字塔迷你模拟器 ===== */
+    (function () {
+      var TP = { tp3: 13, tp2: 12, tp1: 11 }
+      var BUY = { b1: 10, b2: 8, b3: 6 }
+      var CAP = { c1: 50000, c2: 80000, c3: 120000 }
+      var GLOBAL_CAP = 120000
+      var MIN_B = 10000
+      var ALPHA = 2
+      var state = {
+        D: 20000,
+        C: 5000,
+        buyArmed: [true, true, true],
+        tpArmed: [false, false, false]
+      }
+
+      function $ (id) { return document.getElementById(id) }
+
+      function corridor (p) {
+        if (p > TP.tp3) return { name: '不买入区', u: null, l: null, cap: 0, atLine: false }
+        if (Math.abs(p - BUY.b1) < 0.0001) return { name: '触线 BUY-1（抄底线）', u: null, l: null, cap: CAP.c1, atLine: true }
+        if (Math.abs(p - BUY.b2) < 0.0001) return { name: '触线 BUY-2（抄底线）', u: null, l: null, cap: CAP.c2, atLine: true }
+        if (Math.abs(p - BUY.b3) < 0.0001) return { name: '触线 BUY-3（抄底线）', u: null, l: null, cap: CAP.c3, atLine: true }
+        if (p > TP.tp2) return { name: '回补走廊 [TP3, BUY-1]', u: TP.tp3, l: BUY.b1, cap: CAP.c1, atLine: false }
+        if (p > TP.tp1) return { name: '回补走廊 [TP2, BUY-1]', u: TP.tp2, l: BUY.b1, cap: CAP.c1, atLine: false }
+        if (p > BUY.b1) return { name: '回补走廊 [TP1, BUY-1]', u: TP.tp1, l: BUY.b1, cap: CAP.c1, atLine: false }
+        if (p > BUY.b2) return { name: '[BUY-1, BUY-2]', u: BUY.b1, l: BUY.b2, cap: CAP.c2, atLine: false }
+        if (p > BUY.b3) return { name: '[BUY-2, BUY-3]', u: BUY.b2, l: BUY.b3, cap: CAP.c3, atLine: false }
+        return { name: '破线区（1/2 模式）', u: null, l: null, cap: GLOBAL_CAP, atLine: false }
+      }
+
+      function mv () {
+        return (state.D + state.C) * (1 + (Number($('dl-mv').value) || 0) / 100)
+      }
+      function inFlight () { return Number($('dl-inflight').value) || 0 }
+      function occupied () { return Math.max(state.D + state.C, mv()) }
+      function dipLineIndex (p) {
+        var prices = [BUY.b1, BUY.b2, BUY.b3]
+        for (var i = 0; i < 3; i++) {
+          if (Math.abs(p - prices[i]) < 0.0001) return i
+        }
+        return -1
+      }
+
+      function decision (p) {
+        var c = corridor(p)
+        if (c.name === '不买入区') {
+          return { corridor: c, t: null, R: null, B: 0, Q: 0, buyable: false, ledger: null }
+        }
+        var R = Math.max(c.cap - occupied() - inFlight(), 0)
+        var t = c.atLine ? 1 : (c.u !== null ? (c.u - p) / (c.u - c.l) : 0)
+        var B = c.atLine ? R : (c.u !== null ? R * Math.pow(t, ALPHA) : R * 0.5)
+        var Q = Math.floor(B / p / 100) * 100
+        var ledger = c.atLine ? 'base（抄底线）' : (c.name.indexOf('破线区') >= 0 ? 't（做T深档）' : 't（做T）')
+        return {
+          corridor: c, t: c.u !== null ? t : null, R: R, B: B, Q: Q,
+          buyable: B >= MIN_B && Q >= 100,
+          ledger: ledger
+        }
+      }
+
+      function money (v) { return '¥' + Math.round(v).toLocaleString() }
+
+      function renderLadder () {
+        var tpIds = [['dl-tp1', 0], ['dl-tp2', 1], ['dl-tp3', 2]]
+        var buyIds = [['dl-buy1', 0], ['dl-buy2', 1], ['dl-buy3', 2]]
+        tpIds.forEach(function (pair) { $(pair[0]).className = 'dl-lamp' + (state.tpArmed[pair[1]] ? ' on' : '') })
+        buyIds.forEach(function (pair) { $(pair[0]).className = 'dl-lamp' + (state.buyArmed[pair[1]] ? ' on' : '') })
+      }
+
+      function render () {
+        var p = Number($('dl-price').value) / 100
+        $('dl-price-val').textContent = p.toFixed(1)
+        $('dl-mv-val').textContent = (Number($('dl-mv').value) || 0) + '%'
+        $('dl-inflight-val').textContent = money(inFlight())
+        var d = decision(p)
+        $('dl-corridor').textContent = d.corridor.name
+        $('dl-u').textContent = d.corridor.u === null ? '--' : (d.corridor.u.toFixed(1) + ' / ' + (d.corridor.l === null ? '--' : d.corridor.l.toFixed(1)))
+        $('dl-cap').textContent = d.corridor.cap ? (d.corridor.cap / 10000).toFixed(0) + ' 万' : '--'
+        $('dl-t').textContent = d.t === null ? '--' : d.t.toFixed(3)
+        $('dl-occupy').textContent = 'D ' + money(state.D) + ' + C ' + money(state.C) + ' → max(, MV ' + money(mv()) + ') = ' + money(occupied())
+        $('dl-inflight-ro').textContent = money(inFlight())
+        $('dl-R').textContent = d.R === null ? '--' : money(d.R)
+        $('dl-B').textContent = d.B >= MIN_B ? money(d.B) : money(d.B) + '（<1万）'
+        $('dl-Q').textContent = d.buyable ? d.Q + ' 股' : '0 股'
+        $('dl-ledger').textContent = d.ledger || '--'
+        $('dl-decision').textContent = d.buyable
+          ? '✅ 可以买入 → ' + d.ledger
+          : (d.corridor.name === '不买入区' ? '⛔ 价格高于 TP3（不买入区）' : (d.B < MIN_B ? '⛔ 金额不足 1 万' : '⛔ 不足一手'))
+        renderLadder()
+      }
+
+      function logRow (p, d, note, extra) {
+        var tr = document.createElement('tr')
+        tr.className = 'dl-row-buy'
+        tr.innerHTML = '<td>' + p.toFixed(1) + '</td><td>' + d.corridor.name + '</td><td>' +
+          (d.t === null ? '--' : d.t.toFixed(3)) + '</td><td>' + money(d.B) + '</td><td>' +
+          d.Q + '</td><td>' + (d.ledger || '--') + (note ? ' ' + note : '') + '</td><td>' + money(state.D) + '</td><td>' + money(state.C) + '</td>'
+        $('dl-log').appendChild(tr)
+      }
+
+      function doBuy () {
+        var p = Number($('dl-price').value) / 100
+        var d = decision(p)
+        if (!d.buyable) return
+        var idx = dipLineIndex(p)
+        if (idx >= 0) {
+          // 触线：抄底线 base 补仓 → 关 BUY-1..N + 全开止盈档
+          state.D += d.B
+          for (var i = 0; i <= idx; i++) state.buyArmed[i] = false
+          for (var j = 0; j < 3; j++) state.tpArmed[j] = true
+          $('dl-ladder-event').textContent = '事件：BUY-' + (idx + 1) + ' 触发 → 关 BUY-1..' + (idx + 1) + '，全开止盈档（底仓增加 ' + money(d.B) + '）'
+          logRow(p, d, '（抄底线触发）')
+        } else {
+          // 走廊/破线区：T 买入，不触发状态机
+          state.C += d.B
+          $('dl-ladder-event').textContent = '事件：T 买入（' + d.ledger + '）→ 不触发状态机'
+          logRow(p, d, '（T 买入）')
+        }
+        render()
+      }
+
+      function doTP () {
+        var p = Number($('dl-price').value) / 100
+        var hit = -1
+        var tpPrices = [TP.tp1, TP.tp2, TP.tp3]
+        for (var i = 2; i >= 0; i--) {
+          if (state.tpArmed[i] && p >= tpPrices[i]) { hit = i; break }
+        }
+        if (hit < 0) {
+          $('dl-ladder-event').textContent = '当前价未触及任何 armed 止盈档（TP 初始全关：先让价格到 BUY 线触发一次抄底，止盈档才会全开）'
+          return
+        }
+        var ratio = [1 / 3, 1 / 2, 1][hit]
+        var sellAmount = state.D * ratio
+        state.D = Math.round((state.D - sellAmount) * 100) / 100
+        for (var j = 0; j <= hit; j++) state.tpArmed[j] = false
+        for (var k = 0; k < 3; k++) state.buyArmed[k] = true
+        $('dl-ladder-event').textContent = '事件：TP' + (hit + 1) + ' 成交 → 关 TP-1..' + (hit + 1) + '，全开抄底线（底仓减少，卖出 ' + money(sellAmount) + '）'
+        var tr = document.createElement('tr')
+        tr.style.background = '#fef3c7'
+        tr.innerHTML = '<td>' + p.toFixed(1) + '</td><td>止盈 TP' + (hit + 1) + '（L' + (hit + 1) + ' ' + (ratio === 1 ? '全部' : Math.round(ratio * 100) + '%') + '）</td><td>--</td><td>' + money(sellAmount) + '（卖出）</td><td>--</td><td>base（止盈成交）</td><td>' + money(state.D) + '</td><td>' + money(state.C) + '</td>'
+        $('dl-log').appendChild(tr)
+        render()
+      }
+
+      $('dl-buy').addEventListener('click', doBuy)
+      $('dl-tp').addEventListener('click', doTP)
+      $('dl-reset').addEventListener('click', function () {
+        state.D = 20000
+        state.C = 5000
+        state.buyArmed = [true, true, true]
+        state.tpArmed = [false, false, false]
+        $('dl-log').innerHTML = ''
+        $('dl-ladder-event').textContent = '初始：抄底线全开、止盈档全关（首次抄底触发后全开）'
+        render()
+      })
+      ;['dl-price', 'dl-mv', 'dl-inflight'].forEach(function (id) {
+        $(id).addEventListener('input', render)
+      })
+      render()
+    })()
+  </script>
 </body>
 </html>

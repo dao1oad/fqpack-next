@@ -56,11 +56,14 @@ def test_flatten_builder_generates_one_cost_price_entry_for_002262():
     assert entry["remaining_quantity"] == 17900
     assert entry["status"] == "OPEN"
     assert entry["aggregation_members"] == []
+    # #549：flatten 重建默认 base
+    assert entry["position_type"] == "base"
 
     slices = result["entry_slice_documents"]
     assert sum(int(item["original_quantity"]) for item in slices) == 17900
     assert all(item["status"] == "OPEN" for item in slices)
     assert all(item["entry_id"] == entry["entry_id"] for item in slices)
+    assert all(item["position_type"] == "base" for item in slices)
     assert all(item["passed"] for item in result["flatten"]["invariant_checks"])
 
 

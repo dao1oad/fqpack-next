@@ -506,7 +506,9 @@ export default {
       return this.subjectPanelState.subjectPanelDetail?.positionLimit || {}
     },
     positionLimitAvailable() {
-      return this.positionLimitSummary.available !== false
+      // #548：detail 未加载/加载失败/缺失时禁止写操作（保存总上限）。
+      return Boolean(this.subjectPanelState?.subjectPanelDetail)
+        && this.positionLimitSummary.available !== false
     },
     positionLimitSourceLabel() {
       return this.positionLimitSummary.using_override ? '单独设置' : '系统默认值'
@@ -580,6 +582,7 @@ export default {
     priceGuideEditLocked() {
       return (
         !this.routeSymbol ||
+        !this.subjectPriceDetail ||
         this.subjectDetailLoading ||
         this.savingPriceGuides ||
         this.savingGuardianPriceGuides ||

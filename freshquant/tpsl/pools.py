@@ -15,6 +15,21 @@ def load_active_tpsl_codes() -> list[str]:
     return sorted(holding_codes & configured_codes)
 
 
+def load_active_buy_line_codes() -> list[str]:
+    """买入线 universe（#549）：当前持仓 ∩ 有 buy grid 配置。
+
+    与 TP/SL 集合（``load_active_tpsl_codes``）双集合隔离，不得混入——
+    ``evaluate_stoploss`` 依赖 ``must_pool.stop_loss_price``，扩展集合会让
+    仅配 buy 线且 must_pool 带止损价的标的被全仓止损误触发。
+    """
+
+    holding_codes = _load_holding_codes()
+    if not holding_codes:
+        return []
+    configured_codes = _load_buy_grid_configured_codes()
+    return sorted(holding_codes & configured_codes)
+
+
 def _load_holding_codes() -> set[str]:
     codes: set[str] = set()
     for doc in DBfreshquant["xt_positions"].find(
@@ -33,6 +48,23 @@ def _load_holding_codes() -> set[str]:
         code = normalize_prefixed_code(str(raw)).lower()
         if code:
             codes.add(code)
+    return codes
+
+
+def _load_buy_grid_configured_codes() -> set[str]:
+    codes: set[str] = set()
+    for doc in DBfreshquant["guardian_buy_grid_configs"].find(
+        {"enabled": True},
+        {"code": 1, "buy_enabled": 1},
+    ):
+        code = normalize_prefixed_code(str(doc.get("code") or "")).lower()
+        if not code:
+            continue
+        buy_enabled = doc.get("buy_enabled")
+        if isinstance(buy_enabled, list) and len(buy_enabled) == 3:
+            if not any(bool(item) for item in buy_enabled):
+                continue
+        codes.add(code)
     return codes
 
 

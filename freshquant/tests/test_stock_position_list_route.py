@@ -183,6 +183,10 @@ def test_get_stock_position_list_serializes_enriched_position_names(stock_routes
             "name": "比亚迪",
             "quantity": 100,
             "amount": -1000.13,
+            "base_quantity": 0,
+            "base_amount": 0.0,
+            "t_quantity": 0,
+            "t_amount": 0.0,
         }
     ]
 

@@ -587,3 +587,164 @@ test('loadSubjectPriceDetail clears stale drafts before a different symbol load 
   assert.equal(state.lastSubjectDetailSymbol, '')
   assert.equal(state.subjectDetailError, 'detail failed')
 })
+
+test('#548 saveGuardianPriceGuides rejects when detail not loaded', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol)
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol])
+      return { symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  const result = await saveGuardianPriceGuides(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+  })
+
+  assert.deepEqual(result, {
+    ok: false,
+    reason: 'detail_unloaded',
+    message: '标的设置尚未加载完成，禁止保存',
+  })
+  assert.deepEqual(calls, [])
+})
+
+test('#548 saveGuardianGuideEnabledState rejects when detail not loaded', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol])
+      return { symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  const result = await saveGuardianGuideEnabledState(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+    nextBuyEnabled: [true, true, true],
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'detail_unloaded')
+  assert.deepEqual(calls, [])
+})
+
+test('#548 saveTakeprofitPriceGuides rejects when detail not loaded', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async saveTakeprofitProfile(symbol, payload) {
+      calls.push(['saveTakeprofitProfile', symbol])
+      return { symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  const result = await saveTakeprofitPriceGuides(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+  })
+
+  assert.equal(result.ok, false)
+  assert.equal(result.reason, 'detail_unloaded')
+  assert.deepEqual(calls, [])
+})
+
+test('#548 null backend caps show defaults with marker and save displayed defaults', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol, {
+        guardian_buy_grid_config: {
+          enabled: true,
+          buy_enabled: [true, true, true],
+          // 后端 null：仅 caps 缺失（对应 #548 生产实证：max_position_amounts=null）
+          buy_1: 10.2,
+          buy_2: 9.9,
+          buy_3: 9.5,
+          max_position_amounts: null,
+        },
+      })
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol, payload.max_position_amounts])
+      return { symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+
+  assert.deepEqual(state.subjectPriceDetail.guardianDefaults, {
+    buy_prices: false,
+    caps: true,
+  })
+  assert.deepEqual(
+    state.guardianDraft.max_position_amounts,
+    DEFAULT_GUARDIAN_POSITION_CAPS,
+  )
+
+  const result = await saveGuardianPriceGuides(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+  })
+
+  assert.equal(result.ok, true)
+  // 保存 payload = 当前展示值（加载完成后的默认 CAP）
+  assert.deepEqual(calls[1], [
+    'saveGuardianBuyGrid',
+    '600000',
+    DEFAULT_GUARDIAN_POSITION_CAPS,
+  ])
+})
+
+test('#548 loaded real caps are not marked as defaults and save unchanged', async () => {
+  const calls = []
+  const actions = createKlineSlimPricePanelActions({
+    async getDetail(symbol) {
+      calls.push(['getDetail', symbol])
+      return makeDetail(symbol)
+    },
+    async saveGuardianBuyGrid(symbol, payload) {
+      calls.push(['saveGuardianBuyGrid', symbol, payload.max_position_amounts])
+      return { symbol, ...payload }
+    },
+  })
+  const state = buildInitialKlineSlimPricePanelState()
+
+  await loadSubjectPriceDetail(state, {
+    actions,
+    symbol: '600000',
+    force: true,
+  })
+
+  assert.deepEqual(state.subjectPriceDetail.guardianDefaults, {
+    buy_prices: false,
+    caps: false,
+  })
+  state.guardianDraft.max_position_amounts = [600000, 700000, 800000]
+
+  const result = await saveGuardianPriceGuides(state, {
+    actions,
+    symbol: '600000',
+    notify: {},
+  })
+
+  assert.equal(result.ok, true)
+  assert.deepEqual(calls[1], ['saveGuardianBuyGrid', '600000', [600000, 700000, 800000]])
+})

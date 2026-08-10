@@ -38,6 +38,18 @@
         label="数量"
       ></el-table-column>
       <el-table-column prop="amount" label="金额"></el-table-column>
+      <el-table-column label="底仓" align="center">
+        <template #default="{ row }">
+          <div style="color: #6366F1; font-weight: 600;">{{ Number(row.base_quantity ?? 0).toLocaleString() }}</div>
+          <div class="ledger-amount" style="color: #6366F1;">{{ formatLedgerAmount(row.base_amount) }}</div>
+        </template>
+      </el-table-column>
+      <el-table-column label="做T" align="center">
+        <template #default="{ row }">
+          <div style="color: #F59E0B; font-weight: 600;">{{ Number(row.t_quantity ?? 0).toLocaleString() }}</div>
+          <div class="ledger-amount" style="color: #F59E0B;">{{ formatLedgerAmount(row.t_amount) }}</div>
+        </template>
+      </el-table-column>
     </el-table>
     <el-row>
       <el-pagination
@@ -93,6 +105,13 @@ export default {
     return { isLoading, positionList, listQuery, queryClient }
   },
   methods: {
+    formatLedgerAmount (value) {
+      const parsed = Number(value ?? 0)
+      if (!Number.isFinite(parsed)) {
+        return '--'
+      }
+      return parsed.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    },
     handleSizeChange (currentSize) {
       this.listQuery.size = currentSize
       this.queryClient.invalidateQueries({ queryKey: ['stockPositionList'] })

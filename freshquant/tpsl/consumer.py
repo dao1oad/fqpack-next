@@ -15,7 +15,7 @@ from freshquant.runtime_observability.failures import (
     mark_exception_emitted,
 )
 from freshquant.runtime_observability.logger import RuntimeEventLogger
-from freshquant.tpsl.pools import load_active_tpsl_codes
+from freshquant.tpsl.pools import load_active_buy_line_codes, load_active_tpsl_codes
 from freshquant.tpsl.service import TpslService
 from freshquant.util.code import normalize_to_base_code
 
@@ -29,14 +29,19 @@ class TpslTickConsumer:
         *,
         service=None,
         universe_loader=None,
+        buy_line_universe_loader=None,
         refresh_interval_s=30,
         runtime_logger=None,
         now_provider=None,
     ):
         self.service = service or TpslService()
         self.universe_loader = universe_loader or load_active_tpsl_codes
+        self.buy_line_universe_loader = (
+            buy_line_universe_loader or load_active_buy_line_codes
+        )
         self.refresh_interval_s = max(float(refresh_interval_s or 0), 0.0)
         self.active_codes = set()
+        self.active_buy_line_codes = set()
         self._last_refresh_at = 0.0
         self.runtime_logger = runtime_logger or _get_runtime_logger()
         self.now_provider = now_provider or time.time
@@ -55,6 +60,11 @@ class TpslTickConsumer:
             for code in (self.universe_loader() or [])
             if code
         }
+        self.active_buy_line_codes = {
+            normalize_prefixed_code(code).lower()
+            for code in (self.buy_line_universe_loader() or [])
+            if code
+        }
         self._last_refresh_at = now
         return self.active_codes
 
@@ -68,8 +78,31 @@ class TpslTickConsumer:
             if _is_before_continuous_auction(event, now_provider=self.now_provider):
                 return None
             active_codes = self.refresh_universe()
-            if event.code not in active_codes:
+            # #549 双集合：买入线 universe 与 TP/SL universe 隔离，
+            # 任一集合命中即可进入对应评估。
+            if (
+                event.code not in active_codes
+                and event.code not in self.active_buy_line_codes
+            ):
                 return None
+            # #549：买入线评估插入点在 TP 评估之前（现 TP 命中即 return）。
+            # TP1 > BUY-1 价格区间不相交，同 tick 双命中不可能，先评估先提交
+            # 无冲突；双集合隔离（买入线 universe ≠ TP/SL universe）。
+            if event.code in self.active_buy_line_codes:
+                buy_line_batch = self.service.evaluate_base_buyline(
+                    symbol=symbol,
+                    code=event.code,
+                    bid1=event.bid1,
+                    last_price=event.last_price,
+                    tick_time=event.tick_time,
+                )
+                if buy_line_batch:
+                    if buy_line_batch.get("status") != "ready":
+                        return buy_line_batch
+                    return self.service.submit_base_buy_batch(
+                        buy_line_batch,
+                        trace_id=None,
+                    )
             takeprofit_batch = self.service.evaluate_takeprofit(
                 symbol=symbol,
                 code=event.code,
