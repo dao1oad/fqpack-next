@@ -28,12 +28,6 @@ concurrency:
 
 jobs:
   deploy:
-    # push main 只自动部署 101（本机/开发机）；
-    # 100/116 是生产机，仅在人工 workflow_dispatch 指定时才部署。
-    if: >-
-      (github.event_name == 'push' && matrix.runner == '101') ||
-      (github.event_name == 'workflow_dispatch' &&
-       contains(github.event.inputs.targets, matrix.runner))
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +41,26 @@ jobs:
       FQ_DOCKER_FORCE_LOCAL_BUILD: "1"
       FQPACK_TDX_SYNC_DIR: D:/new_tdx
     steps:
+      # matrix 上下文在 job 级 if 不可用（workflow_dispatch 解析失败），
+      # 目标筛选移到 step 级 if：push main 只自动部署 101（本机/开发机）；
+      # 100/116 是生产机，仅在人工 workflow_dispatch 指定时才部署。
+      - name: Skip non-target runner
+        if: >-
+          !((github.event_name == 'push' && matrix.runner == '101') ||
+            (github.event_name == 'workflow_dispatch' &&
+             contains(github.event.inputs.targets, matrix.runner)))
+        run: echo "runner ${{ matrix.runner }} not selected for this trigger; skip"
+      - name: Preflight selected runner guard
+        if: >-
+          (github.event_name == 'push' && matrix.runner == '101') ||
+          (github.event_name == 'workflow_dispatch' &&
+           contains(github.event.inputs.targets, matrix.runner))
+        run: echo "deploying to ${{ matrix.runner }}"
       - name: Run production deploy entrypoint
+        if: >-
+          (github.event_name == 'push' && matrix.runner == '101') ||
+          (github.event_name == 'workflow_dispatch' &&
+           contains(github.event.inputs.targets, matrix.runner))
         working-directory: ${{ env.FQ_DEPLOY_CANONICAL_REPO_ROOT }}
         shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
