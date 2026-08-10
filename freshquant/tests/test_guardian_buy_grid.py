@@ -658,7 +658,7 @@ def test_disable_grid_missing_config_is_noop():
     assert database["guardian_buy_grid_configs"].docs == []
 
 
-def test_disabled_grid_blocks_new_open_until_reconfigured():
+def test_disabled_grid_blocks_new_open_until_reconfigured(monkeypatch):
     # M3：关闭后 build_new_open_decision 被阻断（quantity=0）；重配后恢复
     database = FakeDatabase(
         {
@@ -683,6 +683,12 @@ def test_disabled_grid_blocks_new_open_until_reconfigured():
         }
     )
     service = _build_service(database)
+    # 注入 position capacity：未注入时 _load_position_capacity 会连真实
+    # PositionManagementRepository（Mongo），CI 无 Mongo 时返回 None 导致
+    # quantity=0，测试与运行环境耦合。
+    monkeypatch.setattr(
+        service, "_load_position_capacity", lambda code: (0.0, 999999.0)
+    )
 
     before = service.build_new_open_decision("000001", 9.5)
     assert before["quantity"] > 0
