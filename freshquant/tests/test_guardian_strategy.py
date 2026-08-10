@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 
@@ -45,38 +46,43 @@ sys.modules.setdefault(
         ),
     ),
 )
-sys.modules.setdefault(
-    "freshquant.strategy.toolkit.threshold",
-    _module(
+
+
+def _install_guardian_dependency_stubs() -> None:
+    """强制替换 guardian 依赖模块为 stub。
+
+    用赋值而非 setdefault：同进程内若这些模块已被其他测试真实导入（shard
+    组合变化即可触发），setdefault 不生效，guardian 会绑定真实函数并访问
+    真实 Mongo（CI 无 Mongo 时 30s 超时失败）。替换后需 reload guardian
+    让模块级绑定刷新。
+    """
+    sys.modules["freshquant.strategy.toolkit.threshold"] = _module(
         "freshquant.strategy.toolkit.threshold",
         eval_stock_threshold_price=lambda _code, _price: {
             "bot_river_price": 0.0,
             "top_river_price": 0.0,
         },
-    ),
-)
-sys.modules.setdefault(
-    "freshquant.data.astock.holding",
-    _module(
+    )
+    sys.modules["freshquant.data.astock.holding"] = _module(
         "freshquant.data.astock.holding",
         _query_grid_interval=lambda _code, _date_str: 1.03,
         get_arranged_stock_fill_list=lambda _code: [],
         get_stock_holding_codes=lambda: [],
-    ),
-)
-sys.modules.setdefault(
-    "freshquant.pool.general",
-    _module("freshquant.pool.general", queryMustPoolCodes=lambda: []),
-)
-sys.modules.setdefault(
-    "freshquant.position.stock",
-    _module(
+    )
+    sys.modules["freshquant.pool.general"] = _module(
+        "freshquant.pool.general", queryMustPoolCodes=lambda: []
+    )
+    sys.modules["freshquant.position.stock"] = _module(
         "freshquant.position.stock",
         query_stock_position_pct=lambda *_args, **_kwargs: 0,
-    ),
-)
+    )
+
+
+_install_guardian_dependency_stubs()
 
 import freshquant.strategy.guardian as guardian_module
+
+guardian_module = importlib.reload(guardian_module)
 from freshquant.strategy.guardian import StrategyGuardian
 
 sys.modules.pop("freshquant.message", None)
