@@ -2018,3 +2018,45 @@ def test_default_symbol_limit_map_loader_reads_symbol_position_limit_rows(monkey
 
     assert rows["600271"]["effective_limit"] == 800000.0
     assert rows["600271"]["market_value"] == 384006.0
+
+
+def test_subject_management_overview_aggregates_ledger_quantity_by_position_type():
+    """标的总览 runtime.position_type_quantity 按持仓账本 base/t 聚合（缺失按 base）。"""
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        position_loader=lambda: [
+            {"symbol": "600000.SH", "name": "浦发银行", "quantity": 1500}
+        ],
+        symbol_position_loader=lambda symbol: None,
+        position_type_quantity_loader=lambda: [
+            {
+                "symbol": "600000.SH",
+                "remaining_quantity": 1000,
+                "position_type": "base",
+            },
+            {
+                "symbol": "600000.SH",
+                "remaining_quantity": 500,
+                "position_type": "t",
+            },
+            {
+                "symbol": "600000.SH",
+                "remaining_quantity": 200,
+                "position_type": None,
+            },
+        ],
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: None,
+        symbol_limit_map_loader=lambda: {},
+    )
+
+    rows = service.get_overview()
+
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "600000"
+    assert rows[0]["runtime"]["position_quantity"] == 1500
+    assert rows[0]["runtime"]["position_type_quantity"] == {
+        "base": 1200,
+        "t": 500,
+    }

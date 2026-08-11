@@ -10,6 +10,7 @@ from freshquant.order_management.entry_adapter import (
     list_entry_stoploss_bindings_compat,
     list_open_entry_slices_compat,
     list_open_entry_views,
+    position_type_of,
 )
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.strategy.guardian_buy_grid import DEFAULT_INITIAL_LOT_AMOUNT
@@ -29,6 +30,7 @@ class SubjectManagementDashboardService:
         order_repository=None,
         position_loader=None,
         symbol_position_loader=None,
+        position_type_quantity_loader=None,
         pm_summary_loader=None,
         symbol_limit_loader=None,
         symbol_limit_map_loader=None,
@@ -43,6 +45,11 @@ class SubjectManagementDashboardService:
         self.position_loader = position_loader or _default_position_loader
         self.symbol_position_loader = (
             symbol_position_loader or _default_symbol_position_loader
+        )
+        self.position_type_quantity_loader = (
+            position_type_quantity_loader
+            if position_type_quantity_loader is not None
+            else self._default_position_type_quantity_loader
         )
         self.pm_summary_loader = pm_summary_loader or _default_pm_summary_loader
         self.symbol_limit_loader = symbol_limit_loader or _default_symbol_limit_loader
@@ -62,6 +69,7 @@ class SubjectManagementDashboardService:
         guardian_state_rows = self._guardian_state_map()
         takeprofit_profiles = self._takeprofit_profile_map()
         positions = self._position_map()
+        position_type_quantity_rows = self._position_type_quantity_map()
         symbols = set(must_pool_rows)
         symbols.update(positions)
         takeprofit_states = self._takeprofit_state_map(
@@ -148,6 +156,9 @@ class SubjectManagementDashboardService:
                     "stoploss": stoploss,
                     "runtime": {
                         "position_quantity": int(position.get("quantity") or 0),
+                        "position_type_quantity": position_type_quantity_rows.get(
+                            symbol, {"base": 0, "t": 0}
+                        ),
                         "position_amount": _resolve_position_amount(
                             symbol_position,
                             position,
@@ -593,15 +604,34 @@ class SubjectManagementDashboardService:
             if avg_price is not None and quantity > 0:
                 current["_avg_price_numerator"] += avg_price * quantity
                 current["_avg_price_quantity"] += quantity
-        for current in rows.values():
-            avg_price_quantity = int(current.pop("_avg_price_quantity", 0) or 0)
-            avg_price_numerator = _safe_float(current.pop("_avg_price_numerator", 0.0))
-            current["avg_price"] = (
-                avg_price_numerator / avg_price_quantity
-                if avg_price_quantity > 0
-                else None
+            for current in rows.values():
+                avg_price_quantity = int(current.pop("_avg_price_quantity", 0) or 0)
+                avg_price_numerator = _safe_float(current.pop("_avg_price_numerator", 0.0))
+                current["avg_price"] = (
+                    avg_price_numerator / avg_price_quantity
+                    if avg_price_quantity > 0
+                    else None
+                )
+        return rows
+
+    def _position_type_quantity_map(self):
+        """按 symbol 聚合持仓账本的 base/t 数量（#549 双账本，position_type 缺失按 base）。"""
+        rows: dict[str, dict[str, int]] = {}
+        for item in list(self.position_type_quantity_loader() or []):
+            symbol = _normalize_symbol(
+                item.get("symbol") or item.get("stock_code") or item.get("code")
+            )
+            if not symbol:
+                continue
+            current = rows.setdefault(symbol, {"base": 0, "t": 0})
+            position_type = position_type_of(item.get("position_type"))
+            current[position_type] = current.get(position_type, 0) + int(
+                item.get("remaining_quantity") or 0
             )
         return rows
+
+    def _default_position_type_quantity_loader(self):
+        return self.order_repository.list_position_entries(status="OPEN")
 
     def _stoploss_summary_map(self):
         rows = {}

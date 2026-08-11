@@ -815,3 +815,30 @@ test('SubjectManagement view uses a master-detail stoploss layout instead of exp
   assert.doesNotMatch(source, /查看切片/)
   assert.doesNotMatch(source, /收起切片/)
 })
+
+
+test('buildOverviewRows expands position_type_quantity into base/t quantities', () => {
+  const rows = buildOverviewRows([
+    {
+      symbol: '600000',
+      name: '浦发银行',
+      runtime: {
+        position_quantity: 1500,
+        position_type_quantity: { base: 1200, t: 500 },
+      },
+    },
+    {
+      symbol: '600001',
+      name: '未配置账本',
+      runtime: {
+        position_quantity: 800,
+      },
+    },
+  ])
+
+  assert.equal(rows[0].position_quantity, 1500)
+  assert.equal(rows[0].position_base_quantity, 1200)
+  assert.equal(rows[0].position_t_quantity, 500)
+  assert.equal(rows[1].position_base_quantity, 0)
+  assert.equal(rows[1].position_t_quantity, 0)
+})
