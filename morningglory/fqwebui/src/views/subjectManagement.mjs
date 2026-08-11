@@ -520,6 +520,8 @@ export const buildOverviewRows = (rows = []) => {
         ].join(' / '),
         position_quantity: toNumber(runtime?.position_quantity),
         position_amount: toNullableNumber(runtime?.position_amount),
+        position_base_quantity: toNumber(runtime?.position_type_quantity?.base),
+        position_t_quantity: toNumber(runtime?.position_type_quantity?.t),
         stoplossActiveCount: activeStoplossCount,
         openEntryCount,
         hasMustPoolConfig,

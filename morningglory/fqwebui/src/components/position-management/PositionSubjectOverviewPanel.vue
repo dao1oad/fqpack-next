@@ -75,11 +75,14 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="持仓" min-width="96">
+        <el-table-column label="持仓" min-width="116">
           <template #default="{ row }">
             <div class="position-subject-metric-stack">
               <span class="position-subject-metric-stack__primary workbench-code">
                 {{ formatQuantityWithUnit(row.position_quantity) }}
+              </span>
+              <span class="position-subject-metric-stack__secondary workbench-code">
+                底 {{ formatQuantityWithUnit(row.position_base_quantity) }} · T {{ formatQuantityWithUnit(row.position_t_quantity) }}
               </span>
               <span class="position-subject-metric-stack__secondary workbench-code">
                 {{ formatWanAmount(row.position_amount) }}

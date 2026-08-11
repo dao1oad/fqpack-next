@@ -56,6 +56,7 @@ overview 的 `runtime` 当前返回：
 
 - `position_quantity`
 - `position_amount`
+- `position_type_quantity`（持仓账本按 `position_type` 聚合的 `{base, t}` 数量，缺失按 base）
 - `avg_price`
 - `last_hit_level`
 - `last_trigger_kind`
