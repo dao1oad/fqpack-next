@@ -8,6 +8,7 @@ from typing import cast
 
 SURFACE_ORDER = (
     "api",
+    "indexer",
     "web",
     "dagster",
     "qa",
@@ -42,6 +43,7 @@ SURFACE_ALIASES = {
 
 DOCKER_SERVICE_MAP = {
     "api": ["fq_apiserver"],
+    "indexer": ["fq_runtime_indexer"],
     "web": ["fq_webui"],
     "dagster": ["fq_dagster_webserver", "fq_dagster_daemon"],
     "qa": ["fq_qawebserver"],
@@ -49,6 +51,7 @@ DOCKER_SERVICE_MAP = {
 
 DOCKER_BUILD_TARGET_MAP = {
     "api": ["fq_apiserver"],
+    "indexer": ["fq_apiserver"],
     "web": ["fq_webui"],
     "dagster": ["fq_apiserver"],
     "qa": ["fq_apiserver"],
@@ -75,6 +78,8 @@ HEALTH_CHECK_MAP = {
     "api": [
         "http://127.0.0.1:15000/api/runtime/components",
         "http://127.0.0.1:15000/api/runtime/health/summary",
+        "http://127.0.0.1:15000/api/runtime/traces?limit=1",
+        "http://127.0.0.1:15000/api/runtime/events?limit=1",
         "http://127.0.0.1:15000/api/gantt/plates?provider=xgb",
         "http://127.0.0.1:15000/api/clx-daily-selection/health",
         "http://127.0.0.1:15000/api/clx-daily-selection/model-catalog",
@@ -172,6 +177,34 @@ PATH_RULES: tuple[PathRule, ...] = (
             "runtime-observability 的 ClickHouse 读写与事件/trace 查询由 rear API "
             "容器承载；缺该映射会导致变更漏部署（2026-08-11 实测 traces 503 未触发部署）。",
         ),
+    ),
+    PrefixRule(
+        label="runtime-observability-indexer",
+        prefix="freshquant/runtime_observability/indexer",
+        surfaces=("api", "indexer"),
+        notes=(
+            "runtime indexer 是独立 compose 服务（fq_runtime_indexer，使用 rear 镜像），"
+            "indexer 代码变更需重建 rear 镜像并 recreate 该容器。",
+        ),
+    ),
+    ExactRule(
+        label="runtime-observability-writer",
+        exact_path="freshquant/runtime_observability/logger.py",
+        surfaces=("api", *ALL_HOST_RUNTIME_SURFACES),
+        notes=(
+            "RuntimeEventLogger 被 host 常驻进程（producer/guardian/tpsl/order_management）"
+            "导入，变更需重启对应 host surfaces。",
+        ),
+    ),
+    ExactRule(
+        label="runtime-observability-writer",
+        exact_path="freshquant/runtime_observability/failures.py",
+        surfaces=("api", *ALL_HOST_RUNTIME_SURFACES),
+    ),
+    ExactRule(
+        label="runtime-observability-writer",
+        exact_path="freshquant/runtime_observability/ids.py",
+        surfaces=("api", *ALL_HOST_RUNTIME_SURFACES),
     ),
     ExactRule(
         label="index-data-api",

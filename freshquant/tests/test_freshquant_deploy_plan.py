@@ -143,6 +143,37 @@ def test_runtime_observability_paths_redeploy_api() -> None:
     assert plan["deployment_required"] is True
     assert plan["deployment_surfaces"] == ["api"]
     assert plan["docker_services"] == ["fq_apiserver"]
+    assert "http://127.0.0.1:15000/api/runtime/traces?limit=1" in plan["health_checks"]
+    assert "http://127.0.0.1:15000/api/runtime/events?limit=1" in plan["health_checks"]
+
+
+def test_runtime_observability_indexer_recreates_indexer_container() -> None:
+    """indexer 代码变更需重建 rear 镜像并 recreate fq_runtime_indexer 容器。"""
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/runtime_observability/indexer.py"]
+    )
+
+    assert plan["deployment_required"] is True
+    assert "indexer" in plan["deployment_surfaces"]
+    assert "fq_runtime_indexer" in plan["docker_services"]
+    assert "fq_apiserver" in plan["docker_services"]
+
+
+def test_runtime_observability_writer_restarts_host_runtime() -> None:
+    """共享 writer 模块（logger/failures/ids）变更需重启 host 运行面。"""
+    module = load_module()
+
+    for changed in (
+        "freshquant/runtime_observability/logger.py",
+        "freshquant/runtime_observability/failures.py",
+        "freshquant/runtime_observability/ids.py",
+    ):
+        plan = module.build_deploy_plan(changed_paths=[changed])
+        assert plan["deployment_required"] is True
+        for surface in ("market_data", "guardian", "tpsl", "order_management"):
+            assert surface in plan["deployment_surfaces"]
 
 
 def test_fqcopilot_native_paths_rebuild_all_python_consumers() -> None:
