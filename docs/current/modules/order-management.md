@@ -139,6 +139,8 @@ sleep、不重新入队，也不自动重复提交相同券商委托。
 两路批量读取（`repository.list_exit_allocations_for_requests(request_ids,
 internal_order_ids)`，单次 `$or` 查询，避免 N+1）；broker-only 卖单的
 allocations 只携带 `internal_order_id`，由该路命中。
+订单详情响应中的 `exit_allocations` 与其余字段一致，全部经
+`_sanitize_document` 清除 Mongo `_id`（`ObjectId` 不进入 JSON 响应）。
 
 当前信用账户买单的运行期语义已经固定为：
 
