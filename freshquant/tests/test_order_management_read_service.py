@@ -661,9 +661,59 @@ def test_list_orders_derives_dual_ledger_for_sell_orders():
     payload = service.list_orders(symbol="600000", state="FILLED")
     by_request = {row["request_id"]: row for row in payload["rows"]}
 
-    # TP 卖单（guardian_sell_sources）→ t
-    assert by_request["req_ledger_tp_sell"]["ledger"] == "t"
-    assert by_request["req_ledger_tp_sell"]["position_type"] == "t"
+    # TPSL 止盈卖单（source=tpsl_takeprofit，即使带 guardian_sell_sources 分配书签）→ base
+    assert by_request["req_ledger_tp_sell"]["ledger"] == "base"
+    assert by_request["req_ledger_tp_sell"]["position_type"] == "base"
     # 全仓止损 → -
     assert by_request["req_ledger_stoploss"]["ledger"] == "-"
     assert by_request["req_ledger_stoploss"]["position_type"] == ""
+
+
+def test_list_orders_derives_dual_ledger_for_guardian_t_sell():
+    repository = InMemoryOrderManagementRepository()
+    repository.order_requests.append(
+        {
+            "request_id": "req_ledger_guardian_t_sell",
+            "action": "sell",
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "symbol": "600000",
+            "price": 10.9,
+            "quantity": 100,
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "version": 2,
+                    "submit_quantity": 100,
+                    "entries": [{"entry_id": "entry_t_1", "quantity": 100}],
+                    "slices": [
+                        {
+                            "entry_id": "entry_t_1",
+                            "entry_slice_id": "slice_t_1",
+                            "quantity": 100,
+                        }
+                    ],
+                }
+            },
+        }
+    )
+    repository.broker_orders.append(
+        {
+            "broker_order_key": "ord_ledger_guardian_t_sell",
+            "internal_order_id": "ord_ledger_guardian_t_sell",
+            "request_id": "req_ledger_guardian_t_sell",
+            "broker_order_id": "BRK-guardian-t-sell",
+            "symbol": "600000",
+            "side": "sell",
+            "state": "FILLED",
+            "requested_quantity": 100,
+            "created_at": "2026-08-11T09:00:00+00:00",
+            "updated_at": "2026-08-11T09:00:00+00:00",
+        }
+    )
+    service = OrderManagementReadService(repository=repository)
+    payload = service.list_orders(symbol="600000", state="FILLED")
+    by_request = {row["request_id"]: row for row in payload["rows"]}
+
+    # Guardian 做T卖出（guardian_sell_sources v2）→ t
+    assert by_request["req_ledger_guardian_t_sell"]["ledger"] == "t"
+    assert by_request["req_ledger_guardian_t_sell"]["position_type"] == "t"

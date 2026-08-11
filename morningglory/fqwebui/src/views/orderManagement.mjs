@@ -212,8 +212,12 @@ export const resolveOrderLedgerFromRequest = (side, request = {}) => {
     return 'base'
   }
   if (normalizedSide === 'sell') {
-    if (context?.guardian_sell_sources) return 't'
     const scopeType = toText(request?.scope_type).toLowerCase()
+    const source = toText(request?.source).toLowerCase()
+    // #549：TPSL 只卖底仓；止盈卖单虽复用 guardian_sell_sources 做分配书签，
+    // 但归属账本是 base，不再误标为做T。
+    if (scopeType === 'takeprofit_batch' || source === 'tpsl_takeprofit') return 'base'
+    if (context?.guardian_sell_sources) return 't'
     if (scopeType.includes('stoploss')) return '-'
     return '-'
   }

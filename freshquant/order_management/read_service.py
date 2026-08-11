@@ -401,7 +401,10 @@ def _resolve_order_ledger(*, side, request_row):
     - 其余（手动加仓、首开等）→ ``base``（手动加仓=base 决策）。
 
     卖（side=sell）：
-    - ``guardian_sell_sources`` 存在 → ``t``（Guardian TP 卖出做T仓）；
+    - TPSL 止盈卖出（``source=tpsl_takeprofit`` / ``scope_type=takeprofit_batch``）
+      → ``base``（#549：TPSL 只卖底仓，Guardian 才卖做T仓；止盈卖单虽复用
+      ``guardian_sell_sources`` 做分配书签，但不再误标为做T）；
+    - ``guardian_sell_sources`` 存在 → ``t``（Guardian 做T卖出）；
     - 全仓止损（``scope_type`` 含 stoploss）→ ``-``（不区分账本）；
     - 其余 → ``-``。
     """
@@ -419,10 +422,13 @@ def _resolve_order_ledger(*, side, request_row):
             return "t"
         return "base"
     if normalized_side == "sell":
+        source = str((request_row or {}).get("source") or "").strip().lower()
+        scope_type = str((request_row or {}).get("scope_type") or "").strip().lower()
+        if source == "tpsl_takeprofit" or scope_type == "takeprofit_batch":
+            return "base"
         sell_sources = dict(context.get("guardian_sell_sources") or {})
         if sell_sources:
             return "t"
-        scope_type = str((request_row or {}).get("scope_type") or "").strip().lower()
         if "stoploss" in scope_type:
             return "-"
         return "-"

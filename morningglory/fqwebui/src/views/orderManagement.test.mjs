@@ -542,6 +542,14 @@ test('#549 resolveOrderLedgerFromRequest mirrors backend 3.1 rules', () => {
   assert.equal(resolveOrderLedgerFromRequest('buy', {}), 'base')
   assert.equal(
     resolveOrderLedgerFromRequest('sell', {
+      source: 'tpsl_takeprofit',
+      scope_type: 'takeprofit_batch',
+      strategy_context: { guardian_sell_sources: { allocation_policy: 'takeprofit_ratio_v1', level: 1 } },
+    }),
+    'base',
+  )
+  assert.equal(
+    resolveOrderLedgerFromRequest('sell', {
       strategy_context: { guardian_sell_sources: { level: 1 } },
     }),
     't',
