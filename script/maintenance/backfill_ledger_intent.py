@@ -6,8 +6,10 @@
 1. ``om_order_requests.ledger_intent``：对缺失的 buy/sell 请求做一次性推导
    （仅迁移用途，运行期判定不再读旧字段）：
    - sell：TPSL 止盈（source/scope_type）→ base；stoploss → ``-``；
-     Guardian 做T（guardian_sell_sources）→ t；其余 → ``-``；
-   - buy：base_line / new_open / 手动/网页 / 缺省 → base；holding_add → t。
+     Guardian 做T（guardian_sell_sources）→ t；手动/网页/api/cli → ``-``；
+   - buy：base_line / new_open / 手动/网页/api/cli → base；holding_add → t；
+   - **无法从确定证据推导（如空/未知 buy path + strategy source）时在
+     dry-run/execute 中显式冲突并停止**，不得静默归 base（fail-closed）。
 2. ``om_position_entries / om_entry_slices``：缺失 ``position_type`` 补 base
    （已有 ``t`` 保留不覆盖）；``aggregation_members[]`` 按 entry 同步
    ``position_type``（A6 可审计）。
@@ -44,46 +46,83 @@ from freshquant.order_management.ledger_resolver import (
     normalize_ledger_intent,
 )
 
-_LEGACY_BUY_INTENT_PATHS_BASE = {"base_line", "new_open", ""}
+_BUY_BASE_EVIDENCE_SOURCES = {
+    "manual",
+    "manual_import",
+    "reset",
+    "manual_reset",
+    "manual_locked",
+    "api",
+    "web",
+    "web-order",
+    "cli",
+    "external",
+}
+_SELL_UNSPECIFIED_SOURCES = _BUY_BASE_EVIDENCE_SOURCES
 
 
-def _derive_ledger_intent(request) -> str | None:
-    """一次性推导（仅回填迁移用途）。"""
+def _derive_ledger_intent(request) -> tuple[str | None, str | None]:
+    """一次性推导（仅回填迁移用途）。
+
+    返回 ``(ledger_intent, unresolved_reason)``：无法从确定证据推导时返回
+    ``(None, reason)``，调用方必须显式冲突并停止，不提供隐式默认。
+    """
 
     action = str((request or {}).get("action") or "").strip().lower()
     if action not in {"buy", "sell"}:
-        return None
+        return None, None
     context = dict((request or {}).get("strategy_context") or {})
+    source = str((request or {}).get("source") or "").strip().lower()
     if action == "sell":
         scope_type = str((request or {}).get("scope_type") or "").strip().lower()
         if is_takeprofit_request(request):
-            return LEDGER_BASE
+            return LEDGER_BASE, None
         if "stoploss" in scope_type:
-            return LEDGER_UNSPECIFIED
+            return LEDGER_UNSPECIFIED, None
         if context.get("guardian_sell_sources"):
-            return LEDGER_T
-        return LEDGER_UNSPECIFIED
+            return LEDGER_T, None
+        if source in _SELL_UNSPECIFIED_SOURCES:
+            return LEDGER_UNSPECIFIED, None
+        return (
+            None,
+            f"sell 无法确定归属（source={source!r}，无 TP/stoploss/"
+            "guardian_sell_sources 证据）",
+        )
     buy_ledger = str(context.get("buy_ledger") or "").strip().lower()
     grid = dict(context.get("guardian_buy_grid") or {})
     path = str(grid.get("path") or "").strip().lower()
     if buy_ledger == "base_line" or path == "base_line":
-        return LEDGER_BASE
-    if path in _LEGACY_BUY_INTENT_PATHS_BASE:
-        return LEDGER_BASE
+        return LEDGER_BASE, None
+    if path == "new_open":
+        return LEDGER_BASE, None
     if path == "holding_add":
-        return LEDGER_T
-    return LEDGER_BASE
+        return LEDGER_T, None
+    if source in _BUY_BASE_EVIDENCE_SOURCES:
+        return LEDGER_BASE, None
+    return (
+        None,
+        f"buy 无法确定归属（guardian_buy_grid.path={path!r}，" f"source={source!r}）",
+    )
 
 
 def _collect_request_updates(database):
-    """返回待更新的 request 文档列表（含推导出的 ledger_intent）。"""
+    """返回 (待更新列表, unresolved 列表)。unresolved 时必须显式停止。"""
 
     updates = []
+    unresolved = []
     for request in database["om_order_requests"].find({}):
         if normalize_ledger_intent(request.get("ledger_intent")) is not None:
             continue
-        intent = _derive_ledger_intent(request)
+        intent, unresolved_reason = _derive_ledger_intent(request)
         if intent is None:
+            if unresolved_reason is not None:
+                unresolved.append(
+                    {
+                        "request_id": request.get("request_id"),
+                        "action": request.get("action"),
+                        "reason": unresolved_reason,
+                    }
+                )
             continue
         updates.append(
             {
@@ -91,7 +130,7 @@ def _collect_request_updates(database):
                 "ledger_intent": intent,
             }
         )
-    return updates
+    return updates, unresolved
 
 
 def _collect_entry_updates(database):
@@ -332,8 +371,16 @@ def main(*, dry_run, execute, backup_db):
         raise click.UsageError("choose either --dry-run or --execute, not both")
 
     database = get_order_management_db()
-    request_updates = _collect_request_updates(database)
+    request_updates, unresolved_requests = _collect_request_updates(database)
     entry_updates, slice_updates = _collect_entry_updates(database)
+    if unresolved_requests:
+        for item in unresolved_requests[:20]:
+            click.echo(f"  unresolved ledger_intent: {item}")
+        raise click.ClickException(
+            f"{len(unresolved_requests)} requests cannot derive ledger_intent "
+            "from definitive evidence; resolve manually and re-run "
+            "(fail-closed, no silent default)"
+        )
     click.echo(
         f"backfill plan: requests={len(request_updates)} "
         f"entries={len(entry_updates)} slices={len(slice_updates)} "
@@ -375,13 +422,13 @@ def main(*, dry_run, execute, backup_db):
         raise click.ClickException("backfill conservation verification failed")
 
     # 幂等复验：再次收集应为 0 变更。
-    repeat_requests = _collect_request_updates(database)
+    repeat_requests, repeat_unresolved = _collect_request_updates(database)
     repeat_entries, repeat_slices = _collect_entry_updates(database)
     click.echo(
         f"backfill idempotency: repeat_requests={len(repeat_requests)} "
         f"repeat_entries={len(repeat_entries)} repeat_slices={len(repeat_slices)}"
     )
-    if repeat_requests or repeat_entries or repeat_slices:
+    if repeat_requests or repeat_unresolved or repeat_entries or repeat_slices:
         raise click.ClickException("backfill is not idempotent; abort")
 
 

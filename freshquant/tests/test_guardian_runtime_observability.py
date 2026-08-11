@@ -196,6 +196,7 @@ def test_guardian_submit_intent_emits_trace_step(monkeypatch):
         remark=None,
         is_profitable=None,
         strategy_context=None,
+        ledger_intent=None,
         trace_id=None,
         intent_id=None,
     ):
@@ -205,6 +206,7 @@ def test_guardian_submit_intent_emits_trace_step(monkeypatch):
                 "symbol": symbol,
                 "trace_id": trace_id,
                 "intent_id": intent_id,
+                "ledger_intent": ledger_intent,
             }
         )
         return {
@@ -233,6 +235,7 @@ def test_guardian_submit_intent_emits_trace_step(monkeypatch):
     assert submit_event["decision_outcome"]["outcome"] == "submit"
     assert captured["trace_id"] == submit_event["trace_id"]
     assert captured["intent_id"] == submit_event["intent_id"]
+    assert captured["ledger_intent"] == "t"
 
 
 @pytest.mark.parametrize(

@@ -45,8 +45,39 @@ def test_xtquant_buy_command_delegates_to_order_submit_service(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["action"] == "buy"
+    assert captured["ledger_intent"] == "base"
     assert captured["symbol"] == "600000"
     assert "ord_xt_1" in result.output
+
+
+def test_xtquant_sell_command_delegates_ledger_intent_unspecified(monkeypatch):
+    """#571：fqxtrade CLI sell 显式写 ledger_intent='-'，不可 fail-closed 拒绝。"""
+
+    _install_xt_cli_import_stubs(monkeypatch)
+    from morningglory.fqxtrade.fqxtrade.xtquant.cli_commands import xtquant
+
+    captured = {}
+
+    class FakeService:
+        def submit_order(self, payload):
+            captured.update(payload)
+            return {"request_id": "req_xt_sell_1", "internal_order_id": "ord_xt_sell_1"}
+
+    monkeypatch.setattr(
+        "morningglory.fqxtrade.fqxtrade.xtquant.cli_commands._get_order_submit_service",
+        lambda: FakeService(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        xtquant, ["sell", "600000.SH", "--price", "10.0", "--quantity", "100"]
+    )
+
+    assert result.exit_code == 0
+    assert captured["action"] == "sell"
+    assert captured["ledger_intent"] == "-"
+    assert captured["symbol"] == "600000"
+    assert "ord_xt_sell_1" in result.output
 
 
 def test_xtquant_sync_positions_command_uses_xt_account_sync_service(monkeypatch):

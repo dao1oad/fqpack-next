@@ -197,6 +197,8 @@ def test_rebuild_service_creates_trade_only_broker_order_fallback():
     assert broker_order["source_type"] == "trade_only"
     assert broker_order["broker_order_id"] == "79999"
     assert broker_order["requested_quantity"] is None
+    # #571：trade-only 初始状态由 OrderStateService 推导（非硬编码）。
+    assert broker_order["state"] == "PARTIAL_FILLED"
     assert broker_order["filled_quantity"] == 200
     assert execution_fill["broker_order_key"] == broker_order["broker_order_key"]
     assert execution_fill["date"] == 20240311

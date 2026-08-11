@@ -1515,13 +1515,13 @@ class StrategyGuardian(metaclass=SingletonType):
             "remark": remark,
             "is_profitable": is_profitable,
             "strategy_context": strategy_context,
+            # #571：最终架构直接强制传 ledger_intent，无兼容垫片。
+            "ledger_intent": ledger_intent,
         }
         try:
             parameters = inspect.signature(submit_guardian_order).parameters
         except (TypeError, ValueError):
             parameters = {}
-        if "ledger_intent" in parameters:
-            submit_kwargs["ledger_intent"] = ledger_intent
         if "trace_id" in parameters:
             submit_kwargs["trace_id"] = signal.get("trace_id")
         if "intent_id" in parameters:

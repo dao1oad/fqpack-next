@@ -123,6 +123,36 @@ def test_flatten_builder_reconciles_rebuilt_open_buy_orders_per_holding():
     assert request["trade_time"] == entry["trade_time"]
 
 
+def test_flatten_rebuilt_orders_follow_ledger_intent_contract():
+    """#571：离线重建收敛新契约——请求显式 ledger_intent=base；
+    om_orders 不再写死字段 filled_quantity；broker 聚合仍是数量真值。"""
+
+    service = _flatten_service()
+    result = service.build_flatten_from_positions(
+        xt_positions=[
+            {
+                "account_id": "068000076370",
+                "stock_code": "600917.SH",
+                "volume": 20000,
+                "avg_price": 5.527529,
+            }
+        ],
+        now_ts=1786105912,
+        lot_amount_lookup=lambda _symbol: 50000,
+        grid_interval_lookup=lambda _symbol: 1.2,
+    )
+
+    requests = result["order_request_documents"]
+    orders = result["order_documents"]
+    broker_orders = result["broker_order_documents"]
+    assert len(requests) == len(orders) == len(broker_orders) == 1
+    assert requests[0]["ledger_intent"] == "base"
+    assert requests[0]["action"] == "buy"
+    assert "filled_quantity" not in orders[0], "om_orders 死字段 filled_quantity 已退役"
+    assert broker_orders[0]["filled_quantity"] == broker_orders[0]["quantity"]
+    assert broker_orders[0]["state"] == "FILLED"
+
+
 def test_flatten_builder_splits_accounts_into_separate_entries():
     service = _flatten_service()
     result = service.build_flatten_from_positions(

@@ -325,3 +325,87 @@ def test_dry_run_and_execute_are_mutually_exclusive(monkeypatch):
     database = _build_db()
     response = _run(monkeypatch, database, "--dry-run", "--execute")
     assert response.exit_code != 0
+
+
+def test_dry_run_conflicts_on_unknown_buy_path(monkeypatch):
+    """#571：未知 buy path 无法确定归属 → dry-run 显式冲突并停止，不静默归 base。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_unknown_path",
+                "action": "buy",
+                "source": "strategy",
+                "strategy_context": {"guardian_buy_grid": {"path": "weird_path"}},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
+    assert "req_unknown_path" in response.output
+    assert database["om_order_requests"].docs[0].get("ledger_intent") is None
+
+
+def test_dry_run_conflicts_on_empty_buy_path_with_strategy_source(monkeypatch):
+    """#571：空 buy path + strategy source 无确定证据 → 冲突停止。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_empty_path",
+                "action": "buy",
+                "source": "strategy",
+                "strategy_context": {},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
+
+
+def test_dry_run_conflicts_on_unresolved_strategy_sell(monkeypatch):
+    """#571：strategy 卖单无 TP/stoploss/guardian_sell_sources 证据 → 冲突停止。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_strategy_sell",
+                "action": "sell",
+                "source": "strategy",
+                "strategy_context": {},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
+    assert "req_strategy_sell" in response.output
+
+
+def test_execute_stops_before_any_write_on_conflict(monkeypatch):
+    """#571：冲突存在时 execute 不写任何文档（可解析项也不写）。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_resolvable",
+                "action": "buy",
+                "source": "web",
+                "strategy_context": {},
+            },
+            {
+                "request_id": "req_conflict",
+                "action": "buy",
+                "source": "strategy",
+                "strategy_context": {"guardian_buy_grid": {"path": "unknown"}},
+            },
+        ]
+    )
+    response = _run(monkeypatch, database, "--execute")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
+    assert all(
+        item.get("ledger_intent") is None for item in database["om_order_requests"].docs
+    )
