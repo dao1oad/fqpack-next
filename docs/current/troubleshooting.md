@@ -677,7 +677,7 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 
 - 当前 `etf_day` 落库后会读取 `etf_list` 唯一代码 universe，只统计这些代码在最新交易日的日线覆盖；ETF universe 或日线覆盖低于下限时 step 直接失败
 - 当前 `etf_min` 会在 `etf_day` 成功后执行，并以 ETF universe 内最新交易日的真实 ETF 日线为基准，逐代码校验 `1/5/15/30/60min` 是否存在且 bar 数合理
-- TDX 发行期占位日线（OHLC 全为 `1.0` 且成交量/额为浮点哨兵）会被显式豁免；不要为这类无源日期伪造分钟 bar
+- TDX 占位/停牌日线（OHLC 全相等即平盘，含发行期 `1.0` 与清盘/停牌平价形态如 519622 全天 `102.37`，且成交量/额为浮点哨兵或≈0）会被显式豁免；真实一字板有成交量不会豁免；不要为这类无源日期伪造分钟 bar
 - 任何真实 ETF 分钟周期缺失或 bar 数异常都会使 `etf_min` step 失败；`etf_postclose_ready_asset` 显式依赖 `etf_min`，不会生成假 ready marker
 - 修复 TDX 连通性或权威 IP 池后重跑 `etf_data_job`，再确认全部 step SUCCESS 和 freshness check 日志
 
