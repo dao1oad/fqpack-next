@@ -1256,11 +1256,26 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
 
 def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypatch):
     repository, service = _build_service(monkeypatch)
+    # 确定性：屏蔽真实行情/昨收查询，价格回退到券商 avg_price（10.02），
+    # 避免本地生产 Mongo 实时价（如 11.19）导致 0.3% 偏差断言不稳定。
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_latest_realtime_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_previous_close_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
     repository.replace_position_entry(
         {
             "entry_id": "entry_cluster_1",
             "symbol": "000001",
             "entry_type": "broker_execution_cluster",
+            "position_type": "base",
             "source_ref_type": "buy_cluster",
             "source_ref_id": "buy_cluster:000001:20240310:1710000000:ord_cluster_1",
             "entry_price": 10.0,
@@ -1286,6 +1301,7 @@ def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypat
                     "date": 20240310,
                     "time": "09:30:00",
                     "trading_day": 20240310,
+                    "position_type": "base",
                 }
             ],
             "aggregation_member_keys": ["ord_cluster_1"],
@@ -1323,15 +1339,106 @@ def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypat
     assert position_entry["remaining_quantity"] == 200
     assert position_entry["trade_time"] == 1710000000
     assert position_entry["entry_price"] == pytest.approx(10.01, abs=1e-6)
+    assert position_entry["position_type"] == "base"
     assert position_entry["aggregation_window"]["member_count"] == 2
     assert (
         position_entry["aggregation_members"][0]["broker_order_key"] == "ord_cluster_1"
     )
     assert position_entry["aggregation_members"][1]["trade_time"] == 1710000240
+    assert {
+        member.get("position_type") for member in position_entry["aggregation_members"]
+    } == {"base"}
     assert repository.reconciliation_gaps[0]["entry_id"] == "entry_cluster_1"
     assert (
         repository.reconciliation_resolutions[0]["source_ref_id"] == "entry_cluster_1"
     )
+
+
+def test_inferred_pending_auto_open_does_not_merge_into_t_cluster(monkeypatch):
+    """#571：auto-open（broker-only 语义 → base）先解析归属再聚类，
+    不得并入 t 账本聚类（同窗口同价位也不合并）。"""
+
+    repository, service = _build_service(monkeypatch)
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_latest_realtime_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_previous_close_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_t_cluster_1",
+            "symbol": "000001",
+            "entry_type": "broker_execution_cluster",
+            "position_type": "t",
+            "source_ref_type": "buy_cluster",
+            "source_ref_id": "buy_cluster:000001:20240310:1710000000:ord_t_cluster_1",
+            "entry_price": 10.0,
+            "buy_price_real": 10.0,
+            "original_quantity": 100,
+            "remaining_quantity": 100,
+            "amount": 1000.0,
+            "amount_adjust": 1.0,
+            "date": 20240310,
+            "time": "09:30:00",
+            "trade_time": 1710000000,
+            "source": "xt_trade_callback",
+            "arrange_mode": "runtime_grid",
+            "status": "OPEN",
+            "sell_history": [],
+            "aggregation_members": [
+                {
+                    "broker_order_key": "ord_t_cluster_1",
+                    "trade_fact_id": "trade_t_cluster_1",
+                    "quantity": 100,
+                    "entry_price": 10.0,
+                    "trade_time": 1710000000,
+                    "date": 20240310,
+                    "time": "09:30:00",
+                    "trading_day": 20240310,
+                    "position_type": "t",
+                }
+            ],
+            "aggregation_member_keys": ["ord_t_cluster_1"],
+            "aggregation_window": {
+                "start_trade_time": 1710000000,
+                "end_trade_time": 1710000000,
+                "trading_day": 20240310,
+                "member_count": 1,
+            },
+        }
+    )
+
+    for detected_at in (1710000210, 1710000225, 1710000240):
+        service.detect_external_candidates(
+            positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
+            detected_at=detected_at,
+        )
+
+    confirmed = service.confirm_expired_candidates(now=1710000240)
+
+    assert len(confirmed) == 1
+    assert len(repository.position_entries) == 2
+    by_id = {item["entry_id"]: item for item in repository.position_entries}
+    t_entry = by_id["entry_t_cluster_1"]
+    assert t_entry["position_type"] == "t"
+    assert t_entry["remaining_quantity"] == 100
+    assert t_entry["aggregation_window"]["member_count"] == 1
+    new_entry = next(
+        item
+        for item in repository.position_entries
+        if item["entry_id"] != "entry_t_cluster_1"
+    )
+    assert new_entry["entry_type"] == "auto_reconciled_open"
+    assert new_entry["position_type"] == "base"
+    assert new_entry["remaining_quantity"] == 100
+    assert repository.reconciliation_gaps[0]["entry_id"] == new_entry["entry_id"]
 
 
 def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_open(

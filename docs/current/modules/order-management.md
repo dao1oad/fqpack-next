@@ -253,6 +253,10 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - `board_lot_rejected`
 - `matched_execution_fill`
 
+`auto_open_entry` 无对应订单请求（broker-only 语义），账本归属由
+`LedgerResolver` 显式解析为 `base`（`position_type=base`）；先解析归属再
+做 buy cluster，只并入同账本（base）聚类，禁止并入 t 账本聚类。
+
 自动平账成功写入 `auto_open_entry / auto_close_allocation` 后，当前也会同步：
 
 - 刷新 stock holdings projection cache

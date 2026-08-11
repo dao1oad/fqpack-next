@@ -609,6 +609,20 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
 
 
 def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
+    # 确定性：屏蔽真实行情/昨收查询，价格回退到券商 avg_price（10.5），
+    # 避免本地生产 Mongo 实时价导致断言不稳定。
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_latest_realtime_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_previous_close_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
     monkeypatch.setattr(
         xt_reports_module,
         "_sync_stock_fills_compat",

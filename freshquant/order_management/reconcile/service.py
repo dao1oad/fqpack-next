@@ -36,7 +36,10 @@ from freshquant.order_management.ingest.xt_reports import (
     _default_grid_interval_lookup,
     normalize_xt_trade_report,
 )
-from freshquant.order_management.ledger_resolver import is_takeprofit_request
+from freshquant.order_management.ledger_resolver import (
+    is_takeprofit_request,
+    resolve_buy_position_type,
+)
 from freshquant.order_management.reconcile.matcher import match_candidate_to_trade
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.time_helpers import (
@@ -532,6 +535,9 @@ class ExternalOrderReconcileService:
             "price": chosen_price,
             "quantity": quantity,
             "side": "buy",
+            # #571：auto-open 无请求（broker-only 语义）→ LedgerResolver 显式
+            # 归 base；先解析归属再聚类，禁止与 t 账本聚类合并。
+            "position_type": resolve_buy_position_type(broker_only=True),
         }
         inferred_member_key = build_reconciliation_resolution_member_key(
             resolution_id=resolution_id
@@ -542,6 +548,7 @@ class ExternalOrderReconcileService:
                 self.repository.list_position_entries(symbol=gap["symbol"]),
                 trade_fact,
                 inferred_member_key,
+                position_type=trade_fact["position_type"],
             )
         arrange_runtime = _resolve_external_arrangement_runtime(
             gap["symbol"],
@@ -560,6 +567,7 @@ class ExternalOrderReconcileService:
                 confirmed_at=now,
                 price_snapshot=chosen_price_snapshot,
                 arrange_runtime=arrange_runtime,
+                position_type=trade_fact["position_type"],
             )
         entry_slices = []
         try:
@@ -1605,6 +1613,7 @@ def _build_auto_open_entry(
     confirmed_at,
     price_snapshot=None,
     arrange_runtime=None,
+    position_type=None,
 ):
     date_value, time_value = beijing_date_time_from_epoch(confirmed_at)
     quantity = int(gap.get("quantity_delta") or 0)
@@ -1618,10 +1627,15 @@ def _build_auto_open_entry(
     }
     runtime_errors = list(arrange_runtime.get("errors") or [])
     primary_error = runtime_errors[0] if runtime_errors else None
+    # #571：auto-open 无请求，账本归属由 LedgerResolver 显式解析（缺省 base）。
+    resolved_position_type = position_type or resolve_buy_position_type(
+        broker_only=True
+    )
     return {
         "entry_id": new_position_entry_id(),
         "symbol": gap["symbol"],
         "entry_type": "auto_reconciled_open",
+        "position_type": resolved_position_type,
         "source_ref_type": "reconciliation_resolution",
         "source_ref_id": resolution_id,
         "entry_price": price,
