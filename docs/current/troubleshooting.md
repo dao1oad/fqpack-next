@@ -1231,6 +1231,31 @@ Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/history/signal
 - 先看 `D:/fqdata/log/fqnext_tpsl_worker_err.log` 尾部，确认是连接类还是毒消息
 - 若 tick 队列已积压，恢复消费后深度会自然回落；长时间不回落则检查 consumer 是否停摆
 
+## TPSL 标的已配 TP 且价格超档位但不触发（买入线 skipped 短路）
+
+现象：
+
+- 标的已配置 TP 档位且现价已超过档位，但 `om_exit_trigger_events` 无对应触发记录。
+
+当前行为：
+
+- #549 双账本引入的买入线短路曾导致：买入线评估返回 `skipped` 时本 tick 直接终止，
+  TP/SL 评估永远不执行（生产实证 2026-08-11，恩华药业 002262 TP1 不触发，
+  当日 worker 事件 `base_buyline` 10688 条、`takeprofit` 0 条）。
+- 已修复：tick 处理顺序为「买入线评估（仅 `ready` 提交买单并终止本 tick）→ 止盈评估 →
+  止损评估」；买入线 `skipped` 不阻断双集合标的（同时命中 TP/SL universe）的后续评估，
+  buy-line-only 标的本 tick 终止。
+- 同类边界（暂不改，价格区间不相交、风险低）：`evaluate_takeprofit` 返回非 ready
+  （无可用数量/blocked）时本 tick 同样短路 stoploss。
+
+处理：
+
+- 检查该标的是否同时配置了买入线（`load_active_buy_line_codes`）；
+- 核对 worker 当日运行时 jsonl（`D:/fqdata/log/fqnext_tpsl_worker` 目录）中
+  `base_buyline` 与 `takeprofit` 事件比例；
+- 若仍不触发，检查 `om_takeprofit_states.armed_levels` 与
+  `om_takeprofit_profiles` 配置是否就绪。
+
 ## Guardian 在 trading_mode=false 下保持 RUNNING（idle 待命）
 
 现象：
