@@ -2,7 +2,8 @@
 
 ## 职责
 
-`clx_daily_selection` 是独立的 18 模型日线选股链，并通过 `/daily-screening?tab=clx` 嵌入每日选股页面，负责：
+`clx_daily_selection` 是独立的 18 模型日线选股链，为 `/daily-screening`
+基本面评价工作台提供正式批次真值，并承载 Kline CLX marker 图层，负责：
 
 - 以冻结的 `production_v1 / switch_opt=1` profile 计算 `S0000-S0017`
 - 以 `clx-daily-selection.v2` 保存 Stock+ETF canonical QFQ snapshot pair 与 pair hash
@@ -10,10 +11,12 @@
 - 在进入 strict QFQ probe 与模型计算前执行 `credit-lof-v1` universe policy：Stock 和 ETF 都仅保留融资标的，ETF 额外排除 LOF
 - 在页面明确展示 partial，但只把双 partition 校验通过的 batch 标为 final
 - 提供批次、结果、解释证据、统计和单标的历史 marker API
-- 为 `/daily-screening?tab=clx` 的 CLX 18 模型工作区和 `/kline-slim` 的历史 marker 图层提供同一套服务端事实
+- 为 `/daily-screening` 基本面评价链和 `/kline-slim` 的历史 marker 图层提供同一套服务端事实
 - 让用户先把已发布 final 批次中的结果加入人工篮子，再把确认后的篮子原子覆盖到通达信固定分组 `clx_18 / CLX_18.blk`
 
-`/daily-screening` 的 `综合交集` 工作区仍使用旧 12 模型 scope、集合和 `daily_screening_ready` marker；这些事实不参与 CLX 18 模型的 partition、batch 或默认结果。
+旧 `综合交集` 工作区（12 模型 scope / `daily_screening_ready` marker）与
+CLX 18 模型的 partition、batch 或默认结果互不参与；页面已重构为基本面评价
+工作台（见 `docs/current/modules/clx-fundamental-evaluation.md`）。
 
 ## 代码入口
 
@@ -27,12 +30,13 @@
 - Dagster job：`fqdagster.defs.jobs.clx_daily_selection`
 - Dagster sensor：`fqdagster.defs.sensors.clx_daily_selection`
 - 每日选股容器：`morningglory/fqwebui/src/views/DailyScreening.vue`
-- CLX 18 模型工作区：`morningglory/fqwebui/src/views/ClxDailyScreening.vue`
+- CLX 18 模型面板：`morningglory/fqwebui/src/views/components/ClxSelectionPanel.vue`
 - 页面合同：`morningglory/fqwebui/src/views/clxDailySelection.mjs`
 - API client：`morningglory/fqwebui/src/api/clxDailySelectionApi.js`
 - Kline CLX marker 投影：`morningglory/fqwebui/src/views/js/kline-slim-clx.mjs`
 - 兼容路由：`morningglory/fqwebui/src/router/clxDailyScreeningRedirect.mjs`
-- 静态 CLX 评价页：`morningglory/fqwebui/src/views/ClxMarketEvaluation.vue`
+- 基本面评价管线：`freshquant/clx_daily_selection/fundamental/`
+- 基本面评价文档：`docs/current/modules/clx-fundamental-evaluation.md`
 
 ## 计算 profile
 
@@ -195,9 +199,23 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 
 ## 统一桌面工作台
 
-### `/clx-evaluation` 静态评价页
+### `/daily-screening` 基本面评价工作台
 
-`/clx-evaluation` 继续只读取 `/data/clx-evaluator/latest.json` 与其指向的 `clx-eval.v1.json` 静态快照，不改变 JSON schema 或新增后端接口。当前页面采用 master-detail 工作台：顶部展示标题、trade date/run badges 与 KPI strip；左侧为分组导航卡片，展示 rank、分组名、market lane、fit grade、theme、CLX 数、shortlist、金额、代表标的、fit reason 和导入通达信按钮；右侧为 sticky 筛选条、选中分组摘要和组内成员表。点击左侧分组会过滤右侧 members；清除组筛选恢复全量。运行合同、统计分布和映射审计保留在原生 `details` 折叠区，小屏下工作台降为单列。导入通达信仍复用 `importGroupToTdx(group)` 的现有 batch API 与本地 adapter fallback 行为。
+`/daily-screening` 是 CLX 基本面评价工作台（三区布局，见
+`docs/current/modules/clx-fundamental-evaluation.md`）：
+
+- ① CLX 基本面排序：虚拟滚动列表、两级密度、筛选/排序/URL 持久化、星标
+  收藏、跨日连续入选 ×N 徽章；
+- ② 标的基本面详情：首屏决策卡 + 手风琴分节，↑↓ 键盘切换保持分节态；
+- ③ 池子统计分析：默认 4 图 + 折叠 4 图、全屏模式、单向下钻（点击行业条
+  写入列表筛选，不覆盖已选中标的）。
+
+页面只读取静态产物 `/data/clx-evaluator/latest.json`（schema
+`clx-eval-latest.v2`）及其指向的 `clx-fundamental-ranking.json` /
+`fundamental-stats.json` / `fundamental-analysis/<symbol>.json` /
+`fundamental-snapshot/<symbol>.json`，不新增后端接口。三池工作区
+（`PoolWorkspacePanel`）已下线；market_lane / market_theme_id /
+market_fit_grade 等市场字段已从产物与 UI 移除。
 
 静态评价数据（`/data/clx-evaluator/**`）**出 git**，由宿主外部目录
 `D:/fqpack/runtime/artifacts/clx-evaluator/` 通过 `fq_webui` compose bind mount
@@ -206,35 +224,28 @@ ready marker 仍写在主库 `freshquant.dagster_pipeline_markers`：
 前端路径不变、无需 commit、无需 rebuild 镜像；容器重启后数据不丢失。
 每日运行入口脚本为 `script/clx_eval_daily.ps1`：
 
-- Phase 0/Phase A（clean-room，`fork_turns="none"`）仍需独立 Codex 会话执行，
-  脚本负责生成启动器并校验 `market-state.lock.json`；
-- Phase B + build + publish 由脚本调用 skill 的 `clx_run.py` 完成，publish
-  目标固定为外部数据目录（public/web 两份同指向，历史 runs 保留在外部目录）。
+- `bootstrap`（`clx_run.py`，拉取正式批次，content_hash 锁定）→ `prepare` →
+  `rank`（全量确定性快排 + 深析合并 + 快照 + 深析规格）→ 深析（agent，
+  前 100 只）→ `stats` → `validate` → `publish`；
+- 由仓库 `freshquant/clx_daily_selection/fundamental/runner.py` 执行，publish
+  目标固定为外部数据目录（历史 runs 保留在外部目录）。
 
 历史 runs（07-31/08-03/08-04/08-05）已迁移到该外部目录，仓库内不再跟踪
 `morningglory/fqwebui/{public,web}/data/clx-evaluator/**`。
 
-### `/daily-screening?tab=clx` CLX 18 模型工作区
+### `/daily-screening?tab=clx` 兼容标记
 
-`/daily-screening?tab=clx` 是 CLX 日线选股的正式工作区入口；页面只展示批次、筛选、统计、结果列表和详情，不承载主体 K 线。顶部“每日选股”进入 `/daily-screening`，用户可在 `综合交集 / CLX 18 模型` 两个工作区之间切换。
-
-- 默认选择最新 `published/not_required` final；用户显式选择时才查看 partial 或 publication 中间态。
-- scope 摘要展示交易日、profile、股票/ETF partition 与 partial/final 状态。
-- 模型目录固定为 18 个 CLX 模型：`S0000-S0017`，对应生产模型编号 `10000..10017`。前端 catalog 会过滤到这组固定范围，兼容数字编号反解为对应 `Sxxxx`。
-- 支持资产、模型、条件、方向、三态线关系、最少模型数和代码/名称搜索；查询保持服务端排序，并使用 cursor 继续加载，不在浏览器端伪造全量分页。
-- scope 或筛选条件改变时重置 cursor；详情查看不重置已加载列表。
-- 同一 scope 的筛选请求期间保留上一份稳定列表并标记 `aria-busy / 更新中`，成功后原子替换；失败仍保留旧列表并提供重试。
-- 结果行展示资产类型、模型数、条件数、线关系和触发摘要；`看图` 跳转 `/kline-slim` 查看单标的图表。
-- `加入clx15分钟监控` 调用 `/api/gantt/shouban30/stock-pool/append`，只追加到 `stock_pools`，记录 CLX scope、资产类型和模型上下文，不写 `must_pool`、不触发下单。
-- 顶部“导入通达信”复用 `/results/sync-selected-to-tdx`，只对正式完整发布 batch 的人工篮子/当前结果身份生效。
-
-CLX 18 模型工作区的模型/条件表示“哪些标的进入筛选结果”。Kline 图表页的 CLX marker 显示控制仍使用独立 `clxModels / clxConditions`，只影响当前标的历史 marker 图层，不改变 `/daily-screening?tab=clx` 的结果集合。
+`/daily-screening?tab=clx` 保留为历史深链的兼容标记；页面本身是基本面评价
+工作台，不按 `tab` 参数切换 UI。CLX 18 模型的批次、筛选与“导入通达信”能力由
+`morningglory/fqwebui/src/views/components/ClxSelectionPanel.vue` 承载
+（Kline 图表页内使用），与本工作台互不依赖。
 
 ### `/clx-daily-screening` 兼容入口
 
-- 旧收藏或深链仍可进入该路径；路由把 `scope_id / clxScope`、`asset_types / clxAssetType`、`model_keys / clxModels`、`condition_keys / clxConditions` 等兼容 query 映射到 CLX 18 模型工作区状态后重定向至 `/daily-screening?tab=clx`。
+- 旧收藏或深链仍可进入该路径；路由把兼容 query 映射后重定向至
+  `/daily-screening?tab=clx`（页面不按 tab 切换 UI，仅保留 URL 兼容）。
 - 该路径不再挂载独立筛选页面，不维护第二份 scope、筛选、分页或选中标的状态。
-- 顶部导航、部署验收和日常操作统一使用 `/daily-screening` 与 `/daily-screening?tab=clx`。
+- 顶部导航、部署验收和日常操作统一使用 `/daily-screening`。
 
 ## 部署与健康检查
 
@@ -252,7 +263,9 @@ Invoke-RestMethod http://127.0.0.1:15000/api/clx-daily-selection/batches/latest
 Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18080/daily-screening?tab=clx'
 ```
 
-浏览器验收还应打开带旧 query 的 `/clx-daily-screening`，确认最终地址为 `/daily-screening?tab=clx` 且 scope 与筛选状态已恢复；仅看到旧路径返回 SPA shell 不代表兼容重定向完成。
+浏览器验收还应打开带旧 query 的 `/clx-daily-screening`，确认最终地址为
+`/daily-screening?tab=clx` 且基本面三区工作台可见；仅看到旧路径返回 SPA
+shell 不代表兼容重定向完成。
 
 健康接口应报告原生 batch、单模型和 S0002 evidence 能力；`model-catalog` 应返回 18 个模型和 `production_v1 / switch_opt=1`。没有 `published/not_required` final 时，默认 `batches/latest` 可以返回较早已发布 final 或 `no_ready_batch`；`pending/publishing/failed` 与普通 partial 都不能充当 final 健康证据。
 

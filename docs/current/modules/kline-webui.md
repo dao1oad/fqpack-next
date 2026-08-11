@@ -122,10 +122,10 @@
 - `entry stoploss` 后端与订单管理语义保持不变，但当前不再显示在标的设置浮层中
 - 图表页不再直接展示长 `buy_lot_id`
 - 交易复盘是可选只读覆盖层，不改变 K 线主图、订单账本、持仓真值或策略执行逻辑
-- Kline 图表页不写 batch、partition、选股结果或策略参数；每日选股的 CLX 18 模型工作区位于 `/daily-screening?tab=clx`，结果行“看图”跳转到 `/kline-slim` 查看单标的图表。
-- `/kline-slim` 是图表正式入口；`/daily-screening` 是纯选股工作台，不展示主体 K 线；`/clx-daily-screening` 只执行兼容 query 映射并重定向到 `/daily-screening?tab=clx`。
+- Kline 图表页不写 batch、partition、选股结果或策略参数；CLX 18 模型的批次、筛选与“导入通达信”能力由图表页内 `ClxSelectionPanel` 承载，结果行“看图”回到 `/kline-slim` 查看单标的图表。
+- `/kline-slim` 是图表正式入口；`/daily-screening` 是 CLX 基本面评价工作台（排序 / 详情 / 统计三区），不展示主体 K 线；`/clx-daily-screening` 只执行兼容 query 映射并重定向到 `/daily-screening?tab=clx`。
 - partial 只允许明确展示已完成 partition，不能冒充 final；跨资产统计仍由 CLX finalizer 的完整 batch 提供
-- `/daily-screening` 综合交集的 12 模型结果不混入 Kline CLX marker 图层
+- `/daily-screening` 基本面评价产物（`/data/clx-evaluator/**`）不混入 Kline CLX marker 图层；marker 只消费 CLX 日线选股信号服务
 - 信号仅在后端给出明确关联时显示；无关联信号不依据时间或价格补配
 - 同一策略请求无法把应有量可靠分给多个订单时，数量轨显示证据不足而非重复的策略数量；同秒跨订单的仓位先后无法证实时也明确标记为不确定
 
