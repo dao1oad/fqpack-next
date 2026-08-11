@@ -132,6 +132,19 @@ def test_clx_rear_route_redeploys_api_only() -> None:
     assert plan["docker_services"] == ["fq_apiserver"]
 
 
+def test_runtime_observability_paths_redeploy_api() -> None:
+    """runtime_observability 变更必须触发 api 部署（ClickHouse 查询由 apiserver 承载）。"""
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/runtime_observability/clickhouse_store.py"]
+    )
+
+    assert plan["deployment_required"] is True
+    assert plan["deployment_surfaces"] == ["api"]
+    assert plan["docker_services"] == ["fq_apiserver"]
+
+
 def test_fqcopilot_native_paths_rebuild_all_python_consumers() -> None:
     module = load_module()
 

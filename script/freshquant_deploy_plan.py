@@ -164,6 +164,15 @@ PATH_RULES: tuple[PathRule, ...] = (
         prefix="freshquant/rear/",
         surfaces=("api",),
     ),
+    PrefixRule(
+        label="runtime-observability",
+        prefix="freshquant/runtime_observability/",
+        surfaces=("api",),
+        notes=(
+            "runtime-observability 的 ClickHouse 读写与事件/trace 查询由 rear API "
+            "容器承载；缺该映射会导致变更漏部署（2026-08-11 实测 traces 503 未触发部署）。",
+        ),
+    ),
     ExactRule(
         label="index-data-api",
         exact_path="freshquant/data/index.py",
