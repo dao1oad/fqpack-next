@@ -8,6 +8,9 @@
    - sell：TPSL 止盈（source/scope_type）→ base；stoploss → ``-``；
      Guardian 做T（guardian_sell_sources）→ t；手动/网页/api/cli → ``-``；
    - buy：base_line / new_open / 手动/网页/api/cli → base；holding_add → t；
+   - buy flatten 重建（严格证据组合：``source=order_ledger_rebuild`` 且
+     ``rebuild_source=position_snapshot_flatten`` 且 ``rebuilt_open=True``）
+     → base；任一字段缺失/不匹配仍 fail-closed；
    - **无法从确定证据推导（如空/未知 buy path + strategy source）时在
      dry-run/execute 中显式冲突并停止**，不得静默归 base（fail-closed）。
 2. ``om_position_entries / om_entry_slices``：缺失 ``position_type`` 补 base
@@ -59,6 +62,8 @@ _BUY_BASE_EVIDENCE_SOURCES = {
     "external",
 }
 _SELL_UNSPECIFIED_SOURCES = _BUY_BASE_EVIDENCE_SOURCES
+_REBUILD_FLATTEN_SOURCE = "order_ledger_rebuild"
+_REBUILD_FLATTEN_REBUILD_SOURCE = "position_snapshot_flatten"
 
 
 def _derive_ledger_intent(request) -> tuple[str | None, str | None]:
@@ -88,6 +93,16 @@ def _derive_ledger_intent(request) -> tuple[str | None, str | None]:
             f"sell 无法确定归属（source={source!r}，无 TP/stoploss/"
             "guardian_sell_sources 证据）",
         )
+    # 严格证据组合：持仓快照 flatten 重建的 broker-only open entry 确定归
+    # base；action/source/rebuild_source/rebuilt_open 任一缺失或不匹配仍
+    # fail-closed（unresolved），不做字段缺省推断。
+    if (
+        source == _REBUILD_FLATTEN_SOURCE
+        and str((request or {}).get("rebuild_source") or "").strip().lower()
+        == _REBUILD_FLATTEN_REBUILD_SOURCE
+        and (request or {}).get("rebuilt_open") is True
+    ):
+        return LEDGER_BASE, None
     buy_ledger = str(context.get("buy_ledger") or "").strip().lower()
     grid = dict(context.get("guardian_buy_grid") or {})
     path = str(grid.get("path") or "").strip().lower()

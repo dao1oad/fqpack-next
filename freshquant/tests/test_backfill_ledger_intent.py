@@ -409,3 +409,104 @@ def test_execute_stops_before_any_write_on_conflict(monkeypatch):
     assert all(
         item.get("ledger_intent") is None for item in database["om_order_requests"].docs
     )
+
+
+def test_execute_backfills_rebuild_flatten_request_as_base(monkeypatch):
+    """#571：flatten 重建 broker-only open entry（严格证据组合）→ base。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_flatten_1",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "data_quality": "reconstructed",
+                "strategy_context": {},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--execute")
+    assert response.exit_code == 0, response.output
+    assert database["om_order_requests"].docs[0]["ledger_intent"] == "base"
+
+
+def test_dry_run_conflicts_on_rebuild_flatten_missing_rebuilt_open(monkeypatch):
+    """#571：rebuilt_open 缺失 → 严格证据组合不成立 → fail-closed。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_missing_open",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "strategy_context": {},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
+    assert "req_rebuilt_missing_open" in response.output
+
+
+def test_dry_run_conflicts_on_rebuild_flatten_missing_rebuild_source(monkeypatch):
+    """#571：rebuild_source 缺失 → 严格证据组合不成立 → fail-closed。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_missing_rs",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
+    assert "req_rebuilt_missing_rs" in response.output
+
+
+def test_dry_run_conflicts_on_rebuild_flatten_wrong_rebuild_source(monkeypatch):
+    """#571：rebuild_source 不匹配 → 严格证据组合不成立 → fail-closed。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_wrong_rs",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_legacy",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
+
+
+def test_dry_run_conflicts_on_rebuild_flatten_sell(monkeypatch):
+    """#571：sell 方向带重建标记 → 卖分支无证据 → fail-closed。"""
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_sell",
+                "action": "sell",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ]
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved ledger_intent" in response.output
