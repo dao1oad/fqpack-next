@@ -550,3 +550,120 @@ def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
     assert "_id" not in detail_payload["request"]
     assert "_id" not in detail_payload["events"][0]
     assert "_id" not in detail_payload["fills"][0]
+
+
+def _build_ledger_repository():
+    repository = InMemoryOrderManagementRepository()
+    repository.order_requests.extend(
+        [
+            {
+                "request_id": "req_ledger_base_line",
+                "action": "buy",
+                "source": "strategy",
+                "symbol": "600000",
+                "price": 9.5,
+                "quantity": 100,
+                "scope_type": "takeprofit_batch",
+                "strategy_context": {
+                    "buy_ledger": "base_line",
+                    "guardian_buy_grid": {"grid_level": "BUY-2"},
+                },
+            },
+            {
+                "request_id": "req_ledger_t_buy",
+                "action": "buy",
+                "source": "strategy",
+                "symbol": "600000",
+                "price": 9.6,
+                "quantity": 200,
+                "scope_type": "signal",
+                "strategy_context": {
+                    "guardian_buy_grid": {
+                        "grid_level": "BUY-3",
+                        "hit_levels": ["BUY-3"],
+                    }
+                },
+            },
+            {
+                "request_id": "req_ledger_manual",
+                "action": "buy",
+                "source": "manual_import",
+                "symbol": "600000",
+                "price": 9.7,
+                "quantity": 300,
+                "scope_type": "manual",
+            },
+            {
+                "request_id": "req_ledger_tp_sell",
+                "action": "sell",
+                "source": "tpsl_takeprofit",
+                "symbol": "600000",
+                "price": 10.8,
+                "quantity": 100,
+                "scope_type": "takeprofit_batch",
+                "strategy_context": {
+                    "guardian_sell_sources": {
+                        "allocation_policy": "takeprofit_ratio_v1",
+                        "level": 1,
+                    }
+                },
+            },
+            {
+                "request_id": "req_ledger_stoploss",
+                "action": "sell",
+                "source": "tpsl_symbol_stoploss",
+                "symbol": "600000",
+                "price": 9.0,
+                "quantity": 500,
+                "scope_type": "symbol_stoploss_batch",
+            },
+        ]
+    )
+    for index, request in enumerate(repository.order_requests):
+        repository.broker_orders.append(
+            {
+                "broker_order_key": f"ord_ledger_{index}",
+                "internal_order_id": f"ord_ledger_{index}",
+                "request_id": request["request_id"],
+                "broker_order_id": f"BRK-ledger-{index}",
+                "symbol": request["symbol"],
+                "side": request["action"],
+                "state": "FILLED",
+                "requested_quantity": request["quantity"],
+                "created_at": "2026-08-11T09:00:00+00:00",
+                "updated_at": "2026-08-11T09:00:00+00:00",
+            }
+        )
+    return repository
+
+
+def test_list_orders_derives_dual_ledger_for_buy_orders():
+    repository = _build_ledger_repository()
+    service = OrderManagementReadService(repository=repository)
+
+    payload = service.list_orders(symbol="600000", state="FILLED")
+    by_request = {row["request_id"]: row for row in payload["rows"]}
+
+    # 买入线补仓（base_line）→ base
+    assert by_request["req_ledger_base_line"]["ledger"] == "base"
+    assert by_request["req_ledger_base_line"]["position_type"] == "base"
+    # Guardian 做T 买单（guardian_buy_grid 存在且无 base_line）→ t
+    assert by_request["req_ledger_t_buy"]["ledger"] == "t"
+    assert by_request["req_ledger_t_buy"]["position_type"] == "t"
+    # 手动加仓/首开（无 grid）→ base
+    assert by_request["req_ledger_manual"]["ledger"] == "base"
+
+
+def test_list_orders_derives_dual_ledger_for_sell_orders():
+    repository = _build_ledger_repository()
+    service = OrderManagementReadService(repository=repository)
+
+    payload = service.list_orders(symbol="600000", state="FILLED")
+    by_request = {row["request_id"]: row for row in payload["rows"]}
+
+    # TP 卖单（guardian_sell_sources）→ t
+    assert by_request["req_ledger_tp_sell"]["ledger"] == "t"
+    assert by_request["req_ledger_tp_sell"]["position_type"] == "t"
+    # 全仓止损 → -
+    assert by_request["req_ledger_stoploss"]["ledger"] == "-"
+    assert by_request["req_ledger_stoploss"]["position_type"] == ""

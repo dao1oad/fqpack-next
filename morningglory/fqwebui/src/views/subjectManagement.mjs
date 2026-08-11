@@ -421,6 +421,8 @@ const buildEntries = (rows = [], runtimeSummary = {}) => {
     return {
       ...row,
       entry_id: toText(row?.entry_id),
+      // #549 双账本：显式透传 position_type（缺失按 base 展示）。
+      position_type: toText(row?.position_type),
       entry_price: entryPrice,
       entry_price_label: formatPrice(entryPrice),
       aggregation_members: aggregationMembers,

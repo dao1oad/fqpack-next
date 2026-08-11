@@ -7,6 +7,7 @@ import {
   getHeaderNavTarget,
   resolveHeaderNavGroups,
   resolveDocumentTitle,
+  resolveRouteMetaTitle,
 } from './pageMeta.mjs'
 
 const LEGACY_CORE_ROUTE_SPECS = [
@@ -83,7 +84,7 @@ test('resolveDocumentTitle prefers query title then route meta title', () => {
 test('header nav groups stay metadata-driven and preserve the expected workbench grouping order', () => {
   assert.deepEqual(HEADER_NAV_GROUPS, [
     ['systemSettings'],
-    ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
+    ['klineSlim', 'positionManagement', 'positionReview', 'stockPositionList', 'runtime', 'opsConsole'],
     ['gantt', 'dailyScreening', 'clxEvaluation'],
     ['stock', 'pool'],
     ['tradingGuide'],
@@ -95,9 +96,11 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.equal(groups[1][1].path, '/position-management')
   assert.equal(groups[1][2].path, '/position-review')
   assert.equal(groups[1][2].query.tabTitle, '持仓复盘')
-  assert.equal(groups[1][3].query.tabTitle, '运行观测')
-  assert.equal(groups[1][4].path, '/ops-console')
-  assert.equal(groups[1][4].query.tabTitle, '运维')
+  assert.equal(groups[1][3].path, '/stock-position-list')
+  assert.equal(groups[1][3].query.tabTitle, '持仓列表')
+  assert.equal(groups[1][4].query.tabTitle, '运行观测')
+  assert.equal(groups[1][5].path, '/ops-console')
+  assert.equal(groups[1][5].query.tabTitle, '运维')
   assert.equal(groups[2][1].label, '每日选股')
   assert.equal(groups[2][1].path, '/daily-screening')
   assert.equal(groups[2][1].query.tabTitle, '每日选股')
@@ -114,6 +117,17 @@ test('header nav groups stay metadata-driven and preserve the expected workbench
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/tpsl'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/stock-cjsd'), false)
   assert.equal(groups.flatMap((group) => group.map((item) => item.path)).includes('/subject-management'), false)
+})
+
+test('stock position list nav target and route title are registered', () => {
+  assert.deepEqual(getHeaderNavTarget('stockPositionList'), {
+    label: '持仓列表',
+    path: '/stock-position-list',
+    query: {
+      tabTitle: '持仓列表',
+    },
+  })
+  assert.equal(resolveRouteMetaTitle('stock-position-list'), '持仓列表')
 })
 
 test('legacy core routes stay lazy-loaded without changing redirect or route bindings', async () => {

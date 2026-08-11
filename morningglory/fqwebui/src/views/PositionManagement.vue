@@ -165,6 +165,13 @@
                             </div>
                           </template>
                         </el-table-column>
+                        <el-table-column label="账本" min-width="72" align="center">
+                          <template #default="{ row }">
+                            <StatusChip class="runtime-inline-status" :variant="ledgerChipVariant(row.position_type || 'base')">
+                              {{ formatLedgerLabel(row.position_type || 'base') }}
+                            </StatusChip>
+                          </template>
+                        </el-table-column>
 
                         <el-table-column label="买入时间" min-width="132">
                           <template #default="{ row }">
@@ -256,6 +263,13 @@
                             <div class="position-selection-entry-cell position-selection-entry-cell--inline" :title="`${row.entryDisplayLabel || '-'} / ${row.entryIdLabel || row.entry_id || '-'}`">
                               <strong>{{ row.entryCompactLabel || '-' }}</strong>
                             </div>
+                          </template>
+                        </el-table-column>
+                        <el-table-column label="账本" min-width="72" align="center">
+                          <template #default="{ row }">
+                            <StatusChip class="runtime-inline-status" :variant="ledgerChipVariant(row.position_type || 'base')">
+                              {{ formatLedgerLabel(row.position_type || 'base') }}
+                            </StatusChip>
                           </template>
                         </el-table-column>
                         <el-table-column label="序号" min-width="62" align="center">
@@ -392,6 +406,13 @@
                             </template>
                           </el-table-column>
                           <el-table-column prop="side" label="方向" width="64" show-overflow-tooltip />
+                          <el-table-column label="账本" width="76" align="center" show-overflow-tooltip>
+                            <template #default="{ row }">
+                              <StatusChip class="runtime-inline-status" :variant="ledgerChipVariant(row.ledger)">
+                                {{ formatLedgerLabel(row.ledger) }}
+                              </StatusChip>
+                            </template>
+                          </el-table-column>
                           <el-table-column label="状态" width="112" show-overflow-tooltip>
                             <template #default="{ row }">
                               <StatusChip class="runtime-inline-status" :variant="row.state_chip_variant || 'muted'">
@@ -474,6 +495,11 @@
                                     </el-descriptions-item>
                                     <el-descriptions-item label="state">
                                       {{ orderDetail.order.state_label || orderDetail.order.state || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="账本">
+                                      <StatusChip class="runtime-inline-status" :variant="ledgerChipVariant(orderDetail.order.ledger)">
+                                        {{ formatLedgerLabel(orderDetail.order.ledger) }}
+                                      </StatusChip>
                                     </el-descriptions-item>
                                     <el-descriptions-item label="request">
                                       {{ orderDetail.request.request_id || '-' }}
@@ -741,7 +767,14 @@ import { orderManagementApi } from '@/api/orderManagementApi'
 import { positionManagementApi } from '@/api/positionManagementApi'
 import { subjectManagementApi } from '@/api/subjectManagementApi'
 import { tpslApi } from '@/api/tpslApi'
-import { ORDER_STATE_FILTER_OPTIONS, formatOrderPrice, formatOrderQuantity, formatOrderTimestamp } from './orderManagement.mjs'
+import {
+  ORDER_STATE_FILTER_OPTIONS,
+  formatLedgerLabel,
+  formatOrderPrice,
+  formatOrderQuantity,
+  formatOrderTimestamp,
+  ledgerChipVariant,
+} from './orderManagement.mjs'
 import { buildPositionReconciliationRows } from './positionReconciliation.mjs'
 import { createDefaultReconciliationOrderFilters, createReconciliationWorkbenchPageController } from './reconciliationWorkbenchPage.mjs'
 import { createReconciliationWorkbenchActions } from './reconciliationWorkbench.mjs'
