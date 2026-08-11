@@ -29,7 +29,6 @@ dependencies = [
     "gevent",
     "interval",
     "joblib",
-    "jsonschema",
     "jupyterlab",
     "loguru",
     "matplotlib",
