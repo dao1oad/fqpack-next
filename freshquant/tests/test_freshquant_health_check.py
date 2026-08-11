@@ -35,6 +35,8 @@ def test_resolve_check_urls_uses_surface_targets_and_deduplicates() -> None:
     assert urls == [
         "http://127.0.0.1:15000/api/runtime/components",
         "http://127.0.0.1:15000/api/runtime/health/summary",
+        "http://127.0.0.1:15000/api/runtime/traces?limit=1",
+        "http://127.0.0.1:15000/api/runtime/events?limit=1",
         "http://127.0.0.1:15000/api/gantt/plates?provider=xgb",
         "http://127.0.0.1:15000/api/clx-daily-selection/health",
         "http://127.0.0.1:15000/api/clx-daily-selection/model-catalog",
