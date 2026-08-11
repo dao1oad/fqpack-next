@@ -672,3 +672,51 @@ def test_execute_unsets_filled_quantity_and_converges_broker_state(monkeypatch):
     assert brokers["k_canceled"]["state"] == "CANCELED"
     assert "repeat_broker_states=0" in response.output
     assert "repeat_filled_quantity_docs=0" in response.output
+
+
+def test_execute_keeps_zero_fill_broker_states_untouched(monkeypatch):
+    """#571 Devin P1：零成交 broker 聚合不得被收敛改写。
+
+    SUBMITTED/FAILED（filled=0, requested=100）与 requested=0 边界都必须保持
+    原状态：不“复活”为 PARTIAL_FILLED、不推导为 FILLED，且幂等复验为 0。
+    """
+
+    database = _build_db(
+        orders=[
+            {"internal_order_id": "ord_submitted", "state": "SUBMITTED"},
+            {"internal_order_id": "ord_failed", "state": "FAILED"},
+            {"internal_order_id": "ord_zero_req", "state": "SUBMITTED"},
+        ],
+        broker_orders=[
+            {
+                "broker_order_key": "k_submitted",
+                "internal_order_id": "ord_submitted",
+                "state": "SUBMITTED",
+                "filled_quantity": 0,
+                "requested_quantity": 100,
+            },
+            {
+                "broker_order_key": "k_failed",
+                "internal_order_id": "ord_failed",
+                "state": "FAILED",
+                "filled_quantity": 0,
+                "requested_quantity": 100,
+            },
+            {
+                "broker_order_key": "k_zero_req",
+                "internal_order_id": "ord_zero_req",
+                "state": "SUBMITTED",
+                "filled_quantity": 0,
+                "requested_quantity": 0,
+            },
+        ],
+    )
+    response = _run(monkeypatch, database, "--execute")
+    assert response.exit_code == 0, response.output
+    brokers = {
+        item["broker_order_key"]: item for item in database["om_broker_orders"].docs
+    }
+    assert brokers["k_submitted"]["state"] == "SUBMITTED"
+    assert brokers["k_failed"]["state"] == "FAILED"
+    assert brokers["k_zero_req"]["state"] == "SUBMITTED"
+    assert "repeat_broker_states=0" in response.output

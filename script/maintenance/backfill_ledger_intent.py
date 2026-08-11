@@ -310,9 +310,25 @@ def _apply_allocation_updates(database, updates):
         )
 
 
+def _broker_order_has_fill_evidence(broker_order) -> bool:
+    """broker 聚合是否有成交证据（filled_quantity>0 或 fill_count>0）。"""
+
+    return (
+        int(broker_order.get("filled_quantity") or 0) > 0
+        or int(broker_order.get("fill_count") or 0) > 0
+    )
+
+
 def _collect_broker_state_updates(database):
     """om_orders 清除 filled_quantity 死字段；om_broker_orders.state 经
-    OrderStateService 收敛（按对应 om_orders terminal state + filled/requested）。"""
+    OrderStateService 收敛。
+
+    收敛仅作用于**有成交证据**（``filled_quantity>0`` 或 ``fill_count>0``）
+    的 broker 聚合（按对应 om_orders terminal state + filled/requested 推导，
+    终态不回退）；零成交行保持原状态——不把 FAILED/被拒/未成交挂单改写为
+    ``PARTIAL_FILLED``（避免“复活”占用买入容量与污染失败统计），也不把
+    ``requested=0`` 边界推导为 ``FILLED``。
+    """
 
     orders_by_internal_id = {
         str(item.get("internal_order_id") or "").strip(): item
@@ -322,6 +338,8 @@ def _collect_broker_state_updates(database):
     order_state_service = OrderStateService()
     broker_updates = []
     for broker_order in database["om_broker_orders"].find({}):
+        if not _broker_order_has_fill_evidence(broker_order):
+            continue
         internal_order_id = str(broker_order.get("internal_order_id") or "").strip()
         order = orders_by_internal_id.get(internal_order_id)
         current_order_state = (
@@ -379,6 +397,8 @@ def _data_contract_conservation(database):
     order_state_service = OrderStateService()
     broker_state_mismatches = []
     for broker_order in database["om_broker_orders"].find({}):
+        if not _broker_order_has_fill_evidence(broker_order):
+            continue
         order = orders_by_internal_id.get(
             str(broker_order.get("internal_order_id") or "").strip()
         )
