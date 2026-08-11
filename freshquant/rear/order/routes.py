@@ -2,6 +2,10 @@
 
 from flask import Blueprint, jsonify, request
 
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_BASE,
+    LEDGER_UNSPECIFIED,
+)
 from freshquant.order_management.read_service import OrderManagementReadService
 from freshquant.order_management.stoploss.service import EntryStoplossService
 from freshquant.order_management.submit.service import OrderSubmitService
@@ -25,14 +29,20 @@ def _get_order_management_read_service():
 @order_bp.route("/order/submit", methods=["POST"])
 def submit_order():
     payload = request.get_json(silent=True) or {}
+    action = str(payload.get("action") or "").strip().lower()
     try:
         result = _get_order_submit_service().submit_order(
             {
-                "action": payload["action"],
+                "action": action,
                 "symbol": payload["symbol"],
                 "price": float(payload["price"]),
                 "quantity": int(payload["quantity"]),
                 "source": payload.get("source", "api"),
+                # 手动/网页：买单显式归 base；卖单无指定账本（分配真值在
+                # om_exit_allocations.position_type），声明 "-"。
+                "ledger_intent": (
+                    LEDGER_BASE if action == "buy" else LEDGER_UNSPECIFIED
+                ),
                 "strategy_name": payload.get("strategy_name"),
                 "remark": payload.get("remark"),
                 "force": payload.get("force", False),
@@ -105,6 +115,7 @@ def create_stock_order():
             "price": price,
             "quantity": quantity,
             "source": payload.get("source", "web-order"),
+            "ledger_intent": LEDGER_BASE,
             "strategy_name": payload.get("strategy_name", "WebQuickBuy"),
             "remark": payload.get("remark"),
             "force": payload.get("force", False),

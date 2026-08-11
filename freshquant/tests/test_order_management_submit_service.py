@@ -135,6 +135,7 @@ def test_submit_service_enqueues_buy_and_marks_order_queued():
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "sz000001",
             "price": 10.12,
             "quantity": 500,
@@ -165,6 +166,7 @@ def test_submit_service_enqueues_cancel_and_preserves_cancel_requested_state():
     create_result = service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "600000.SH",
             "price": 9.8,
             "quantity": 300,
@@ -206,6 +208,7 @@ def test_credit_buy_persists_resolved_credit_metadata_and_queue_payload():
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "600000.SH",
             "price": 10.0,
             "quantity": 300,
@@ -238,6 +241,7 @@ def test_submit_service_default_runtime_logger_uses_isolated_test_runtime_root()
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.12,
             "quantity": 500,

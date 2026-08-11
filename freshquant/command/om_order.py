@@ -2,6 +2,10 @@
 
 import click
 
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_BASE,
+    LEDGER_UNSPECIFIED,
+)
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
 
@@ -31,6 +35,7 @@ def submit_command(action, symbol, price, quantity, source, strategy_name, remar
             "price": price,
             "quantity": quantity,
             "source": source,
+            "ledger_intent": (LEDGER_BASE if action == "buy" else LEDGER_UNSPECIFIED),
             "strategy_name": strategy_name,
             "remark": remark,
         }

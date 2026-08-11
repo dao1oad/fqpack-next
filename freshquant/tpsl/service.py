@@ -13,6 +13,10 @@ from freshquant.order_management.entry_adapter import (
     position_type_of,
 )
 from freshquant.order_management.ids import new_event_id
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_BASE,
+    LEDGER_UNSPECIFIED,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.sell_constraints import (
     PositionVolumeReader as _PositionReader,
@@ -719,7 +723,7 @@ class TpslService:
         return result
 
     def submit_base_buy_batch(self, decision, *, trace_id=None):
-        """提交买入线补仓单（base 账本，buy_ledger=base_line）。
+        """提交买入线补仓单（base 账本，ledger_intent=base）。
 
         触发即关（阶梯事件）+ 全开止盈档；独立冷却 ``base_buy:<code>``；
         提交前在途复核（超 cap 放弃）；不取消 T 侧在途买单。
@@ -787,7 +791,6 @@ class TpslService:
                 "quantity": 0,
             }
         strategy_context = {
-            "buy_ledger": "base_line",
             "guardian_buy_grid": {
                 "path": "base_line",
                 "grid_level": grid_level,
@@ -814,6 +817,7 @@ class TpslService:
                 quantity,
                 remark=f"base_buyline:{symbol}:{grid_level}",
                 strategy_context=strategy_context,
+                ledger_intent=LEDGER_BASE,
                 trace_id=trace_id_value,
                 intent_id=intent_id,
             )
@@ -899,6 +903,11 @@ class TpslService:
                         }
                         if scope_type == "takeprofit_batch"
                         else None
+                    ),
+                    "ledger_intent": (
+                        LEDGER_BASE
+                        if scope_type == "takeprofit_batch"
+                        else LEDGER_UNSPECIFIED
                     ),
                 }
             )

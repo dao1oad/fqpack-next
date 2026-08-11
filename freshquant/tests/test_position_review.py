@@ -2235,3 +2235,55 @@ def test_position_review_routes_expose_summary_symbols_and_detail(monkeypatch):
         ("chart", "002262", "5m", None, True, True),
     ]
     assert client.get("/api/position-review/summary?refresh=maybe").status_code == 400
+
+
+def test_takeprofit_sell_is_not_reviewed_as_guardian_sell():
+    """#571 #5：TPSL 止盈卖单不再按 Guardian 做T规则复盘。"""
+
+    from freshquant.position_review.replay import review_requests
+
+    reviews = review_requests(
+        symbol="000001",
+        requests=[
+            {
+                "request_id": "req_tp_replay_1",
+                "symbol": "000001",
+                "action": "sell",
+                "source": "tpsl_takeprofit",
+                "scope_type": "takeprofit_batch",
+                "strategy_name": "TPSL",
+                "quantity": 100,
+                "price": 11.0,
+                "ledger_intent": "base",
+                "created_at": "2026-08-11T09:30:00+08:00",
+                "strategy_context": {
+                    "guardian_sell_sources": {
+                        "allocation_policy": "takeprofit_ratio_v1",
+                        "level": 1,
+                    }
+                },
+            }
+        ],
+        orders_by_request={
+            "req_tp_replay_1": [
+                {
+                    "internal_order_id": "ord_tp_replay_1",
+                    "state": "FILLED",
+                }
+            ]
+        },
+        canonical_trades=[
+            {
+                "request_id": "req_tp_replay_1",
+                "internal_order_id": "ord_tp_replay_1",
+                "quantity": 100,
+                "price": 11.0,
+            }
+        ],
+        inventory=[],
+        threshold_ratios={},
+    )
+    assert len(reviews) == 1
+    assert reviews[0]["verdict"] == "NOT_APPLICABLE"
+    assert "tpsl_takeprofit_request" in reviews[0]["reason_codes"]
+    assert reviews[0]["execution_status"] == "filled"

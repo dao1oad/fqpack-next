@@ -164,6 +164,7 @@ def test_strategy_order_is_blocked_before_tracking_when_position_management_reje
         service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": 10.0,
                 "quantity": 100,
@@ -190,6 +191,7 @@ def test_api_order_bypasses_position_management():
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -216,6 +218,7 @@ def test_allowed_strategy_order_carries_position_management_summary_to_queue():
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -251,6 +254,7 @@ def test_strategy_order_persists_strategy_context_to_tracking_and_queue():
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -383,6 +387,7 @@ def test_default_submit_gate_prefers_persisted_symbol_snapshot(monkeypatch):
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -411,6 +416,7 @@ def test_default_submit_gate_allows_confirmed_empty_position_within_limit(
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -438,6 +444,7 @@ def test_default_submit_gate_rejects_position_without_market_value(monkeypatch):
         service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": 10.0,
                 "quantity": 100,
@@ -464,6 +471,7 @@ def test_default_submit_gate_rejects_projected_position_above_limit(monkeypatch)
         service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": 10.0,
                 "quantity": 100,

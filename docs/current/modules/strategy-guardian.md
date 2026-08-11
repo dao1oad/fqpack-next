@@ -8,18 +8,32 @@ Guardian 当前会把“本次卖量实际由哪些 entry 贡献出来”一起�
 
 ## 双账本（base / t，GitHub Issue #549）
 
-当前订单账本（`om_position_entries` / `om_entry_slices`）按来源拆分为两个逻辑账本：
+当前订单账本（`om_position_entries` / `om_entry_slices`）按来源拆分为两个逻辑账本。
+账本归属唯一入口是 `LedgerResolver`
+（`freshquant/order_management/ledger_resolver.py`），Guardian 在提交时显式写
+`om_order_requests.ledger_intent`：
 
-- **底仓（base）**：首次开仓（must_pool 首开或手动首开）、固定买入线（BUY-1/2/3）触发补仓、手动加仓（manual source，非首开）；读取侧 `position_type != "t"` 一律按 base（缺失/未知默认 base）。
-- **做T（t）**：Guardian 信号加仓、破线区（p ≤ BUY-3）深档买入；由运行时 ingest 按订单 `strategy_context.buy_ledger` / 来源显式打标。
+- **底仓（base）**：首次开仓（`new_open`）、固定买入线（BUY-1/2/3）触发补仓、
+  手动加仓（manual source，非首开）；Guardian 买入路径按
+  `new_open`→`base`、`holding_add`→`t`、缺省 `base` 声明
+  `ledger_intent`（#8）。
+- **做T（t）**：Guardian 信号加仓（`holding_add`）、破线区（p ≤ BUY-3）深档
+  买入；Guardian 做T卖出声明 `ledger_intent=t`。
 
-打标规则（`freshquant/order_management/ingest/xt_reports.py::_resolve_entry_position_type`）：
-`buy_ledger == "base_line"` → base；manual 来源 → base；无 open entry（首开）→ base；其余（Guardian 信号加仓）→ t。聚类保留已有标记；重建/回填兜底一律 base。
+entry 打标（`xt_reports.py::_resolve_entry_position_type`）只读请求
+`ledger_intent`；broker-only（无请求，QMT 终端手动买入）显式归 base；缺失
+fail-closed。先解析归属后聚类，禁止跨账本聚合，聚合成员携带
+`position_type`。`strategy_context.buy_ledger` 已退役，不参与判定。
 
 - 卖出分流：**TPSL 只卖 base**（比例基数 = Σ base remaining），**Guardian 只卖 t**（逐 slice 统一盈利谓词 + mount 过滤）。
 - 手动/外部卖单（无 source plan）分摊三段分桶：① T 盈利低成本（卖单 `avg_filled_price` ≥ `guardian_price × (1 + percent/100)`，`guardian_price` 升序）→ ② 底仓 → ③ T 非盈利兜底；`om_exit_allocations` 记录被扣 slice 的 `position_type`。
 - D/C 占用金额最简实现 = 该账本剩余股数 × 当前市场价（不按成本价聚合、无 cost_price 字段）。
-- 历史回填：`script/maintenance/backfill_position_type.py`（flatten 幂等重建，已有标记保留、缺失 → base；dry-run → execute；不导出备份）。存量止盈档批量激活为部署后的独立步骤 `--activate-takeprofit`（新代码部署并重启后、非交易时段执行，天然幂等可重跑）。
+- 历史回填：`script/maintenance/backfill_position_type.py`（flatten 幂等重建，
+  已有标记保留、缺失 → base）与
+  `script/maintenance/backfill_ledger_intent.py`（`ledger_intent` /
+  `position_type` / 聚合成员归一回填 + L1/S1/D1 守恒校验 + 幂等复验；
+  dry-run → execute）。存量止盈档批量激活为部署后的独立步骤
+  `--activate-takeprofit`（新代码部署并重启后、非交易时段执行，天然幂等可重跑）。
 
 ### 固定价格触发买入线（对称阶梯状态机）
 

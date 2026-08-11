@@ -28,6 +28,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
+from freshquant.order_management.ledger_resolver import normalize_ledger_intent
 from freshquant.position_review.replay import (
     reconstruct_inventory,
 )
@@ -233,6 +234,13 @@ def resolve_signal_type(
         return "buy_v_reverse"
 
     if normalized_side == "sell":
+        # #571：按 ledger_intent 分流（- → 止损；base → 止盈）；
+        # Guardian 做T卖出（t）保留既有证据判定语义。
+        ledger_intent = normalize_ledger_intent((request or {}).get("ledger_intent"))
+        if ledger_intent == "-":
+            return "sell_stoploss"
+        if ledger_intent == "base":
+            return "sell_takeprofit"
         if sell_sources:
             source_name = _first_text(
                 sell_sources.get("source_name"),

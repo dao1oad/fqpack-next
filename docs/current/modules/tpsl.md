@@ -11,6 +11,9 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 - 历史与详情优先读取 `entry ledger`
 - 止盈卖出提交前会统一按 `xt_positions.can_use_volume` 截断，并按一手向下取整；Guardian 卖出现在复用同一套约束 helper
 - tick listener 在北京时间 `09:30:00` 前不响应 tick 事件，不评估止盈/止损，也不生成退出单或 Runtime Trace
+- TPSL 提交时显式写 `om_order_requests.ledger_intent`：买入线（base_line）
+  与止盈卖出 → `base`；全仓/单笔止损 → `-`；`guardian_sell_sources` 仅作为
+  止盈分配书签保留，不参与归属判定（#571）。
 
 ## 入口
 

@@ -32,7 +32,13 @@ def find_entry_for_broker_order(entries, broker_order_key):
     return None
 
 
-def select_cluster_entry(entries, group_trade_fact, broker_order_key):
+def select_cluster_entry(
+    entries,
+    group_trade_fact,
+    broker_order_key,
+    *,
+    position_type=None,
+):
     exact_match = find_entry_for_broker_order(entries, broker_order_key)
     if exact_match is not None:
         return exact_match
@@ -45,6 +51,12 @@ def select_cluster_entry(entries, group_trade_fact, broker_order_key):
 
     for entry in list(entries or []):
         if _normalize_text(entry.get("symbol")) != symbol:
+            continue
+        # #571：禁止跨账本聚合 —— 候选 entry 必须与本次解析出的
+        # position_type 一致（先解析归属后聚类）。
+        if position_type is not None and position_type_of(
+            entry.get("position_type")
+        ) != position_type_of(position_type):
             continue
         if (_coerce_int(entry.get("remaining_quantity")) or 0) <= 0:
             continue
@@ -199,6 +211,8 @@ def build_buy_group_member(group_trade_fact, *, broker_order_key):
         "trade_fact_id": _normalize_text(group_trade_fact.get("trade_fact_id")),
         "quantity": _coerce_int(group_trade_fact.get("quantity")) or 0,
         "entry_price": _coerce_float(group_trade_fact.get("price")) or 0.0,
+        # #571 A6：聚合成员携带可审计的 position_type。
+        "position_type": position_type_of(group_trade_fact.get("position_type")),
         "trade_time": _coerce_int(group_trade_fact.get("trade_time")),
         "date": _resolve_date(group_trade_fact),
         "time": _resolve_time(group_trade_fact),
@@ -250,6 +264,7 @@ def list_aggregation_members(entry):
                 "quantity": normalized_entry.get("original_quantity"),
                 "entry_price": normalized_entry.get("entry_price")
                 or normalized_entry.get("buy_price_real"),
+                "position_type": normalized_entry.get("position_type"),
                 "trade_time": normalized_entry.get("trade_time"),
                 "date": normalized_entry.get("date"),
                 "time": normalized_entry.get("time"),
@@ -263,6 +278,7 @@ def list_aggregation_members(entry):
             "quantity": normalized_entry.get("original_quantity"),
             "entry_price": normalized_entry.get("entry_price")
             or normalized_entry.get("buy_price_real"),
+            "position_type": normalized_entry.get("position_type"),
             "trade_time": normalized_entry.get("trade_time"),
             "date": normalized_entry.get("date"),
             "time": normalized_entry.get("time"),
@@ -407,6 +423,7 @@ def _normalize_member(member):
         or broker_order_key,
         "quantity": _coerce_int(normalized.get("quantity")) or 0,
         "entry_price": _coerce_float(normalized.get("entry_price")) or 0.0,
+        "position_type": position_type_of(normalized.get("position_type")),
         "trade_time": trade_time,
         "date": int(date_value) if date_value not in {None, ""} else trading_day,
         "time": str(time_value or "").strip() or "00:00:00",

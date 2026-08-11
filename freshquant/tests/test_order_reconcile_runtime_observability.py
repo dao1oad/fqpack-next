@@ -326,6 +326,7 @@ def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -406,6 +407,7 @@ def test_known_internal_trade_report_still_emits_xt_ingest_events(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -497,6 +499,7 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 900,
@@ -536,6 +539,7 @@ def test_known_internal_sell_trade_report_ignores_missing_legacy_slices(
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.8,
             "quantity": 500,

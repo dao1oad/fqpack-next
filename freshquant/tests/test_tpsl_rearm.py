@@ -343,6 +343,7 @@ def test_xt_ingest_buy_trade_calls_tpsl_service_hook(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 9.6,
             "quantity": 300,

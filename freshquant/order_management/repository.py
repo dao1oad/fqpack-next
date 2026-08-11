@@ -800,6 +800,18 @@ class OrderManagementRepository:
             return []
         return list(self.exit_allocations.find(query))
 
+    def list_exit_allocations_for_requests(self, request_ids):
+        """按 request_id 批量读取 exit allocations（订单列表 mixed 判定用）。"""
+
+        normalized = {
+            str(item).strip() for item in list(request_ids or []) if str(item).strip()
+        }
+        if not normalized:
+            return []
+        return list(
+            self.exit_allocations.find({"request_id": {"$in": list(normalized)}})
+        )
+
     def sum_exit_allocations_for_request(
         self,
         *,

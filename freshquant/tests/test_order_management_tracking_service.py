@@ -151,6 +151,7 @@ def test_submit_order_creates_request_order_and_accepted_event():
     request_id = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -177,6 +178,7 @@ def test_cancel_order_creates_cancel_request_and_event():
     request_id = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -205,6 +207,7 @@ def test_ingest_trade_report_is_idempotent_by_broker_trade_id():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -236,6 +239,7 @@ def test_ingest_trade_report_preserves_date_and_time_fields():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -268,6 +272,7 @@ def test_ingest_trade_report_with_meta_returns_created_flag():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -300,6 +305,7 @@ def test_ingest_trade_report_aggregates_execution_fills_into_one_broker_order():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 200,
@@ -364,6 +370,7 @@ def test_ingest_trade_report_duplicate_trade_does_not_double_count_broker_order(
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -411,6 +418,7 @@ def test_ingest_trade_report_keeps_known_orders_on_internal_broker_order_key():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -447,6 +455,7 @@ def test_ingest_order_report_is_idempotent_when_state_is_unchanged():
     service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -482,6 +491,7 @@ def test_ingest_order_report_syncs_broker_order_report_fields():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -506,12 +516,13 @@ def test_ingest_order_report_syncs_broker_order_report_fields():
     assert aggregate["state"] == "QUEUED"
 
 
-def test_ingest_order_report_absorbs_terminal_replay_snapshots():
+def test_ingest_order_report_absorbs_terminal_replay_snapshots_with_alert():
     repository = InMemoryRepository()
     service = OrderTrackingService(repository=repository)
     service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -538,7 +549,12 @@ def test_ingest_order_report_absorbs_terminal_replay_snapshots():
     )
 
     assert current_order["state"] == "FILLED"
-    assert len(repository.order_events) == existing_event_count
+    # #571 #6：终态迟到回报告警落账（状态不回退，但事件可见）。
+    assert len(repository.order_events) == existing_event_count + 1
+    assert repository.order_events[-1]["event_type"] == (
+        "late_order_report_after_terminal"
+    )
+    assert repository.order_events[-1]["state"] == "FILLED"
 
 
 def test_order_state_machine_rejects_invalid_transition():
@@ -559,6 +575,7 @@ def test_ingest_order_report_allows_broker_bypassed_transition():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -586,6 +603,7 @@ def test_cancel_order_allows_transition_from_broker_bypassed():
     service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 12.34,
             "quantity": 100,
@@ -603,3 +621,97 @@ def test_cancel_order_allows_transition_from_broker_bypassed():
     )
 
     assert repository.find_order("ord_bypass_cancel_1")["state"] == "CANCEL_REQUESTED"
+
+
+def test_late_trade_after_canceled_lands_fact_and_keeps_terminal_state():
+    """#571 #6：CANCELED 后迟到成交——状态不回退、成交事实照落、告警落账，
+    broker 聚合不再回退 PARTIAL_FILLED（不再永久占用买入容量）。"""
+
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "ledger_intent": "base",
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_late_trade_1",
+        }
+    )
+    repository.update_order(
+        "ord_late_trade_1",
+        {
+            "state": "CANCELED",
+            "broker_order_id": "B-LATE-1",
+        },
+    )
+
+    result = service.ingest_trade_report_with_meta(
+        {
+            "internal_order_id": "ord_late_trade_1",
+            "broker_order_id": "B-LATE-1",
+            "broker_trade_id": "T-LATE-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 12.30,
+            "trade_time": 1710000000,
+            "source": "xt_trade_callback",
+        }
+    )
+
+    assert result["created"] is True
+    assert result["late_trade_alert"] is True
+    assert repository.find_order("ord_late_trade_1")["state"] == "CANCELED"
+    assert len(repository.trade_facts) == 1
+    assert repository.trade_facts[0]["broker_trade_id"] == "T-LATE-1"
+    aggregate = repository.find_broker_order("ord_late_trade_1")
+    assert aggregate["state"] == "CANCELED"
+    assert aggregate["filled_quantity"] == 100
+    assert repository.order_events[-1]["event_type"] == "late_trade_after_terminal"
+
+
+def test_late_extra_fill_after_filled_keeps_filled_state_with_alert():
+    """#571 #6：FILLED 后多余迟到成交不回退状态，事实照落 + 告警。"""
+
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    service.submit_order(
+        {
+            "action": "buy",
+            "ledger_intent": "base",
+            "symbol": "000001",
+            "price": 12.34,
+            "quantity": 100,
+            "source": "strategy",
+            "internal_order_id": "ord_late_fill_1",
+        }
+    )
+    repository.update_order(
+        "ord_late_fill_1",
+        {
+            "state": "FILLED",
+            "broker_order_id": "B-LATEF-1",
+        },
+    )
+    service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_late_fill_1",
+            "broker_order_id": "B-LATEF-1",
+            "broker_trade_id": "T-LATEF-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 12.30,
+            "trade_time": 1710000000,
+            "source": "xt_trade_callback",
+        }
+    )
+
+    assert repository.find_order("ord_late_fill_1")["state"] == "FILLED"
+    aggregate = repository.find_broker_order("ord_late_fill_1")
+    assert aggregate["state"] == "FILLED"
+    assert aggregate["filled_quantity"] == 100
+    assert repository.order_events[-1]["event_type"] == "late_trade_after_terminal"

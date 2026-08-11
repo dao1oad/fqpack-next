@@ -98,6 +98,7 @@ def test_prepare_submit_execution_skips_canceled_order_before_submit():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -123,6 +124,7 @@ def test_finalize_submit_execution_marks_order_submitted_with_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -152,6 +154,7 @@ def test_finalize_submit_execution_marks_nonpositive_result_failed(broker_order_
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -181,6 +184,7 @@ def test_finalize_submit_execution_marks_order_broker_bypassed_in_observe_only_m
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -210,6 +214,7 @@ def test_dispatch_cancel_execution_cancels_locally_when_broker_order_missing():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -237,6 +242,7 @@ def test_dispatch_cancel_execution_is_idempotent_for_already_canceled_order():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -264,6 +270,7 @@ def test_dispatch_cancel_execution_bypasses_broker_in_observe_only_mode():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -332,6 +339,7 @@ def test_prepare_submit_execution_resolves_credit_sell_order_before_submit():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "600000",
             "price": 10.0,
             "quantity": 100,
@@ -458,6 +466,7 @@ def test_prepare_submit_execution_rejects_credit_auto_sell_when_credit_detail_mi
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "600000",
             "price": 10.0,
             "quantity": 100,
@@ -500,6 +509,7 @@ def test_prepare_submit_execution_rejects_credit_auto_price_when_auction_state_m
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "600000",
             "price": 10.0,
             "quantity": 100,
@@ -544,6 +554,7 @@ def test_prepare_submit_execution_skips_auction_probe_for_explicit_limit_price()
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "600000",
             "price": 10.0,
             "quantity": 100,
@@ -590,6 +601,7 @@ def test_prepare_submit_execution_loads_credit_detail_for_finance_buy():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "002123",
             "price": 10.0,
             "quantity": 5000,

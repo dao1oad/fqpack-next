@@ -243,6 +243,7 @@ def test_ingest_trade_report_emits_runtime_events(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -300,6 +301,7 @@ def test_duplicate_trade_report_is_silent_in_runtime_observability(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -359,6 +361,7 @@ def test_ingest_order_report_emits_runtime_events():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -405,6 +408,7 @@ def test_duplicate_order_snapshot_is_silent_in_runtime_observability():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -567,6 +571,7 @@ def test_order_match_emits_ladder_terminal_reopen_result(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -576,8 +581,7 @@ def test_order_match_emits_ladder_terminal_reopen_result(monkeypatch):
             "trace_id": "trc_xt_ladder_1",
             "intent_id": "int_xt_ladder_1",
             "strategy_context": {
-                "buy_ledger": "base_line",
-                "guardian_buy_grid": {"grid_level": "BUY-2"},
+                "guardian_buy_grid": {"path": "base_line", "grid_level": "BUY-2"},
             },
         }
     )
