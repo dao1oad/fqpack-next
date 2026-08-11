@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://freshquant.local/schemas/fundamental-snapshot.v1.json",
+  "title": "fundamental-snapshot",
+  "type": "object",
+  "required": [
+    "schemaVersion", "symbol", "name", "tier", "asOf", "oneLinePositioning",
+    "sixDimensionScores", "compositeGrade", "keyMetrics", "evidenceGrade", "evidenceIds"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "fundamental-snapshot.v1" },
+    "symbol": { "type": "string" },
+    "name": { "type": "string" },
+    "tier": { "const": "snapshot" },
+    "asOf": { "type": "string" },
+    "quoteDate": { "type": "string" },
+    "financialReportDate": { "type": "string" },
+    "oneLinePositioning": { "type": "string" },
+    "sixDimensionScores": { "$ref": "#/definitions/sixDimensions" },
+    "compositeGrade": { "$ref": "#/definitions/grade" },
+    "keyMetrics": { "type": "object" },
+    "risks": { "type": "array" },
+    "evidenceGrade": { "enum": ["A", "B", "C", "D"] },
+    "evidenceIds": { "type": "array", "items": { "type": "string" } },
+    "evidenceSourceSha256": { "type": "string" },
+    "rank": { "type": "integer" },
+    "quickRank": { "type": "integer" },
+    "primaryGroup": { "type": "string" },
+    "generatedBy": { "type": "string" }
+  },
+  "definitions": {
+    "grade": {
+      "type": "string",
+      "enum": ["strong", "good", "neutral", "watch", "weak", "evidence_gap"]
+    },
+    "sixDimensions": {
+      "type": "object",
+      "required": ["business_quality", "growth", "profitability", "balance_sheet", "industry_capability", "valuation"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["grade", "rationale"],
+        "properties": {
+          "grade": { "$ref": "#/definitions/grade" },
+          "rationale": { "type": "string" }
+        }
+      }
+    }
+  }
+}

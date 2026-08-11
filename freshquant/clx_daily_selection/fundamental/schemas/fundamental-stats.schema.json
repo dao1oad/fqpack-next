@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://freshquant.local/schemas/fundamental-stats.v1.json",
+  "title": "fundamental-stats",
+  "type": "object",
+  "required": [
+    "schemaVersion", "tradeDate", "runId", "batchId", "contentHash", "generatedAt",
+    "asOf", "summary", "kpis", "industryDistribution", "dimensionDistributions",
+    "qualityValuationScatter", "growthProfitQuadrant", "riskHeatmap",
+    "evidenceCoverage", "valuationHistogram", "qualityGates", "qualityGateStatus"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "fundamental-stats.v1" },
+    "tradeDate": { "type": "string" },
+    "runId": { "type": "string" },
+    "batchId": { "type": "string" },
+    "contentHash": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "asOf": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "required": ["total", "deep", "snapshot", "deepComplete"],
+      "properties": {
+        "total": { "type": "integer" },
+        "deep": { "type": "integer" },
+        "snapshot": { "type": "integer" },
+        "deepComplete": { "type": "integer" },
+        "deepCompleteRate": { "type": ["number", "null"] },
+        "evidenceABShare": { "type": "number" },
+        "evidenceDCount": { "type": "integer" },
+        "collectionCompleteness": { "type": "number" },
+        "rerunConsistencyPct": { "type": ["number", "null"] }
+      }
+    },
+    "kpis": { "type": "object" },
+    "industryDistribution": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["industry", "count", "pct"],
+        "properties": {
+          "industry": { "type": "string" },
+          "count": { "type": "integer" },
+          "pct": { "type": "number" }
+        }
+      }
+    },
+    "dimensionDistributions": { "type": "object" },
+    "qualityValuationScatter": { "type": "array" },
+    "growthProfitQuadrant": { "type": "array" },
+    "riskHeatmap": { "type": "array" },
+    "evidenceCoverage": {
+      "type": "object",
+      "required": ["A", "B", "C", "D"],
+      "additionalProperties": { "type": "integer" }
+    },
+    "valuationHistogram": {
+      "type": "object",
+      "required": ["pe", "pb"],
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["bucket", "count"],
+          "properties": {
+            "bucket": { "type": "string" },
+            "count": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "qualityGates": { "type": "object" },
+    "qualityGateStatus": { "enum": ["passed", "amber"] }
+  }
+}
