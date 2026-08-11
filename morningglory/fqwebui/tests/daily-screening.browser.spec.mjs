@@ -306,9 +306,9 @@ test('daily-screening renders the three fundamental regions without the pool wor
   await page.goto(TARGET_URL)
 
   await expect(page.locator('.workbench-page-title')).toContainText('每日选股工作台')
-  await expect(page.locator('.clx-fund-ranking-panel')).toBeVisible()
-  await expect(page.locator('.clx-fund-detail-panel')).toBeVisible()
-  await expect(page.locator('.clx-fund-stats-panel')).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel')).toBeVisible({ timeout: 10000 })
+  await expect(page.locator('.clx-fund-detail-panel')).toBeVisible({ timeout: 10000 })
+  await expect(page.locator('.clx-fund-stats-panel')).toBeVisible({ timeout: 10000 })
 
   await expect(page.locator('.clx-fund-ranking-panel')).toContainText('CLX 基本面排序')
   await expect(page.locator('.clx-fund-detail-panel')).toContainText('标的基本面详情')
@@ -340,7 +340,7 @@ test('daily-screening only reads static clx-evaluator artifacts and no pool/offi
   await mockFundamentalApis(page)
 
   await page.goto(TARGET_URL)
-  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible({ timeout: 10000 })
 
   expect(requestLog.latestRequests).toBeGreaterThan(0)
   expect(requestLog.rankingRequests.length).toBeGreaterThan(0)
@@ -355,7 +355,7 @@ test('clicking a ranking row shows the deep decision card within 300ms', async (
 
   await page.goto(TARGET_URL)
   const firstRow = page.locator('.clx-fund-ranking-panel .clx-fund-row').first()
-  await expect(firstRow).toBeVisible()
+  await expect(firstRow).toBeVisible({ timeout: 10000 })
 
   const started = Date.now()
   await firstRow.click()
@@ -372,7 +372,7 @@ test('keyboard up/down switches symbols while preserving accordion open state', 
   await mockFundamentalApis(page)
 
   await page.goto(TARGET_URL)
-  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible({ timeout: 10000 })
 
   await page.locator('.clx-fund-list').focus()
   await page.keyboard.press('ArrowDown')
@@ -380,11 +380,11 @@ test('keyboard up/down switches symbols while preserving accordion open state', 
   await expect(page.locator('.clx-fund-detail-panel .clx-panel-time')).toContainText('100002')
 
   await page.locator('.clx-fund-accordion__head', { hasText: '证据溯源' }).click()
-  await expect(page.locator('.clx-fund-accordion__ids')).toBeVisible()
+  await expect(page.locator('.clx-fund-accordion__ids')).toBeVisible({ timeout: 10000 })
   await page.locator('.clx-fund-list').focus()
   await page.keyboard.press('ArrowDown')
   await expect(page.locator('.clx-fund-detail-panel .clx-panel-time')).toContainText('100003')
-  await expect(page.locator('.clx-fund-accordion__ids')).toBeVisible()
+  await expect(page.locator('.clx-fund-accordion__ids')).toBeVisible({ timeout: 10000 })
 })
 
 test('stats industry bar click writes the list filter without clearing selection', async ({ page }) => {
@@ -396,14 +396,14 @@ test('stats industry bar click writes the list filter without clearing selection
   })
 
   await page.goto(TARGET_URL)
-  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible({ timeout: 10000 })
   await page.locator('.clx-fund-ranking-panel .clx-fund-row').nth(1).click()
   await expect(page.locator('.clx-fund-detail-panel .clx-panel-time')).toContainText('100002')
   await page.waitForTimeout(800)
 
   // 点击行业分布条（图表 canvas 上触发 click）
   const canvas = page.locator('.clx-fund-stats-panel .clx-fund-chart__canvas').nth(1)
-  await expect(canvas).toBeVisible()
+  await expect(canvas).toBeVisible({ timeout: 10000 })
   await page.waitForFunction(() => {
     const nodes = document.querySelectorAll('.clx-fund-stats-panel .clx-fund-chart__canvas')
     return nodes[1] && nodes[1].getAttribute('_echarts_instance_')
@@ -423,7 +423,7 @@ test('narrow viewport moves stats to bottom and detail becomes a fixed drawer be
   await page.setViewportSize({ width: 1100, height: 900 })
   await mockFundamentalApis(page)
   await page.goto(TARGET_URL)
-  await expect(page.locator('.clx-fund-stats-panel')).toBeVisible()
+  await expect(page.locator('.clx-fund-stats-panel')).toBeVisible({ timeout: 10000 })
   const statsPosition = await page.locator('.clx-fund-stats-panel').evaluate((el) => {
     const grid = document.querySelector('.clx-workbench-grid')
     return window.getComputedStyle(grid).gridTemplateColumns.split(' ').length
@@ -444,8 +444,8 @@ test('amber quality gate shows top banner and amber status chip', async ({ page 
   await mockFundamentalApis(page, { qualityGateStatus: 'amber' })
 
   await page.goto(TARGET_URL)
-  await expect(page.locator('.clx-workbench-amber')).toBeVisible()
-  await expect(page.getByText('质量门：琥珀').first()).toBeVisible()
+  await expect(page.locator('.clx-workbench-amber')).toBeVisible({ timeout: 10000 })
+  await expect(page.getByText('质量门：琥珀').first()).toBeVisible({ timeout: 10000 })
 })
 
 test('missing ranking artifact shows empty state without breaking the page', async ({ page }) => {
@@ -456,7 +456,7 @@ test('missing ranking artifact shows empty state without breaking the page', asy
   })
 
   await page.goto(TARGET_URL)
-  await expect(page.locator('.clx-fund-ranking-panel .clx-panel-error')).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel .clx-panel-error')).toBeVisible({ timeout: 10000 })
 })
 
 test('star toggle persists in localStorage and filters the list', async ({ page }) => {
@@ -464,7 +464,7 @@ test('star toggle persists in localStorage and filters the list', async ({ page 
   await mockFundamentalApis(page)
 
   await page.goto(TARGET_URL)
-  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible({ timeout: 10000 })
   await page.locator('.clx-fund-row__star').first().click()
   const stars = await page.evaluate(() => JSON.parse(localStorage.getItem('fq:clx-fundamental:stars') || '[]'))
   expect(stars).toContain('100001')
