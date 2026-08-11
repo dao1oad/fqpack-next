@@ -48,6 +48,7 @@ from freshquant.order_management.ledger_resolver import (
     is_takeprofit_request,
     normalize_ledger_intent,
 )
+from freshquant.order_management.tracking.order_state import OrderStateService
 
 _BUY_BASE_EVIDENCE_SOURCES = {
     "manual",
@@ -240,6 +241,170 @@ def _apply_slice_updates(database, slice_updates):
         )
 
 
+def _collect_allocation_updates(database):
+    """exit allocations 缺 internal_order_id：经 exit_trade_fact_id 唯一关联
+    om_trade_facts.trade_fact_id 回填；0/多条候选或 trade_fact 无
+    internal_order_id 时 fail-closed（unresolved，显式停止）。"""
+
+    trade_facts_by_id: dict[str, list] = defaultdict(list)
+    for trade_fact in database["om_trade_facts"].find({}):
+        key = str(trade_fact.get("trade_fact_id") or "").strip()
+        if key:
+            trade_facts_by_id[key].append(trade_fact)
+    updates = []
+    unresolved = []
+    for allocation in database["om_exit_allocations"].find({}):
+        if str(allocation.get("internal_order_id") or "").strip():
+            continue
+        exit_trade_fact_id = str(allocation.get("exit_trade_fact_id") or "").strip()
+        if not exit_trade_fact_id:
+            unresolved.append(
+                {
+                    "allocation_id": allocation.get("allocation_id"),
+                    "reason": "exit_trade_fact_id missing",
+                }
+            )
+            continue
+        candidates = trade_facts_by_id.get(exit_trade_fact_id, [])
+        if len(candidates) != 1:
+            unresolved.append(
+                {
+                    "allocation_id": allocation.get("allocation_id"),
+                    "exit_trade_fact_id": exit_trade_fact_id,
+                    "reason": f"trade_fact lookup candidates={len(candidates)}",
+                }
+            )
+            continue
+        trade_fact = candidates[0]
+        internal_order_id = str(trade_fact.get("internal_order_id") or "").strip()
+        if not internal_order_id:
+            unresolved.append(
+                {
+                    "allocation_id": allocation.get("allocation_id"),
+                    "exit_trade_fact_id": exit_trade_fact_id,
+                    "reason": "trade_fact has no internal_order_id",
+                }
+            )
+            continue
+        updates.append(
+            {
+                "allocation_id": allocation.get("allocation_id"),
+                "internal_order_id": internal_order_id,
+                "request_id": str(trade_fact.get("request_id") or "").strip() or None,
+            }
+        )
+    return updates, unresolved
+
+
+def _apply_allocation_updates(database, updates):
+    for update in updates:
+        allocation_id = update.get("allocation_id")
+        if not allocation_id:
+            continue
+        fields = {"internal_order_id": update["internal_order_id"]}
+        if update.get("request_id"):
+            fields["request_id"] = update["request_id"]
+        database["om_exit_allocations"].update_one(
+            {"allocation_id": allocation_id},
+            {"$set": fields},
+        )
+
+
+def _collect_broker_state_updates(database):
+    """om_orders 清除 filled_quantity 死字段；om_broker_orders.state 经
+    OrderStateService 收敛（按对应 om_orders terminal state + filled/requested）。"""
+
+    orders_by_internal_id = {
+        str(item.get("internal_order_id") or "").strip(): item
+        for item in database["om_orders"].find({})
+        if str(item.get("internal_order_id") or "").strip()
+    }
+    order_state_service = OrderStateService()
+    broker_updates = []
+    for broker_order in database["om_broker_orders"].find({}):
+        internal_order_id = str(broker_order.get("internal_order_id") or "").strip()
+        order = orders_by_internal_id.get(internal_order_id)
+        current_order_state = (
+            str((order or {}).get("state") or "").strip().upper() or None
+        )
+        next_state, _ = order_state_service.apply_fill_aggregate_state(
+            current_order_state,
+            next_quantity=int(broker_order.get("filled_quantity") or 0),
+            requested_quantity=broker_order.get("requested_quantity"),
+        )
+        if str(broker_order.get("state") or "").strip().upper() != next_state:
+            broker_updates.append(
+                {
+                    "broker_order_key": broker_order.get("broker_order_key"),
+                    "state": next_state,
+                }
+            )
+    return broker_updates
+
+
+def _apply_broker_state_updates(database, broker_updates):
+    for update in broker_updates:
+        broker_order_key = update.get("broker_order_key")
+        if not broker_order_key:
+            continue
+        database["om_broker_orders"].update_one(
+            {"broker_order_key": broker_order_key},
+            {"$set": {"state": update["state"]}},
+        )
+
+
+def _unset_order_filled_quantity(database):
+    database["om_orders"].update_many(
+        {},
+        {"$unset": {"filled_quantity": ""}},
+    )
+
+
+def _data_contract_conservation(database):
+    """新契约守恒：allocation 审计键、om_orders 死字段、broker state 一致性。"""
+
+    missing_allocation_internal_order_id = sum(
+        1
+        for item in database["om_exit_allocations"].find({})
+        if not str(item.get("internal_order_id") or "").strip()
+    )
+    order_filled_quantity_docs = sum(
+        1 for item in database["om_orders"].find({}) if "filled_quantity" in item
+    )
+    orders_by_internal_id = {
+        str(item.get("internal_order_id") or "").strip(): item
+        for item in database["om_orders"].find({})
+        if str(item.get("internal_order_id") or "").strip()
+    }
+    order_state_service = OrderStateService()
+    broker_state_mismatches = []
+    for broker_order in database["om_broker_orders"].find({}):
+        order = orders_by_internal_id.get(
+            str(broker_order.get("internal_order_id") or "").strip()
+        )
+        current_order_state = (
+            str((order or {}).get("state") or "").strip().upper() or None
+        )
+        next_state, _ = order_state_service.apply_fill_aggregate_state(
+            current_order_state,
+            next_quantity=int(broker_order.get("filled_quantity") or 0),
+            requested_quantity=broker_order.get("requested_quantity"),
+        )
+        if str(broker_order.get("state") or "").strip().upper() != next_state:
+            broker_state_mismatches.append(
+                {
+                    "broker_order_key": broker_order.get("broker_order_key"),
+                    "state": broker_order.get("state"),
+                    "expected": next_state,
+                }
+            )
+    return {
+        "missing_allocation_internal_order_id": missing_allocation_internal_order_id,
+        "order_filled_quantity_docs": order_filled_quantity_docs,
+        "broker_state_mismatches": broker_state_mismatches,
+    }
+
+
 def _entry_quantity_errors(database):
     """L1：entry 与 slices 数量守恒；S1：slice remaining <= original。"""
 
@@ -388,6 +553,8 @@ def main(*, dry_run, execute, backup_db):
     database = get_order_management_db()
     request_updates, unresolved_requests = _collect_request_updates(database)
     entry_updates, slice_updates = _collect_entry_updates(database)
+    allocation_updates, unresolved_allocations = _collect_allocation_updates(database)
+    broker_state_updates = _collect_broker_state_updates(database)
     if unresolved_requests:
         for item in unresolved_requests[:20]:
             click.echo(f"  unresolved ledger_intent: {item}")
@@ -396,9 +563,19 @@ def main(*, dry_run, execute, backup_db):
             "from definitive evidence; resolve manually and re-run "
             "(fail-closed, no silent default)"
         )
+    if unresolved_allocations:
+        for item in unresolved_allocations[:20]:
+            click.echo(f"  unresolved allocation internal_order_id: {item}")
+        raise click.ClickException(
+            f"{len(unresolved_allocations)} exit allocations cannot be linked to "
+            "a unique trade_fact; resolve manually and re-run "
+            "(fail-closed, no silent default)"
+        )
     click.echo(
         f"backfill plan: requests={len(request_updates)} "
         f"entries={len(entry_updates)} slices={len(slice_updates)} "
+        f"allocations={len(allocation_updates)} "
+        f"broker_states={len(broker_state_updates)} "
         f"mode={'execute' if execute else 'dry-run'}"
     )
     if not execute:
@@ -409,20 +586,35 @@ def main(*, dry_run, execute, backup_db):
         _backup_collections(
             database,
             backup_db,
-            ["om_order_requests", "om_position_entries", "om_entry_slices"],
+            [
+                "om_order_requests",
+                "om_position_entries",
+                "om_entry_slices",
+                "om_exit_allocations",
+                "om_orders",
+                "om_broker_orders",
+            ],
         )
     _apply_request_updates(database, request_updates)
     _apply_entry_updates(database, entry_updates)
     _apply_slice_updates(database, slice_updates)
+    _apply_allocation_updates(database, allocation_updates)
+    _apply_broker_state_updates(database, broker_state_updates)
+    _unset_order_filled_quantity(database)
 
     l1_errors, allocation_errors, ledger_report = _run_conservation(database)
+    contract_report = _data_contract_conservation(database)
     click.echo(
         f"backfill verify: L1_errors={len(l1_errors)} "
         f"allocation_integrity_errors={len(allocation_errors)} "
         f"missing_entry_position_type={ledger_report['missing_entry_position_type']} "
         f"missing_slice_position_type={ledger_report['missing_slice_position_type']} "
         f"missing_member_position_type={ledger_report['missing_member_position_type']} "
-        f"ledger_mismatches={len(ledger_report['ledger_mismatches'])}"
+        f"ledger_mismatches={len(ledger_report['ledger_mismatches'])} "
+        f"missing_allocation_internal_order_id="
+        f"{contract_report['missing_allocation_internal_order_id']} "
+        f"order_filled_quantity_docs={contract_report['order_filled_quantity_docs']} "
+        f"broker_state_mismatches={len(contract_report['broker_state_mismatches'])}"
     )
     if l1_errors:
         for error in l1_errors[:10]:
@@ -433,17 +625,47 @@ def main(*, dry_run, execute, backup_db):
     if ledger_report["ledger_mismatches"]:
         for mismatch in ledger_report["ledger_mismatches"][:10]:
             click.echo(f"  ledger mismatch: {mismatch}")
-    if l1_errors or allocation_errors or ledger_report["ledger_mismatches"]:
+    if contract_report["broker_state_mismatches"]:
+        for mismatch in contract_report["broker_state_mismatches"][:10]:
+            click.echo(f"  broker state mismatch: {mismatch}")
+    if (
+        l1_errors
+        or allocation_errors
+        or ledger_report["ledger_mismatches"]
+        or contract_report["missing_allocation_internal_order_id"]
+        or contract_report["order_filled_quantity_docs"]
+        or contract_report["broker_state_mismatches"]
+    ):
         raise click.ClickException("backfill conservation verification failed")
 
     # 幂等复验：再次收集应为 0 变更。
     repeat_requests, repeat_unresolved = _collect_request_updates(database)
     repeat_entries, repeat_slices = _collect_entry_updates(database)
+    repeat_allocations, repeat_unresolved_allocations = _collect_allocation_updates(
+        database
+    )
+    repeat_broker_states = _collect_broker_state_updates(database)
+    repeat_contract = _data_contract_conservation(database)
     click.echo(
         f"backfill idempotency: repeat_requests={len(repeat_requests)} "
-        f"repeat_entries={len(repeat_entries)} repeat_slices={len(repeat_slices)}"
+        f"repeat_entries={len(repeat_entries)} repeat_slices={len(repeat_slices)} "
+        f"repeat_allocations={len(repeat_allocations)} "
+        f"repeat_broker_states={len(repeat_broker_states)} "
+        f"repeat_filled_quantity_docs="
+        f"{repeat_contract['order_filled_quantity_docs']}"
     )
-    if repeat_requests or repeat_unresolved or repeat_entries or repeat_slices:
+    if (
+        repeat_requests
+        or repeat_unresolved
+        or repeat_entries
+        or repeat_slices
+        or repeat_allocations
+        or repeat_unresolved_allocations
+        or repeat_broker_states
+        or repeat_contract["missing_allocation_internal_order_id"]
+        or repeat_contract["order_filled_quantity_docs"]
+        or repeat_contract["broker_state_mismatches"]
+    ):
         raise click.ClickException("backfill is not idempotent; abort")
 
 

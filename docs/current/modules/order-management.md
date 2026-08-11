@@ -92,6 +92,9 @@
     `lot_amount` 即并入”规则独立，任一命中都执行 tail-merge
 - `om_exit_allocations`
   - 卖出对 entry / slice 的分摊结果
+  - 逐笔账本真值：`position_type`（base/t）；审计键 `internal_order_id`
+    必填（broker-only 卖单也携带，`request_id` 可空），`exit_trade_fact_id`
+    关联 `om_trade_facts.trade_fact_id` 做回溯
 - `om_reconciliation_gaps`
   - 券商仓位与账本持仓解释之间的差额
 - `om_reconciliation_resolutions`
@@ -132,6 +135,11 @@ sleep、不重新入队，也不自动重复提交相同券商委托。
 判断；跨 base/t 的分摊卖单订单级返回 `mixed`，逐笔真值在
 `om_exit_allocations.position_type`。
 
+订单列表/详情的 allocations 关联按 `request_id` 或 `internal_order_id`
+两路批量读取（`repository.list_exit_allocations_for_requests(request_ids,
+internal_order_ids)`，单次 `$or` 查询，避免 N+1）；broker-only 卖单的
+allocations 只携带 `internal_order_id`，由该路命中。
+
 当前信用账户买单的运行期语义已经固定为：
 
 - submit 阶段若解析出 `credit_trade_mode_resolved=finance_buy`，broker 执行桥会在真正发往 XT 前补查 `credit_detail`
@@ -170,6 +178,13 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - 存量缺失 `ledger_intent` 的请求行显式标记 `ledger_intent_missing`，不做
   隐式推断（回填工具：
   `script/maintenance/backfill_ledger_intent.py`）
+- `om_orders.filled_quantity` 死字段已清除（回填工具 `$unset`）；
+  `om_broker_orders.state` 由回填按对应 `om_orders` 终态 +
+  `filled_quantity/requested_quantity` 经 `OrderStateService` 收敛
+  （终态不回退；如 filled=requested → FILLED）
+- 存量 exit allocations 缺失 `internal_order_id` 时，回填经
+  `exit_trade_fact_id` 唯一关联 `om_trade_facts.trade_fact_id` 回填，
+  无法唯一关联则 fail-closed 停止
 
 ### 撤单
 
@@ -222,6 +237,9 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   original_plan - already_allocated`，本次 fill 只允许消费剩余计划内的
   entry/slice（跨 fill 共享同一份剩余预算；乱序 / 重复 callback / 部分成交后
   撤单均收敛到同一守恒结果）
+- broker-only 卖出（无 request）同样保留 `internal_order_id` 传给 allocation
+  与 `already_allocated` 累计（按 `internal_order_id`），保证新 allocations
+  可按订单审计、列表/详情账本判定可批量关联
 - 正常链路**禁止静默跨计划 fallback**：剩余来源计划不足以解释 broker fill 时
   抛 `SellAllocationPlanExhaustedError`，不扣减计划外 entry/slice，而是写
   `om_ingest_rejections.reason_code=allocation_source_plan_exhausted` 与

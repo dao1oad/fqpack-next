@@ -47,6 +47,19 @@ class FakeCollection:
                 return SimpleNamespace(matched_count=1, modified_count=1)
         return SimpleNamespace(matched_count=0, modified_count=0)
 
+    def update_many(self, _filter, update):
+        matched = 0
+        for doc in self.docs:
+            if all(doc.get(key) == value for key, value in (_filter or {}).items()):
+                matched += 1
+                for operator, fields in update.items():
+                    if operator == "$set":
+                        doc.update(fields)
+                    elif operator == "$unset":
+                        for field in fields:
+                            doc.pop(field, None)
+        return SimpleNamespace(matched_count=matched, modified_count=matched)
+
     def delete_many(self, _filter=None):
         count = len(self.docs)
         self.docs = []
@@ -64,13 +77,25 @@ class FakeDatabase(dict):
         return dict.__getitem__(self, name)
 
 
-def _build_db(*, requests=None, entries=None, slices=None, allocations=None):
+def _build_db(
+    *,
+    requests=None,
+    entries=None,
+    slices=None,
+    allocations=None,
+    trade_facts=None,
+    orders=None,
+    broker_orders=None,
+):
     database = FakeDatabase(
         {
             "om_order_requests": FakeCollection(requests or []),
             "om_position_entries": FakeCollection(entries or []),
             "om_entry_slices": FakeCollection(slices or []),
             "om_exit_allocations": FakeCollection(allocations or []),
+            "om_trade_facts": FakeCollection(trade_facts or []),
+            "om_orders": FakeCollection(orders or []),
+            "om_broker_orders": FakeCollection(broker_orders or []),
         }
     )
     database.client = SimpleNamespace(__getitem__=lambda self, name: FakeDatabase())
@@ -310,6 +335,7 @@ def test_execute_aborts_on_allocation_integrity_mismatch(monkeypatch):
         allocations=[
             {
                 "allocation_id": "alloc_1",
+                "internal_order_id": "ord_1",
                 "entry_id": "entry_1",
                 "entry_slice_id": "slice_missing",
                 "allocated_quantity": 100,
@@ -510,3 +536,139 @@ def test_dry_run_conflicts_on_rebuild_flatten_sell(monkeypatch):
     response = _run(monkeypatch, database, "--dry-run")
     assert response.exit_code != 0
     assert "unresolved ledger_intent" in response.output
+
+
+def test_execute_backfills_allocation_internal_order_id_via_unique_trade_fact(
+    monkeypatch,
+):
+    """#571：exit allocations 缺 internal_order_id 时经 exit_trade_fact_id
+    唯一关联 om_trade_facts 回填（幂等复验 0 变更）。"""
+
+    database = _build_db(
+        entries=[
+            {
+                "entry_id": "entry_a",
+                "symbol": "000001",
+                "original_quantity": 900,
+                "remaining_quantity": 0,
+            }
+        ],
+        slices=[
+            {
+                "entry_slice_id": "slice_a",
+                "entry_id": "entry_a",
+                "symbol": "000001",
+                "original_quantity": 900,
+                "remaining_quantity": 0,
+            }
+        ],
+        allocations=[
+            {
+                "allocation_id": "alloc_audit_1",
+                "exit_trade_fact_id": "fact_sell_1",
+                "entry_id": "entry_a",
+                "entry_slice_id": "slice_a",
+                "position_type": "base",
+                "allocated_quantity": 900,
+            }
+        ],
+        trade_facts=[
+            {
+                "trade_fact_id": "fact_sell_1",
+                "internal_order_id": "ord_broker_b859cfc3",
+                "request_id": None,
+            }
+        ],
+    )
+    response = _run(monkeypatch, database, "--execute")
+    assert response.exit_code == 0, response.output
+    stored = database["om_exit_allocations"].docs[0]
+    assert stored["internal_order_id"] == "ord_broker_b859cfc3"
+    assert "repeat_allocations=0" in response.output
+
+
+def test_dry_run_conflicts_on_allocation_without_trade_fact(monkeypatch):
+    """#571：exit_trade_fact_id 无对应 trade_fact → fail-closed 冲突停止。"""
+
+    database = _build_db(
+        allocations=[
+            {
+                "allocation_id": "alloc_orphan",
+                "exit_trade_fact_id": "fact_missing",
+            }
+        ],
+        trade_facts=[],
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved allocation internal_order_id" in response.output
+    assert "alloc_orphan" in response.output
+
+
+def test_dry_run_conflicts_on_allocation_with_ambiguous_trade_fact(monkeypatch):
+    """#571：trade_fact_id 多条候选 → 无法唯一关联 → fail-closed。"""
+
+    database = _build_db(
+        allocations=[
+            {
+                "allocation_id": "alloc_amb",
+                "exit_trade_fact_id": "fact_dup",
+            }
+        ],
+        trade_facts=[
+            {"trade_fact_id": "fact_dup", "internal_order_id": "ord_1"},
+            {"trade_fact_id": "fact_dup", "internal_order_id": "ord_2"},
+        ],
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "candidates=2" in response.output
+
+
+def test_execute_unsets_filled_quantity_and_converges_broker_state(monkeypatch):
+    """#571 目标形态：broker-only 卖单 filled=requested=9000、om_orders
+    非终态 → broker state 收敛 FILLED；om_orders.filled_quantity 死字段清除；
+    CANCELED 终态不回退。"""
+
+    database = _build_db(
+        orders=[
+            {
+                "internal_order_id": "ord_broker_tgt",
+                "state": "PARTIAL_FILLED",
+                "filled_quantity": 0,
+            },
+            {
+                "internal_order_id": "ord_canceled",
+                "state": "CANCELED",
+                "filled_quantity": 0,
+            },
+        ],
+        broker_orders=[
+            {
+                "broker_order_key": "k_tgt",
+                "internal_order_id": "ord_broker_tgt",
+                "state": "PARTIAL_FILLED",
+                "filled_quantity": 9000,
+                "requested_quantity": 9000,
+            },
+            {
+                "broker_order_key": "k_canceled",
+                "internal_order_id": "ord_canceled",
+                "state": "PARTIAL_FILLED",
+                "filled_quantity": 500,
+                "requested_quantity": 500,
+            },
+        ],
+    )
+    response = _run(monkeypatch, database, "--execute")
+    assert response.exit_code == 0, response.output
+    orders = {item["internal_order_id"]: item for item in database["om_orders"].docs}
+    assert "filled_quantity" not in orders["ord_broker_tgt"]
+    assert "filled_quantity" not in orders["ord_canceled"]
+    brokers = {
+        item["broker_order_key"]: item for item in database["om_broker_orders"].docs
+    }
+    assert brokers["k_tgt"]["state"] == "FILLED"
+    assert brokers["k_canceled"]["state"] == "CANCELED"
+    assert "repeat_broker_states=0" in response.output
+    assert "repeat_filled_quantity_docs=0" in response.output

@@ -209,12 +209,22 @@ class InMemoryOrderManagementRepository:
             ]
         return rows
 
-    def list_exit_allocations_for_requests(self, request_ids):
-        normalized = {str(item) for item in list(request_ids or []) if str(item)}
+    def list_exit_allocations_for_requests(
+        self,
+        request_ids=None,
+        internal_order_ids=None,
+    ):
+        normalized_requests = {
+            str(item) for item in list(request_ids or []) if str(item)
+        }
+        normalized_orders = {
+            str(item) for item in list(internal_order_ids or []) if str(item)
+        }
         return [
             item
             for item in self.exit_allocations
-            if str(item.get("request_id") or "") in normalized
+            if str(item.get("request_id") or "") in normalized_requests
+            or str(item.get("internal_order_id") or "") in normalized_orders
         ]
 
 
@@ -867,3 +877,91 @@ def test_list_orders_broker_only_buy_is_base():
     payload = service.list_orders(symbol="600000", state="FILLED")
     row = payload["rows"][0]
     assert row["ledger"] == "base"
+
+
+def test_list_orders_broker_only_sell_ledger_from_internal_order_allocations():
+    """#571 目标形态：broker-only 卖单（无 request、10 fills 全 base）→
+    列表 ledger=base（allocations 按 internal_order_id 批量关联）。"""
+
+    repository = InMemoryOrderManagementRepository()
+    repository.broker_orders.append(
+        {
+            "broker_order_key": "k_broker_sell_1",
+            "internal_order_id": "ord_broker_b859cfc3ee14f188fa92a0aa",
+            "request_id": None,
+            "source_type": "broker_only",
+            "broker_order_id": "B-broker-sell-1",
+            "symbol": "002262",
+            "side": "sell",
+            "state": "FILLED",
+            "requested_quantity": 9000,
+            "filled_quantity": 9000,
+            "created_at": "2026-08-11T13:11:57+08:00",
+            "updated_at": "2026-08-11T13:12:12+08:00",
+        }
+    )
+    for index in range(10):
+        repository.exit_allocations.append(
+            {
+                "allocation_id": f"alloc_broker_sell_{index}",
+                "exit_trade_fact_id": f"fact_broker_sell_{index}",
+                "internal_order_id": "ord_broker_b859cfc3ee14f188fa92a0aa",
+                "request_id": None,
+                "position_type": "base",
+                "allocated_quantity": 900,
+            }
+        )
+    service = OrderManagementReadService(repository=repository)
+    payload = service.list_orders(symbol="002262")
+    row = payload["rows"][0]
+    assert row["ledger"] == "base"
+    assert row["position_type"] == "base"
+
+    detail = service.get_order_detail("ord_broker_b859cfc3ee14f188fa92a0aa")
+    assert detail["order"]["ledger"] == "base"
+    assert len(detail["exit_allocations"]) == 10
+
+
+def test_list_orders_broker_only_sell_mixed_from_internal_order_allocations():
+    """#571：broker-only 分摊卖单（分配跨 base/t）按 internal_order_id
+    批量关联 → 订单级 mixed。"""
+
+    repository = InMemoryOrderManagementRepository()
+    repository.broker_orders.append(
+        {
+            "broker_order_key": "k_broker_sell_mixed",
+            "internal_order_id": "ord_broker_mixed_sell_1",
+            "request_id": None,
+            "source_type": "broker_only",
+            "broker_order_id": "B-broker-mixed-1",
+            "symbol": "002262",
+            "side": "sell",
+            "state": "FILLED",
+            "requested_quantity": 200,
+            "filled_quantity": 200,
+            "created_at": "2026-08-11T13:11:57+08:00",
+            "updated_at": "2026-08-11T13:12:12+08:00",
+        }
+    )
+    repository.exit_allocations.extend(
+        [
+            {
+                "allocation_id": "alloc_mixed_b",
+                "internal_order_id": "ord_broker_mixed_sell_1",
+                "request_id": None,
+                "position_type": "base",
+                "allocated_quantity": 100,
+            },
+            {
+                "allocation_id": "alloc_mixed_t",
+                "internal_order_id": "ord_broker_mixed_sell_1",
+                "request_id": None,
+                "position_type": "t",
+                "allocated_quantity": 100,
+            },
+        ]
+    )
+    service = OrderManagementReadService(repository=repository)
+    payload = service.list_orders(symbol="002262")
+    row = payload["rows"][0]
+    assert row["ledger"] == "mixed"

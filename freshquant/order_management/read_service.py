@@ -285,11 +285,19 @@ class OrderManagementReadService:
             if str((order or {}).get("side") or "").strip().lower() == "sell"
             and (order or {}).get("request_id") is not None
         }
+        sell_internal_order_ids = {
+            str((order or {}).get("internal_order_id") or "").strip()
+            for order in orders
+            if str((order or {}).get("side") or "").strip().lower() == "sell"
+            and (order or {}).get("internal_order_id") is not None
+        }
         allocations_by_request: dict[str, list[dict]] = {}
-        if sell_request_ids:
+        allocations_by_internal_order: dict[str, list[dict]] = {}
+        if sell_request_ids or sell_internal_order_ids:
             if hasattr(self.repository, "list_exit_allocations_for_requests"):
                 allocation_rows = self.repository.list_exit_allocations_for_requests(
-                    list(sell_request_ids)
+                    list(sell_request_ids),
+                    internal_order_ids=list(sell_internal_order_ids),
                 )
             else:
                 allocation_rows = []
@@ -299,10 +307,23 @@ class OrderManagementReadService:
                             request_id=request_id
                         )
                     )
+                for internal_order_id in sell_internal_order_ids:
+                    allocation_rows.extend(
+                        self.repository.list_exit_allocations_for_request(
+                            internal_order_id=internal_order_id
+                        )
+                    )
             for allocation in allocation_rows:
                 request_id = str(allocation.get("request_id") or "").strip()
                 if request_id:
                     allocations_by_request.setdefault(request_id, []).append(allocation)
+                internal_order_id = str(
+                    allocation.get("internal_order_id") or ""
+                ).strip()
+                if internal_order_id:
+                    allocations_by_internal_order.setdefault(
+                        internal_order_id, []
+                    ).append(allocation)
 
         rows = []
         for order in orders:
@@ -310,8 +331,13 @@ class OrderManagementReadService:
             row = _assemble_order_row(
                 order,
                 request,
-                exit_allocations=allocations_by_request.get(
-                    str((order or {}).get("request_id") or "").strip()
+                exit_allocations=(
+                    allocations_by_request.get(
+                        str((order or {}).get("request_id") or "").strip()
+                    )
+                    or allocations_by_internal_order.get(
+                        str((order or {}).get("internal_order_id") or "").strip()
+                    )
                 ),
             )
             if normalized_source is not None and row.get("source") != normalized_source:

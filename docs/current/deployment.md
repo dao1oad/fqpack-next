@@ -329,6 +329,11 @@ strict-reader health 通过后停止旧 Stock / ETF factor writers，但保留 `
 3. **execute 回填与守恒/幂等复验**：
    `python script/maintenance/backfill_ledger_intent.py --execute --backup-db <name>`
    - 先备份 `om_order_requests` / `om_position_entries` / `om_entry_slices`；
+   - 同时备份并回填 `om_exit_allocations`（缺失 `internal_order_id` 时经
+     `exit_trade_fact_id` 唯一关联 `om_trade_facts` 回填，无法唯一关联
+     fail-closed 停止）、清除 `om_orders.filled_quantity` 死字段、按
+     `om_orders` 终态 + filled/requested 经 `OrderStateService` 收敛
+     `om_broker_orders.state`（终态不回退）；
    - 任何 L1/S1/D1、allocation_integrity 或幂等复验失败都会中止执行；
 4. **部署新代码**：API / Web / order-management 运行面按模块部署矩阵重建，
    再启动已停止的 worker；

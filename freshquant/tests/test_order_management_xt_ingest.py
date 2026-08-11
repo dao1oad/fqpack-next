@@ -2130,3 +2130,108 @@ def test_broker_only_manual_buy_tags_base():
     entries = repository.list_position_entries(symbol="000001")
     assert len(entries) == 1
     assert entries[0]["position_type"] == "base"
+
+
+def test_broker_only_sell_multi_fill_allocations_carry_internal_order_id():
+    """#571：broker-only 卖出（无 request）allocations 携带 internal_order_id，
+    already_allocated 按 internal_order_id 跨 fill 累计（10 fills 目标形态
+    的 2-fill 缩影）。"""
+
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        tpsl_service=type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_base_9000",
+            "symbol": "000001",
+            "position_type": "base",
+            "entry_price": 10.0,
+            "buy_price_real": 10.0,
+            "original_quantity": 9000,
+            "remaining_quantity": 9000,
+            "amount": 90000.0,
+            "date": 20240102,
+            "time": "09:31:00",
+            "trade_time": 1710000000,
+            "source": "xt_trade_callback",
+            "status": "OPEN",
+            "sell_history": [],
+        }
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_base_9000",
+        [
+            {
+                "entry_slice_id": "slice_base_9000",
+                "entry_id": "entry_base_9000",
+                "symbol": "000001",
+                "position_type": "base",
+                "guardian_price": 10.0,
+                "original_quantity": 9000,
+                "remaining_quantity": 9000,
+                "remaining_amount": 90000.0,
+                "slice_seq": 0,
+                "sort_key": 10.0,
+                "status": "OPEN",
+            }
+        ],
+    )
+
+    def _sell_report(broker_trade_id, quantity):
+        return {
+            "broker_trade_id": broker_trade_id,
+            "symbol": "000001",
+            "side": "sell",
+            "quantity": quantity,
+            "price": 11.0,
+            "trade_time": 1710003600,
+            "date": 20240102,
+            "time": "10:00:00",
+            "account_id": "ACCT-1",
+            "order_sysid": "SYS-SELL-1",
+            "broker_order_id": "B-SELL-1",
+            "trading_day": 20240102,
+            "source": "xt_trade_callback",
+        }
+
+    first = ingest_service.ingest_trade_report(
+        _sell_report("T-SELL-1", 5000),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    second = ingest_service.ingest_trade_report(
+        _sell_report("T-SELL-2", 4000),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert first["created"] is True
+    assert second["created"] is True
+    assert len(first["exit_allocations"]) == 1
+    assert len(second["exit_allocations"]) == 1
+    for allocation in first["exit_allocations"] + second["exit_allocations"]:
+        assert (
+            allocation["internal_order_id"]
+            == first["execution_fill"]["internal_order_id"]
+        )
+        assert allocation["request_id"] is None
+        assert allocation["position_type"] == "base"
+    assert first["exit_allocations"][0]["allocated_quantity"] == 5000
+    assert second["exit_allocations"][0]["allocated_quantity"] == 4000
+    stored = repository.list_exit_allocations_for_request(
+        internal_order_id=first["execution_fill"]["internal_order_id"]
+    )
+    assert sum(int(item["allocated_quantity"] or 0) for item in stored) == 9000
+    entries = repository.list_position_entries(symbol="000001")
+    assert entries[0]["remaining_quantity"] == 0

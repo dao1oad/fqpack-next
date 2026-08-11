@@ -800,17 +800,33 @@ class OrderManagementRepository:
             return []
         return list(self.exit_allocations.find(query))
 
-    def list_exit_allocations_for_requests(self, request_ids):
-        """按 request_id 批量读取 exit allocations（订单列表 mixed 判定用）。"""
+    def list_exit_allocations_for_requests(
+        self,
+        request_ids=None,
+        internal_order_ids=None,
+    ):
+        """按 request_id 或 internal_order_id 批量读取 exit allocations。
 
-        normalized = {
+        #571：broker-only 卖单的 allocations 只携带 internal_order_id
+        （request_id 为空），订单列表 mixed 判定必须两路批量取，避免 N+1。
+        """
+
+        normalized_requests = {
             str(item).strip() for item in list(request_ids or []) if str(item).strip()
         }
-        if not normalized:
+        normalized_orders = {
+            str(item).strip()
+            for item in list(internal_order_ids or [])
+            if str(item).strip()
+        }
+        clauses = []
+        if normalized_requests:
+            clauses.append({"request_id": {"$in": list(normalized_requests)}})
+        if normalized_orders:
+            clauses.append({"internal_order_id": {"$in": list(normalized_orders)}})
+        if not clauses:
             return []
-        return list(
-            self.exit_allocations.find({"request_id": {"$in": list(normalized)}})
-        )
+        return list(self.exit_allocations.find({"$or": clauses}))
 
     def sum_exit_allocations_for_request(
         self,

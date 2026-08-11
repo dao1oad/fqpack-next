@@ -972,7 +972,16 @@ def _resolve_trade_guardian_sell_source_plan(
         trade_fact=trade_fact,
     )
     if not request_id:
-        return {}, None, None
+        # #571：broker-only 卖出（无 request）也必须保留 internal_order_id，
+        # 让新写入的 exit allocations 可按订单审计（列表/详情账本判定依赖
+        # internal_order_id 批量关联）；already_allocated 也按它跨 fill 累计。
+        internal_order_id = str(
+            (trade_fact or {}).get("internal_order_id")
+            or (report or {}).get("internal_order_id")
+            or (execution_fill or {}).get("internal_order_id")
+            or ""
+        ).strip()
+        return {}, None, internal_order_id or None
     request = repository.find_order_request(request_id)
     plan = extract_guardian_sell_source_plan(request)
     internal_order_id = None
