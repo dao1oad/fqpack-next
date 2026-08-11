@@ -205,7 +205,11 @@ Trace 类型当前由 ClickHouse 查询层按组件与语义字段共同推导�
 - 页面内所有标的展示统一为 `symbol / symbol_name`
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
 - 名称最终仍缺失时，前端兜底显示 `symbol / 未知名称`
-- `tpsl_worker` 的组件 Event 视图与 `/api/runtime/events` 当前默认隐藏未命中止盈/止损价、空价格和盘后空跑评估；需要完整原始记录时改看 Raw Browser
+- `tpsl_worker` 的组件 Event 视图、Trace 列表与 `/api/runtime/events` 当前默认隐藏：
+  - 未命中止盈/止损价、空价格和盘后空跑评估（`info` 无 trace 归属）；
+  - 未武装固定买入线评估（`base_buyline` + `skip_reason=no_armed_buy_line`，
+    盘前/隔夜每标的例行评估的安全跳过噪音，带独立 trace 也会隐藏）；
+  需要完整原始记录时改看 Raw Browser
 - 组件 Event 视图当前会按组件切换一列中文业务语义：
   - `position_gate`: `决策结果`
   - `guardian_strategy`: `判断结果`

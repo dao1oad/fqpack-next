@@ -575,6 +575,51 @@ def test_clickhouse_store_list_events_hides_non_triggered_tpsl_info_noise(
     assert "payload_json LIKE '%\"triggered\": false%'" in queries[0]
     assert 'payload_json LIKE \'%"kind": "stoploss"%\'' in queries[0]
     assert "payload_json LIKE '%\"triggered_bindings\": 0%'" in queries[0]
+    assert 'lowerUTF8(payload_json) LIKE \'%"kind": "base_buyline"%\'' in queries[0]
+    assert (
+        'lowerUTF8(payload_json) LIKE \'%"skip_reason": "no_armed_buy_line"%\''
+        in queries[0]
+    )
+
+
+def test_clickhouse_store_list_traces_applies_tpsl_noise_visibility(monkeypatch):
+    """traces 汇总也必须隐藏 base_buyline no_armed_buy_line 噪音 trace。
+
+    #549 后 TPSL tick worker 在盘前/隔夜对每个持仓标的例行评估买入线，
+    未武装买入线（no_armed_buy_line）全部安全跳过且带独立 trace_id，
+    若汇总不过滤会在 runtime-observability trace 列表刷屏。
+    """
+
+    from freshquant.runtime_observability.clickhouse_store import (
+        RuntimeObservabilityClickHouseStore,
+    )
+
+    store = RuntimeObservabilityClickHouseStore(base_url="http://clickhouse.test")
+    queries = []
+
+    def _fake_select_rows(query: str):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(store, "ensure_schema", lambda: None)
+    monkeypatch.setattr(store, "_select_rows", _fake_select_rows)
+    monkeypatch.setattr(
+        store,
+        "_list_trace_preview_steps",
+        lambda trace_keys, **kwargs: {},
+    )
+
+    payload = store.list_traces(filters={"component": "tpsl_worker"}, limit=10)
+
+    assert payload == {"items": [], "next_cursor": None}
+    summary_query = "\n".join(queries)
+    assert "GROUP BY session_key" in summary_query
+    assert "NOT (" in summary_query
+    assert 'lowerUTF8(payload_json) LIKE \'%"kind": "base_buyline"%\'' in summary_query
+    assert (
+        'lowerUTF8(payload_json) LIKE \'%"skip_reason": "no_armed_buy_line"%\''
+        in summary_query
+    )
 
 
 def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
