@@ -224,9 +224,10 @@ market_fit_grade 等市场字段已从产物与 UI 移除。
 前端路径不变、无需 commit、无需 rebuild 镜像；容器重启后数据不丢失。
 每日运行入口脚本为 `script/clx_eval_daily.ps1`：
 
-- `bootstrap`（`clx_run.py`，拉取正式批次，content_hash 锁定）→ `prepare` →
-  `rank`（全量确定性快排 + 深析合并 + 快照 + 深析规格）→ 深析（agent，
-  前 100 只）→ `stats` → `validate` → `publish`；
+- `bootstrap`（仓库 runner，official ready 契约拉取正式批次，content_hash
+  锁定）→ `prepare` → `rank`（全量确定性快排 + 深析合并 + 快照 + 深析规格）
+  → `deep-run`（agent，前 100 只，自动主链闭环）→ `stats` → `validate` →
+  `publish`；
 - 由仓库 `freshquant/clx_daily_selection/fundamental/runner.py` 执行，publish
   目标固定为外部数据目录（历史 runs 保留在外部目录）。
 

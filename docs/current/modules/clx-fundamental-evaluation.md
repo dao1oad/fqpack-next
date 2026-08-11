@@ -20,7 +20,12 @@
 ## 代码入口
 
 - 管线编排：`freshquant/clx_daily_selection/fundamental/runner.py`
-  （prepare / rank / stats / consistency / validate / publish）
+  （bootstrap / prepare / rank / deep-run / stats / consistency / validate / publish）
+- 深析执行器：`freshquant/clx_daily_selection/fundamental/deep_executor.py`
+  （有限并发、逐标的失败记录/重试、schema 校验、幂等跳过）
+- 深析 agent 适配器：`freshquant/clx_daily_selection/fundamental/agent_run.py`
+  （只读引用 a-share-fundamental-analysis 技能说明；提示词显式禁止
+  a-share-market-replay，本链路只保留基本面分析引擎）
 - 数据合同：`freshquant/clx_daily_selection/fundamental/contracts.py`
 - 证据包与缓存：`freshquant/clx_daily_selection/fundamental/evidence.py`
   （静态财务按 (symbol, 报告期) 缓存复用，行情按交易日刷新）
@@ -38,8 +43,16 @@
 
 `pwsh script/clx_eval_daily.ps1 -TradeDate <YYYY-MM-DD>` 依次执行：
 
-1. bootstrap：拉取 CLX 正式批次（`clx_run.py bootstrap`，只接受 final 批次，
-   记录 batch_id / trade_date / content_hash / counts）；
+1. bootstrap：按 official ready 契约拉取 CLX 正式批次（仓库内 runner
+   `bootstrap` 子命令，content_hash 锁定，记录 batch_id / trade_date /
+   content_hash / generation_id / publication_id / counts）；
+
+> 2026-08-11 起 bootstrap 改为仓库内自包含：调用
+> `/api/clx-daily-selection/official?trade_date=...&direction_mode=all`（official
+> ready generation，ready marker 为唯一锚点），校验 status=trade_date/batch_id/
+> content_hash/is_final 后保存 `clx-official-raw.json` +
+> `clx-batch-identity.json`；不通过 list_batches 猜测“最近 final 批次”，不依赖
+> 任何全局 skill 路径。
 2. prepare：按 `classify_direction_mode(directions)==pure_buy` 且
    `asset_type=stock` 提取全量标的（与
    `/api/clx-daily-selection/official?direction_mode=pure_buy` 同口径），
@@ -49,8 +62,12 @@
    `fundamental-analysis-spec/<symbol>.md` 深析规格；若
    `fundamental-analysis/` 已有深析文档则合并（`grade_source=deep`，分区与
    排序键不变）；
-4. 深析（agent，前 100 只）：按规格执行 `a-share-fundamental-analysis`
-   标准单股分析，输出 `fundamental-analysis/<symbol>.json`；
+4. deep-run（agent，前 100 只，自动主链闭环）：`runner.py deep-run` 按规格
+   逐只执行 `a-share-fundamental-analysis` 标准单股分析（不简化），输出
+   `fundamental-analysis/<symbol>.json`；有限并发（`--workers`，默认 2）、
+   逐标的失败记录/重试（`--max-attempts`，默认 2，状态写入
+   `fundamental-deep-run.json`）、输出 schema 校验；已存在且合格的 JSON
+   幂等跳过；完成后重新 `rank` 合并深析等级；
 5. stats：统计聚合 + 批次质量门；
 6. validate：四个产物的 JSON Schema + 结构校验；
 7. publish：写入 `D:/fqpack/runtime/artifacts/clx-evaluator/runs/<date>/<run>/`
@@ -59,6 +76,18 @@
 
 深析未齐时 publish 默认失败（fail-closed）；显式 `-AllowIncompleteDeep` 可发布
 amber 批次（页面顶部琥珀提示）。
+
+深析 agent 会话通过仓库内适配器 `agent_run.py` 启动（默认生产协议）：
+
+```text
+agent_run.py --symbol <s> --spec <spec.md> --output <symbol.json>
+             [--skill-root <a-share-fundamental-analysis 技能目录>]
+             [--codex-bin codex]
+```
+
+适配器只读取技能说明并构造隔离会话提示词；提示词硬性约束禁止调用/读取
+`a-share-market-replay` 或任何市场复盘/主题匹配工具，本链路只保留基本面分析。
+技能目录可用 `FQ_FUNDAMENTAL_SKILL_ROOT` 环境变量覆盖。
 
 ## 产物合同
 

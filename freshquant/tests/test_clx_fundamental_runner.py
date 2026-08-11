@@ -183,3 +183,46 @@ def test_publish_snapshot_only_batch(
     _run("rank", "--run-dir", str(work_dir))
     ranking = json.loads((work_dir / RANKING_JSON_NAME).read_text(encoding="utf-8"))
     assert ranking["counts"]["snapshot"] == 0
+
+
+def test_publish_hrefs_match_actual_artifacts(
+    work_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """deep 行只有 analysis_href、snapshot 行只有 snapshot_href，且指向真实文件。"""
+    _run("prepare", "--run-dir", str(work_dir), "--trade-date", "2026-08-10")
+    _run("rank", "--run-dir", str(work_dir), "--deep-limit", "8")
+    ranking = json.loads((work_dir / RANKING_JSON_NAME).read_text(encoding="utf-8"))
+    assert ranking["counts"]["deep"] == 8
+    assert ranking["counts"]["snapshot"] == 4
+
+    _write_deep_docs(work_dir)
+    _run("rank", "--run-dir", str(work_dir), "--deep-limit", "8")
+    _run("stats", "--run-dir", str(work_dir))
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    _run("publish", "--run-dir", str(work_dir), "--data-dir", str(data_dir))
+    latest = json.loads((data_dir / "latest.json").read_text(encoding="utf-8"))
+    run_id = latest["runId"]
+    target = data_dir / "runs" / "2026-08-10" / run_id
+    base_href = f"/data/clx-evaluator/runs/2026-08-10/{run_id}"
+
+    ranking = json.loads((work_dir / RANKING_JSON_NAME).read_text(encoding="utf-8"))
+    for row in ranking["rows"]:
+        symbol = row["symbol"]
+        if row["tier"] == "deep":
+            assert (
+                row["analysis_href"]
+                == f"{base_href}/fundamental-analysis/{symbol}.json"
+            )
+            assert row["snapshot_href"] == ""
+            assert (target / "fundamental-analysis" / f"{symbol}.json").is_file()
+            assert not (target / "fundamental-snapshot" / f"{symbol}.json").exists()
+        else:
+            assert row["analysis_href"] == ""
+            assert (
+                row["snapshot_href"]
+                == f"{base_href}/fundamental-snapshot/{symbol}.json"
+            )
+            assert not (target / "fundamental-analysis" / f"{symbol}.json").exists()
+            assert (target / "fundamental-snapshot" / f"{symbol}.json").is_file()

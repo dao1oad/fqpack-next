@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import pathlib
 import shutil
+import urllib.request
 from typing import Any
 
 from .contracts import (
@@ -57,6 +59,11 @@ def utc_now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
+def api_get(url: str, timeout: int = 60) -> dict[str, Any]:
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def classify_direction_mode(directions: Any) -> str:
     normalized = sorted(
         {
@@ -81,6 +88,97 @@ def frontend_run_id(trade_date: str, batch_id: str) -> str:
 
 def default_run_dir(run_dir: pathlib.Path) -> pathlib.Path:
     return run_dir.resolve()
+
+
+def cmd_bootstrap(args: argparse.Namespace) -> None:
+    """按 official ready 契约拉取正式结果（仓库内自包含）。
+
+    只接受 ready marker 锚定的 official generation：调用
+    `/api/clx-daily-selection/official?trade_date=...&direction_mode=all`，
+    校验 status/trade_date/batch_id/content_hash 后保存 raw；不通过
+    list_batches 猜测“最近 final 批次”。
+    """
+    run_dir = default_run_dir(args.run_dir)
+    trade_date = args.trade_date
+    api_base = str(args.api_base).rstrip("/")
+    rows: list[dict[str, Any]] = []
+    meta: dict[str, Any] = {}
+    cursor = ""
+    seen_cursors: set[str] = set()
+    while True:
+        url = (
+            f"{api_base}/api/clx-daily-selection/official"
+            f"?trade_date={trade_date}&direction_mode=all&limit=200"
+        )
+        if cursor:
+            url += f"&cursor={cursor}"
+        resp = api_get(url)
+        status = str(resp.get("status") or "")
+        if status != "ready":
+            raise SystemExit(
+                f"official ready not available for {trade_date}: status={status}"
+            )
+        resp_trade_date = str(resp.get("trade_date") or "")
+        if resp_trade_date and resp_trade_date != trade_date:
+            raise SystemExit(
+                f"official trade_date mismatch: requested={trade_date} got={resp_trade_date}"
+            )
+        batch_id = str(resp.get("batch_id") or "")
+        content_hash = str(resp.get("content_hash") or "")
+        if not batch_id or not content_hash:
+            raise SystemExit(
+                f"official ready payload missing batch_id/content_hash: {resp}"
+            )
+        if resp.get("is_final") is not True:
+            raise SystemExit(f"official ready generation is not final: {batch_id}")
+        if not meta:
+            meta = dict(resp)
+        page = resp.get("rows") or resp.get("items") or []
+        rows.extend(page)
+        nxt = str(resp.get("next_cursor") or "")
+        if not nxt:
+            break
+        if nxt in seen_cursors:
+            raise SystemExit(f"official endpoint returned a repeated cursor: {nxt}")
+        seen_cursors.add(nxt)
+        cursor = nxt
+    payload = {
+        "schema_version": "clx-daily-selection.v2",
+        "status": "completed",
+        "release_status": "final",
+        "batch_id": str(meta["batch_id"]),
+        "trade_date": trade_date,
+        "evaluation_profile_id": meta.get("evaluation_profile_id"),
+        "content_hash": str(meta["content_hash"]),
+        "generation_id": meta.get("generation_id"),
+        "generation_order": meta.get("generation_order"),
+        "publication_id": meta.get("publication_id"),
+        "result_time": meta.get("result_time"),
+        "counts": meta.get("counts"),
+        "total": len(rows),
+        "rows": rows,
+    }
+    run_dir.mkdir(parents=True, exist_ok=True)
+    raw = run_dir / "clx-official-raw.json"
+    raw.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    (run_dir / "clx-batch-identity.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                "bootstrap_ok": True,
+                "batch_id": str(meta["batch_id"]),
+                "generation_id": meta.get("generation_id"),
+                "trade_date": trade_date,
+                "rows": len(rows),
+                "raw_sha256": hashlib.sha256(raw.read_bytes()).hexdigest(),
+                "run_dir": str(run_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def read_raw_rows(raw_path: pathlib.Path) -> list[dict[str, Any]]:
@@ -171,7 +269,7 @@ def cmd_rank(args: argparse.Namespace) -> None:
     run_id = args.run_id or frontend_run_id(trade_date, batch_id)
     as_of = f"{trade_date}T15:00:00+08:00"
     generated_at = utc_now()
-    rows = compute_quick_rank(packages, as_of=as_of)
+    rows = compute_quick_rank(packages, as_of=as_of, deep_limit=args.deep_limit)
     analysis_docs = load_analysis_docs(args.analysis_dir or run_dir)
     rows, merged_count = merge_deep_docs(
         rows, analysis_docs, deep_limit=args.deep_limit
@@ -211,6 +309,22 @@ def cmd_rank(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def cmd_deep_run(args: argparse.Namespace) -> None:
+    from .deep_executor import DeepExecutor
+
+    run_dir = default_run_dir(args.run_dir)
+    executor = DeepExecutor(
+        run_dir,
+        workers=args.workers,
+        max_attempts=args.max_attempts,
+        agent_command=args.agent_command,
+        dry_run=args.dry_run,
+        timeout=args.timeout,
+    )
+    report = executor.run()
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2))
 
 
 def cmd_stats(args: argparse.Namespace) -> None:
@@ -317,9 +431,12 @@ def _patch_hrefs(
     for row in payload.get("rows") or []:
         symbol = row["symbol"]
         tier = row.get("tier")
+        row["analysis_href"] = ""
+        row["snapshot_href"] = ""
         if tier == TIER_DEEP:
             row["analysis_href"] = f"{base_href}/{ANALYSIS_DIR_NAME}/{symbol}.json"
-        row["snapshot_href"] = f"{base_href}/{SNAPSHOT_DIR_NAME}/{symbol}.json"
+        else:
+            row["snapshot_href"] = f"{base_href}/{SNAPSHOT_DIR_NAME}/{symbol}.json"
     write_ranking_json(ranking_path, payload)
     write_ranking_csv(run_dir / RANKING_CSV_NAME, payload.get("rows") or [])
 
@@ -469,12 +586,29 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--financial-cutoff", default="2026-06-30")
     p.set_defaults(func=cmd_prepare)
 
+    b = sub.add_parser(
+        "bootstrap", help="fetch official CLX batch (repo self-contained)"
+    )
+    b.add_argument("--run-dir", type=pathlib.Path, required=True)
+    b.add_argument("--trade-date", required=True)
+    b.add_argument("--api-base", default="http://127.0.0.1:15000")
+    b.set_defaults(func=cmd_bootstrap)
+
     r = sub.add_parser("rank", help="deterministic quick rank + deep merge + snapshots")
     r.add_argument("--run-dir", type=pathlib.Path, required=True)
     r.add_argument("--analysis-dir", type=pathlib.Path, default=None)
     r.add_argument("--run-id", default="")
     r.add_argument("--deep-limit", type=int, default=100)
     r.set_defaults(func=cmd_rank)
+
+    d = sub.add_parser("deep-run", help="run top-100 deep analysis via repo adapter")
+    d.add_argument("--run-dir", type=pathlib.Path, required=True)
+    d.add_argument("--workers", type=int, default=2)
+    d.add_argument("--max-attempts", type=int, default=2)
+    d.add_argument("--timeout", type=int, default=1500)
+    d.add_argument("--agent-command", default=None)
+    d.add_argument("--dry-run", action="store_true")
+    d.set_defaults(func=cmd_deep_run)
 
     s = sub.add_parser("stats", help="aggregate stats and quality gates")
     s.add_argument("--run-dir", type=pathlib.Path, required=True)
