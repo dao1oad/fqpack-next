@@ -280,3 +280,68 @@ def test_bootstrap_fails_closed_on_pagination_generation_advance(
     finally:
         FakeClxApiHandler.second_page_payload = None
         server.shutdown()
+
+
+def test_bootstrap_fails_closed_when_page2_missing_generation_id(
+    tmp_path: pathlib.Path,
+) -> None:
+    """第 2 页缺失 generation_id 必须失败且不写 raw（三键逐页必填）。"""
+    FakeClxApiHandler.second_page_payload = None
+    FakeClxApiHandler.official_payload = {
+        "schema_version": "clx-daily-selection.v2",
+        "status": "ready",
+        "trade_date": "2026-08-10",
+        "batch_id": "clx-2026-08-10-production_v1-ready",
+        "generation_id": "gen-2026-08-10-1",
+        "content_hash": "hash-a",
+        "is_final": True,
+        "release_status": "final",
+        "rows": [{"asset_type": "stock", "symbol": "000001", "directions": ["buy"]}],
+        "total": 2,
+        "next_cursor": "200",
+    }
+    FakeClxApiHandler.second_page_rows = [
+        {"asset_type": "etf", "symbol": "510300", "directions": ["sell"]}
+    ]
+    FakeClxApiHandler.second_page_payload = {
+        "status": "ready",
+        "trade_date": "2026-08-10",
+        "batch_id": "clx-2026-08-10-production_v1-ready",
+        "content_hash": "hash-a",
+        # generation_id 缺失（模拟漏字段）
+        "is_final": True,
+        "release_status": "final",
+        "rows": FakeClxApiHandler.second_page_rows,
+        "total": 1,
+        "next_cursor": "",
+    }
+    server, api_base = _start_server()
+    try:
+        run_dir = tmp_path / "run5"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "freshquant.clx_daily_selection.fundamental.runner",
+                "bootstrap",
+                "--run-dir",
+                str(run_dir),
+                "--trade-date",
+                "2026-08-10",
+                "--api-base",
+                api_base,
+            ],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode != 0
+        assert "generation_id" in result.stderr
+        assert "pagination generation mismatch" in result.stderr or (
+            "missing non-empty batch_id/content_hash/generation_id" in result.stderr
+        )
+        assert not (run_dir / "clx-official-raw.json").exists()
+    finally:
+        FakeClxApiHandler.second_page_payload = None
+        server.shutdown()

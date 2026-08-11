@@ -125,9 +125,12 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
             )
         batch_id = str(resp.get("batch_id") or "")
         content_hash = str(resp.get("content_hash") or "")
-        if not batch_id or not content_hash:
+        generation_id = str(resp.get("generation_id") or "")
+        if not batch_id or not content_hash or not generation_id:
             raise SystemExit(
-                f"official ready payload missing batch_id/content_hash: {resp}"
+                f"official payload missing non-empty batch_id/content_hash/"
+                f"generation_id: batch_id={batch_id!r} content_hash={content_hash!r} "
+                f"generation_id={generation_id!r}"
             )
         if resp.get("is_final") is not True:
             raise SystemExit(f"official ready generation is not final: {batch_id}")
@@ -136,12 +139,14 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
         page = resp.get("rows") or resp.get("items") or []
         rows.extend(page)
         # 翻页 generation 一致性：每页 batch_id/content_hash/generation_id
-        # 必须与第一页一致，不一致 fail-closed（防止翻页串到别的 generation）
+        # 必须存在、非空且与第一页严格一致；缺失/不一致 fail-closed
         for key in ("batch_id", "content_hash", "generation_id"):
-            if key in resp and str(resp.get(key) or "") != str(meta.get(key) or ""):
+            page_value = str(resp.get(key) or "")
+            first_value = str(meta.get(key) or "")
+            if not page_value or page_value != first_value:
                 raise SystemExit(
                     f"official pagination generation mismatch at {key}: "
-                    f"first={meta.get(key)!r} page={resp.get(key)!r}"
+                    f"first={first_value!r} page={page_value!r}"
                 )
         nxt = str(resp.get("next_cursor") or "")
         if not nxt:
