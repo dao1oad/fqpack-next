@@ -210,6 +210,10 @@ Trace 类型当前由 ClickHouse 查询层按组件与语义字段共同推导�
   - 未武装固定买入线评估（`base_buyline` + `skip_reason=no_armed_buy_line`，
     盘前/隔夜每标的例行评估的安全跳过噪音，带独立 trace 也会隐藏）；
   需要完整原始记录时改看 Raw Browser
+- 上述 visibility 过滤在 Event 查询与 Trace 汇总查询中都生效；Trace 汇总
+  查询中 `trace_id` 过滤条件引用表限定基础列（`runtime_events.trace_id`），
+  避免与 SELECT 聚合别名 `anyIf(trace_id, ...) AS trace_id` 冲突
+  （ClickHouse ILLEGAL_AGGREGATION）
 - 组件 Event 视图当前会按组件切换一列中文业务语义：
   - `position_gate`: `决策结果`
   - `guardian_strategy`: `判断结果`
