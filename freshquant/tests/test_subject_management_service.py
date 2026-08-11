@@ -2060,3 +2060,48 @@ def test_subject_management_overview_aggregates_ledger_quantity_by_position_type
         "base": 1200,
         "t": 500,
     }
+
+
+class _FakeOrderRepoWithEntries:
+    def list_position_entries(self, **kwargs):
+        return [
+            {
+                "symbol": "600000.SH",
+                "remaining_quantity": 1000,
+                "position_type": "base",
+            },
+            {
+                "symbol": "600000.SH",
+                "remaining_quantity": 300,
+                "position_type": "t",
+                "status": "PARTIALLY_EXITED",
+            },
+            {
+                "symbol": "600000.SH",
+                "remaining_quantity": 0,
+                "position_type": "base",
+            },
+        ]
+
+
+def test_subject_management_overview_ledger_loader_keeps_partially_exited():
+    """默认 loader 按 remaining_quantity>0 过滤，部分退出（PARTIALLY_EXITED）仍计入拆分。"""
+    service = SubjectManagementDashboardService(
+        database=FakeDatabase(),
+        tpsl_repository=InMemoryTpslRepository(),
+        order_repository=_FakeOrderRepoWithEntries(),
+        position_loader=lambda: [
+            {"symbol": "600000.SH", "name": "浦发银行", "quantity": 1300}
+        ],
+        symbol_position_loader=lambda symbol: None,
+        pm_summary_loader=lambda: {},
+        symbol_limit_loader=lambda symbol: None,
+        symbol_limit_map_loader=lambda: {},
+    )
+
+    rows = service.get_overview()
+
+    assert rows[0]["runtime"]["position_type_quantity"] == {
+        "base": 1000,
+        "t": 300,
+    }

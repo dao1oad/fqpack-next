@@ -636,7 +636,10 @@ class SubjectManagementDashboardService:
         repository = self.order_repository
         if not hasattr(repository, "list_position_entries"):
             return []
-        return repository.list_position_entries(status="OPEN")
+        entries = repository.list_position_entries()
+        return [
+            item for item in entries if int(item.get("remaining_quantity") or 0) > 0
+        ]
 
     def _stoploss_summary_map(self):
         rows = {}
