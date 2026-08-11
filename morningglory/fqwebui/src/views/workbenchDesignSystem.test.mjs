@@ -270,15 +270,17 @@ test('SubjectManagement.vue consumes shared workbench page toolbar and panel pri
 test('DailyScreening.vue reuses StatusChip for the workbench pre-sync status', () => {
   assert.match(dailySource, /import StatusChip from '\.\.\/components\/workbench\/StatusChip\.vue'/)
   assert.match(dailySource, /<StatusChip variant="info">\{\{\s*preStatusLabel\(\)\s*\}\}<\/StatusChip>/)
+  assert.match(dailySource, /<StatusChip :variant="gateStatus === 'passed' \? 'success' : 'warning'">/)
 })
 
-test('DailyScreening.vue consumes shared workbench page primitives and the three compact panels', () => {
+test('DailyScreening.vue consumes shared workbench page primitives and the three fundamental regions', () => {
   assert.match(dailySource, /import WorkbenchPage from ['"][^'"]*WorkbenchPage\.vue['"]/)
-  assert.match(dailySource, /import ClxResultPanel from '\.\.\/components\/clx-workbench\/ClxResultPanel\.vue'/)
-  assert.match(dailySource, /import ClxEvaluationPanel from '\.\.\/components\/clx-workbench\/ClxEvaluationPanel\.vue'/)
-  assert.match(dailySource, /import PoolWorkspacePanel from '\.\.\/components\/clx-workbench\/PoolWorkspacePanel\.vue'/)
+  assert.match(dailySource, /import ClxFundamentalRankingPanel from '\.\.\/components\/clx-workbench\/ClxFundamentalRankingPanel\.vue'/)
+  assert.match(dailySource, /import ClxFundamentalDetailPanel from '\.\.\/components\/clx-workbench\/ClxFundamentalDetailPanel\.vue'/)
+  assert.match(dailySource, /import ClxFundamentalStatsPanel from '\.\.\/components\/clx-workbench\/ClxFundamentalStatsPanel\.vue'/)
   assert.match(dailySource, /<WorkbenchPage class="clx-workbench-page">/)
   assert.match(dailySource, /class="clx-workbench-grid"/)
+  assert.doesNotMatch(dailySource, /PoolWorkspacePanel/)
 })
 
 test('KlineSlim.vue reuses StatusChip for toolbar, overlay summaries and chanlun summary rows', () => {
