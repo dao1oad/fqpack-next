@@ -20,6 +20,7 @@ from .contracts import (
     SNAPSHOT_SCHEMA_VERSION,
     TIER_DEEP,
     TIER_SNAPSHOT,
+    json_dumps_safe,
     rank_grade,
 )
 from .quick_rank import average, fixed, number
@@ -298,8 +299,10 @@ def write_snapshots(
             continue
         path = snapshot_dir / f"{row['symbol']}.json"
         path.write_text(
-            json.dumps(
-                build_snapshot_doc(row, as_of), ensure_ascii=False, sort_keys=True
+            json_dumps_safe(
+                build_snapshot_doc(row, as_of),
+                ensure_ascii=False,
+                sort_keys=True,
             ),
             encoding="utf-8",
         )
@@ -310,6 +313,7 @@ def write_snapshots(
         "symbols": sorted(path.stem for path in paths),
     }
     (snapshot_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+        json_dumps_safe(manifest, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
     )
     return paths

@@ -25,6 +25,7 @@ from .contracts import (
     STATS_SCHEMA_VERSION,
     TIER_DEEP,
     TIER_SNAPSHOT,
+    json_dumps_safe,
 )
 from .quick_rank import fixed, number
 
@@ -262,7 +263,9 @@ def aggregate_stats(
 def write_stats(run_dir: pathlib.Path, payload: dict[str, Any]) -> pathlib.Path:
     path = run_dir / STATS_JSON_NAME
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        json_dumps_safe(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ),
         encoding="utf-8",
     )
     return path
