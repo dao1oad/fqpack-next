@@ -5,6 +5,10 @@ import json
 import click
 import fqxtrade.xtquant.broker as broker
 
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_BASE,
+    LEDGER_UNSPECIFIED,
+)
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
 from freshquant.xt_account_sync.service import XtAccountSyncService
@@ -77,6 +81,7 @@ def buy(symbol: str, price: float, quantity: int, force: bool):
     result = _get_order_submit_service().submit_order(
         {
             "action": "buy",
+            "ledger_intent": LEDGER_BASE,
             "symbol": normalize_to_base_code(symbol),
             "price": price,
             "quantity": quantity,
@@ -97,6 +102,7 @@ def sell(symbol: str, price: float, quantity: int, force: bool):
     result = _get_order_submit_service().submit_order(
         {
             "action": "sell",
+            "ledger_intent": LEDGER_UNSPECIFIED,
             "symbol": normalize_to_base_code(symbol),
             "price": price,
             "quantity": quantity,

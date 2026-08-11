@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from freshquant.order_management.guardian.slice_evaluation import (
     evaluate_guardian_sell_slices,
 )
+from freshquant.order_management.ledger_resolver import is_takeprofit_request
 
 _BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 VERDICTS = (
@@ -347,6 +348,7 @@ def _review_one_request(
         "source_entries": list((sell_context or {}).get("entries") or []),
     }
 
+    takeprofit_sell = action == "sell" and is_takeprofit_request(request)
     if action == "buy" and buy_context is not None:
         verdict = _review_guardian_buy(
             request=request,
@@ -354,7 +356,7 @@ def _review_one_request(
             expected=expected,
             reason_codes=reason_codes,
         )
-    elif action == "sell" and sell_context is not None:
+    elif action == "sell" and sell_context is not None and not takeprofit_sell:
         verdict = _review_guardian_sell(
             request=request,
             context=sell_context,
@@ -367,7 +369,11 @@ def _review_one_request(
         )
     else:
         verdict = "NOT_APPLICABLE"
-        reason_codes.append("non_guardian_request")
+        # #571 #5：TPSL 止盈卖单复用 guardian_sell_sources 做分配书签，
+        # 不再按 Guardian 做T规则复盘。
+        reason_codes.append(
+            "tpsl_takeprofit_request" if takeprofit_sell else "non_guardian_request"
+        )
 
     if (
         verdict != "NOT_APPLICABLE"

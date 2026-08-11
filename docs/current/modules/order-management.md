@@ -61,8 +61,13 @@
 
 - `om_order_requests`
   - 内部下单意图
+  - `ledger_intent` 必填（buy/sell）：`base` / `t` / `mixed` / `-`，缺失
+    fail-closed 拒单；TPSL（买入线/止盈→`base`、止损→`-`）、Guardian
+    （`new_open`→`base`、`holding_add`→`t`、做T卖出→`t`）、手动/网页
+    （买→`base`、卖→`-`）全写入方在提交时显式声明
 - `om_orders`
-  - 兼容期内部订单壳
+  - 兼容期内部订单壳；`filled_quantity` 死字段已退役，成交数量真值统一在
+    `om_broker_orders` 聚合
 - `om_broker_orders`
   - 券商订单聚合，维护 `requested_quantity / filled_quantity / avg_filled_price / fill_count`
 - `om_execution_fills`
@@ -87,6 +92,9 @@
     `lot_amount` 即并入”规则独立，任一命中都执行 tail-merge
 - `om_exit_allocations`
   - 卖出对 entry / slice 的分摊结果
+  - 逐笔账本真值：`position_type`（base/t）；审计键 `internal_order_id`
+    必填（broker-only 卖单也携带，`request_id` 可空），`exit_trade_fact_id`
+    关联 `om_trade_facts.trade_fact_id` 做回溯
 - `om_reconciliation_gaps`
   - 券商仓位与账本持仓解释之间的差额
 - `om_reconciliation_resolutions`
@@ -120,6 +128,18 @@ broker 把该 token 放入既有 XT `order_remark` 参数槽。五档市价保�
 XT 返回 `None/0/负订单号` 时订单标记为 `FAILED + submit_failed`，puppet 不
 sleep、不重新入队，也不自动重复提交相同券商委托。
 
+订单级账本归属只由 `LedgerResolver`
+（`freshquant/order_management/ledger_resolver.py`）判定：读
+`om_order_requests.ledger_intent`（+ broker-only 无请求买单显式归 `base`），
+不读取 `guardian_sell_sources` / `guardian_buy_grid` / `buy_ledger` 参与归属
+判断；跨 base/t 的分摊卖单订单级返回 `mixed`，逐笔真值在
+`om_exit_allocations.position_type`。
+
+订单列表/详情的 allocations 关联按 `request_id` 或 `internal_order_id`
+两路批量读取（`repository.list_exit_allocations_for_requests(request_ids,
+internal_order_ids)`，单次 `$or` 查询，避免 N+1）；broker-only 卖单的
+allocations 只携带 `internal_order_id`，由该路命中。
+
 当前信用账户买单的运行期语义已经固定为：
 
 - submit 阶段若解析出 `credit_trade_mode_resolved=finance_buy`，broker 执行桥会在真正发往 XT 前补查 `credit_detail`
@@ -145,17 +165,26 @@ Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起�
 - XT `trade` 回报缺失、系统只能退回 `xt_positions delta` 自动平账时，sell gap 也优先按这组来源入口扣减
 
 这样“本次卖出实际是按哪些买入入口算出来的”会在正常成交链和差额收敛链保持同一套 entry 语义。
+`guardian_sell_sources` 当前只作为分配书签/审计快照，不再参与账本归属判定。
 
 历史 `version=1` 请求（只有 `entries[]`、无 `entry_slice_id`）仍被兼容：按
 entry 级剩余预算分配，不回退到全量 open slice 猜测。
 
-`相关订单` 列表/详情的账本列当前按请求证据区分卖出归属：
+`相关订单` 列表/详情的账本列统一走 `LedgerResolver`：
 
-- TPSL 止盈卖出（`source=tpsl_takeprofit` / `scope_type=takeprofit_batch`）
-  归为 `base`（#549：TPSL 只卖底仓；止盈卖单虽然复用 `guardian_sell_sources`
-  做分配书签，但不再误标为做T）
-- Guardian 做T卖出（`guardian_sell_sources` v2）归为 `t`
-- 全仓止损（`scope_type` 含 stoploss）归为 `-`
+- 买：`ledger_intent`（`base` / `t`）；broker-only 手动买入显式 `base`
+- 卖：`ledger_intent`（`base` / `t` / `-` / `mixed`）；分摊卖单（分配证据
+  跨 base/t）订单级返回 `mixed`，禁止单值；stoploss 声明 `-`
+- 存量缺失 `ledger_intent` 的请求行显式标记 `ledger_intent_missing`，不做
+  隐式推断（回填工具：
+  `script/maintenance/backfill_ledger_intent.py`）
+- `om_orders.filled_quantity` 死字段已清除（回填工具 `$unset`）；
+  `om_broker_orders.state` 由回填按对应 `om_orders` 终态 +
+  `filled_quantity/requested_quantity` 经 `OrderStateService` 收敛
+  （终态不回退；如 filled=requested → FILLED）
+- 存量 exit allocations 缺失 `internal_order_id` 时，回填经
+  `exit_trade_fact_id` 唯一关联 `om_trade_facts.trade_fact_id` 回填，
+  无法唯一关联则 fail-closed 停止
 
 ### 撤单
 
@@ -185,6 +214,12 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   单条 target；这里是数据库收敛重试，不是重复券商委托
 - 若 `broker_order_id` 已在 submit 成功阶段绑定到内部订单，trade callback 当前仍会继续进入 `ingest_trade_report()`；`ExternalOrderReconcileService` 只负责补齐 trace/request/internal order 上下文与 reconcile 侧 runtime event，不再把这类回报提前短路
 - buy fill 先按 `broker_order_key` 收口成 buy execution group，再按保守规则归并进 `buy_cluster` entry
+- `OrderStateService`（`freshquant/order_management/tracking/order_state.py`）
+  收敛订单状态写入口：`FILLED` / `CANCELED` 终态后状态不回退，迟到 order /
+  trade 回报只吸收状态并写 `late_order_report_after_terminal` /
+  `late_trade_after_terminal` 告警事件；迟到成交事实照常落账不丢弃；broker
+  聚合不再被 trade 回调无条件覆写为 `PARTIAL_FILLED`（终态单不回退，避免
+  `_PENDING_BUY_STATES` 卡死占用买入容量）
 - `buy_cluster` 归并规则当前固定为：
   - 同一 `symbol`
   - 同一北京时间交易日
@@ -192,6 +227,9 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   - 与 cluster 首成员时间差 `<= 5 分钟`
   - 成交均价偏差 `<= 0.3%`
   - 已发生卖出扣减的 entry 不再接受新的 buy order 合并
+  - `#571`：先解析归属（`ledger_intent` / broker-only→`base`）再聚类，
+    禁止跨账本聚合；`aggregation_members[]` 逐成员携带
+    `position_type`（A6 可审计）
 - 同一 broker order 的多笔 fill 会更新同一个聚合成员，而不是继续生成多条 entry
 - sell fill 按 `guardian_sell_sources`（v2/v1 兼容）解析请求级来源计划；处理新
   fill 前先按 `request_id / internal_order_id` 查询已写入的
@@ -199,6 +237,9 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   original_plan - already_allocated`，本次 fill 只允许消费剩余计划内的
   entry/slice（跨 fill 共享同一份剩余预算；乱序 / 重复 callback / 部分成交后
   撤单均收敛到同一守恒结果）
+- broker-only 卖出（无 request）同样保留 `internal_order_id` 传给 allocation
+  与 `already_allocated` 累计（按 `internal_order_id`），保证新 allocations
+  可按订单审计、列表/详情账本判定可批量关联
 - 正常链路**禁止静默跨计划 fallback**：剩余来源计划不足以解释 broker fill 时
   抛 `SellAllocationPlanExhaustedError`，不扣减计划外 entry/slice，而是写
   `om_ingest_rejections.reason_code=allocation_source_plan_exhausted` 与
@@ -230,12 +271,23 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - `board_lot_rejected`
 - `matched_execution_fill`
 
+`auto_open_entry` 无对应订单请求（broker-only 语义），账本归属由
+`LedgerResolver` 显式解析为 `base`（`position_type=base`）；先解析归属再
+做 buy cluster，只并入同账本（base）聚类，禁止并入 t 账本聚类。
+
 自动平账成功写入 `auto_open_entry / auto_close_allocation` 后，当前也会同步：
 
 - 刷新 stock holdings projection cache
 - 刷新 `stock_fills_compat` 镜像，避免 legacy 兼容视图滞后于 OM 主账本
 
 sell-side 自动平账当前在 gap 上保留最近一笔 Guardian 卖出请求携带的 `sell_source_entries`。当正常成交回报缺失、只能走 `auto_close_allocation` 时，当前会优先按这组来源入口扣减，再回退到默认 slice 顺序，避免把卖出剩余数量错扣到未参与本次卖量计算的历史入口上。
+
+`#571`：TPSL 止盈卖出请求（`source=tpsl_takeprofit` /
+`scope_type=takeprofit_batch`）永不进入 reconcile gap 候选；`auto_close`
+resolve 前置检查近窗口 TP 请求的成交回报，缺失时落
+`tpsl_takeprofit_return_lost` 告警事件（不阻断自动平账）；无任何可用候选
+（V2 open slice 与 legacy 均空）时落 `empty_candidate_fallback=true` 的
+resolution，不再抛错中断整轮对账。
 
 历史上已经形成的 Guardian 卖出错配，当前正式修复入口是：
 
@@ -482,6 +534,8 @@ flatten 模式执行时的归档/清理边界：
 - 查 `om_execution_fills`
 - 查 `om_trade_facts`
 - 查 `om_broker_orders.filled_quantity`
+- `om_orders.filled_quantity` 是退役死字段（submit 不再写入）；成交数量真值
+  统一读 `om_broker_orders.filled_quantity`
 - 查 `om_position_entries / om_entry_slices`
 - 若成交数量不是 `100` 股整数倍，再查 `om_ingest_rejections`
 

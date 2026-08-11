@@ -491,8 +491,8 @@
     <div class="card">
       <h3>双账本数据流：一笔买入从下单到展示</h3>
       <div class="flow-rows">
-        <div class="flow-row"><span class="fr-tag fr-buy">买入事件</span><p>首开（无持仓）／抄底线触发（buy_ledger="base_line"）／Guardian 做T</p></div>
-        <div class="flow-arrow">↓ ingest 按 buy_ledger 打标 position_type</div>
+        <div class="flow-row"><span class="fr-tag fr-buy">买入事件</span><p>首开（无持仓）／抄底线触发（ledger_intent="base"）／Guardian 做T（ledger_intent="t"）</p></div>
+        <div class="flow-arrow">↓ LedgerResolver 按 ledger_intent 打标 position_type</div>
         <div class="flow-row">
           <span class="fr-tag fr-base">base 账本</span>
           <p>首开 + 抄底线补仓 → 只走 TPSL 三档止盈卖出（1/3 → 1/2 → 全部）</p>

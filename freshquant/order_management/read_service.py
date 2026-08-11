@@ -6,6 +6,11 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from freshquant.instrument.general import query_instrument_info
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_UNSPECIFIED,
+    LedgerIntentMissingError,
+    resolve_order_ledger,
+)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.util.code import normalize_to_base_code
 
@@ -96,7 +101,17 @@ class OrderManagementReadService:
                 item.get("execution_fill_id") or "",
             ),
         )
-        assembled_order = _assemble_order_row(order, request)
+        exit_allocations = []
+        if hasattr(self.repository, "list_exit_allocations_for_request"):
+            exit_allocations = self.repository.list_exit_allocations_for_request(
+                request_id=(request or {}).get("request_id"),
+                internal_order_id=order_id,
+            )
+        assembled_order = _assemble_order_row(
+            order,
+            request,
+            exit_allocations=exit_allocations,
+        )
         return {
             "order": assembled_order,
             "broker_order": dict(broker_order or {}),
@@ -104,6 +119,7 @@ class OrderManagementReadService:
             "events": [dict(item) for item in events],
             "fills": [dict(item) for item in fills],
             "trades": [dict(item) for item in fills],
+            "exit_allocations": [dict(item) for item in exit_allocations],
             "identifiers": {
                 "trace_id": assembled_order.get("trace_id"),
                 "intent_id": assembled_order.get("intent_id"),
@@ -263,11 +279,67 @@ class OrderManagementReadService:
             )
             if item.get("request_id") is not None
         }
+        sell_request_ids = {
+            str((order or {}).get("request_id") or "").strip()
+            for order in orders
+            if str((order or {}).get("side") or "").strip().lower() == "sell"
+            and (order or {}).get("request_id") is not None
+        }
+        sell_internal_order_ids = {
+            str((order or {}).get("internal_order_id") or "").strip()
+            for order in orders
+            if str((order or {}).get("side") or "").strip().lower() == "sell"
+            and (order or {}).get("internal_order_id") is not None
+        }
+        allocations_by_request: dict[str, list[dict]] = {}
+        allocations_by_internal_order: dict[str, list[dict]] = {}
+        if sell_request_ids or sell_internal_order_ids:
+            if hasattr(self.repository, "list_exit_allocations_for_requests"):
+                allocation_rows = self.repository.list_exit_allocations_for_requests(
+                    list(sell_request_ids),
+                    internal_order_ids=list(sell_internal_order_ids),
+                )
+            else:
+                allocation_rows = []
+                for request_id in sell_request_ids:
+                    allocation_rows.extend(
+                        self.repository.list_exit_allocations_for_request(
+                            request_id=request_id
+                        )
+                    )
+                for internal_order_id in sell_internal_order_ids:
+                    allocation_rows.extend(
+                        self.repository.list_exit_allocations_for_request(
+                            internal_order_id=internal_order_id
+                        )
+                    )
+            for allocation in allocation_rows:
+                request_id = str(allocation.get("request_id") or "").strip()
+                if request_id:
+                    allocations_by_request.setdefault(request_id, []).append(allocation)
+                internal_order_id = str(
+                    allocation.get("internal_order_id") or ""
+                ).strip()
+                if internal_order_id:
+                    allocations_by_internal_order.setdefault(
+                        internal_order_id, []
+                    ).append(allocation)
 
         rows = []
         for order in orders:
             request = request_map.get(order.get("request_id"))
-            row = _assemble_order_row(order, request)
+            row = _assemble_order_row(
+                order,
+                request,
+                exit_allocations=(
+                    allocations_by_request.get(
+                        str((order or {}).get("request_id") or "").strip()
+                    )
+                    or allocations_by_internal_order.get(
+                        str((order or {}).get("internal_order_id") or "").strip()
+                    )
+                ),
+            )
             if normalized_source is not None and row.get("source") != normalized_source:
                 continue
             if (
@@ -331,7 +403,7 @@ class OrderManagementReadService:
         return self.repository.list_trade_facts(internal_order_ids=[internal_order_id])
 
 
-def _assemble_order_row(order, request):
+def _assemble_order_row(order, request, *, exit_allocations=None):
     order_row = _sanitize_document(order or {})
     request_row = _sanitize_document(request or {})
     symbol = _normalize_symbol(order_row.get("symbol"))
@@ -348,9 +420,14 @@ def _assemble_order_row(order, request):
         "first_fill_time",
         "submitted_at",
     )
-    ledger = _resolve_order_ledger(
+    broker_only = str(
+        order_row.get("source_type") or ""
+    ).strip().lower() == "broker_only" or order_row.get("request_id") in (None, "")
+    ledger, ledger_intent_missing = _resolve_order_ledger_row(
         side=str(order_row.get("side") or "").strip().lower(),
         request_row=request_row,
+        broker_only=broker_only,
+        exit_allocations=exit_allocations,
     )
     return {
         **order_row,
@@ -385,54 +462,32 @@ def _assemble_order_row(order, request):
         "intent_id": _normalize_optional_text(
             order_row.get("intent_id") or request_row.get("intent_id")
         ),
-        # #549 双账本：按请求 strategy_context 推导订单归属账本（展示用）。
+        # #571 LedgerResolver：唯一归属判定入口；ledger_intent 缺失显式标记。
         "ledger": ledger,
         "position_type": "" if ledger == "-" else ledger,
+        "ledger_intent_missing": True if ledger_intent_missing else None,
     }
 
 
-def _resolve_order_ledger(*, side, request_row):
-    """推导订单归属账本（#549 §3.1，用于相关订单列表/详情展示）。
+def _resolve_order_ledger_row(
+    *,
+    side,
+    request_row,
+    broker_only=False,
+    exit_allocations=None,
+):
+    """LedgerResolver 读侧包装：缺失 ledger_intent 显式标记，不静默推断。"""
 
-    买（side=buy）：
-    - ``strategy_context.buy_ledger == "base_line"`` 或
-      ``guardian_buy_grid.buy_ledger == "base_line"`` → ``base``（买入线底仓补仓）；
-    - ``guardian_buy_grid`` 存在且无 base_line 标记 → ``t``（Guardian 做T）；
-    - 其余（手动加仓、首开等）→ ``base``（手动加仓=base 决策）。
-
-    卖（side=sell）：
-    - TPSL 止盈卖出（``source=tpsl_takeprofit`` / ``scope_type=takeprofit_batch``）
-      → ``base``（#549：TPSL 只卖底仓，Guardian 才卖做T仓；止盈卖单虽复用
-      ``guardian_sell_sources`` 做分配书签，但不再误标为做T）；
-    - ``guardian_sell_sources`` 存在 → ``t``（Guardian 做T卖出）；
-    - 全仓止损（``scope_type`` 含 stoploss）→ ``-``（不区分账本）；
-    - 其余 → ``-``。
-    """
-
-    normalized_side = str(side or "").strip().lower()
-    context = dict((request_row or {}).get("strategy_context") or {})
-    if normalized_side == "buy":
-        grid = dict(context.get("guardian_buy_grid") or {})
-        buy_ledger = str(
-            context.get("buy_ledger") or grid.get("buy_ledger") or ""
-        ).strip()
-        if buy_ledger == "base_line":
-            return "base"
-        if context.get("guardian_buy_grid") is not None:
-            return "t"
-        return "base"
-    if normalized_side == "sell":
-        source = str((request_row or {}).get("source") or "").strip().lower()
-        scope_type = str((request_row or {}).get("scope_type") or "").strip().lower()
-        if source == "tpsl_takeprofit" or scope_type == "takeprofit_batch":
-            return "base"
-        sell_sources = dict(context.get("guardian_sell_sources") or {})
-        if sell_sources:
-            return "t"
-        if "stoploss" in scope_type:
-            return "-"
-        return "-"
-    return "-"
+    try:
+        ledger = resolve_order_ledger(
+            side=side,
+            request_row=request_row,
+            broker_only=broker_only,
+            exit_allocations=exit_allocations,
+        )
+        return ledger, False
+    except LedgerIntentMissingError:
+        return LEDGER_UNSPECIFIED, True
 
 
 def _order_sort_key(row):

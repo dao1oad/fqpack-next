@@ -24,6 +24,10 @@ from freshquant.order_management.ids import (
     new_reconciliation_resolution_id,
     new_trade_fact_id,
 )
+from freshquant.order_management.ledger_resolver import (
+    resolve_buy_position_type,
+)
+from freshquant.order_management.tracking.order_state import OrderStateService
 
 # Rebuild only needs stable Beijing wall-clock derivation, so use a fixed UTC+8
 # offset instead of relying on system tzdata availability.
@@ -34,6 +38,7 @@ _DEFAULT_LOT_AMOUNT = 50000
 _DEFAULT_GRID_INTERVAL = 1.03
 POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE = "position_snapshot_flatten"
 POSITION_SNAPSHOT_FLATTEN_ENTRY_TYPE = "position_snapshot_flatten"
+_REBUILD_ORDER_STATE_SERVICE = OrderStateService()
 
 
 class OrderLedgerV2RebuildService:
@@ -598,13 +603,20 @@ def _build_trade_only_broker_order(raw_trade, broker_order_key):
     broker_order_id = (
         _normalize_identifier(raw_trade.get("order_id")) or broker_order_key
     )
+    # #571：broker 聚合初始状态由 OrderStateService 推导（无内部订单 →
+    # 非终态 + 无 request 基数 → PARTIAL_FILLED），不硬编码状态。
+    initial_state = _REBUILD_ORDER_STATE_SERVICE.apply_fill_aggregate_state(
+        None,
+        next_quantity=0,
+        requested_quantity=None,
+    )[0]
     return {
         "broker_order_key": broker_order_key,
         "broker_order_id": broker_order_id,
         "broker_order_type": raw_trade.get("order_type"),
         "symbol": _normalize_symbol(raw_trade),
         "side": _normalize_side(raw_trade.get("order_type") or raw_trade.get("side")),
-        "state": "PARTIAL_FILLED",
+        "state": initial_state,
         "source_type": "trade_only",
         "requested_quantity": None,
         "filled_quantity": 0,
@@ -850,6 +862,9 @@ def _collect_cross_day_reused_order_ids(*, xt_orders):
 
 
 def _normalize_broker_order_state(order_status):
+    """XT 原始状态文本 → canonical 状态（纯输入归一，非状态推导；
+    状态推导只走 OrderStateService 单一口径）。"""
+
     state_value = str(order_status or "").strip().lower()
     if state_value in {"filled", "alltraded"}:
         return "FILLED"
@@ -861,11 +876,14 @@ def _normalize_broker_order_state(order_status):
 
 
 def _resolve_fill_state(*, requested_quantity, filled_quantity):
-    requested_quantity = _coerce_int(requested_quantity)
-    filled_quantity = _coerce_int(filled_quantity) or 0
-    if requested_quantity not in {None, 0} and filled_quantity >= requested_quantity:
-        return "FILLED"
-    return "PARTIAL_FILLED" if filled_quantity > 0 else "OPEN"
+    """#571：数量→终态推导收敛到 OrderStateService 单一口径。"""
+
+    state, _ = _REBUILD_ORDER_STATE_SERVICE.apply_fill_aggregate_state(
+        None,
+        next_quantity=int(filled_quantity or 0),
+        requested_quantity=requested_quantity,
+    )
+    return state
 
 
 def _sort_execution_fills(execution_fills):
@@ -1181,6 +1199,9 @@ def _build_rebuilt_open_order_pair(*, entry, rebuild_ts):
         "request_id": request_id,
         "action": "buy",
         "side": "buy",
+        # #571：flatten 重建买入为底仓语义（无策略上下文），ledger_intent
+        # 由 LedgerResolver 显式解析为 base。
+        "ledger_intent": resolve_buy_position_type(broker_only=True),
         "symbol": symbol,
         "stock_code": symbol,
         "price": price,
@@ -1210,7 +1231,6 @@ def _build_rebuilt_open_order_pair(*, entry, rebuild_ts):
         "status": "FILLED",
         "price": price,
         "quantity": quantity,
-        "filled_quantity": quantity,
         "source": "order_ledger_rebuild",
         "rebuild_source": POSITION_SNAPSHOT_FLATTEN_SOURCE_REF_TYPE,
         "rebuilt_open": True,

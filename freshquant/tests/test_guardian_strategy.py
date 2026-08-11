@@ -446,7 +446,10 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
         quantity,
         remark=None,
         strategy_context=None,
+        ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         events.append("submit")
         captured.update(
@@ -457,6 +460,9 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
                 "quantity": quantity,
                 "remark": remark,
                 "strategy_context": strategy_context,
+                "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -478,6 +484,7 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
     assert captured["remark"] == "test-remark"
     assert captured["strategy_context"]["guardian_buy_grid"]["grid_level"] == "BUY-3"
     assert captured["strategy_context"]["guardian_buy_grid"]["path"] == "holding_add"
+    assert captured["ledger_intent"] == "t"
     assert (
         captured["strategy_context"]["guardian_buy_grid"]["signal_time"]
         == fire_time.isoformat()
@@ -569,7 +576,10 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
         quantity,
         remark=None,
         strategy_context=None,
+        ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -579,6 +589,9 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
                 "quantity": quantity,
                 "remark": remark,
                 "strategy_context": strategy_context,
+                "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -597,6 +610,7 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
     assert threshold_prices == [10.0]
     assert captured["action"] == "buy"
     assert captured["quantity"] == 300
+    assert captured["ledger_intent"] == "t"
     assert fake_redis.events[0][1] == "buy:000001"
 
 
@@ -672,7 +686,10 @@ def test_holding_buy_uses_latest_execution_fill_as_threshold_base(monkeypatch):
         quantity,
         remark=None,
         strategy_context=None,
+        ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -682,6 +699,9 @@ def test_holding_buy_uses_latest_execution_fill_as_threshold_base(monkeypatch):
                 "quantity": quantity,
                 "remark": remark,
                 "strategy_context": strategy_context,
+                "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -701,6 +721,7 @@ def test_holding_buy_uses_latest_execution_fill_as_threshold_base(monkeypatch):
     assert captured["quantity"] == 300
     # #549：最近 execution fill（10.8）是做T买入门槛基准，不再回退切片下一档。
     assert threshold_prices == [10.8]
+    assert captured["ledger_intent"] == "t"
     assert fake_redis.events[0][1] == "buy:000001"
 
 
@@ -782,7 +803,10 @@ def test_holding_buy_fallback_uses_broker_avg_price_when_no_fill(monkeypatch):
         quantity,
         remark=None,
         strategy_context=None,
+        ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -792,6 +816,9 @@ def test_holding_buy_fallback_uses_broker_avg_price_when_no_fill(monkeypatch):
                 "quantity": quantity,
                 "remark": remark,
                 "strategy_context": strategy_context,
+                "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -811,6 +838,7 @@ def test_holding_buy_fallback_uses_broker_avg_price_when_no_fill(monkeypatch):
     assert captured["quantity"] == 300
     # #549：无 execution fill 且无 OM entries → xt_positions.avg_price 兜底门槛。
     assert threshold_prices == [10.2]
+    assert captured["ledger_intent"] == "t"
     assert fake_redis.events[0][1] == "buy:000001"
 
 
@@ -876,7 +904,10 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
         quantity,
         remark=None,
         strategy_context=None,
+        ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -886,6 +917,9 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
                 "quantity": quantity,
                 "remark": remark,
                 "strategy_context": strategy_context,
+                "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
             }
         )
         return {
@@ -904,6 +938,7 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
     assert captured["action"] == "buy"
     assert captured["quantity"] == 10000
     assert captured["strategy_context"]["guardian_buy_grid"]["path"] == "new_open"
+    assert captured["ledger_intent"] == "base"
     assert (
         captured["strategy_context"]["guardian_buy_grid"]["signal_time"]
         == signal["fire_time"].isoformat()
@@ -1037,6 +1072,7 @@ def test_guardian_sell_caps_quantity_by_can_use_volume_and_board_lot(monkeypatch
     assert captured["action"] == "sell"
     assert captured["symbol"] == "000001"
     assert captured["quantity"] == 200
+    assert captured["kwargs"]["ledger_intent"] == "t"
     assert signal["quantity"] == 200
 
 
@@ -1134,6 +1170,7 @@ def test_guardian_sell_carries_selected_source_entries_in_strategy_context(
 
     assert captured["action"] == "sell"
     assert captured["quantity"] == 3100
+    assert captured["kwargs"]["ledger_intent"] == "t"
     assert captured["kwargs"]["strategy_context"]["guardian_sell_sources"] == {
         "version": 2,
         "profitable_fill_count": 4,

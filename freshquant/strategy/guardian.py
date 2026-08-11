@@ -1,4 +1,3 @@
-import inspect
 import json
 from datetime import datetime, timedelta
 
@@ -24,6 +23,10 @@ from freshquant.order_management.guardian.sell_semantics import (
 from freshquant.order_management.guardian.slice_evaluation import (
     evaluate_guardian_sell_slices,
     resolve_sell_threshold_config,
+)
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_BASE,
+    normalize_ledger_intent,
 )
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.sell_constraints import (
@@ -752,6 +755,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     quantity=quantity,
                     remark=remark,
                     strategy_context=strategy_context,
+                    ledger_intent=_resolve_guardian_buy_intent(decision),
                     signal=signal,
                 )
             except PositionManagementRejectedError as exc:
@@ -1255,6 +1259,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     is_profitable=True,
                     signal=signal,
                     strategy_context=strategy_context,
+                    ledger_intent="t",
                 )
             except PositionManagementRejectedError as exc:
                 rejection_context = {
@@ -1503,20 +1508,18 @@ class StrategyGuardian(metaclass=SingletonType):
         remark=None,
         is_profitable=None,
         strategy_context=None,
+        ledger_intent=None,
     ):
         submit_kwargs = {
             "remark": remark,
             "is_profitable": is_profitable,
             "strategy_context": strategy_context,
+            # #571：最终架构直接强制传 ledger_intent，无兼容垫片。
+            "ledger_intent": ledger_intent,
+            # #571：trace_id / intent_id 也强制统一直传，无参数探测垫片。
+            "trace_id": signal.get("trace_id"),
+            "intent_id": signal.get("intent_id"),
         }
-        try:
-            parameters = inspect.signature(submit_guardian_order).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-        if "trace_id" in parameters:
-            submit_kwargs["trace_id"] = signal.get("trace_id")
-        if "intent_id" in parameters:
-            submit_kwargs["intent_id"] = signal.get("intent_id")
         return submit_guardian_order(
             action,
             code,
@@ -1656,7 +1659,13 @@ def _is_base_line_buy_order(repository, order):
     else:
         request = {}
     context = dict((request or {}).get("strategy_context") or {})
-    return str(context.get("buy_ledger") or "") == "base_line"
+    # #571：base_line 判定 = guardian_buy_grid.path（运行态策略语义）
+    # + ledger_intent=base；旧 buy_ledger 字段不再参与。
+    grid = dict(context.get("guardian_buy_grid") or {})
+    return (
+        str(grid.get("path") or "").strip().lower() == "base_line"
+        and normalize_ledger_intent(request.get("ledger_intent")) == LEDGER_BASE
+    )
 
 
 def _resolve_guardian_arrangement_scope(code):
@@ -1704,6 +1713,16 @@ def _build_guardian_sell_strategy_context(
         profitable_fill_count=profitable_fill_count,
     )
     return {'guardian_sell_sources': source_plan}
+
+
+def _resolve_guardian_buy_intent(decision) -> str:
+    """Guardian 买入路径 → ledger_intent（#8：new_open/base_line → base、
+    holding_add → t、缺省 base）。"""
+
+    path = str((decision or {}).get("path") or "").strip().lower()
+    if path == "holding_add":
+        return "t"
+    return "base"
 
 
 def _resolve_guardian_sell_threshold_config(threshold):

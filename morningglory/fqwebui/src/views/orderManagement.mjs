@@ -145,7 +145,7 @@ export const buildOrderDetailViewModel = (detail = {}) => {
     name: toText(detail?.order?.name),
     side: toText(detail?.order?.side),
     state: toText(detail?.order?.state),
-    // #549 双账本：优先后端订单行 ledger，缺失时按请求 strategy_context 推导。
+    // #571 双账本：优先后端订单行 ledger，缺失时按请求 ledger_intent 推导。
     ledger: toText(detail?.order?.ledger) || requestLedger,
     ledger_label: formatLedgerLabel(toText(detail?.order?.ledger) || requestLedger),
     ...orderState,
@@ -203,23 +203,20 @@ export const buildOrderDetailViewModel = (detail = {}) => {
 
 export const resolveOrderLedgerFromRequest = (side, request = {}) => {
   const normalizedSide = toText(side).toLowerCase()
-  const context = request?.strategy_context || {}
+  // #571 LedgerResolver：前端 fallback 只读归一字段 ledger_intent，
+  // 不再解析 guardian_sell_sources / guardian_buy_grid / buy_ledger。
+  const ledgerIntent = toText(request?.ledger_intent).toLowerCase()
   if (normalizedSide === 'buy') {
-    const grid = context?.guardian_buy_grid || {}
-    const buyLedger = toText(context?.buy_ledger || grid?.buy_ledger)
-    if (buyLedger === 'base_line') return 'base'
-    if (context?.guardian_buy_grid) return 't'
-    return 'base'
+    if (ledgerIntent === 'base') return 'base'
+    if (ledgerIntent === 't') return 't'
+    return ''
   }
   if (normalizedSide === 'sell') {
-    const scopeType = toText(request?.scope_type).toLowerCase()
-    const source = toText(request?.source).toLowerCase()
-    // #549：TPSL 只卖底仓；止盈卖单虽复用 guardian_sell_sources 做分配书签，
-    // 但归属账本是 base，不再误标为做T。
-    if (scopeType === 'takeprofit_batch' || source === 'tpsl_takeprofit') return 'base'
-    if (context?.guardian_sell_sources) return 't'
-    if (scopeType.includes('stoploss')) return '-'
-    return '-'
+    if (ledgerIntent === 'base') return 'base'
+    if (ledgerIntent === 't') return 't'
+    if (ledgerIntent === 'mixed') return 'mixed'
+    if (ledgerIntent === '-') return '-'
+    return ''
   }
   return '-'
 }
@@ -228,6 +225,7 @@ export const formatLedgerLabel = (ledger) => {
   const normalized = toText(ledger).toLowerCase()
   if (normalized === 'base') return '底仓'
   if (normalized === 't') return '做T'
+  if (normalized === 'mixed') return '分摊'
   return '-'
 }
 
@@ -235,6 +233,7 @@ export const ledgerChipVariant = (ledger) => {
   const normalized = toText(ledger).toLowerCase()
   if (normalized === 'base') return 'info'
   if (normalized === 't') return 'warning'
+  if (normalized === 'mixed') return 'warning'
   return 'muted'
 }
 

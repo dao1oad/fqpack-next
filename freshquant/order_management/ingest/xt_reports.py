@@ -50,6 +50,13 @@ from freshquant.order_management.guardian.arranger import (
 from freshquant.order_management.guardian.sell_semantics import (
     extract_guardian_sell_source_plan,
 )
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_BASE,
+    LedgerIntentConflictError,
+    LedgerIntentMissingError,
+    normalize_ledger_intent,
+    resolve_buy_position_type,
+)
 from freshquant.order_management.projection.cache_invalidator import (
     mark_stock_holdings_projection_updated,
 )
@@ -94,13 +101,6 @@ _SELL_ORDER_TYPES = {
     "SELL",
 }
 
-_MANUAL_BUY_SOURCES = {
-    "manual",
-    "manual_import",
-    "reset",
-    "manual_reset",
-    "manual_locked",
-}
 _BUY_LEVEL_INDEX = {"BUY-1": 0, "BUY-2": 1, "BUY-3": 2}
 
 
@@ -568,9 +568,11 @@ class OrderManagementXtIngestService:
         if side == "buy":
             grid = dict(context.get("guardian_buy_grid") or {})
             # 只处理买入线（base_line）订单：T 侧 Guardian 买单不联动阶梯状态机。
+            # #571：base_line 判定用 guardian_buy_grid.path（运行态策略语义）
+            # + ledger_intent=base，旧 buy_ledger 字段不再参与。
             is_base_line = (
-                str(context.get("buy_ledger") or "") == "base_line"
-                or str(grid.get("buy_ledger") or "") == "base_line"
+                str(grid.get("path") or "").strip().lower() == "base_line"
+                and normalize_ledger_intent(request.get("ledger_intent")) == LEDGER_BASE
             )
             if not is_base_line:
                 return {"processed": False, "reason": "not_base_line_buy"}
@@ -970,7 +972,16 @@ def _resolve_trade_guardian_sell_source_plan(
         trade_fact=trade_fact,
     )
     if not request_id:
-        return {}, None, None
+        # #571：broker-only 卖出（无 request）也必须保留 internal_order_id，
+        # 让新写入的 exit allocations 可按订单审计（列表/详情账本判定依赖
+        # internal_order_id 批量关联）；already_allocated 也按它跨 fill 累计。
+        internal_order_id = str(
+            (trade_fact or {}).get("internal_order_id")
+            or (report or {}).get("internal_order_id")
+            or (execution_fill or {}).get("internal_order_id")
+            or ""
+        ).strip()
+        return {}, None, internal_order_id or None
     request = repository.find_order_request(request_id)
     plan = extract_guardian_sell_source_plan(request)
     internal_order_id = None
@@ -1035,44 +1046,29 @@ def _find_position_entry_for_broker_order(repository, *, symbol, broker_order_ke
     )
 
 
-def _resolve_buy_ledger(repository, *, broker_order):
-    """从内部订单 ``strategy_context.buy_ledger`` 读取账本来源标记。"""
-
-    internal_order_id = str((broker_order or {}).get("internal_order_id") or "").strip()
-    if not internal_order_id or not hasattr(repository, "find_order"):
-        return None
-    try:
-        order = repository.find_order(internal_order_id) or {}
-    except Exception:
-        return None
-    context = dict((order or {}).get("strategy_context") or {})
-    return str(context.get("buy_ledger") or "").strip() or None
-
-
 def _resolve_entry_position_type(
     *,
     repository,
     broker_order,
-    existing_entries,
     buy_group_trade_fact,
 ):
-    """双账本打标：base_line / manual / 首开 → base；Guardian 信号加仓 → t。
+    """双账本买 entry 打标（#571 LedgerResolver 唯一入口）。
 
-    规则（#549 v4.1）：无 open entry（持仓 0→有）→ base；``buy_ledger ==
-    "base_line"`` → base；手动加仓（manual source，非首开）→ base；其余
-    （Guardian 信号加仓）→ t。
+    - 有内部订单：按 ``om_order_requests.ledger_intent``（base/t），缺失
+      fail-closed（``LedgerIntentMissingError``）；
+    - broker-only / 无请求：显式归 base（A8，QMT 终端手动买入）。
+    不再使用旧字段（guardian_buy_grid / buy_ledger）与"首开→base"启发式。
     """
 
-    buy_ledger = _resolve_buy_ledger(repository, broker_order=broker_order)
-    if buy_ledger == "base_line":
+    internal_order_id = str((broker_order or {}).get("internal_order_id") or "").strip()
+    source_type = str((broker_order or {}).get("source_type") or "").strip().lower()
+    request = None
+    if internal_order_id and source_type != "broker_only":
+        request = _load_order_request(repository, internal_order_id=internal_order_id)
+    if request is None:
         return POSITION_TYPE_BASE
-    source = str(buy_group_trade_fact.get("source") or "").strip().lower()
-    if source in _MANUAL_BUY_SOURCES:
-        return POSITION_TYPE_BASE
-    has_open_entry = any(
-        int(item.get("remaining_quantity") or 0) > 0 for item in existing_entries
-    )
-    if not has_open_entry:
+    ledger = resolve_buy_position_type(request_row=request)
+    if ledger == LEDGER_BASE:
         return POSITION_TYPE_BASE
     return POSITION_TYPE_T
 
@@ -1245,24 +1241,35 @@ def _upsert_broker_position_entry(
         "source": trade_fact.get("source", "xt_trade_callback"),
     }
     existing_entries = repository.list_position_entries(symbol=symbol)
+    # #571：先解析归属再做 buy cluster（禁止跨账本聚合，A6 成员携带 position_type）。
+    resolved_position_type = _resolve_entry_position_type(
+        repository=repository,
+        broker_order=broker_order,
+        buy_group_trade_fact=buy_group_trade_fact,
+    )
     existing_entry = select_cluster_entry(
         existing_entries,
         buy_group_trade_fact,
         broker_order_key,
+        position_type=resolved_position_type,
     )
-    # 双账本（#549）：聚类保留已有 position_type；新 entry 按来源打标
-    # （base_line / manual / 首开 → base；Guardian 信号加仓 → t）。
+    # 同 broker order 的既有 entry 账本必须与请求意图一致（fail-closed）；
+    # 聚类命中则继承既有账本。
+    if existing_entry is not None and position_type_of(
+        existing_entry.get("position_type")
+    ) != position_type_of(resolved_position_type):
+        raise LedgerIntentConflictError(
+            "buy entry ledger conflicts with resolved position_type: "
+            f"entry={position_type_of(existing_entry.get('position_type'))} "
+            f"resolved={position_type_of(resolved_position_type)} "
+            f"internal_order_id={broker_order.get('internal_order_id')}"
+        )
     if (existing_entry or {}).get("position_type"):
         buy_group_trade_fact["position_type"] = position_type_of(
             existing_entry["position_type"]
         )
     else:
-        buy_group_trade_fact["position_type"] = _resolve_entry_position_type(
-            repository=repository,
-            broker_order=broker_order,
-            existing_entries=existing_entries,
-            buy_group_trade_fact=buy_group_trade_fact,
-        )
+        buy_group_trade_fact["position_type"] = position_type_of(resolved_position_type)
     entry = build_clustered_position_entry(
         group_trade_fact=buy_group_trade_fact,
         broker_order_key=broker_order_key,

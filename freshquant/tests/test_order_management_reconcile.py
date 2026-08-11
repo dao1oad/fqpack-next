@@ -494,6 +494,7 @@ def test_detect_external_candidates_from_position_delta():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -867,6 +868,7 @@ def test_reconcile_canonical_external_trade_does_not_guess_inflight_owner(monkey
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -912,6 +914,7 @@ def test_reconcile_identity_incomplete_trade_fails_closed_without_shape_guess(
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -950,6 +953,7 @@ def test_reconcile_matches_inflight_internal_order_by_correlation_token(
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -1001,6 +1005,7 @@ def test_reconcile_matches_partial_inflight_internal_order_by_correlation_token(
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 600,
@@ -1070,6 +1075,7 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.5,
             "quantity": 200,
@@ -1141,6 +1147,7 @@ def test_reconcile_trade_report_uses_correlation_token_with_duplicate_broker_id(
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "002262",
             "price": 21.0,
             "quantity": 2300,
@@ -1163,6 +1170,7 @@ def test_reconcile_trade_report_uses_correlation_token_with_duplicate_broker_id(
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "002262",
             "price": 22.41,
             "quantity": 2300,
@@ -1248,11 +1256,26 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
 
 def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypatch):
     repository, service = _build_service(monkeypatch)
+    # 确定性：屏蔽真实行情/昨收查询，价格回退到券商 avg_price（10.02），
+    # 避免本地生产 Mongo 实时价（如 11.19）导致 0.3% 偏差断言不稳定。
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_latest_realtime_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_previous_close_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
     repository.replace_position_entry(
         {
             "entry_id": "entry_cluster_1",
             "symbol": "000001",
             "entry_type": "broker_execution_cluster",
+            "position_type": "base",
             "source_ref_type": "buy_cluster",
             "source_ref_id": "buy_cluster:000001:20240310:1710000000:ord_cluster_1",
             "entry_price": 10.0,
@@ -1278,6 +1301,7 @@ def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypat
                     "date": 20240310,
                     "time": "09:30:00",
                     "trading_day": 20240310,
+                    "position_type": "base",
                 }
             ],
             "aggregation_member_keys": ["ord_cluster_1"],
@@ -1315,15 +1339,106 @@ def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypat
     assert position_entry["remaining_quantity"] == 200
     assert position_entry["trade_time"] == 1710000000
     assert position_entry["entry_price"] == pytest.approx(10.01, abs=1e-6)
+    assert position_entry["position_type"] == "base"
     assert position_entry["aggregation_window"]["member_count"] == 2
     assert (
         position_entry["aggregation_members"][0]["broker_order_key"] == "ord_cluster_1"
     )
     assert position_entry["aggregation_members"][1]["trade_time"] == 1710000240
+    assert {
+        member.get("position_type") for member in position_entry["aggregation_members"]
+    } == {"base"}
     assert repository.reconciliation_gaps[0]["entry_id"] == "entry_cluster_1"
     assert (
         repository.reconciliation_resolutions[0]["source_ref_id"] == "entry_cluster_1"
     )
+
+
+def test_inferred_pending_auto_open_does_not_merge_into_t_cluster(monkeypatch):
+    """#571：auto-open（broker-only 语义 → base）先解析归属再聚类，
+    不得并入 t 账本聚类（同窗口同价位也不合并）。"""
+
+    repository, service = _build_service(monkeypatch)
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_latest_realtime_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        reconcile_service_module,
+        "_load_previous_close_price_snapshot",
+        lambda *_args, **_kwargs: None,
+        raising=False,
+    )
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_t_cluster_1",
+            "symbol": "000001",
+            "entry_type": "broker_execution_cluster",
+            "position_type": "t",
+            "source_ref_type": "buy_cluster",
+            "source_ref_id": "buy_cluster:000001:20240310:1710000000:ord_t_cluster_1",
+            "entry_price": 10.0,
+            "buy_price_real": 10.0,
+            "original_quantity": 100,
+            "remaining_quantity": 100,
+            "amount": 1000.0,
+            "amount_adjust": 1.0,
+            "date": 20240310,
+            "time": "09:30:00",
+            "trade_time": 1710000000,
+            "source": "xt_trade_callback",
+            "arrange_mode": "runtime_grid",
+            "status": "OPEN",
+            "sell_history": [],
+            "aggregation_members": [
+                {
+                    "broker_order_key": "ord_t_cluster_1",
+                    "trade_fact_id": "trade_t_cluster_1",
+                    "quantity": 100,
+                    "entry_price": 10.0,
+                    "trade_time": 1710000000,
+                    "date": 20240310,
+                    "time": "09:30:00",
+                    "trading_day": 20240310,
+                    "position_type": "t",
+                }
+            ],
+            "aggregation_member_keys": ["ord_t_cluster_1"],
+            "aggregation_window": {
+                "start_trade_time": 1710000000,
+                "end_trade_time": 1710000000,
+                "trading_day": 20240310,
+                "member_count": 1,
+            },
+        }
+    )
+
+    for detected_at in (1710000210, 1710000225, 1710000240):
+        service.detect_external_candidates(
+            positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
+            detected_at=detected_at,
+        )
+
+    confirmed = service.confirm_expired_candidates(now=1710000240)
+
+    assert len(confirmed) == 1
+    assert len(repository.position_entries) == 2
+    by_id = {item["entry_id"]: item for item in repository.position_entries}
+    t_entry = by_id["entry_t_cluster_1"]
+    assert t_entry["position_type"] == "t"
+    assert t_entry["remaining_quantity"] == 100
+    assert t_entry["aggregation_window"]["member_count"] == 1
+    new_entry = next(
+        item
+        for item in repository.position_entries
+        if item["entry_id"] != "entry_t_cluster_1"
+    )
+    assert new_entry["entry_type"] == "auto_reconciled_open"
+    assert new_entry["position_type"] == "base"
+    assert new_entry["remaining_quantity"] == 100
+    assert repository.reconciliation_gaps[0]["entry_id"] == new_entry["entry_id"]
 
 
 def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_open(
@@ -2330,3 +2445,179 @@ def test_detect_external_candidates_prefers_request_guardian_plan_over_runtime_i
     assert gaps[0]["sell_source_entries"] == [
         {"entry_id": "entry_old", "quantity": 500}
     ]
+
+
+def test_recent_sell_source_lookup_excludes_takeprofit_requests(monkeypatch):
+    """#571 #7 D2：TP 止盈请求永不进入 reconcile gap 候选。"""
+
+    repository, service = _build_service(monkeypatch)
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_hold",
+            "symbol": "000001",
+            "original_quantity": 900,
+            "remaining_quantity": 900,
+            "status": "OPEN",
+        }
+    )
+    repository.insert_order_request(
+        {
+            "request_id": "req_tp_exclude_1",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 500,
+            "source": "tpsl_takeprofit",
+            "scope_type": "takeprofit_batch",
+            "created_at": datetime.fromtimestamp(995, tz=timezone.utc).isoformat(),
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 500,
+                    "entries": [{"entry_id": "entry_tp", "quantity": 500}],
+                }
+            },
+            "state": "ACCEPTED",
+        }
+    )
+    repository.insert_order_request(
+        {
+            "request_id": "req_guardian_candidate_1",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 500,
+            "source": "strategy",
+            "strategy_name": "Guardian",
+            "created_at": datetime.fromtimestamp(990, tz=timezone.utc).isoformat(),
+            "strategy_context": {
+                "guardian_sell_sources": {
+                    "submit_quantity": 500,
+                    "entries": [{"entry_id": "entry_t", "quantity": 500}],
+                }
+            },
+            "state": "ACCEPTED",
+        }
+    )
+
+    gaps = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+
+    assert len(gaps) == 1
+    assert gaps[0]["side"] == "sell"
+    assert gaps[0]["sell_source_entries"] == [{"entry_id": "entry_t", "quantity": 500}]
+
+
+def test_confirm_close_gap_emits_tp_return_loss_alert(monkeypatch):
+    """#571 D2：resolve 前置 TP 回报丢失告警（不阻断自动平账）。"""
+
+    runtime_events = []
+    repository, service = _build_service(
+        monkeypatch,
+        runtime_events=runtime_events,
+    )
+    buy_lot = build_buy_lot_from_trade_fact(
+        {
+            "trade_fact_id": "trade_seed_buy_tp_loss",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 900,
+            "price": 10.0,
+            "trade_time": 1_000,
+            "date": 20240102,
+            "time": "09:31:00",
+        }
+    )
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+    )
+    # TP 止盈请求已提交但无任何成交回报（回报丢失场景）
+    repository.insert_order_request(
+        {
+            "request_id": "req_tp_loss_1",
+            "action": "sell",
+            "symbol": "000001",
+            "quantity": 500,
+            "source": "tpsl_takeprofit",
+            "scope_type": "takeprofit_batch",
+            "created_at": datetime.fromtimestamp(995, tz=timezone.utc).isoformat(),
+            "state": "ACCEPTED",
+        }
+    )
+    repository.orders.append(
+        {
+            "internal_order_id": "ord_tp_loss_1",
+            "request_id": "req_tp_loss_1",
+            "symbol": "000001",
+            "side": "sell",
+            "state": "SUBMITTED",
+        }
+    )
+    repository.execution_fills = []
+
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert confirmed[0]["state"] == "AUTO_CLOSED"
+    assert confirmed[0]["resolution_type"] == "auto_close_allocation"
+    alert_events = [
+        event
+        for event in runtime_events
+        if event.get("reason_code") == "tpsl_takeprofit_return_lost"
+    ]
+    assert alert_events, "TP 回报丢失告警必须落账"
+    assert alert_events[0]["node"] == "auto_close"
+    assert any(
+        item.get("internal_order_id") == "ord_tp_loss_1"
+        for item in alert_events[0]["payload"]["evidence"]
+    )
+
+
+def test_confirm_close_gap_empty_candidates_falls_back_without_crash(monkeypatch):
+    """#571 D2：空候选兜底——无 entry、无 buy_lot 时自动平账不崩溃并落 resolution。"""
+
+    repository, service = _build_service(monkeypatch)
+    # 内部账本 500（entry 有剩余但无任何 open slice 候选），券商 200 → sell gap
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_no_slices",
+            "symbol": "000001",
+            "original_quantity": 500,
+            "remaining_quantity": 500,
+            "status": "OPEN",
+        }
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert confirmed[0]["state"] == "AUTO_CLOSED"
+    assert confirmed[0]["resolution_type"] == "auto_close_allocation"
+    assert repository.sell_allocations == []
+    assert repository.exit_allocations == []

@@ -28,18 +28,46 @@ from freshquant.order_management.ids import (
     new_request_id,
     new_trade_fact_id,
 )
+from freshquant.order_management.ledger_resolver import (
+    LEDGER_BASE,
+    LEDGER_T,
+    InvalidLedgerIntentError,
+    LedgerIntentMissingError,
+    normalize_ledger_intent,
+)
 from freshquant.order_management.repository import OrderManagementRepository
+from freshquant.order_management.tracking.order_state import (
+    LATE_ORDER_REPORT_EVENT_TYPE,
+    LATE_TRADE_EVENT_TYPE,
+    OrderStateService,
+)
 from freshquant.order_management.tracking.state_machine import OrderStateMachine
 
 
 class OrderTrackingService:
-    def __init__(self, repository=None, state_machine=None):
+    def __init__(self, repository=None, state_machine=None, order_state=None):
         self.repository = repository or OrderManagementRepository()
         self.state_machine = state_machine or OrderStateMachine()
+        self.order_state = order_state or OrderStateService(
+            state_machine=self.state_machine
+        )
 
     def submit_order(self, payload):
         request_id = payload.get("request_id") or new_request_id()
         internal_order_id = payload.get("internal_order_id") or new_internal_order_id()
+        action = str(payload.get("action") or "").strip().lower()
+        # #571：ledger_intent 必填 fail-closed；buy 只允许 base/t。
+        ledger_intent = normalize_ledger_intent(payload.get("ledger_intent"))
+        if action in {"buy", "sell"}:
+            if ledger_intent is None:
+                raise LedgerIntentMissingError(
+                    "ledger_intent is required for buy/sell orders (fail-closed); "
+                    "TPSL/Guardian/manual/stoploss writers must declare base/t/-"
+                )
+            if action == "buy" and ledger_intent not in {LEDGER_BASE, LEDGER_T}:
+                raise InvalidLedgerIntentError(
+                    f"buy ledger_intent must be base or t, got {ledger_intent!r}"
+                )
         raw_correlation_token = payload.get("broker_correlation_token")
         broker_correlation_token = normalize_broker_correlation_token(
             raw_correlation_token
@@ -62,7 +90,7 @@ class OrderTrackingService:
 
         request_document = {
             "request_id": request_id,
-            "action": payload["action"],
+            "action": action,
             "source": payload.get("source", "unknown"),
             "trace_id": payload.get("trace_id"),
             "intent_id": payload.get("intent_id"),
@@ -72,6 +100,7 @@ class OrderTrackingService:
             "symbol": payload.get("symbol"),
             "price": payload.get("price"),
             "quantity": payload.get("quantity"),
+            "ledger_intent": ledger_intent,
             "credit_trade_mode": payload.get("credit_trade_mode"),
             "price_mode": payload.get("price_mode"),
             "strategy_name": payload.get("strategy_name"),
@@ -107,7 +136,6 @@ class OrderTrackingService:
             "state": "ACCEPTED",
             "source_type": payload.get("source", "unknown"),
             "submitted_at": None,
-            "filled_quantity": 0,
             "avg_filled_price": None,
             "updated_at": now,
         }
@@ -278,14 +306,11 @@ class OrderTrackingService:
         updates.update(identity_updates)
         if report.get("submitted_at") and not current_order.get("submitted_at"):
             updates["submitted_at"] = report.get("submitted_at")
-        absorbed = False
-        if current_state == report["state"]:
-            next_state = current_state
-        elif _should_absorb_terminal_replay(current_state, report["state"]):
-            next_state = current_state
-            absorbed = True
-        else:
-            next_state = self.state_machine.transition(current_state, report["state"])
+        # #571 OrderStateService：终态门禁（FILLED/CANCELED 不回退、迟到回报告警）。
+        next_state, absorbed, late_alert = self.order_state.apply_order_report(
+            current_state,
+            report["state"],
+        )
 
         self._sync_broker_order_report(
             broker_order_key,
@@ -293,6 +318,21 @@ class OrderTrackingService:
             current_order=effective_order,
             placeholder_key=placeholder_key,
         )
+        if late_alert and absorbed and next_state in {"FILLED", "CANCELED"}:
+            self.repository.insert_order_event(
+                {
+                    "event_id": new_event_id(),
+                    "request_id": current_order.get("request_id"),
+                    "internal_order_id": internal_order_id,
+                    "event_type": LATE_ORDER_REPORT_EVENT_TYPE,
+                    "state": next_state,
+                    "payload": {
+                        "incoming_state": report["state"],
+                        "broker_order_id": report.get("broker_order_id"),
+                    },
+                    "created_at": _utc_now_iso(),
+                }
+            )
         if current_state == report["state"]:
             if updates:
                 updates["updated_at"] = _utc_now_iso()
@@ -338,9 +378,7 @@ class OrderTrackingService:
         current_order = self.repository.find_order(report["internal_order_id"])
         created_broker_only = current_order is None
         if current_order is None:
-            current_order = self._build_broker_only_order(
-                {**report, "state": "PARTIAL_FILLED"}
-            )
+            current_order = self._build_broker_only_order(report)
         else:
             _assert_order_report_identity(current_order, report)
 
@@ -406,9 +444,16 @@ class OrderTrackingService:
         }
         if created_broker_only:
             self.repository.insert_order(effective_order)
+        # #571：broker 聚合占位状态不再无条件 PARTIAL_FILLED —— 终态内部订单
+        # 保持终态，避免卡死单永久占用买入容量；成交事实仍照常落账。
+        placeholder_state, _ = self.order_state.apply_fill_aggregate_state(
+            current_order["state"],
+            next_quantity=0,
+            requested_quantity=None,
+        )
         self._sync_broker_order_report(
             broker_order_key,
-            {**report, "state": "PARTIAL_FILLED"},
+            {**report, "state": placeholder_state},
             current_order=effective_order,
             placeholder_key=placeholder_key,
         )
@@ -434,8 +479,9 @@ class OrderTrackingService:
             current_order = effective_order
         created = bool(created_execution_fill)
         broker_order = None
+        late_trade_alert = False
         if created:
-            broker_order = self._apply_fill_to_broker_order(
+            broker_order, late_trade_alert = self._apply_fill_to_broker_order(
                 broker_order_key,
                 saved_execution_fill,
                 current_order=current_order,
@@ -446,14 +492,31 @@ class OrderTrackingService:
                     "request_id": None,
                     "internal_order_id": report["internal_order_id"],
                     "event_type": "trade_reported",
-                    "state": (broker_order or {}).get("state", "PARTIAL_FILLED"),
+                    "state": (broker_order or {}).get("state", placeholder_state),
                     "created_at": _utc_now_iso(),
                 }
             )
+            if late_trade_alert:
+                self.repository.insert_order_event(
+                    {
+                        "event_id": new_event_id(),
+                        "request_id": current_order.get("request_id"),
+                        "internal_order_id": report["internal_order_id"],
+                        "event_type": LATE_TRADE_EVENT_TYPE,
+                        "state": current_order.get("state"),
+                        "payload": {
+                            "broker_trade_id": report.get("broker_trade_id"),
+                            "quantity": report.get("quantity"),
+                            "price": report.get("price"),
+                        },
+                        "created_at": _utc_now_iso(),
+                    }
+                )
         return {
             "trade_fact": saved_trade_fact,
             "execution_fill": saved_execution_fill,
             "created": created,
+            "late_trade_alert": late_trade_alert,
         }
 
     def _build_broker_only_order(self, report):
@@ -476,6 +539,19 @@ class OrderTrackingService:
                 "broker-only internal_order_id is not deterministic"
             )
         now = _utc_now_iso()
+        reported_state = str(report.get("state") or "").strip().upper()
+        if reported_state:
+            initial_state = reported_state
+        else:
+            # #571：trade-only broker-only 单无显式状态时，初始状态由
+            # OrderStateService 推导（非终态 + 无 request 基数 → PARTIAL_FILLED），
+            # 不再字面硬编码。
+            initial_state = self.order_state.apply_fill_aggregate_state(
+                None,
+                next_quantity=0,
+                requested_quantity=report.get("requested_quantity")
+                or report.get("order_volume"),
+            )[0]
         return {
             "internal_order_id": expected_internal_order_id,
             "request_id": None,
@@ -491,12 +567,11 @@ class OrderTrackingService:
             "intent_id": report.get("intent_id"),
             "symbol": normalize_symbol(report.get("symbol")),
             "side": normalize_side(report.get("side")),
-            "state": report.get("state") or "PARTIAL_FILLED",
+            "state": initial_state,
             "source_type": "broker_only",
             "submitted_at": report.get("submitted_at"),
             "requested_quantity": report.get("requested_quantity")
             or report.get("order_volume"),
-            "filled_quantity": 0,
             "avg_filled_price": None,
             "created_at": now,
             "updated_at": now,
@@ -585,11 +660,12 @@ class OrderTrackingService:
             )
             first_fill_time, last_fill_time = _fill_time_bounds(fills)
             requested_quantity = broker_order.get("requested_quantity")
-            next_state = "PARTIAL_FILLED"
-            if requested_quantity not in (None, "") and next_quantity >= int(
-                requested_quantity
-            ):
-                next_state = "FILLED"
+            # #571 OrderStateService：终态订单成交不回退状态（事实照落+告警）。
+            next_state, late_trade_alert = self.order_state.apply_fill_aggregate_state(
+                current_order.get("state"),
+                next_quantity=next_quantity,
+                requested_quantity=requested_quantity,
+            )
             next_document = {
                 **broker_order,
                 "filled_quantity": next_quantity,
@@ -607,7 +683,7 @@ class OrderTrackingService:
                 after=next_document,
             )
             if saved_broker_order is not None:
-                return saved_broker_order
+                return saved_broker_order, late_trade_alert
         raise BrokerIdentityConflict(
             "broker aggregate could not converge after concurrent updates"
         )
@@ -815,7 +891,3 @@ def _fill_time_bounds(fills):
     if not values:
         return None, None
     return min(values), max(values)
-
-
-def _should_absorb_terminal_replay(current_state: str, next_state: str) -> bool:
-    return current_state == "FILLED" and next_state in {"PARTIAL_FILLED", "CANCELED"}

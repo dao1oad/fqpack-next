@@ -163,6 +163,7 @@ def test_submit_order_emits_runtime_trace_steps():
     result = service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -203,6 +204,7 @@ def test_submit_order_emits_runtime_error_when_queue_push_fails():
         service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": 10.0,
                 "quantity": 100,
@@ -241,6 +243,7 @@ def test_submit_order_emits_failed_runtime_event_for_position_management_rejecti
         service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": 10.0,
                 "quantity": 100,
@@ -273,6 +276,7 @@ def test_cancel_order_emits_runtime_trace_steps():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -320,6 +324,7 @@ def test_cancel_order_emits_runtime_error_when_queue_push_fails():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,

@@ -114,6 +114,11 @@ finalizer 只在两侧 completed 后运行。sensor 先持久化 `finalization_a
 
 ## 订单相关核心调用链
 
+订单级账本归属只由 `LedgerResolver` 判定（`ledger_intent` 必填 fail-closed；
+broker-only 买单显式 base；跨 base/t 分摊卖单订单级 `mixed`，逐笔真值在
+`om_exit_allocations.position_type`）；订单状态写入口由 `OrderStateService`
+收敛（FILLED/CANCELED 终态不回退，迟到成交照落账并告警）。
+
 ### 实时交易链
 
 `XTData -> Guardian -> PositionManagement gate -> OrderManagement submit -> broker -> XT callback -> OrderManagement ingest -> Position/TPSL/Subject/Kline read models`
@@ -150,7 +155,10 @@ om_entry_slices / om_exit_allocations`）；`om_execution_history_archive` 与
 ### 订单账本层
 
 - `om_order_requests`
+  - `ledger_intent` 必填（base/t/mixed/-），TPSL/Guardian/手动/网页/stoploss
+    全写入方显式声明，缺失 fail-closed
 - `om_orders`
+  - 内部订单壳；`filled_quantity` 死字段退役，数量真值在 `om_broker_orders`
 - `om_broker_orders`
 - `om_order_events`
 - `om_execution_fills`
@@ -161,6 +169,9 @@ om_entry_slices / om_exit_allocations`）；`om_execution_history_archive` 与
 - `om_position_entries`
 - `om_entry_slices`
 - `om_exit_allocations`
+
+`position_type`（base/t）在 entry / slice / allocation / 聚合成员四级一致；
+buy 先解析归属后聚类，禁止跨账本聚合。
 
 ### 自动平账层
 

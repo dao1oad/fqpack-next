@@ -318,6 +318,7 @@ def _bootstrap_service():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 900,
@@ -328,6 +329,7 @@ def _bootstrap_service():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.8,
             "quantity": 500,
@@ -468,6 +470,7 @@ def test_normalize_xt_trade_report_prefers_order_domain_broker_order_type():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "600000",
             "price": 10.0,
             "quantity": 100,
@@ -511,6 +514,7 @@ def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "002262",
             "price": 21.0,
             "quantity": 2300,
@@ -533,6 +537,7 @@ def test_normalize_xt_trade_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "002262",
             "price": 22.41,
             "quantity": 2300,
@@ -581,6 +586,7 @@ def test_normalize_xt_order_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "002262",
             "price": 21.0,
             "quantity": 2300,
@@ -603,6 +609,7 @@ def test_normalize_xt_order_report_disambiguates_reused_broker_order_id():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "002262",
             "price": 22.41,
             "quantity": 2300,
@@ -696,6 +703,7 @@ def test_normalize_xt_order_report_maps_broker_order_back_to_internal_order():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 900,
@@ -852,6 +860,9 @@ def test_sell_trade_report_prefers_guardian_source_entries_when_allocating_entry
     ):
         payload = {
             "action": side,
+            "ledger_intent": (
+                "base" if side == "buy" else ("t" if strategy_context else "-")
+            ),
             "symbol": "000001",
             "price": price,
             "quantity": quantity,
@@ -926,6 +937,7 @@ def test_sell_multi_fill_ingest_shares_request_remaining_budget():
         tracking_service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": price,
                 "quantity": quantity,
@@ -936,6 +948,7 @@ def test_sell_multi_fill_ingest_shares_request_remaining_budget():
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "t",
             "symbol": "000001",
             "price": 21.8,
             "quantity": 4600,
@@ -1176,6 +1189,7 @@ def test_multiple_buy_trade_reports_for_same_order_update_one_position_entry():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 1800,
@@ -1223,6 +1237,7 @@ def test_trade_report_conservatively_merges_close_buy_orders_into_one_clustered_
         tracking_service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": 10.0,
                 "quantity": quantity,
@@ -1286,6 +1301,7 @@ def test_trade_report_does_not_chain_merge_beyond_anchor_five_minute_window():
         tracking_service.submit_order(
             {
                 "action": "buy",
+                "ledger_intent": "base",
                 "symbol": "000001",
                 "price": 10.0,
                 "quantity": 300,
@@ -1336,6 +1352,7 @@ def test_trade_report_does_not_merge_after_sell_touches_clustered_entry():
         tracking_service.submit_order(
             {
                 "action": side,
+                "ledger_intent": "base" if side == "buy" else "-",
                 "symbol": "000001",
                 "price": price,
                 "quantity": quantity,
@@ -1499,6 +1516,7 @@ def test_order_report_updates_existing_order_state():
     tracking_service.submit_order(
         {
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -1585,12 +1603,14 @@ def _build_ingest_with_order(
     action="buy",
     internal_order_id="ord_ledger_1",
     strategy_context=None,
+    ledger_intent=None,
 ):
     repository = InMemoryRepository()
     tracking_service = OrderTrackingService(repository=repository)
     tracking_service.submit_order(
         {
             "action": action,
+            "ledger_intent": ledger_intent or ("base" if action == "buy" else "-"),
             "symbol": "000001",
             "price": 10.0,
             "quantity": 300,
@@ -1607,7 +1627,7 @@ def _build_ingest_with_order(
     return repository, ingest_service
 
 
-def test_buy_ledger_base_line_tags_position_type_base(monkeypatch):
+def test_base_line_buy_tags_position_type_base_from_ledger_intent(monkeypatch):
     monkeypatch.setattr(
         xt_reports_module,
         "_get_tpsl_service",
@@ -1621,7 +1641,8 @@ def test_buy_ledger_base_line_tags_position_type_base(monkeypatch):
         raising=False,
     )
     repository, ingest_service = _build_ingest_with_order(
-        strategy_context={"buy_ledger": "base_line"}
+        ledger_intent="base",
+        strategy_context={"guardian_buy_grid": {"path": "base_line"}},
     )
     ingest_service.ingest_trade_report(
         {
@@ -1681,10 +1702,10 @@ def test_guardian_signal_add_tags_t_when_entry_exists(monkeypatch):
     entries = repository.list_position_entries(symbol="000001")
     assert entries[0]["position_type"] == "base"
 
-    # Guardian 信号加仓（存在 open entry、无 buy_ledger、source=strategy）→ t
+    # Guardian 信号加仓：ledger_intent=t（存在 open entry 不再触发启发式）
     repository2, ingest_service2 = _build_ingest_with_order(
         internal_order_id="ord_t_1",
-        strategy_context=None,
+        ledger_intent="t",
     )
     ingest_service2.repository = repository
     ingest_service2.ingest_trade_report(
@@ -1821,6 +1842,7 @@ def test_takeprofit_fill_ingest_triggers_ladder_event(monkeypatch):
     tracking_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "base",
             "symbol": "000001",
             "price": 11.2,
             "quantity": 100,
@@ -1891,9 +1913,9 @@ def test_zero_fill_terminal_cancel_reopens_buy_line(monkeypatch):
     )
     repository, ingest_service = _build_ingest_with_order(
         internal_order_id="ord_bl_cancel_1",
+        ledger_intent="base",
         strategy_context={
-            "buy_ledger": "base_line",
-            "guardian_buy_grid": {"grid_level": "BUY-2"},
+            "guardian_buy_grid": {"path": "base_line", "grid_level": "BUY-2"},
         },
     )
     ingest_service.ingest_order_report(
@@ -1911,3 +1933,305 @@ def test_zero_fill_terminal_cancel_reopens_buy_line(monkeypatch):
     )
     assert terminal_calls and terminal_calls[0][0] == "buy"
     assert terminal_calls[0][2] == 1
+
+
+def test_base_line_replenish_with_open_entry_tags_base(monkeypatch):
+    """#2 回归：已有 open entry 时，TPSL 买入线（base_line）补仓仍应标 base。"""
+
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+        raising=False,
+    )
+    repository, ingest_service = _build_ingest_with_order(
+        internal_order_id="ord_first_1",
+        strategy_context=None,
+    )
+    # 首开（无 open entry）→ base
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_first_1",
+            "broker_trade_id": "T-first-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    # TPSL 买入线补仓：ledger_intent=base、guardian_buy_grid.path=base_line，
+    # 已有 open entry、价格偏离 >0.3% 不并入既有 entry（生成新 entry）→ 仍 base
+    OrderTrackingService(repository=repository).submit_order(
+        {
+            "action": "buy",
+            "ledger_intent": "base",
+            "symbol": "000001",
+            "price": 9.8,
+            "quantity": 100,
+            "source": "strategy",
+            "strategy_name": "TPSL",
+            "internal_order_id": "ord_base_line_1",
+            "strategy_context": {
+                "guardian_buy_grid": {"path": "base_line", "grid_level": "BUY-2"}
+            },
+        }
+    )
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_base_line_1",
+            "broker_trade_id": "T-base-line-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 9.8,
+            "trade_time": 1710001200,
+            "date": 20240102,
+            "time": "10:00:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=1000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    entries = repository.list_position_entries(symbol="000001")
+    assert len(entries) == 2
+    for entry in entries:
+        assert entry["position_type"] == "base"
+
+
+def test_buy_cluster_does_not_merge_across_position_types(monkeypatch):
+    """#4 回归：先解析归属后聚类，禁止跨账本聚合。"""
+
+    monkeypatch.setattr(
+        xt_reports_module,
+        "_get_tpsl_service",
+        lambda: type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+        raising=False,
+    )
+    repository, ingest_service = _build_ingest_with_order(
+        internal_order_id="ord_base_cluster_1",
+        ledger_intent="base",
+        strategy_context=None,
+    )
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_base_cluster_1",
+            "broker_trade_id": "T-BC-BASE",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.00,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    # 同一 5 分钟 / 0.3% 窗口内的 t 账本买单：不得并入 base 聚类。
+    OrderTrackingService(repository=repository).submit_order(
+        {
+            "action": "buy",
+            "ledger_intent": "t",
+            "symbol": "000001",
+            "price": 9.995,
+            "quantity": 300,
+            "source": "strategy",
+            "internal_order_id": "ord_t_cluster_1",
+            "strategy_context": {"guardian_buy_grid": {"path": "holding_add"}},
+        }
+    )
+    ingest_service.ingest_trade_report(
+        {
+            "internal_order_id": "ord_t_cluster_1",
+            "broker_trade_id": "T-BC-T",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 9.995,
+            "trade_time": 1710000060,
+            "date": 20240102,
+            "time": "09:32:00",
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    entries = repository.list_position_entries(symbol="000001")
+    assert len(entries) == 2, "跨账本买单不得聚合"
+    entry_types = {entry["position_type"] for entry in entries}
+    assert entry_types == {"base", "t"}
+    members = [
+        member
+        for entry in entries
+        for member in (entry.get("aggregation_members") or [])
+    ]
+    assert all(member.get("position_type") in {"base", "t"} for member in members)
+
+
+def test_broker_only_manual_buy_tags_base():
+    """#3/A8 回归：broker-only（QMT 终端手动买入，无 request）显式归 base。"""
+
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        tpsl_service=type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+    result = ingest_service.ingest_trade_report(
+        {
+            "broker_trade_id": "T-BROKER-ONLY-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 300,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "account_id": "ACCT-1",
+            "broker_order_id": "B-BROKER-ONLY-1",
+            "trading_day": 20240102,
+            "source": "xt_trade_callback",
+        },
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    assert result["created"] is True
+    entries = repository.list_position_entries(symbol="000001")
+    assert len(entries) == 1
+    assert entries[0]["position_type"] == "base"
+
+
+def test_broker_only_sell_multi_fill_allocations_carry_internal_order_id():
+    """#571：broker-only 卖出（无 request）allocations 携带 internal_order_id，
+    already_allocated 按 internal_order_id 跨 fill 累计（10 fills 目标形态
+    的 2-fill 缩影）。"""
+
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+        tpsl_service=type(
+            "FakeTpslService",
+            (),
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
+        )(),
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+    repository.replace_position_entry(
+        {
+            "entry_id": "entry_base_9000",
+            "symbol": "000001",
+            "position_type": "base",
+            "entry_price": 10.0,
+            "buy_price_real": 10.0,
+            "original_quantity": 9000,
+            "remaining_quantity": 9000,
+            "amount": 90000.0,
+            "date": 20240102,
+            "time": "09:31:00",
+            "trade_time": 1710000000,
+            "source": "xt_trade_callback",
+            "status": "OPEN",
+            "sell_history": [],
+        }
+    )
+    repository.replace_entry_slices_for_entry(
+        "entry_base_9000",
+        [
+            {
+                "entry_slice_id": "slice_base_9000",
+                "entry_id": "entry_base_9000",
+                "symbol": "000001",
+                "position_type": "base",
+                "guardian_price": 10.0,
+                "original_quantity": 9000,
+                "remaining_quantity": 9000,
+                "remaining_amount": 90000.0,
+                "slice_seq": 0,
+                "sort_key": 10.0,
+                "status": "OPEN",
+            }
+        ],
+    )
+
+    def _sell_report(broker_trade_id, quantity):
+        return {
+            "broker_trade_id": broker_trade_id,
+            "symbol": "000001",
+            "side": "sell",
+            "quantity": quantity,
+            "price": 11.0,
+            "trade_time": 1710003600,
+            "date": 20240102,
+            "time": "10:00:00",
+            "account_id": "ACCT-1",
+            "order_sysid": "SYS-SELL-1",
+            "broker_order_id": "B-SELL-1",
+            "trading_day": 20240102,
+            "source": "xt_trade_callback",
+        }
+
+    first = ingest_service.ingest_trade_report(
+        _sell_report("T-SELL-1", 5000),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    second = ingest_service.ingest_trade_report(
+        _sell_report("T-SELL-2", 4000),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert first["created"] is True
+    assert second["created"] is True
+    assert len(first["exit_allocations"]) == 1
+    assert len(second["exit_allocations"]) == 1
+    for allocation in first["exit_allocations"] + second["exit_allocations"]:
+        assert (
+            allocation["internal_order_id"]
+            == first["execution_fill"]["internal_order_id"]
+        )
+        assert allocation["request_id"] is None
+        assert allocation["position_type"] == "base"
+    assert first["exit_allocations"][0]["allocated_quantity"] == 5000
+    assert second["exit_allocations"][0]["allocated_quantity"] == 4000
+    stored = repository.list_exit_allocations_for_request(
+        internal_order_id=first["execution_fill"]["internal_order_id"]
+    )
+    assert sum(int(item["allocated_quantity"] or 0) for item in stored) == 9000
+    entries = repository.list_position_entries(symbol="000001")
+    assert entries[0]["remaining_quantity"] == 0

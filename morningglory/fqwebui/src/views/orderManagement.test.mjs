@@ -526,42 +526,26 @@ test('#549 buildOrderRows passes ledger fields through', () => {
   assert.equal(rows[0].position_type, '')
 })
 
-test('#549 resolveOrderLedgerFromRequest mirrors backend 3.1 rules', () => {
+test('#571 resolveOrderLedgerFromRequest reads ledger_intent only (no legacy fields)', () => {
+  assert.equal(resolveOrderLedgerFromRequest('buy', { ledger_intent: 'base' }), 'base')
+  assert.equal(resolveOrderLedgerFromRequest('buy', { ledger_intent: 't' }), 't')
+  // 缺失/未知 intent 不再用旧字段推断
+  assert.equal(resolveOrderLedgerFromRequest('buy', {}), '')
   assert.equal(
     resolveOrderLedgerFromRequest('buy', {
-      strategy_context: { buy_ledger: 'base_line', guardian_buy_grid: { grid_level: 'BUY-2' } },
-    }),
-    'base',
-  )
-  assert.equal(
-    resolveOrderLedgerFromRequest('buy', {
+      ledger_intent: '',
       strategy_context: { guardian_buy_grid: { grid_level: 'BUY-3' } },
     }),
-    't',
+    '',
   )
-  assert.equal(resolveOrderLedgerFromRequest('buy', {}), 'base')
-  assert.equal(
-    resolveOrderLedgerFromRequest('sell', {
-      source: 'tpsl_takeprofit',
-      scope_type: 'takeprofit_batch',
-      strategy_context: { guardian_sell_sources: { allocation_policy: 'takeprofit_ratio_v1', level: 1 } },
-    }),
-    'base',
-  )
-  assert.equal(
-    resolveOrderLedgerFromRequest('sell', {
-      strategy_context: { guardian_sell_sources: { level: 1 } },
-    }),
-    't',
-  )
-  assert.equal(
-    resolveOrderLedgerFromRequest('sell', { scope_type: 'symbol_stoploss_batch' }),
-    '-',
-  )
-  assert.equal(resolveOrderLedgerFromRequest('sell', {}), '-')
+  assert.equal(resolveOrderLedgerFromRequest('sell', { ledger_intent: 'base' }), 'base')
+  assert.equal(resolveOrderLedgerFromRequest('sell', { ledger_intent: 't' }), 't')
+  assert.equal(resolveOrderLedgerFromRequest('sell', { ledger_intent: 'mixed' }), 'mixed')
+  assert.equal(resolveOrderLedgerFromRequest('sell', { ledger_intent: '-' }), '-')
+  assert.equal(resolveOrderLedgerFromRequest('sell', {}), '')
 })
 
-test('#549 buildOrderDetailViewModel exposes ledger with request fallback', () => {
+test('#571 buildOrderDetailViewModel exposes ledger with request fallback', () => {
   const detail = buildOrderDetailViewModel({
     order: {
       internal_order_id: 'ord_detail_1',
@@ -570,7 +554,7 @@ test('#549 buildOrderDetailViewModel exposes ledger with request fallback', () =
       state: 'FILLED',
     },
     request: {
-      strategy_context: { guardian_buy_grid: { grid_level: 'BUY-2' } },
+      ledger_intent: 't',
     },
     events: [],
     trades: [],
@@ -597,12 +581,14 @@ test('#549 buildOrderDetailViewModel exposes ledger with request fallback', () =
   assert.equal(withBackendLedger.order.ledger_label, '-')
 })
 
-test('#549 formatLedgerLabel and ledgerChipVariant map base/t/-', () => {
+test('#571 formatLedgerLabel and ledgerChipVariant map base/t/mixed/-', () => {
   assert.equal(formatLedgerLabel('base'), '底仓')
   assert.equal(formatLedgerLabel('t'), '做T')
+  assert.equal(formatLedgerLabel('mixed'), '分摊')
   assert.equal(formatLedgerLabel('-'), '-')
   assert.equal(formatLedgerLabel(''), '-')
   assert.equal(ledgerChipVariant('base'), 'info')
   assert.equal(ledgerChipVariant('t'), 'warning')
+  assert.equal(ledgerChipVariant('mixed'), 'warning')
   assert.equal(ledgerChipVariant('-'), 'muted')
 })

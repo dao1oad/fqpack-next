@@ -185,6 +185,7 @@ def test_submit_service_carries_guardian_placeholder_meta_to_queue():
     result = service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,
@@ -228,6 +229,7 @@ def test_submit_service_marks_placeholder_for_guardian_strategy_identifier(
     result = submit_service.submit_order(
         {
             "action": "sell",
+            "ledger_intent": "-",
             "symbol": "000001",
             "price": 10.0,
             "quantity": 100,

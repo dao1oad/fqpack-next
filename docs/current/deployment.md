@@ -313,6 +313,34 @@ strict-reader health 通过后停止旧 Stock / ETF factor writers，但保留 `
 - 若重建后验证失败，先停写入面，再清理新 `om_*` 集合，并用备份库整库恢复
 - 不做局部回滚；当前正式口径只接受整库恢复
 
+## 双账本 ledger_intent 最终切换顺序（#571）
+
+`ledger_intent` / `position_type` 归一是读侧切换的前置；部署窗口风险不通过
+兼容代码处理，只按以下顺序一次性切换（无回滚分支）：
+
+1. **停止受影响写入面**：`fqnext_xt_account_sync_worker`、
+   `fqnext_tpsl_worker`、`fqnext_xtquant_broker` 与 API order-write surface；
+2. **dry-run 回填与守恒预检**：
+   `python script/maintenance/backfill_ledger_intent.py --dry-run`
+   - 输出 L1/S1/D1 守恒、`allocation_integrity` 与幂等计划；
+   - 无法从确定证据推导 `ledger_intent` 的请求（如空/未知 buy path +
+     strategy source）会**显式冲突并以非零码停止**，不得静默归 base；
+     冲突清单必须先人工确认并补足证据后重跑；
+3. **execute 回填与守恒/幂等复验**：
+   `python script/maintenance/backfill_ledger_intent.py --execute --backup-db <name>`
+   - 先备份 `om_order_requests` / `om_position_entries` / `om_entry_slices`；
+   - 同时备份并回填 `om_exit_allocations`（缺失 `internal_order_id` 时经
+     `exit_trade_fact_id` 唯一关联 `om_trade_facts` 回填，无法唯一关联
+     fail-closed 停止）、清除 `om_orders.filled_quantity` 死字段、按
+     `om_orders` 终态 + filled/requested 经 `OrderStateService` 收敛
+     `om_broker_orders.state`（终态不回退）；
+   - 任何 L1/S1/D1、allocation_integrity 或幂等复验失败都会中止执行；
+4. **部署新代码**：API / Web / order-management 运行面按模块部署矩阵重建，
+   再启动已停止的 worker；
+5. **确认读侧归零**：订单列表/详情不再出现
+   `ledger_intent_missing=true` 的行（数量应为 0），且新增 buy/sell 请求
+   均携带 `ledger_intent`。
+
 ## 健康检查
 
 ### API

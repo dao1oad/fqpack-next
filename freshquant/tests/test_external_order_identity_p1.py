@@ -534,6 +534,7 @@ def test_real_internal_order_promotes_unfilled_broker_only_owner_only_once():
             "internal_order_id": "ord-real-557",
             "request_id": "req-real-557",
             "action": "buy",
+            "ledger_intent": "base",
             "symbol": "688772",
             "price": 14.8,
             "quantity": 100,

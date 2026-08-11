@@ -16,6 +16,7 @@ def submit_guardian_order(
     remark=None,
     is_profitable=None,
     strategy_context=None,
+    ledger_intent=None,
     trace_id=None,
     intent_id=None,
 ):
@@ -30,6 +31,7 @@ def submit_guardian_order(
         "strategy_name": strategy_name,
         "remark": remark,
         "strategy_context": strategy_context,
+        "ledger_intent": ledger_intent,
         "trace_id": trace_id,
         "intent_id": intent_id,
     }

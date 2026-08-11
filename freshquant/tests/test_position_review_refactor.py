@@ -771,6 +771,33 @@ def test_resolve_signal_type_manual_and_unknown():
     assert resolve_signal_type(request={}, signal=None, side=None) == "unknown"
 
 
+def test_resolve_signal_type_sell_by_ledger_intent():
+    """#571 #5：chart projection 卖单按 ledger_intent 分流（- → 止损；
+    base → 止盈）；Guardian 做T（t）保留既有证据判定。"""
+
+    stoploss = {
+        "source": "stoploss",
+        "scope_type": "symbol_stoploss_batch",
+        "ledger_intent": "-",
+    }
+    assert (
+        resolve_signal_type(request=stoploss, signal=None, side="sell")
+        == "sell_stoploss"
+    )
+    takeprofit = {
+        "source": "tpsl_takeprofit",
+        "scope_type": "takeprofit_batch",
+        "ledger_intent": "base",
+        "strategy_context": {
+            "guardian_sell_sources": {"allocation_policy": "takeprofit_ratio_v1"}
+        },
+    }
+    assert (
+        resolve_signal_type(request=takeprofit, signal=None, side="sell")
+        == "sell_takeprofit"
+    )
+
+
 def test_cost_basis_replay_uses_entry_unit_cost_and_tracks_realized():
     repo = FakeBuySellRepository()
     requests_by_id = {str(item.get("request_id") or ""): item for item in repo.requests}

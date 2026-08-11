@@ -36,6 +36,10 @@ from freshquant.order_management.ingest.xt_reports import (
     _default_grid_interval_lookup,
     normalize_xt_trade_report,
 )
+from freshquant.order_management.ledger_resolver import (
+    is_takeprofit_request,
+    resolve_buy_position_type,
+)
 from freshquant.order_management.reconcile.matcher import match_candidate_to_trade
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.time_helpers import (
@@ -531,6 +535,9 @@ class ExternalOrderReconcileService:
             "price": chosen_price,
             "quantity": quantity,
             "side": "buy",
+            # #571：auto-open 无请求（broker-only 语义）→ LedgerResolver 显式
+            # 归 base；先解析归属再聚类，禁止与 t 账本聚类合并。
+            "position_type": resolve_buy_position_type(broker_only=True),
         }
         inferred_member_key = build_reconciliation_resolution_member_key(
             resolution_id=resolution_id
@@ -541,6 +548,7 @@ class ExternalOrderReconcileService:
                 self.repository.list_position_entries(symbol=gap["symbol"]),
                 trade_fact,
                 inferred_member_key,
+                position_type=trade_fact["position_type"],
             )
         arrange_runtime = _resolve_external_arrangement_runtime(
             gap["symbol"],
@@ -559,6 +567,7 @@ class ExternalOrderReconcileService:
                 confirmed_at=now,
                 price_snapshot=chosen_price_snapshot,
                 arrange_runtime=arrange_runtime,
+                position_type=trade_fact["position_type"],
             )
         entry_slices = []
         try:
@@ -603,6 +612,21 @@ class ExternalOrderReconcileService:
     def _confirm_close_gap(self, gap, *, now):
         remaining = int(gap.get("quantity_delta") or 0)
         resolution_id = new_reconciliation_resolution_id()
+        # #571 D2：resolve 前置 TP 回报丢失告警（不阻断自动平账；把疑似
+        # TP 回报丢失证据留给运行面/复盘，避免静默误扣）。
+        tp_evidence = _collect_tp_return_loss_evidence(
+            repository=self.repository,
+            symbol=gap["symbol"],
+            detected_at=int(now),
+        )
+        if tp_evidence:
+            self._emit_runtime(
+                "auto_close",
+                {"gap_id": gap["gap_id"], "symbol": gap["symbol"]},
+                status="warning",
+                reason_code="tpsl_takeprofit_return_lost",
+                payload={"evidence": tp_evidence},
+            )
         if remaining <= 0 or not _is_board_lot_delta(remaining):
             resolution = {
                 "resolution_id": resolution_id,
@@ -635,16 +659,25 @@ class ExternalOrderReconcileService:
             )
 
         legacy_allocations = []
+        empty_candidate_fallback = False
         if remaining > 0:
-            legacy_allocations = _allocate_gap_to_legacy_buy_lots(
-                repository=self.repository,
-                symbol=gap["symbol"],
-                quantity=remaining,
-                price=float(gap.get("price_estimate") or 0.0),
-                resolution_id=resolution_id,
-                trade_time=int(now),
-            )
-            remaining = 0
+            # #571 D2：空候选兜底 —— 无 V2 open slice、也无 legacy 候选时，
+            # 不再抛错中断整轮 reconcile；落带审计标记的 resolution。
+            has_legacy_candidates = bool(
+                self.repository.list_buy_lots(gap["symbol"])
+            ) and bool(self.repository.list_open_slices(gap["symbol"]))
+            if has_legacy_candidates:
+                legacy_allocations = _allocate_gap_to_legacy_buy_lots(
+                    repository=self.repository,
+                    symbol=gap["symbol"],
+                    quantity=remaining,
+                    price=float(gap.get("price_estimate") or 0.0),
+                    resolution_id=resolution_id,
+                    trade_time=int(now),
+                )
+                remaining = 0
+            else:
+                empty_candidate_fallback = True
 
         resolution = {
             "resolution_id": resolution_id,
@@ -655,6 +688,7 @@ class ExternalOrderReconcileService:
             "resolved_at": int(now),
             "source_ref_type": "reconciliation_gap",
             "source_ref_id": gap["gap_id"],
+            "empty_candidate_fallback": empty_candidate_fallback,
             "entry_allocation_ids": [
                 item["allocation_id"] for item in entry_allocations
             ],
@@ -847,6 +881,10 @@ def _resolve_recent_guardian_sell_source_entries(
     for request in request_rows:
         if str(request.get("action") or "").lower() != "sell":
             continue
+        # #571 #7 D2：TP 止盈卖单永不参与缺口候选（TP 成交必走正常落账，
+        # 出现在缺口候选即视为未成交，不该拿它解释差额）。
+        if is_takeprofit_request(request):
+            continue
         raw_entries = _extract_guardian_sell_source_entries(request)
         planned_quantity = _resolve_guardian_sell_source_quantity(request, raw_entries)
         runtime_entries = []
@@ -884,6 +922,71 @@ def _resolve_recent_guardian_sell_source_entries(
                 remaining_quantity=target_quantity,
             ) or list(runtime_entries or [])
     return list(best_candidate or [])
+
+
+def _collect_tp_return_loss_evidence(*, repository, symbol, detected_at):
+    """收集疑似 TP 止盈回报丢失证据（#571 D2，resolve 前置告警）。
+
+    近窗口内存在 TP 止盈卖出请求、但其内部订单没有任何成交回报（execution
+    fill 缺失）时，返回证据行；调用方只告警、不阻断自动平账。
+    """
+
+    if not hasattr(repository, "list_order_requests"):
+        return []
+    window_start_epoch = int(detected_at) - _SELL_SOURCE_REQUEST_WINDOW_SECONDS
+    window_start_iso = datetime.fromtimestamp(
+        window_start_epoch,
+        tz=timezone.utc,
+    ).isoformat()
+    try:
+        request_rows = repository.list_order_requests(
+            symbol=symbol,
+            action="sell",
+            created_at_gte=window_start_iso,
+            sort_created_at_desc=True,
+            limit=_SELL_SOURCE_REQUEST_LOOKBACK_LIMIT,
+        )
+    except TypeError:
+        request_rows = repository.list_order_requests(symbol=symbol) or []
+    tp_requests = [
+        request
+        for request in request_rows
+        if is_takeprofit_request(request)
+        and str(request.get("action") or "").lower() == "sell"
+    ]
+    if not tp_requests:
+        return []
+    filled_internal_order_ids: set[str] = set()
+    if hasattr(repository, "list_execution_fills"):
+        fills = repository.list_execution_fills(symbol=symbol) or []
+        filled_internal_order_ids = {
+            str(item.get("internal_order_id") or "").strip()
+            for item in fills
+            if str(item.get("internal_order_id") or "").strip()
+        }
+    evidence = []
+    for request in tp_requests:
+        order = None
+        if hasattr(repository, "find_order_by_request_id"):
+            try:
+                order = repository.find_order_by_request_id(request.get("request_id"))
+            except Exception:
+                order = None
+        internal_order_id = str(
+            (order or {}).get("internal_order_id")
+            or request.get("internal_order_id")
+            or ""
+        ).strip()
+        if internal_order_id and internal_order_id not in filled_internal_order_ids:
+            evidence.append(
+                {
+                    "request_id": request.get("request_id"),
+                    "internal_order_id": internal_order_id,
+                    "quantity": request.get("quantity"),
+                    "created_at": request.get("created_at"),
+                }
+            )
+    return evidence
 
 
 def _extract_guardian_sell_source_entries(request):
@@ -1510,6 +1613,7 @@ def _build_auto_open_entry(
     confirmed_at,
     price_snapshot=None,
     arrange_runtime=None,
+    position_type=None,
 ):
     date_value, time_value = beijing_date_time_from_epoch(confirmed_at)
     quantity = int(gap.get("quantity_delta") or 0)
@@ -1523,10 +1627,15 @@ def _build_auto_open_entry(
     }
     runtime_errors = list(arrange_runtime.get("errors") or [])
     primary_error = runtime_errors[0] if runtime_errors else None
+    # #571：auto-open 无请求，账本归属由 LedgerResolver 显式解析（缺省 base）。
+    resolved_position_type = position_type or resolve_buy_position_type(
+        broker_only=True
+    )
     return {
         "entry_id": new_position_entry_id(),
         "symbol": gap["symbol"],
         "entry_type": "auto_reconciled_open",
+        "position_type": resolved_position_type,
         "source_ref_type": "reconciliation_resolution",
         "source_ref_id": resolution_id,
         "entry_price": price,
