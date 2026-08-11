@@ -1,47 +1,61 @@
-﻿param(
+param(
     [string]$TradeDate = (Get-Date -Format "yyyy-MM-dd"),
     [string]$RunDir = "",
-    [switch]$SkipPhaseA,
+    [int]$DeepWorkers = 2,
+    [int]$DeepMaxAttempts = 2,
+    [string]$AgentCommand = "",
+    [switch]$SkipBootstrap,
+    [switch]$SkipDeepRun,
+    [switch]$DeepDryRun,
+    [switch]$AllowIncompleteDeep,
     [switch]$SkipPublish
 )
 
 $ErrorActionPreference = "Stop"
 
+# Repository-owned entrypoints only. No global skill paths are used by this
+# script: the official batch is fetched by the repo runner (bootstrap), and
+# top-100 deep analysis is executed by the repo deep executor via the repo
+# agent adapter. All artifacts stay in the run dir / external data dir.
 $repo = "D:/fqpack/freshquant-2026.2.23"
-$skill = "C:/Users/Administrator/.codex/skills/clx-market-context-evaluator"
-$clxRun = Join-Path $skill "run-templates/clx_run.py"
 $py = Join-Path $repo ".venv/Scripts/python.exe"
+$module = "freshquant.clx_daily_selection.fundamental.runner"
 
-# 评价数据发布目录：出 git，由 fq_webui compose bind mount 提供
+# Evaluation data dir: out of git, served by fq_webui compose bind mount.
 $evalDataDir = "D:/fqpack/runtime/artifacts/clx-evaluator"
 
-# 运行目录固定放在仓库外（防止并发 main-sync 清理）
+# Run dir lives outside the repo (kept away from concurrent main sync).
 $workRoot = "C:/Users/Administrator/fq-clx-work"
 if (-not $RunDir) {
     $RunDir = Join-Path $workRoot "clx-$TradeDate"
 }
 
 Write-Host "=============================================="
-Write-Host "CLX 日线评价每日运行  trade_date=$TradeDate"
+Write-Host "CLX fundamental evaluation daily run  trade_date=$TradeDate"
 Write-Host "  run_dir      = $RunDir"
 Write-Host "  publish_dir  = $evalDataDir"
+Write-Host "  deep workers = $DeepWorkers / attempts = $DeepMaxAttempts"
 Write-Host "=============================================="
 
-function Invoke-Skill([string]$ArgsLine) {
-    Write-Host "`n>>> clx_run.py $ArgsLine"
-    & $py $clxRun @($ArgsLine -split " ")
+function Invoke-Runner([string]$ArgsLine) {
+    Write-Host "`n>>> $module $ArgsLine"
+    & $py -m $module @($ArgsLine -split " ")
     if ($LASTEXITCODE -ne 0) {
-        throw "clx_run.py 失败: $ArgsLine (exit=$LASTEXITCODE)"
+        throw "fundamental runner failed: $ArgsLine (exit=$LASTEXITCODE)"
     }
 }
 
-function Test-PhaseAComplete([string]$Dir) {
-    return Test-Path (Join-Path $Dir "phase-a/market-state.v1.json") -and
-           Test-Path (Join-Path $Dir "market-state.lock.json")
+function Invoke-RunnerArgs([string[]]$RunnerArgs) {
+    $display = $RunnerArgs -join " "
+    Write-Host "`n>>> $module $display"
+    & $py -m $module @RunnerArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "fundamental runner failed: $display (exit=$LASTEXITCODE)"
+    }
 }
 
 function Get-LatestTradeDate {
-    $marker = "D:/fqpack/runtime/artifacts/clx-evaluator/latest.json"
+    $marker = Join-Path $evalDataDir "latest.json"
     if (Test-Path $marker) {
         $latest = Get-Content $marker -Raw | ConvertFrom-Json
         return $latest.tradeDate
@@ -49,50 +63,75 @@ function Get-LatestTradeDate {
     return $null
 }
 
-if (-not $SkipPhaseA) {
-    # ---------- 1. bootstrap：Phase 0 + 生成 Phase A 启动器 ----------
-    if (-not (Test-Path (Join-Path $RunDir "run-request.json"))) {
-        New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
-        Invoke-Skill "bootstrap --trade-date $TradeDate --external-root $workRoot"
-        Write-Host "`n!!! Phase A 需要 clean-room Codex 会话执行（fork_turns=none，无 CLX 上下文）!!!"
-        Write-Host "    启动器: $RunDir/run_phase_a.ps1"
-        Write-Host "    启动:   Start-Process pwsh -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',`"$RunDir/run_phase_a.ps1`" -WindowStyle Hidden"
-        Write-Host "    等待 Phase A 完成（约 15-30 分钟，出现 PHASE_A_COMPLETE）后重新运行本脚本。"
-        Write-Host "    （或加 -SkipPhaseA 仅做后续步骤）"
-        exit 0
+# ---------- 1. bootstrap: fetch official CLX batch (content_hash locked) ----------
+if (-not (Test-Path (Join-Path $RunDir "clx-official-raw.json"))) {
+    if ($SkipBootstrap) {
+        throw "run_dir lacks clx-official-raw.json and -SkipBootstrap was set: $RunDir"
     }
+    New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
+    Invoke-Runner "bootstrap --run-dir $RunDir --trade-date $TradeDate"
+}
+
+# ---------- 2. prepare: pure-buy stocks + evidence (financial cached by report period) ----------
+Invoke-Runner "prepare --run-dir $RunDir --trade-date $TradeDate --evidence-dir $RunDir/evidence"
+
+# ---------- 3. rank: deterministic quick rank + snapshots + deep specs ----------
+Invoke-Runner "rank --run-dir $RunDir"
+
+# ---------- 4. deep-run: standard single-stock analysis for the top-100 (closed loop) ----------
+if (-not $SkipDeepRun) {
+    $deepArgs = @(
+        "deep-run",
+        "--run-dir", $RunDir,
+        "--workers", [string]$DeepWorkers,
+        "--max-attempts", [string]$DeepMaxAttempts
+    )
+    if ($DeepDryRun) {
+        $deepArgs += "--dry-run"
+    }
+    if ($AgentCommand) {
+        $deepArgs += "--agent-command", $AgentCommand
+    }
+    Invoke-RunnerArgs $deepArgs
+
+    # Re-merge deep docs into the ranking (grades update, zones stay fixed).
+    Invoke-Runner "rank --run-dir $RunDir"
 } else {
-    if (-not (Test-Path (Join-Path $RunDir "run-request.json"))) {
-        throw "run_dir 不存在 run-request.json，先运行 bootstrap/Phase A: $RunDir"
-    }
+    Write-Host "`nSkipped deep-run (-SkipDeepRun); ranking keeps quick grades only."
 }
 
-if (-not $SkipPhaseA -and -not (Test-PhaseAComplete $RunDir)) {
-    Write-Host "Phase A 尚未完成（缺少 market-state.lock.json），请先完成 clean-room Phase A 后重跑。"
-    Write-Host "  验证脚本: $skill/scripts/validate_market_state.py"
-    exit 0
+$analysisCount = @(Get-ChildItem (Join-Path $RunDir "fundamental-analysis") -Filter "*.json" -ErrorAction SilentlyContinue).Count
+$specCount = @(Get-ChildItem (Join-Path $RunDir "fundamental-analysis-spec") -Filter "*.md" -ErrorAction SilentlyContinue).Count
+Write-Host "`n=== deep analysis: $analysisCount / $specCount specs ==="
+if ($analysisCount -lt $specCount) {
+    Write-Host "Deep analysis incomplete. Check fundamental-deep-run.json /"
+    Write-Host "fundamental-deep-run-report.json for per-symbol errors, then re-run."
+    Write-Host "Publish below will fail closed unless -AllowIncompleteDeep is set."
 }
 
-# ---------- 2. Phase B：规范化 + 评价 + 严格验证 ----------
-Invoke-Skill "phase-b --run-dir $RunDir"
+# ---------- 5. stats: aggregation + batch quality gates ----------
+Invoke-Runner "stats --run-dir $RunDir"
 
-# ---------- 3. build：评价 + 前端快照 + strict validate ----------
-Invoke-Skill "build --run-dir $RunDir"
+# ---------- 6. validate: schema + structural checks ----------
+Invoke-Runner "validate --run-dir $RunDir"
 
-# ---------- 4. publish：写入外部数据目录（webui bind mount 直接可见）----------
+# ---------- 7. publish: write to external data dir (webui bind mount) ----------
 if (-not $SkipPublish) {
     New-Item -ItemType Directory -Force -Path $evalDataDir | Out-Null
-    Invoke-Skill "publish --run-dir $RunDir --webui-public $evalDataDir --webui-web $evalDataDir"
+    $allow = ""
+    if ($AllowIncompleteDeep) {
+        $allow = " --allow-incomplete-deep"
+    }
+    Invoke-Runner "publish --run-dir $RunDir --data-dir $evalDataDir$allow"
 
     $latest = Get-LatestTradeDate
-    Write-Host "`n=== 发布完成 ==="
-    Write-Host "  最新交易日: $latest"
-    Write-Host "  数据目录:   $evalDataDir"
-    Write-Host "  前端地址:   http://127.0.0.1:18080/clx-market-evaluation"
-    Write-Host "  验收脚本:   node $skill/run-templates/clx_accept.mjs $latest"
-    Write-Host "  （webui 容器已挂载该目录，无需 rebuild 镜像/commit）"
+    Write-Host "`n=== publish done ==="
+    Write-Host "  latest trade date: $latest"
+    Write-Host "  data dir:          $evalDataDir"
+    Write-Host "  frontend:          http://127.0.0.1:18080/daily-screening"
+    Write-Host "  (webui container mounts the dir; no rebuild/commit needed)"
 } else {
-    Write-Host "`n跳过 publish（-SkipPublish），数据未更新。"
+    Write-Host "`nSkipped publish (-SkipPublish); data not updated."
 }
 
-Write-Host "`nCLX_EVAL_DAILY_DONE"
+Write-Host "`nCLX_FUNDAMENTAL_DAILY_DONE"

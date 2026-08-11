@@ -2,18 +2,19 @@
 
 ## 职责
 
-每日选股模块现在是“盘后预计算 + 前端自由交集查询”的工作台，不再是页面手动触发执行的扫描器。
+`/daily-screening` 现在是 **CLX 基本面评价工作台**（Issue #570 重构，三区
+布局），不再是“综合交集 / CLX 18 模型”的 tab 工作区，也不展示主体 K 线：
 
-模块职责拆成两层：
+- ① CLX 基本面排序：全量 Stock pure-buy 按基本面排序（虚拟滚动、两级密度、
+  筛选/排序/URL 持久化、星标收藏、跨日连续入选 ×N）；
+- ② 标的基本面详情：首屏决策卡 + 手风琴分节，↑↓ 键盘切换保持分节态；
+- ③ 池子统计分析：默认 4 图 + 折叠 4 图、全屏、单向下钻。
 
-- Dagster
-  - 负责按交易日生成条件集合与指标快照
-  - 把正式结果落到 `fqscreening`
-- 前端 `/daily-screening`
-  - 是纯选股工作台，不展示主体 K 线
-  - 顶层整合 `综合交集` 与 `CLX 18 模型` 两个工作区
-  - `综合交集` 只读取正式 scope，让用户自由勾选条件并取交集，展示交集列表和单标的详情
-  - `CLX 18 模型` 嵌入 CLX 日线结果工作台，复用 CLX 批次、筛选、统计和结果详情 API
+页面数据全部来自静态产物 `/data/clx-evaluator/**`（latest.json v2 →
+clx-fundamental-ranking / fundamental-analysis / fundamental-snapshot /
+fundamental-stats），不新增后端接口。底层 CLX 信号选择（S0000-S0017）与
+基本面评价链见 `docs/current/modules/clx-daily-selection.md` 与
+`docs/current/modules/clx-fundamental-evaluation.md`。
 
 ## 入口
 
@@ -22,11 +23,12 @@
 - 前端页面
   - `morningglory/fqwebui/src/views/DailyScreening.vue`
 - 前端状态/API
-  - `morningglory/fqwebui/src/views/dailyScreeningPage.mjs`
-  - `morningglory/fqwebui/src/views/dailyScreeningFilters.mjs`
-  - `morningglory/fqwebui/src/views/dailyScreeningWorkspace.mjs`
-  - `morningglory/fqwebui/src/views/dailyScreeningDetail.mjs`
-  - `morningglory/fqwebui/src/api/dailyScreeningApi.js`
+  - `morningglory/fqwebui/src/components/clx-workbench/ClxFundamentalRankingPanel.vue`
+  - `morningglory/fqwebui/src/components/clx-workbench/ClxFundamentalDetailPanel.vue`
+  - `morningglory/fqwebui/src/components/clx-workbench/ClxFundamentalStatsPanel.vue`
+  - `morningglory/fqwebui/src/components/clx-workbench/clxFundamentalRankingLogic.mjs`
+  - `morningglory/fqwebui/src/components/clx-workbench/clxFundamentalDetailLogic.mjs`
+  - `morningglory/fqwebui/src/components/clx-workbench/clxFundamentalStatsLogic.mjs`
 - 后端服务
   - `freshquant.daily_screening.service.DailyScreeningService`
   - `freshquant.daily_screening.repository.DailyScreeningRepository`
@@ -124,82 +126,43 @@
 - 无条件查询：返回“CLS 各模型结果”和“热门 30/45/60/90 天结果”先取并集后的基础池
 - 有条件查询：返回“基础池 ∩ 用户勾选条件 ∩ 已启用的数值阈值”
 
-### 前端页面
+### 前端页面（CLX 基本面三区工作台）
 
-页面已经移除：
+页面结构：
 
-- 手动运行表单
-- `/schema` 驱动的执行区
-- `SSE` 事件流显示
-- “开始扫描”入口
+- 顶栏：标题、排序结果时间 / 交易日 / 批次、CLX 状态与质量门 `StatusChip`、
+  “刷新全部”；
+- 质量门 amber 时顶部琥珀横幅（列出未通过门项）；
+- 三区网格（40% / 38% / 22%）：
+  - ① 排序列表：虚拟滚动（固定行高窗口化）、紧凑/舒适两级密度、筛选
+    （行业多选 / 证据等级 / 仅风险 / 分区 / 单维等级下限 / 搜索 / 星标）、
+    排序切换（综合 / 六维 / 风险，分区边界固定）、URL 状态持久化
+    （filter/sort/selected/density）、跨日连续入选 ×N 徽章、星标收藏
+    （localStorage `fq:clx-fundamental:stars`）、展开行指标明细、↑↓ / Enter /
+    Esc 键盘导航；
+  - ② 详情：首屏决策卡（快照条 / 一句话定位 / 六维评分卡 / 关键指标 /
+    风险清单 / 三项优势 / 三项问题）+ 手风琴分节（业务结构、财务趋势、成长
+    质量、资产负债、行业能力、估值情景、验证节点、证据溯源）；↑↓ 切换标的
+    保持手风琴展开态；证据 D 级置灰 + “仅初步观察，估值暂停”；初评标的
+    统一标注“本期初评”；
+  - ③ 统计：KPI 卡、质量×估值散点、行业分布、六维等级分布（默认 4 图）+
+    成长×盈利四象限、风险热力、证据覆盖、估值分位直方图（折叠 4 图）+ 全屏；
+    点击行业条/散点只写列表筛选（单向下钻，不覆盖已选中标的）；
+- 底部状态条：深析/初评/深析完成/证据 A+B/质量门/生成时间。
 
-页面只保留：
+交互口径：
 
-- scope 选择
-- 标题区右侧的工作台总说明标签行
-- 工作台说明标签、页头摘要条、右侧详情数值摘要与命中条件 chip 当前统一复用共享 `StatusChip`
-- 条件分组勾选
-- 页头 `每日选股` 的工作说明下方直接放 `Scope` 下拉；左侧筛选面板不再重复展示独立 `Scope` 卡片，也不再显示“筛选工作台”标题和说明
-- `DailyScreening.vue` 当前负责 `/daily-screening` 顶层 tab 编排；`综合交集` 保留原交集页面壳，默认筛选值、查询防抖、共享工作区 tab 归一和右侧详情 chip 归一分别下沉到 `dailyScreeningFilters.mjs`、`dailyScreeningWorkspace.mjs`、`dailyScreeningDetail.mjs`；`CLX 18 模型` 以 embedded 模式复用 `ClxDailyScreening.vue`
-- `基础池（并集）`
-  - `CLS 模型分组`
-  - `热门窗口`
-- `交集条件`
-  - `市场属性`
-  - `chanlun 周期`
-  - `chanlun 信号`
-- 左侧筛选工作台自带纵向滚动；桌面端页面本身不再依赖浏览器纵向滚动，空间不足时改为面板内部滚动
-- 全市场搜索框
-  - 支持按标的代码或名称做模糊搜索
-  - 输入后直接覆盖中间交集列表
-  - 清空后恢复当前 scope 下的基础池/交集结果
-- 每个筛选分组表头的悬浮说明提示
-- `日线缠论涨幅` 总开关和默认阈值输入
-- 交集结果、共享工作区、历史热门理由统一使用 `/runtime-observability` 同风格的 `runtime-ledger` 表格样式
-- 交集列表改成“内部滚动 + 分页”；桌面端当前固定每页 8 条，用来压缩首屏高度并保持工作区可见
-- 交集列表左侧的 `全部加入pre_pools`
-- 交集列表单行 `加入 pre_pools`
-- 综合交集共享工作区
-  - `pre_pools`
-  - `stock_pools`
-  - `must_pools`
-- CLX 18 模型工作区
-  - 固定模型范围为 `S0000-S0017` / `10000..10017`
-  - 结果行提供 `看图`，跳转 `/kline-slim` 查看 K 线
-  - 结果行提供 `加入clx15分钟监控`，只追加到 `stock_pools`，不写 `must_pool`、不触发下单
-  - 顶部提供导入通达信动作，复用 CLX 正式批次选中结果导入合同
-- 单标的条件画像与热门理由
+- 首次进入自动加载 `latest.json` → 排序与统计；无当日产物时显示空态；
+- 列表点击行即出详情（本地静态 JSON，无分页请求）；
+- 筛选、排序、选中与密度写入 URL query（`sort/q/industry/evidence/risk/
+  tier/mingrade/star/selected/density`），可分享可收藏；
+- 星标只存 localStorage，一键“★ 星标”筛选；
+- 断点降级：<1280px 统计区移至底部；<960px 仅列表 + 详情抽屉
+  （position: fixed）。
 
-页面中的说明文案固定解释：
-
-- 上游范围是全市场，排除 `ST` 和北交所
-- 基础池由 `CLS` 各模型结果和热门 `30/45/60/90` 天结果先取并集形成
-- 用户勾选条件后，对当前结果继续取交集
-- 交集结果可以沉淀到共享工作区
-
-页面交互当前口径：
-
-- 页面首次进入会自动查询当前正式 scope，不需要再点“查询结果”
-- 点击任意条件按钮后会立即刷新交集结果
-- 修改“日线缠论涨幅”阈值后会经短防抖自动刷新
-- 页面默认带着“融资标的 + 日线缠论涨幅”参与筛选
-- 页面首次进入、切换 scope、点击“重置筛选”后，都会回到这组统一默认条件
-- 交集列表分页只影响显示；“全部加入 pre_pools”仍然以当前完整交集结果为准，不只处理当前页
-- 当前结果表达式会明确展示：CLS 分组内部和分组之间用并集语义，和其他筛选条件再取交集
-- 全市场搜索是覆盖模式，不和左侧勾选条件叠加；搜索结果会直接显示到中间列表中
-- 交集列表支持批量加入 `pre_pools`，也支持单条直接加入 `pre_pools`
-- 工作区 `pre_pools` / `stock_pools` / `must_pools` 当前都读取共享去重真值；同一个 `code` 只显示一行，并明确展示 `sources / categories`
-- 工作区会额外展示 `must_pools` 页签，并直接复用现有必选池读写接口
-- `must_pools` 继续按“单 `code` 单主记录”展示；记录内部会保留 `sources / categories / memberships`
-- `must_pools` 顶层 `category` 现在是兼容摘要字段：优先 `manual_category`，否则按 `memberships` 主来源推导
-- `must_pools` 页签增加 `集合` 列，显示当前摘要 `category`
-- `must_pools` 页签支持单条按 `code` 删除整条记录，也提供“同步到通达信”“清空”按钮；两个动作都以当前共享 `must_pool` 全量集合为真值并完整覆盖 `30RYZT.blk`
-- 工作区 `分类 / 上下文` 列优先展示聚合 `categories`；如果同时存在板块信息，会在同格补充板块上下文
-- 点击交集列表或工作区中的任一标的，右侧都复用 `/api/daily-screening/stocks/<code>/detail` 展示完整详情
-- 右侧详情区删除独立“日线缠论涨幅”卡片，改成紧凑条件卡片区，把更多高度留给“历史热门理由”
-- 如果当前标的不在基础池，但全市场存在该股票且仍有历史热门理由，详情区仍会展示基础信息、历史热门理由和“最近一次在基础池”的时间
-- `历史热门理由` 的悬浮提示卡复用 `/gantt/shouban30` 的 `Shouban30ReasonPopover` 样式
-- 页面主工作区改为弹性高度布局；桌面端在 100% 缩放下应尽量让交集列表、工作区和右侧详情同时留在首屏内
+已移除（Issue #570）：三池工作区（`PoolWorkspacePanel`）、market_lane /
+market_theme_id / market_fit_grade 等市场字段展示、CLX_18 导出与池子同步
+入口（CLX 18 模型导入能力仍由 `ClxSelectionPanel` 在 Kline 页内承载）。
 
 ### Dagster 节点 helper
 
@@ -307,12 +270,22 @@
 ## 当前边界
 
 - `/gantt/shouban30` 仍是板块工作台；每日选股除了消费其读模型与缠论快照语义，也直接复用其共享工作区接口。
-- `/daily-screening` 同时承载旧 12 模型综合交集与独立 18 模型 CLX 工作区；两者使用不同 scope、集合、API 与默认结果。CLX 工作区使用 `freshquant_clx_daily_selection` 与 `clx_daily_selection_ready`，`/clx-daily-screening` 仅为兼容 redirect 到 `/daily-screening?tab=clx`。
-- `daily_screening_postclose_sensor` 继续等待自己的股票/Gantt 上游合同；这条旧链的门禁不适用于 CLX。CLX 的 stock/ETF marker 各自 success 即启动本侧 partition，双侧只门控 CLX finalizer、正式发布和跨资产统计。
-- 页面查询不会重新触发算法运行。
-- API 仍保留旧执行接口，但当前页面不再使用。
-- `market_flags` 仍基于全市场能力构建，但前端交集查询始终锚定 `base:union`。
-- 全市场搜索接口不锚定 `base:union`；它只负责全市场模糊匹配，并在命中当前 scope 快照时叠加当前 scope 的缠论指标与市场属性字段。
+- `/daily-screening` 是 CLX 基本面评价工作台（三区），数据来自
+  `/data/clx-evaluator/**` 静态产物；旧 12 模型综合交集与独立 CLX 工作区
+  页面已下线。`/clx-daily-screening` 仅为兼容 redirect 到
+  `/daily-screening?tab=clx`（页面不按 tab 切换 UI）。
+- `daily_screening_postclose_sensor`（旧综合交集链）继续等待自己的股票/Gantt
+  上游合同；该链与基本面评价链互不参与。CLX 信号选择链的 stock/ETF marker
+  各自 success 即启动本侧 partition，双侧只门控 CLX finalizer、正式发布和
+  跨资产统计。
+- 页面查询不会重新触发算法运行；CLX 基本面评价由
+  `script/clx_eval_daily.ps1` 每日跑批（见
+  `docs/current/modules/clx-fundamental-evaluation.md`）。
+- 旧 `/api/daily-screening/**` 执行接口仍保留，但当前页面不再使用。
+
+旧综合交集相关的排障条目（条件目录 / base:union / hot_reasons）只适用于仍
+消费 `fqscreening` 的后端消费者；基本面工作台排障见
+`docs/current/modules/clx-fundamental-evaluation.md`。
 
 ## 部署/运行
 

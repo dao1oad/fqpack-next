@@ -14,258 +14,210 @@ const DEV_SERVER_PORT = 18096
 const DEV_SERVER_URL = 'http://127.0.0.1:' + DEV_SERVER_PORT
 const PREVIEW_ARTIFACTS = createIsolatedViteArtifactsContext(import.meta.url)
 
-const READY_BATCH_ID = 'clx-2026-08-07-production_v1-b55928c40a7bdf50'
-const RESULT_TIME = '2026-08-07T20:00:00+08:00'
 const TRADE_DATE = '2026-08-07'
+const RUN_ID = '2026-08-07-fundamental-acctest2'
+const BASE_HREF = `/data/clx-evaluator/runs/${TRADE_DATE}/${RUN_ID}`
 
 let devServerProcess = null
 
-const readyRow = {
-  asset_type: 'stock',
-  symbol: '000001',
-  code: '000001',
-  name: '平安银行',
-  distinct_model_count: 2,
-  distinct_condition_count: 2,
-  signal_event_count: 2,
-  model_keys: ['S0003', 'S0007'],
-  condition_keys: ['entrypoint_1', 'entrypoint_2'],
-  latest_trigger: '2026-08-07',
-}
-
-const etfRow = {
-  asset_type: 'etf',
-  symbol: '510300',
-  code: '510300',
-  name: '沪深300ETF',
-  distinct_model_count: 1,
-  distinct_condition_count: 1,
-  signal_event_count: 1,
-  model_keys: ['S0003'],
-  condition_keys: ['entrypoint_1'],
-  latest_trigger: '2026-08-07',
-}
-
-function buildOfficialPayload({ rows, cursor = '', limit = 100, total = 0, nextCursor = '' } = {}) {
+const makeRankingRow = (index) => {
+  const symbol = String(200000 + index)
+  const deep = index <= 8
   return {
-    schema_version: '1',
-    status: 'ready',
-    trade_date: TRADE_DATE,
-    batch_id: READY_BATCH_ID,
-    generation_id: 'gen-2026-08-07-1',
-    generation_order: '1',
-    publication_id: 'pub-2026-08-07-1',
-    content_hash: '18f75c',
-    result_time: RESULT_TIME,
-    release_status: 'final',
-    is_final: true,
-    counts: { pure_buy_total: total, stock: 1, etf: 1 },
-    rows,
-    total,
-    next_cursor: nextCursor || '',
-    cursor,
-    limit,
-  }
-}
-
-function buildLatestEvaluationManifest() {
-  return {
-    tradeDate: TRADE_DATE,
-    runId: 'run-2026-08-08-01',
-    promotedAt: '2026-08-08T09:00:00+08:00',
-    href: '/data/clx-evaluator/clx-eval.v1.json',
-  }
-}
-
-function buildEvaluationSnapshot() {
-  return {
-    tradeDate: TRADE_DATE,
-    runId: 'run-2026-08-08-01',
-    clxBatchId: READY_BATCH_ID,
-    officialContentHash: '18f75c',
-    review: { generatedAt: '2026-08-08T09:00:00+08:00' },
-    summary: {
-      stockRows: 1,
-      groupCount: 1,
-      remainingUnmapped: 0,
-      fundamentalEvidenceGap: 0,
-      mappedEtfCount: 1,
+    rank: index,
+    quick_rank: index,
+    symbol,
+    name: `标的${index}`,
+    asset_type: 'stock',
+    tier: deep ? 'deep' : 'snapshot',
+    grade_source: deep ? 'deep' : 'quick',
+    primary_group: '金融与地产',
+    exact_industry: '银行',
+    financial_report_date: '2026-03-31',
+    composite_grade: deep ? 'strong' : 'neutral',
+    quick_composite_grade: deep ? 'strong' : 'neutral',
+    dimension_grades: {
+      business_quality: 'good',
+      growth: 'neutral',
+      profitability: 'good',
+      balance_sheet: 'good',
+      industry_capability: 'good',
+      valuation: deep ? 'good' : 'neutral',
     },
-    groups: [
-      {
-        groupRank: 1,
-        groupName: '银行',
-        marketLane: '金融',
-        marketFitGrade: 'A',
-        themeId: 'banking',
-        clxStockCount: 1,
-        shortlistCount: 1,
-        clxGroupAmountYi: 120,
-        fitReason: '主线吻合',
-      },
-    ],
-    members: [
-      {
-        symbol: '000001',
-        name: '平安银行',
-        primaryGroup: '银行',
-        marketLane: '金融',
-        marketFitGrade: 'A',
-        fundamentalQualityGrade: 'B+',
-        riskFlagGrade: '低',
-        shortlistEligible: true,
-        globalRank: 1,
-        memberRank: 1,
-      },
-    ],
-    diagnostics: { sellDiagnostics: [] },
+    dimension_scores: {},
+    quick_sort_key: `${index}-${symbol}`,
+    original_clx_rank: index,
+    evidence_grade: 'A',
+    evidence_ids: [`CNINFO-INDUSTRY-${symbol}`],
+    risk_flags: [],
+    consecutive_selection_days: 1,
+    analysis_href: deep ? `${BASE_HREF}/fundamental-analysis/${symbol}.json` : '',
+    snapshot_href: `${BASE_HREF}/fundamental-snapshot/${symbol}.json`,
+    as_of: `${TRADE_DATE}T15:00:00+08:00`,
+    roe_pct: 10 + index,
+    gross_margin_pct: 30,
+    parent_profit_yoy_pct: 5,
+    pe: 8 + index,
+    pb: 0.8,
+    latest_price: 12,
   }
 }
 
-const defaultRequestLog = () => ({
-  officialQueries: [],
-  evaluationRequests: 0,
-  poolListRequests: [],
-  stockSyncRequests: [],
-  mustSyncRequests: [],
-  tdxExports: [],
-})
+const rankingPayload = {
+  schemaVersion: 'clx-fundamental-ranking.v1',
+  tradeDate: TRADE_DATE,
+  runId: RUN_ID,
+  batchId: 'clx-2026-08-07-production_v1-acctest2',
+  contentHash: 'acctest2',
+  generatedAt: '2026-08-08T09:00:00+08:00',
+  asOf: `${TRADE_DATE}T15:00:00+08:00`,
+  deepLimit: 100,
+  counts: { total: 12, deep: 8, snapshot: 4, deepComplete: 8 },
+  rows: Array.from({ length: 12 }, (_, index) => makeRankingRow(index + 1)),
+}
 
-async function mockApis(page, requestLog, {
-  officialPayload = buildOfficialPayload({ rows: [readyRow], total: 2 }),
-  officialRowsByCursor = null,
-  latestManifest = buildLatestEvaluationManifest(),
-  poolRows = {},
-  syncPayload = {
-    code: '0',
-    msg: '操作成功',
-    data: {
-      source_count: 2,
-      synced_count: 1,
-      removed_count: 1,
-      holding_excluded_count: 1,
-      invalid_count: 0,
-      failed_count: 0,
-      failed_codes: [],
-    },
+const analysisDoc = {
+  schemaVersion: 'fundamental-analysis.v1',
+  symbol: '200001',
+  name: '标的1',
+  tier: 'deep',
+  asOf: `${TRADE_DATE}T15:00:00+08:00`,
+  financialReportDate: '2026-03-31',
+  oneLinePositioning: '银行龙头，净息差稳健。',
+  sixDimensionScores: {
+    business_quality: { grade: 'good', rationale: 'r' },
+    growth: { grade: 'neutral', rationale: 'r' },
+    profitability: { grade: 'good', rationale: 'r' },
+    balance_sheet: { grade: 'good', rationale: 'r' },
+    industry_capability: { grade: 'good', rationale: 'r' },
+    valuation: { grade: 'good', rationale: 'r' },
   },
-  tdxExportPayload = { written_count: 2 },
-} = {}) {
+  compositeGrade: 'good',
+  keyMetrics: {},
+  risks: [],
+  advantages: ['a'],
+  problems: ['p'],
+  sections: { businessStructure: { ok: true } },
+  evidenceGrade: 'A',
+  evidenceIds: ['CNINFO-INDUSTRY-200001'],
+  generatedBy: 'fixture',
+  generatedAt: '2026-08-08T09:00:00+08:00',
+}
+
+const snapshotDoc = {
+  schemaVersion: 'fundamental-snapshot.v1',
+  symbol: '200009',
+  name: '标的9',
+  tier: 'snapshot',
+  asOf: `${TRADE_DATE}T15:00:00+08:00`,
+  oneLinePositioning: '规则快排定位',
+  sixDimensionScores: {
+    business_quality: { grade: 'good', rationale: 'r' },
+    growth: { grade: 'neutral', rationale: 'r' },
+    profitability: { grade: 'good', rationale: 'r' },
+    balance_sheet: { grade: 'good', rationale: 'r' },
+    industry_capability: { grade: 'good', rationale: 'r' },
+    valuation: { grade: 'neutral', rationale: 'r' },
+  },
+  compositeGrade: 'good',
+  keyMetrics: {},
+  risks: [],
+  evidenceGrade: 'A',
+  evidenceIds: [],
+  generatedBy: 'clx-fundamental-quick-rank',
+}
+
+const statsPayload = {
+  schemaVersion: 'fundamental-stats.v1',
+  tradeDate: TRADE_DATE,
+  runId: RUN_ID,
+  generatedAt: '2026-08-08T09:00:00+08:00',
+  summary: { total: 12, deep: 8, snapshot: 4, deepComplete: 8, deepCompleteRate: 1, evidenceABShare: 1, evidenceDCount: 0 },
+  kpis: { meanRoePct: 16, medianPe: 13, qualityStrongShare: 0.6, riskFlagCount: 0, deepCount: 8, snapshotCount: 4 },
+  industryDistribution: [{ industry: '金融与地产', count: 12, pct: 1 }],
+  dimensionDistributions: {},
+  qualityValuationScatter: [],
+  growthProfitQuadrant: [],
+  riskHeatmap: [],
+  evidenceCoverage: { A: 12, B: 0, C: 0, D: 0 },
+  valuationHistogram: { pe: [], pb: [] },
+  qualityGates: {
+    deepCompletionRate: { passed: true, value: 1, threshold: 1, detail: '8/8' },
+    evidenceABShare: { passed: true, value: 1, threshold: 0.8, detail: '' },
+    evidenceDCount: { passed: true, value: 0, threshold: 10, detail: '' },
+    collectionCompleteness: { passed: true, value: 1, threshold: 0.95, detail: '' },
+    rerunConsistency: { passed: false, value: null, threshold: 0.95, detail: '研发期验收项' },
+  },
+  qualityGateStatus: 'passed',
+}
+
+const requestLog = {
+  latestRequests: 0,
+  rankingRequests: 0,
+  statsRequests: 0,
+  analysisRequests: 0,
+  snapshotRequests: 0,
+  officialRequests: 0,
+  poolRequests: 0,
+}
+
+async function mockApis(page) {
   await page.route('**/api/**', async (route) => {
-    const request = route.request()
-    const url = new URL(request.url())
-    const pathname = url.pathname
-    const method = request.method()
-
-    if (pathname === '/api/clx-daily-selection/official') {
-      const query = Object.fromEntries(url.searchParams.entries())
-      requestLog.officialQueries.push(query)
-      const cursor = query.cursor || ''
-      const payload = officialRowsByCursor
-        ? officialRowsByCursor(cursor, query)
-        : officialPayload
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(payload),
-      })
-      return
-    }
-
-    if (pathname === '/api/get_stock_pre_pools_list') {
-      requestLog.poolListRequests.push('pre')
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(poolRows.pre || []),
-      })
-      return
-    }
-
-    if (pathname === '/api/get_stock_pools_list') {
-      requestLog.poolListRequests.push('stock')
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(poolRows.stock || []),
-      })
-      return
-    }
-
-    if (pathname === '/api/get_stock_must_pools_list') {
-      requestLog.poolListRequests.push('must')
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(poolRows.must || []),
-      })
-      return
-    }
-
-    if (pathname === '/api/pools/stock/sync-from-tdx' && method === 'POST') {
-      requestLog.stockSyncRequests.push(Object.fromEntries(url.searchParams.entries()))
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(syncPayload),
-      })
-      return
-    }
-
-    if (pathname === '/api/pools/must/sync-from-tdx' && method === 'POST') {
-      requestLog.mustSyncRequests.push(Object.fromEntries(url.searchParams.entries()))
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(syncPayload),
-      })
-      return
-    }
-
-    const tdxExportMatch = pathname.match(/^\/api\/clx-daily-selection\/batches\/([^/]+)\/results\/sync-selected-to-tdx$/)
-    if (tdxExportMatch && method === 'POST') {
-      requestLog.tdxExports.push({
-        batchId: decodeURIComponent(tdxExportMatch[1]),
-        payload: request.postDataJSON?.() || {},
-      })
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(tdxExportPayload),
-      })
-      return
-    }
-
+    requestLog.officialRequests += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({}),
     })
   })
-
   await page.route('**/data/clx-evaluator/latest.json', async (route) => {
-    requestLog.evaluationRequests += 1
+    requestLog.latestRequests += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(latestManifest),
+      body: JSON.stringify({
+        schemaVersion: 'clx-eval-latest.v2',
+        tradeDate: TRADE_DATE,
+        runId: RUN_ID,
+        href: '',
+        fundamentalRankingHref: `${BASE_HREF}/clx-fundamental-ranking.json`,
+        statsHref: `${BASE_HREF}/fundamental-stats.json`,
+        promotedAt: '2026-08-08T09:00:00+08:00',
+      }),
     })
   })
-
-  await page.route('**/data/clx-evaluator/clx-eval.v1.json', async (route) => {
+  await page.route(`**${BASE_HREF}/clx-fundamental-ranking.json`, async (route) => {
+    requestLog.rankingRequests += 1
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(buildEvaluationSnapshot()),
+      body: JSON.stringify(rankingPayload),
     })
   })
-}
-
-async function waitForWorkbench(page) {
-  await expect(page.locator('.clx-workbench-page')).toBeVisible()
-  await expect(page.locator('.clx-result-panel')).toBeVisible()
-  await expect(page.locator('.clx-eval-panel')).toBeVisible()
-  await expect(page.locator('.clx-pools-panel')).toBeVisible()
+  await page.route(`**${BASE_HREF}/fundamental-stats.json`, async (route) => {
+    requestLog.statsRequests += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(statsPayload),
+    })
+  })
+  await page.route(`**${BASE_HREF}/fundamental-analysis/*.json`, async (route) => {
+    requestLog.analysisRequests += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(analysisDoc),
+    })
+  })
+  await page.route(`**${BASE_HREF}/fundamental-snapshot/*.json`, async (route) => {
+    requestLog.snapshotRequests += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(snapshotDoc),
+    })
+  })
 }
 
 test.beforeAll(async () => {
@@ -293,192 +245,75 @@ test.afterAll(async () => {
   await rm(PREVIEW_ARTIFACTS.outDir, { recursive: true, force: true })
 })
 
-test('legacy entry redirects to the daily-screening workbench with mapped query', async ({ page }) => {
-  const requestLog = defaultRequestLog()
+test('legacy clx-daily-screening entry redirects to the daily-screening workbench with mapped query', async ({ page }) => {
   await page.setViewportSize({ width: 3440, height: 1440 })
-  await mockApis(page, requestLog)
+  await mockApis(page)
 
-  await page.goto(DEV_SERVER_URL + '/clx-daily-screening?scope_id=' + READY_BATCH_ID + '&period=5m&clxScreening=1', {
+  await page.goto(DEV_SERVER_URL + '/clx-daily-screening?scope_id=scope-20260731&clxScreening=1&period=5m', {
     waitUntil: 'domcontentloaded',
   })
 
-  await expect(page).toHaveURL(new RegExp('/daily-screening\\?.*tab=clx'))
-  await expect(page).toHaveURL(new RegExp('scope_id=' + READY_BATCH_ID))
+  await expect(page).toHaveURL(/\/daily-screening\?.*tab=clx/)
+  await expect(page).toHaveURL(/scope_id=scope-20260731/)
   await expect(page).not.toHaveURL(/clxScreening|period=5m/)
-  await waitForWorkbench(page)
-  await expect(page.getByText('每日选股工作台')).toBeVisible()
-  await expect.poll(() => requestLog.officialQueries.length).toBeGreaterThan(0)
-  expect(requestLog.officialQueries[0].direction_mode).toBe('pure_buy')
+  await expect(page.locator('.clx-fund-ranking-panel')).toBeVisible()
 })
 
-test('left panel renders the ready generation pure-buy rows and independent result time', async ({ page }) => {
-  const requestLog = defaultRequestLog()
+test('ranking panel renders the static fundamental ranking without the official API or pools', async ({ page }) => {
   await page.setViewportSize({ width: 3440, height: 1440 })
-  await mockApis(page, requestLog)
+  await mockApis(page)
 
   await page.goto(DEV_SERVER_URL + '/daily-screening', { waitUntil: 'domcontentloaded' })
-  await waitForWorkbench(page)
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toContainText('200001')
+  await expect(page.locator('.clx-fund-ranking-panel')).toContainText('深析')
+  await expect(page.locator('.clx-fund-ranking-panel')).toContainText('初评')
+  await expect(page.locator('.clx-pools-panel')).toHaveCount(0)
+  await expect(page.locator('.clx-result-panel')).toHaveCount(0)
+  await expect(page.locator('.clx-eval-panel')).toHaveCount(0)
 
-  await expect(page.locator('.clx-result-panel')).toContainText('CLX pure-buy 结果')
-  await expect(page.locator('.clx-result-panel .clx-panel-time')).toContainText('2026-08-07T20:00:00+08:00')
-  await expect(page.locator('.clx-result-panel .clx-panel-kpis')).toContainText('pure-buy')
-  await expect(page.locator('.clx-result-panel .clx-panel-kpis')).toContainText('Stock')
-  await expect(page.locator('.clx-result-panel .clx-panel-kpis')).toContainText('ETF')
-  await expect(page.locator('.clx-result-panel .clx-panel-row').first()).toContainText('000001')
-  await expect(page.locator('.clx-result-panel .clx-panel-row').first()).toContainText('平安银行')
-
-  expect(requestLog.officialQueries).toHaveLength(1)
-  expect(requestLog.officialQueries[0]).toMatchObject({
-    direction_mode: 'pure_buy',
-    limit: '100',
-  })
+  expect(requestLog.latestRequests).toBeGreaterThan(0)
+  expect(requestLog.rankingRequests).toBeGreaterThan(0)
+  expect(requestLog.officialRequests).toBe(0)
+  expect(requestLog.poolRequests).toBe(0)
 })
 
-test('left panel search filters rows and load-more follows the cursor contract', async ({ page }) => {
-  const requestLog = defaultRequestLog()
+test('CLX_18 export and pool sync actions are retired from the workbench', async ({ page }) => {
   await page.setViewportSize({ width: 3440, height: 1440 })
-  const allRows = Array.from({ length: 105 }, (_, index) => ({
-    ...readyRow,
-    asset_type: index % 5 === 0 ? 'etf' : 'stock',
-    symbol: String(index + 1).padStart(6, '0'),
-    code: String(index + 1).padStart(6, '0'),
-    name: '筛选标的' + (index + 1),
-  }))
-  await mockApis(page, requestLog, {
-    officialRowsByCursor: (cursor, query) => {
-      const offset = Number(cursor || 0)
-      const limit = Number(query.limit || 100)
-      const pageRows = allRows.slice(offset, offset + limit)
-      const nextCursor = offset + limit < allRows.length ? String(offset + limit) : ''
-      return buildOfficialPayload({
-        rows: pageRows,
-        total: allRows.length,
-        nextCursor,
-      })
-    },
-  })
+  await mockApis(page)
 
   await page.goto(DEV_SERVER_URL + '/daily-screening', { waitUntil: 'domcontentloaded' })
-  await waitForWorkbench(page)
-  await expect(page.locator('.clx-result-panel .clx-panel-row').first()).toContainText('筛选标的1')
-
-  await page.getByPlaceholder('搜索代码或名称').fill('筛选标的51')
-  await expect(page.locator('.clx-result-panel .clx-panel-row')).toHaveCount(1)
-  await expect(page.locator('.clx-result-panel .clx-panel-row')).toContainText('筛选标的51')
-  await page.getByPlaceholder('搜索代码或名称').fill('')
-
-  const list = page.locator('.clx-result-panel .clx-panel-list')
-  await list.evaluate((element) => {
-    element.scrollTop = element.scrollHeight
-  })
-  await expect.poll(() => requestLog.officialQueries.length).toBeGreaterThan(1)
-  expect(requestLog.officialQueries.at(-1).cursor).toBe('100')
-  await expect(page.locator('.clx-result-panel .clx-panel-row').last()).toContainText('筛选标的105')
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: /导出当前结果到 CLX_18/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /同步自选股|同步待买组/ })).toHaveCount(0)
 })
 
-test('export current result posts the ready batch items to CLX_18', async ({ page }) => {
-  const requestLog = defaultRequestLog()
+test('detail panel loads snapshot documents for the snapshot tier without market fields', async ({ page }) => {
   await page.setViewportSize({ width: 3440, height: 1440 })
-  await mockApis(page, requestLog, {
-    officialPayload: buildOfficialPayload({ rows: [readyRow, etfRow], total: 2 }),
-    tdxExportPayload: { written_count: 2 },
-  })
+  await mockApis(page)
 
   await page.goto(DEV_SERVER_URL + '/daily-screening', { waitUntil: 'domcontentloaded' })
-  await waitForWorkbench(page)
-  await expect(page.locator('.clx-result-panel .clx-panel-row').first()).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible()
 
-  await page.getByRole('button', { name: '导出当前结果到 CLX_18' }).click()
-  await expect(page.getByText('已导出当前结果到 CLX_18：2 只')).toBeVisible()
-  expect(requestLog.tdxExports).toHaveLength(1)
-  expect(requestLog.tdxExports[0].batchId).toBe(READY_BATCH_ID)
-  expect(requestLog.tdxExports[0].payload.items).toEqual([
-    { asset_type: 'stock', symbol: '000001' },
-    { asset_type: 'etf', symbol: '510300' },
-  ])
-})
+  // 滚动到初评区首行并点击
+  const list = page.locator('.clx-fund-list')
+  await list.evaluate((element) => { element.scrollTop = 10000 })
+  const snapshotRow = page.locator('.clx-fund-row--snapshot').first()
+  await expect(snapshotRow).toBeVisible()
+  await snapshotRow.click()
 
-test('evaluation panel shows evaluation time and evaluated object time independently', async ({ page }) => {
-  const requestLog = defaultRequestLog()
-  await page.setViewportSize({ width: 3440, height: 1440 })
-  await mockApis(page, requestLog)
-
-  await page.goto(DEV_SERVER_URL + '/daily-screening', { waitUntil: 'domcontentloaded' })
-  await waitForWorkbench(page)
-
-  await expect(page.locator('.clx-eval-panel')).toContainText('最新 CLX 评价')
-  await expect(page.locator('.clx-eval-panel .clx-panel-time').first()).toContainText('评价结果时间')
-  await expect(page.locator('.clx-eval-panel .clx-panel-time').first()).toContainText('2026-08-08T09:00:00+08:00')
-  await expect(page.locator('.clx-eval-panel .clx-panel-time').nth(1)).toContainText('评价对象时间')
-  await expect(page.locator('.clx-eval-panel .clx-panel-time').nth(1)).toContainText('2026-08-07')
-  await expect(page.locator('.clx-eval-group-card').first()).toContainText('银行')
-  await expect(page.locator('.clx-eval-table-wrap')).toContainText('平安银行')
-  await expect.poll(() => requestLog.evaluationRequests).toBeGreaterThan(0)
-})
-
-test('pools panel loads pre/stock/must lists and offers TDX overwrite sync for stock and must only', async ({ page }) => {
-  const requestLog = defaultRequestLog()
-  await page.setViewportSize({ width: 3440, height: 1440 })
-  await mockApis(page, requestLog, {
-    poolRows: {
-      pre: [{
-        code: '000001',
-        name: '平安银行',
-        asset_type: 'stock',
-        sources: ['clx_daily_selection'],
-      }],
-      stock: [{ code: '000002', name: '万科A' }],
-      must: [{ code: '000003', name: '宁德时代' }],
-    },
-  })
-
-  await page.goto(DEV_SERVER_URL + '/daily-screening', { waitUntil: 'domcontentloaded' })
-  await waitForWorkbench(page)
-
-  await expect(page.locator('.clx-pools-panel')).toContainText('三池工作区')
-  await expect(page.locator('.clx-pools-panel .clx-pool-row').first()).toContainText('000001')
-  await expect(page.locator('.clx-pools-panel')).toContainText('预选池由 CLX 正式结果自动生成，只读展示')
-  await expect(page.getByRole('button', { name: '同步自选股' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '同步待买组' })).toHaveCount(0)
-  expect(requestLog.poolListRequests).toEqual(expect.arrayContaining(['pre', 'stock', 'must']))
-
-  await page.locator('.clx-pool-tab', { hasText: '监控池' }).click()
-  await expect(page.getByRole('button', { name: '同步自选股' })).toBeVisible()
-  await page.locator('.clx-pool-tab', { hasText: '待买池' }).click()
-  await expect(page.getByRole('button', { name: '同步待买组' })).toBeVisible()
-})
-
-test('stock and must TDX sync require confirmation and post to the overwrite endpoints', async ({ page }) => {
-  const requestLog = defaultRequestLog()
-  await page.setViewportSize({ width: 3440, height: 1440 })
-  await mockApis(page, requestLog)
-
-  await page.goto(DEV_SERVER_URL + '/daily-screening', { waitUntil: 'domcontentloaded' })
-  await waitForWorkbench(page)
-
-  await page.locator('.clx-pool-tab', { hasText: '监控池' }).click()
-  await page.getByRole('button', { name: '同步自选股' }).click()
-  await expect(page.getByText('将使用通达信“自选股”覆盖当前监控池，并自动排除持仓股。是否继续？')).toBeVisible()
-  await page.getByRole('button', { name: '继续' }).click()
-  await expect.poll(() => requestLog.stockSyncRequests.length).toBe(1)
-  expect(requestLog.stockSyncRequests[0].days).toBe('30')
-  await expect(page.locator('.clx-pool-sync-summary')).toContainText('源 2 个代码')
-
-  await page.locator('.clx-pool-tab', { hasText: '待买池' }).click()
-  await page.getByRole('button', { name: '同步待买组' }).click()
-  await expect(page.getByText('将使用通达信“待买组”覆盖当前待买池，并自动排除持仓股；新代码自动使用系统默认参数。是否继续？')).toBeVisible()
-  await page.getByRole('button', { name: '继续' }).click()
-  await expect.poll(() => requestLog.mustSyncRequests.length).toBe(1)
-  expect(requestLog.mustSyncRequests[0].days).toBe('30')
+  await expect(page.locator('.clx-fund-detail-panel .clx-panel-time')).toContainText('本期初评')
+  await expect(page.locator('.clx-fund-detail-panel')).toContainText('规则快排定位')
+  await expect(page.locator('.clx-fund-detail-panel')).not.toContainText('market_lane')
+  await expect(page.locator('.clx-fund-detail-panel')).not.toContainText('marketThemeId')
+  expect(requestLog.snapshotRequests).toBeGreaterThan(0)
 })
 
 test('clx-evaluation legacy route redirects to the daily-screening workbench', async ({ page }) => {
-  const requestLog = defaultRequestLog()
   await page.setViewportSize({ width: 3440, height: 1440 })
-  await mockApis(page, requestLog)
+  await mockApis(page)
 
   await page.goto(DEV_SERVER_URL + '/clx-evaluation', { waitUntil: 'domcontentloaded' })
   await expect(page).toHaveURL(/\/daily-screening$/)
-  await waitForWorkbench(page)
-  await expect(page.locator('.clx-eval-panel')).toBeVisible()
+  await expect(page.locator('.clx-fund-ranking-panel')).toBeVisible()
+  await expect(page.locator('.clx-eval-panel')).toHaveCount(0)
 })

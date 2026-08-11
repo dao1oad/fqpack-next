@@ -299,5 +299,5 @@ python -m freshquant.cli om-order cancel --internal-order-id <id>
 - `/position-review`
 - `/runtime-observability`
 - `/gantt`
-- `/daily-screening`（CLX 选股 / 评价 / 三池工作台）
+- `/daily-screening`（CLX 基本面评价三区工作台：排序 / 详情 / 统计）
 - `/clx-evaluation`（Vue Router 重定向到 `/daily-screening`）

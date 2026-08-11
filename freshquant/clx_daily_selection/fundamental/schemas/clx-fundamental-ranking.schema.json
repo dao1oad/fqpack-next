@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://freshquant.local/schemas/clx-fundamental-ranking.v1.json",
+  "title": "clx-fundamental-ranking",
+  "type": "object",
+  "required": ["schemaVersion", "tradeDate", "runId", "batchId", "contentHash", "generatedAt", "asOf", "deepLimit", "counts", "rows"],
+  "properties": {
+    "schemaVersion": { "const": "clx-fundamental-ranking.v1" },
+    "tradeDate": { "type": "string" },
+    "runId": { "type": "string" },
+    "batchId": { "type": "string" },
+    "contentHash": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "asOf": { "type": "string" },
+    "deepLimit": { "type": "integer" },
+    "counts": {
+      "type": "object",
+      "required": ["total", "deep", "snapshot", "deepComplete"],
+      "properties": {
+        "total": { "type": "integer" },
+        "deep": { "type": "integer" },
+        "snapshot": { "type": "integer" },
+        "deepComplete": { "type": "integer" }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/rankingRow" }
+    }
+  },
+  "definitions": {
+    "grade": {
+      "type": "string",
+      "enum": ["strong", "good", "neutral", "watch", "weak", "evidence_gap"]
+    },
+    "rankingRow": {
+      "type": "object",
+      "required": [
+        "rank", "quick_rank", "symbol", "name", "asset_type", "tier", "grade_source",
+        "primary_group", "composite_grade", "quick_composite_grade", "dimension_grades",
+        "dimension_scores", "quick_sort_key", "original_clx_rank", "evidence_grade",
+        "evidence_ids", "as_of"
+      ],
+      "properties": {
+        "rank": { "type": "integer" },
+        "quick_rank": { "type": "integer" },
+        "symbol": { "type": "string" },
+        "name": { "type": "string" },
+        "asset_type": { "const": "stock" },
+        "tier": { "enum": ["deep", "snapshot"] },
+        "grade_source": { "enum": ["quick", "deep"] },
+        "primary_group": { "type": "string" },
+        "exact_industry": { "type": "string" },
+        "composite_grade": { "$ref": "#/definitions/grade" },
+        "quick_composite_grade": { "$ref": "#/definitions/grade" },
+        "dimension_grades": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/grade" }
+        },
+        "dimension_scores": {
+          "type": "object",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "quick_sort_key": { "type": "string" },
+        "original_clx_rank": { "type": "integer" },
+        "evidence_grade": { "enum": ["A", "B", "C", "D"] },
+        "evidence_ids": { "type": "array", "items": { "type": "string" } },
+        "risk_flags": { "type": "array", "items": { "type": "string" } },
+        "consecutive_selection_days": { "type": "integer", "minimum": 1 },
+        "analysis_href": { "type": "string" },
+        "snapshot_href": { "type": "string" },
+        "as_of": { "type": "string" },
+        "financial_report_date": { "type": "string" }
+      }
+    }
+  }
+}

@@ -19,7 +19,7 @@ const ganttStocksSource = readSource('./GanttUnifiedStocks.vue')
 test('daily screening workbench keeps the page shell fixed and scrolls only inside panels', () => {
   assert.match(dailySource, /\.clx-workbench-page \{[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
   assert.match(dailySource, /\.clx-workbench-body \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(dailySource, /\.clx-workbench-grid \{[\s\S]*grid-template-columns:[\s\S]*minmax\(760px,\s*30fr\)[\s\S]*minmax\(1100px,\s*46fr\)[\s\S]*minmax\(560px,\s*24fr\);[\s\S]*min-height:\s*0;[\s\S]*overflow:\s*hidden;/)
+  assert.match(dailySource, /\.clx-workbench-grid \{[\s\S]*grid-template-columns:[\s\S]*minmax\(460px,\s*40fr\)[\s\S]*minmax\(500px,\s*38fr\)[\s\S]*minmax\(300px,\s*22fr\);[\s\S]*min-height:\s*0;[\s\S]*overflow:\s*hidden;/)
 })
 
 test('order, position, subject, reconciliation and runtime pages no longer use page-level scrolling at desktop widths', () => {
