@@ -205,6 +205,16 @@ def test_execute_backfills_intents_from_legacy_contexts(monkeypatch):
 
 def test_execute_backfills_position_type_and_members(monkeypatch):
     database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_missing",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ],
         entries=[
             {
                 "entry_id": "entry_t",
@@ -217,6 +227,7 @@ def test_execute_backfills_position_type_and_members(monkeypatch):
             {
                 "entry_id": "entry_missing",
                 "symbol": "000002",
+                "request_id": "req_rebuilt_missing",
                 "original_quantity": 100,
                 "remaining_quantity": 100,
                 "aggregation_members": [{"broker_order_key": "k2", "quantity": 100}],
@@ -251,6 +262,101 @@ def test_execute_backfills_position_type_and_members(monkeypatch):
     assert slices["slice_t"]["position_type"] == "t"
 
 
+def test_slice_and_members_inherit_entry_position_type(monkeypatch):
+    """#571 回归：slice 与聚合成员必须继承所属 entry 的 position_type。
+
+    entry 已是 t（holding_add）时，缺失或历史错误写成 base 的 slice 必须修正
+    为 t——防止"先解析归属后聚类"之外的账本漂移（生产实测 116 案例）。
+    """
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_holding_add",
+                "action": "buy",
+                "source": "strategy",
+                "strategy_context": {"guardian_buy_grid": {"path": "holding_add"}},
+            }
+        ],
+        entries=[
+            {
+                "entry_id": "entry_t",
+                "symbol": "000001",
+                "position_type": "t",
+                "original_quantity": 300,
+                "remaining_quantity": 300,
+                "aggregation_members": [
+                    {"broker_order_key": "k1", "quantity": 100},
+                    {"broker_order_key": "k2", "quantity": 200},
+                ],
+            },
+            {
+                "entry_id": "entry_derive_t",
+                "symbol": "000002",
+                "request_id": "req_holding_add",
+                "original_quantity": 400,
+                "remaining_quantity": 400,
+                "aggregation_members": [{"broker_order_key": "k3", "quantity": 400}],
+            },
+        ],
+        slices=[
+            {
+                "entry_slice_id": "slice_t_missing",
+                "entry_id": "entry_t",
+                "symbol": "000001",
+                "original_quantity": 100,
+                "remaining_quantity": 100,
+            },
+            {
+                "entry_slice_id": "slice_t_wrong_base",
+                "entry_id": "entry_t",
+                "symbol": "000001",
+                "position_type": "base",
+                "original_quantity": 200,
+                "remaining_quantity": 200,
+            },
+            {
+                "entry_slice_id": "slice_derive_missing",
+                "entry_id": "entry_derive_t",
+                "symbol": "000002",
+                "original_quantity": 400,
+                "remaining_quantity": 400,
+            },
+        ],
+    )
+    response = _run(monkeypatch, database, "--execute")
+    assert response.exit_code == 0, response.output
+    entries = {item["entry_id"]: item for item in database["om_position_entries"].docs}
+    slices = {item["entry_slice_id"]: item for item in database["om_entry_slices"].docs}
+    assert entries["entry_derive_t"]["position_type"] == "t"
+    assert entries["entry_derive_t"]["aggregation_members"][0]["position_type"] == "t"
+    assert slices["slice_t_missing"]["position_type"] == "t"
+    assert slices["slice_t_wrong_base"]["position_type"] == "t"
+    assert slices["slice_derive_missing"]["position_type"] == "t"
+    assert "repeat_slices=0" in response.output
+    assert "repeat_entries=0" in response.output
+
+
+def test_execute_fails_closed_on_entry_without_derivable_evidence(monkeypatch):
+    """#571 回归：entry 缺 position_type 且无 request/aggregation/source_ref
+    可推导证据 → fail-closed 冲突，不静默归 base。"""
+
+    database = _build_db(
+        entries=[
+            {
+                "entry_id": "entry_orphan",
+                "symbol": "000001",
+                "original_quantity": 100,
+                "remaining_quantity": 100,
+            }
+        ],
+    )
+    response = _run(monkeypatch, database, "--dry-run")
+    assert response.exit_code != 0
+    assert "unresolved entry position_type" in response.output
+    assert "entry_orphan" in response.output
+
+
 def test_execute_is_idempotent_and_conservation_passes(monkeypatch):
     database = _build_db(
         requests=[
@@ -259,12 +365,21 @@ def test_execute_is_idempotent_and_conservation_passes(monkeypatch):
                 "action": "sell",
                 "source": "tpsl_takeprofit",
                 "scope_type": "takeprofit_batch",
-            }
+            },
+            {
+                "request_id": "req_rebuilt_entry",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            },
         ],
         entries=[
             {
                 "entry_id": "entry_1",
                 "symbol": "000001",
+                "request_id": "req_rebuilt_entry",
                 "original_quantity": 200,
                 "remaining_quantity": 200,
             }
@@ -290,10 +405,21 @@ def test_execute_is_idempotent_and_conservation_passes(monkeypatch):
 
 def test_execute_aborts_on_l1_conservation_mismatch(monkeypatch):
     database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_entry",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ],
         entries=[
             {
                 "entry_id": "entry_1",
                 "symbol": "000001",
+                "request_id": "req_rebuilt_entry",
                 "original_quantity": 200,
                 "remaining_quantity": 200,
             }
@@ -315,10 +441,21 @@ def test_execute_aborts_on_l1_conservation_mismatch(monkeypatch):
 
 def test_execute_aborts_on_allocation_integrity_mismatch(monkeypatch):
     database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_entry",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ],
         entries=[
             {
                 "entry_id": "entry_1",
                 "symbol": "000001",
+                "request_id": "req_rebuilt_entry",
                 "original_quantity": 200,
                 "remaining_quantity": 100,
             }
@@ -545,10 +682,21 @@ def test_execute_backfills_allocation_internal_order_id_via_unique_trade_fact(
     唯一关联 om_trade_facts 回填（幂等复验 0 变更）。"""
 
     database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_entry",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ],
         entries=[
             {
                 "entry_id": "entry_a",
                 "symbol": "000001",
+                "request_id": "req_rebuilt_entry",
                 "original_quantity": 900,
                 "remaining_quantity": 0,
             }

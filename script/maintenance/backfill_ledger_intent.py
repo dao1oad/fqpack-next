@@ -40,7 +40,11 @@ from freshquant.order_management.allocation_integrity import (
     find_exit_allocation_integrity_errors,
 )
 from freshquant.order_management.db import get_order_management_db
-from freshquant.order_management.entry_adapter import position_type_of
+from freshquant.order_management.entry_adapter import (
+    POSITION_TYPE_BASE,
+    POSITION_TYPE_T,
+    position_type_of,
+)
 from freshquant.order_management.ledger_resolver import (
     LEDGER_BASE,
     LEDGER_T,
@@ -149,51 +153,144 @@ def _collect_request_updates(database):
     return updates, unresolved
 
 
-def _collect_entry_updates(database):
-    """返回待更新的 entry / slice / 聚合成员补 position_type 的计划。"""
+def _derive_entry_position_type(
+    entry,
+    *,
+    requests_by_id,
+    orders_by_request_id,
+) -> str | None:
+    """从 entry 的可审计证据推导 position_type（仅回填迁移用途）。
 
-    entry_updates = []
+    证据优先级：
+    1. entry 自身的 ``request_id``（直接指向 om_order_requests）；
+    2. ``aggregation_members[*].broker_order_key`` 反查 om_orders 的
+       ``request_id``，再指向 om_order_requests；
+    3. ``source_ref_id`` 中的 broker_order_key 片段反查（rebuild/buy_cluster
+       形态，例如 ``buy_cluster:600104:...:ord_xxx``）。
+
+    最终以该 request 的 ``_derive_ledger_intent`` 为真值；buy 的
+    ``base``/``t`` 映射为 entry 的 ``base``/``t``。任何一步无确定证据返回
+    ``None``（调用方必须 fail-closed，不做隐式默认）。
+    """
+
+    def request_for_entry(entry_doc):
+        direct = str(entry_doc.get("request_id") or "").strip()
+        if direct in requests_by_id:
+            return requests_by_id[direct]
+        for member in list(entry_doc.get("aggregation_members") or []):
+            broker_order_key = str(member.get("broker_order_key") or "").strip()
+            if broker_order_key in orders_by_request_id:
+                request_id = orders_by_request_id[broker_order_key]
+                if request_id in requests_by_id:
+                    return requests_by_id[request_id]
+        source_ref_id = str(entry_doc.get("source_ref_id") or "")
+        for token in source_ref_id.split(":"):
+            token = token.strip()
+            if token.startswith("ord_") and token in orders_by_request_id:
+                request_id = orders_by_request_id[token]
+                if request_id in requests_by_id:
+                    return requests_by_id[request_id]
+        return None
+
+    request = request_for_entry(entry)
+    if request is None:
+        return None
+    intent, _ = _derive_ledger_intent(request)
+    if intent == LEDGER_T:
+        return POSITION_TYPE_T
+    if intent == LEDGER_BASE:
+        return POSITION_TYPE_BASE
+    return None
+
+
+def _collect_entry_updates(database):
+    """返回 ``(entry_updates, slice_updates, unresolved)``。
+
+    ``position_type`` 权威语义：entry 由关联 request 的 ledger_intent 推导
+    （已有标记直接沿用，无证据 fail-closed）；**slice 与聚合成员强制继承
+    所属 entry**——缺失或不一致（例如历史已错误写成 base 的 t 账本 slice）
+    一律修正为 entry 的 position_type，杜绝"先解析归属再聚类"之外的账本
+    漂移。
+    """
+
+    requests_by_id = {
+        str(item.get("request_id") or "").strip(): item
+        for item in database["om_order_requests"].find({})
+        if str(item.get("request_id") or "").strip()
+    }
+    orders_by_request_id = {}
+    for order in database["om_orders"].find({}):
+        request_id = str(order.get("request_id") or "").strip()
+        broker_order_key = str(order.get("broker_order_key") or "").strip()
+        if request_id:
+            orders_by_request_id[broker_order_key] = request_id
+
+    entry_position_types: dict[str, str] = {}
+    entry_member_updates: dict[str, list[int]] = {}
+    entry_raw_missing: set[str] = set()
+    unresolved: list[dict] = []
     for entry in database["om_position_entries"].find({}):
         entry_id = str(entry.get("entry_id") or "").strip()
         if not entry_id:
             continue
-        if entry.get("position_type") not in (None, ""):
-            members = list(entry.get("aggregation_members") or [])
-            entry_position_type = position_type_of(entry.get("position_type"))
-            member_updates = [
-                index
-                for index, member in enumerate(members)
-                if position_type_of(member.get("position_type")) != entry_position_type
-            ]
-            if not member_updates:
-                continue
+        raw_type = entry.get("position_type")
+        if raw_type not in (None, ""):
+            entry_position_type = position_type_of(raw_type)
         else:
-            entry_position_type = position_type_of(entry.get("position_type"))
-            member_updates = list(range(len(entry.get("aggregation_members") or [])))
-        entry_updates.append(
-            {
-                "entry_id": entry_id,
-                "position_type": entry_position_type,
-                "member_indices": member_updates,
-            }
-        )
+            entry_raw_missing.add(entry_id)
+            entry_position_type = _derive_entry_position_type(
+                entry,
+                requests_by_id=requests_by_id,
+                orders_by_request_id=orders_by_request_id,
+            )
+            if entry_position_type is None:
+                unresolved.append(
+                    {
+                        "entry_id": entry_id,
+                        "symbol": entry.get("symbol"),
+                        "reason": "entry 无 position_type 且无法从 request/"
+                        "aggregation/source_ref 推导确定归属",
+                    }
+                )
+                continue
+        entry_position_types[entry_id] = entry_position_type
+        members = list(entry.get("aggregation_members") or [])
+        member_updates = [
+            index
+            for index, member in enumerate(members)
+            if member.get("position_type") in (None, "")
+            or position_type_of(member.get("position_type")) != entry_position_type
+        ]
+        entry_member_updates[entry_id] = member_updates
 
     slice_updates = []
     for slice_document in database["om_entry_slices"].find({}):
         entry_id = str(slice_document.get("entry_id") or "").strip()
-        if not entry_id:
+        if not entry_id or entry_id not in entry_position_types:
             continue
-        if slice_document.get("position_type") not in (None, ""):
-            continue
-        slice_position_type = position_type_of(slice_document.get("position_type"))
-        slice_updates.append(
-            {
-                "entry_slice_id": slice_document.get("entry_slice_id"),
-                "entry_id": entry_id,
-                "position_type": slice_position_type,
-            }
-        )
-    return entry_updates, slice_updates
+        expected = entry_position_types[entry_id]
+        if (
+            slice_document.get("position_type") in (None, "")
+            or position_type_of(slice_document.get("position_type")) != expected
+        ):
+            slice_updates.append(
+                {
+                    "entry_slice_id": slice_document.get("entry_slice_id"),
+                    "entry_id": entry_id,
+                    "position_type": expected,
+                }
+            )
+
+    entry_updates = [
+        {
+            "entry_id": entry_id,
+            "position_type": entry_position_types[entry_id],
+            "member_indices": entry_member_updates[entry_id],
+        }
+        for entry_id in entry_position_types
+        if entry_id in entry_raw_missing or entry_member_updates[entry_id]
+    ]
+    return entry_updates, slice_updates, unresolved
 
 
 def _apply_request_updates(database, updates):
@@ -572,7 +669,7 @@ def main(*, dry_run, execute, backup_db):
 
     database = get_order_management_db()
     request_updates, unresolved_requests = _collect_request_updates(database)
-    entry_updates, slice_updates = _collect_entry_updates(database)
+    entry_updates, slice_updates, unresolved_entries = _collect_entry_updates(database)
     allocation_updates, unresolved_allocations = _collect_allocation_updates(database)
     broker_state_updates = _collect_broker_state_updates(database)
     if unresolved_requests:
@@ -580,6 +677,14 @@ def main(*, dry_run, execute, backup_db):
             click.echo(f"  unresolved ledger_intent: {item}")
         raise click.ClickException(
             f"{len(unresolved_requests)} requests cannot derive ledger_intent "
+            "from definitive evidence; resolve manually and re-run "
+            "(fail-closed, no silent default)"
+        )
+    if unresolved_entries:
+        for item in unresolved_entries[:20]:
+            click.echo(f"  unresolved entry position_type: {item}")
+        raise click.ClickException(
+            f"{len(unresolved_entries)} entries cannot derive position_type "
             "from definitive evidence; resolve manually and re-run "
             "(fail-closed, no silent default)"
         )
@@ -660,7 +765,11 @@ def main(*, dry_run, execute, backup_db):
 
     # 幂等复验：再次收集应为 0 变更。
     repeat_requests, repeat_unresolved = _collect_request_updates(database)
-    repeat_entries, repeat_slices = _collect_entry_updates(database)
+    (
+        repeat_entries,
+        repeat_slices,
+        repeat_unresolved_entries,
+    ) = _collect_entry_updates(database)
     repeat_allocations, repeat_unresolved_allocations = _collect_allocation_updates(
         database
     )
@@ -677,6 +786,7 @@ def main(*, dry_run, execute, backup_db):
     if (
         repeat_requests
         or repeat_unresolved
+        or repeat_unresolved_entries
         or repeat_entries
         or repeat_slices
         or repeat_allocations
