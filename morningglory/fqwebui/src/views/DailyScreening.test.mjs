@@ -36,6 +36,13 @@ test('DailyScreening wires single-direction drill-down from list to detail and s
   assert.match(source, /:industry-filter="industryFilter"/)
 })
 
+test('DailyScreening restores ranking list focus when detail closes', async () => {
+  const source = await readSource('./DailyScreening.vue')
+
+  assert.match(source, /const onCloseDetail = \(\) => \{[\s\S]*selectedRow\.value = null[\s\S]*rankingPanel\.value\?\.focusList\?\.\(\)/)
+  assert.match(source, /@close="onCloseDetail"/)
+})
+
 test('DailyScreening retires market-replay UI and the three-pool workspace', async () => {
   const source = await readSource('./DailyScreening.vue')
 

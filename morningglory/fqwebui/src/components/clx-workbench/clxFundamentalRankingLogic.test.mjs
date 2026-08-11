@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 
 import {
   DEFAULT_STATE,
+  buildQueryWithState,
   decodeStateFromUrl,
   encodeStateToUrl,
   filterRows,
   normalizeRanking,
   normalizeRankingRow,
+  queryToSearch,
   sortRows,
   toggleStar,
   virtualSlice,
@@ -131,6 +133,76 @@ test('encode/decode URL state round-trips', () => {
 test('default state encodes to empty URL', () => {
   assert.equal(encodeStateToUrl({ ...DEFAULT_STATE }), '')
   assert.deepEqual(decodeStateFromUrl(''), DEFAULT_STATE)
+})
+
+test('buildQueryWithState deletes controlled keys before writing current state', () => {
+  const current = {
+    tab: 'clx',
+    scope_id: 'scope-1',
+    industry: '电子',
+    sort: 'valuation',
+    selected: '000001',
+    star: '1',
+  }
+  // 用户清空筛选：受控 key 必须全部移除，非受控 key 保留
+  const cleared = buildQueryWithState(current, { ...DEFAULT_STATE })
+  assert.equal(cleared.tab, 'clx')
+  assert.equal(cleared.scope_id, 'scope-1')
+  for (const key of ['industry', 'sort', 'selected', 'star']) {
+    assert.equal(Object.hasOwn(cleared, key), false, key)
+  }
+})
+
+test('buildQueryWithState writes only valid non-default state', () => {
+  const next = buildQueryWithState(
+    { tab: 'clx' },
+    {
+      ...DEFAULT_STATE,
+      sort: 'growth',
+      q: '半导体',
+      industries: ['电子'],
+      evidenceGrades: ['A', 'B'],
+      riskOnly: true,
+      tiers: ['deep'],
+      minGrades: { valuation: 'neutral' },
+      starOnly: true,
+      selected: '600001',
+      density: 'comfortable',
+    },
+  )
+  assert.equal(next.tab, 'clx')
+  assert.equal(next.sort, 'growth')
+  assert.equal(next.q, '半导体')
+  assert.equal(next.industry, '电子')
+  assert.equal(next.evidence, 'A,B')
+  assert.equal(next.risk, '1')
+  assert.equal(next.tier, 'deep')
+  assert.equal(next.mingrade, 'valuation:neutral')
+  assert.equal(next.star, '1')
+  assert.equal(next.selected, '600001')
+  assert.equal(next.density, 'comfortable')
+})
+
+test('query round-trip through buildQueryWithState/queryToSearch/decodeStateFromUrl', () => {
+  const state = {
+    ...DEFAULT_STATE,
+    sort: 'valuation',
+    industries: ['电子', '医药'],
+    evidenceGrades: ['B'],
+    selected: '600002',
+    density: 'comfortable',
+  }
+  const query = buildQueryWithState({ tab: 'clx' }, state)
+  const search = queryToSearch(query)
+  const decoded = decodeStateFromUrl(search)
+  assert.equal(decoded.sort, 'valuation')
+  assert.deepEqual(decoded.industries, ['电子', '医药'])
+  assert.deepEqual(decoded.evidenceGrades, ['B'])
+  assert.equal(decoded.selected, '600002')
+  assert.equal(decoded.density, 'comfortable')
+  assert.equal(decoded.riskOnly, false)
+  assert.deepEqual(decoded.minGrades, {})
+  assert.equal(queryToSearch({}), '')
 })
 
 test('toggleStar adds and removes symbols', () => {

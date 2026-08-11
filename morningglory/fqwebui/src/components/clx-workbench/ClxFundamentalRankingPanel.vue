@@ -9,12 +9,14 @@ import {
   GRADE_META,
   SORT_OPTIONS,
   TIER_META,
+  buildQueryWithState,
   decodeStateFromUrl,
   encodeStateToUrl,
   fetchFundamental,
   filterRows,
   formatMetric,
   loadStars,
+  queryToSearch,
   saveStars,
   sortRows,
   toggleStar,
@@ -148,12 +150,9 @@ const load = async () => {
 }
 
 const syncUrl = () => {
-  const query = new URLSearchParams(encodeStateToUrl(state).replace(/^\?/, ''))
-  const current = new URLSearchParams(
-    route.fullPath.includes('?') ? route.fullPath.split('?')[1] : '',
-  )
-  if (query.toString() === current.toString()) return
-  const next = { ...route.query, ...Object.fromEntries(query.entries()) }
+  const next = buildQueryWithState(route.query, state)
+  const current = new URLSearchParams(queryToSearch(route.query).replace(/^\?/, ''))
+  if (new URLSearchParams(next).toString() === current.toString()) return
   router.replace({ query: next }).catch(() => {})
 }
 
@@ -163,9 +162,9 @@ const applyUrlState = (search) => {
 }
 
 watch(
-  () => route.fullPath,
-  (fullPath) => {
-    const decoded = decodeStateFromUrl(new URL(fullPath, 'http://local').search)
+  () => route.query,
+  () => {
+    const decoded = decodeStateFromUrl(queryToSearch(route.query))
     Object.assign(state, decoded)
   },
 )
@@ -272,9 +271,15 @@ const gradeDotTitle = (row) =>
 
 onMounted(() => {
   stars.value = loadStars()
-  applyUrlState(route.fullPath)
+  applyUrlState(queryToSearch(route.query))
   load()
 })
+
+const focusList = () => {
+  nextTick(() => {
+    listEl.value?.focus()
+  })
+}
 
 watch(
   () => ranking.value,
@@ -285,7 +290,7 @@ watch(
   },
 )
 
-defineExpose({ load, refresh: () => load() })
+defineExpose({ load, refresh: () => load(), focusList })
 </script>
 
 <template>

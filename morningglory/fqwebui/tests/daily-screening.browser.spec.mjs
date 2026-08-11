@@ -385,6 +385,12 @@ test('keyboard up/down switches symbols while preserving accordion open state', 
   await page.keyboard.press('ArrowDown')
   await expect(page.locator('.clx-fund-detail-panel .clx-panel-time')).toContainText('100003')
   await expect(page.locator('.clx-fund-accordion__ids')).toBeVisible({ timeout: 10000 })
+
+  // Esc 关闭详情（焦点在手风琴头按钮上时走窗口级监听）
+  await page.locator('.clx-fund-accordion__head', { hasText: '证据溯源' }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.clx-fund-detail-panel .clx-panel-time')).toContainText('未选择标的')
+  await expect(page.locator('.clx-fund-ranking-panel .clx-fund-row').first()).toBeVisible({ timeout: 10000 })
 })
 
 test('stats industry bar click writes the list filter without clearing selection', async ({ page }) => {

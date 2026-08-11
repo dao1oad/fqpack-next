@@ -231,6 +231,19 @@ export const DEFAULT_STATE = Object.freeze({
   density: 'compact',
 })
 
+export const CONTROLLED_QUERY_KEYS = Object.freeze([
+  'sort',
+  'q',
+  'industry',
+  'evidence',
+  'risk',
+  'tier',
+  'mingrade',
+  'star',
+  'selected',
+  'density',
+])
+
 export const encodeStateToUrl = (state = {}) => {
   const params = new URLSearchParams()
   if (state.sort && state.sort !== DEFAULT_STATE.sort) params.set('sort', state.sort)
@@ -246,6 +259,22 @@ export const encodeStateToUrl = (state = {}) => {
   if (state.starOnly) params.set('star', '1')
   if (state.selected) params.set('selected', state.selected)
   if (state.density && state.density !== DEFAULT_STATE.density) params.set('density', state.density)
+  const text = params.toString()
+  return text ? `?${text}` : ''
+}
+
+export const buildQueryWithState = (currentQuery = {}, state = {}) => {
+  const next = { ...currentQuery }
+  for (const key of CONTROLLED_QUERY_KEYS) delete next[key]
+  const params = new URLSearchParams(encodeStateToUrl(state).replace(/^\?/, ''))
+  for (const [key, value] of params.entries()) next[key] = value
+  return next
+}
+
+export const queryToSearch = (query = {}) => {
+  const params = new URLSearchParams(
+    Object.entries(query).filter(([, value]) => value !== undefined && value !== null),
+  )
   const text = params.toString()
   return text ? `?${text}` : ''
 }

@@ -135,6 +135,14 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
             meta = dict(resp)
         page = resp.get("rows") or resp.get("items") or []
         rows.extend(page)
+        # 翻页 generation 一致性：每页 batch_id/content_hash/generation_id
+        # 必须与第一页一致，不一致 fail-closed（防止翻页串到别的 generation）
+        for key in ("batch_id", "content_hash", "generation_id"):
+            if key in resp and str(resp.get(key) or "") != str(meta.get(key) or ""):
+                raise SystemExit(
+                    f"official pagination generation mismatch at {key}: "
+                    f"first={meta.get(key)!r} page={resp.get(key)!r}"
+                )
         nxt = str(resp.get("next_cursor") or "")
         if not nxt:
             break
@@ -426,6 +434,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
 def _patch_hrefs(
     run_dir: pathlib.Path, run_id: str, trade_date: str, base_href: str
 ) -> None:
+    from .validate import validate_analysis_doc
+
     ranking_path = run_dir / RANKING_JSON_NAME
     payload = read_ranking_json(ranking_path)
     for row in payload.get("rows") or []:
@@ -434,7 +444,16 @@ def _patch_hrefs(
         row["analysis_href"] = ""
         row["snapshot_href"] = ""
         if tier == TIER_DEEP:
-            row["analysis_href"] = f"{base_href}/{ANALYSIS_DIR_NAME}/{symbol}.json"
+            doc_path = run_dir / ANALYSIS_DIR_NAME / f"{symbol}.json"
+            doc_ok = False
+            if doc_path.is_file():
+                try:
+                    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+                    doc_ok, _ = validate_analysis_doc(doc)
+                except (json.JSONDecodeError, OSError):
+                    doc_ok = False
+            if doc_ok:
+                row["analysis_href"] = f"{base_href}/{ANALYSIS_DIR_NAME}/{symbol}.json"
         else:
             row["snapshot_href"] = f"{base_href}/{SNAPSHOT_DIR_NAME}/{symbol}.json"
     write_ranking_json(ranking_path, payload)

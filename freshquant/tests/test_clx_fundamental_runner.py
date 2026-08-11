@@ -226,3 +226,50 @@ def test_publish_hrefs_match_actual_artifacts(
             )
             assert not (target / "fundamental-analysis" / f"{symbol}.json").exists()
             assert (target / "fundamental-snapshot" / f"{symbol}.json").is_file()
+
+
+def test_publish_allow_incomplete_writes_href_only_for_valid_deep_docs(
+    work_dir: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+    """--allow-incomplete-deep 时，analysis_href 只写给存在且 schema 有效的深析。"""
+    _run("prepare", "--run-dir", str(work_dir), "--trade-date", "2026-08-10")
+    _run("rank", "--run-dir", str(work_dir), "--deep-limit", "6")
+    ranking = json.loads((work_dir / RANKING_JSON_NAME).read_text(encoding="utf-8"))
+    deep_symbols = [row["symbol"] for row in ranking["rows"] if row["tier"] == "deep"]
+    assert len(deep_symbols) == 6
+
+    # 只写 3 份有效深析 + 1 份损坏（无效 schema）
+    _write_deep_docs(work_dir)
+    valid = deep_symbols[:3]
+    corrupted = deep_symbols[3]
+    missing = deep_symbols[4:]
+    (work_dir / "fundamental-analysis" / f"{corrupted}.json").write_text(
+        '{"schemaVersion": "fundamental-analysis.v1", "symbol": "' + corrupted + '"}',
+        encoding="utf-8",
+    )
+    for symbol in missing:
+        (work_dir / "fundamental-analysis" / f"{symbol}.json").unlink()
+
+    _run("rank", "--run-dir", str(work_dir), "--deep-limit", "6")
+    _run("stats", "--run-dir", str(work_dir))
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    _run(
+        "publish",
+        "--run-dir",
+        str(work_dir),
+        "--data-dir",
+        str(data_dir),
+        "--allow-incomplete-deep",
+    )
+    ranking = json.loads((work_dir / RANKING_JSON_NAME).read_text(encoding="utf-8"))
+    base_href = "/data/clx-evaluator/runs/2026-08-10/" + ranking["runId"]
+    by_symbol = {row["symbol"]: row for row in ranking["rows"]}
+    for symbol in valid:
+        assert by_symbol[symbol]["analysis_href"] == (
+            f"{base_href}/fundamental-analysis/{symbol}.json"
+        )
+    for symbol in [corrupted, *missing]:
+        assert by_symbol[symbol]["analysis_href"] == ""
+    stats = json.loads((work_dir / STATS_JSON_NAME).read_text(encoding="utf-8"))
+    assert stats["qualityGateStatus"] == "amber"

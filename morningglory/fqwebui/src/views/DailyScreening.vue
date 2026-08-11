@@ -58,6 +58,7 @@ const onSelect = (row) => {
 
 const onCloseDetail = () => {
   selectedRow.value = null
+  rankingPanel.value?.focusList?.()
 }
 
 const onIndustryFilter = (industries) => {

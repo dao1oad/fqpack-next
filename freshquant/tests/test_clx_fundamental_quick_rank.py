@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
+
 from freshquant.clx_daily_selection.fundamental.contracts import (
     DEEP_TIER_LIMIT,
     TIER_DEEP,
@@ -11,6 +13,8 @@ from freshquant.clx_daily_selection.fundamental.contracts import (
 )
 from freshquant.clx_daily_selection.fundamental.evidence import EvidenceCache
 from freshquant.clx_daily_selection.fundamental.quick_rank import (
+    annualize_factor,
+    build_quick_metrics,
     build_sort_key,
     compute_quick_rank,
     write_ranking_csv,
@@ -119,3 +123,74 @@ def test_quick_rank_composite_follows_weights(tmp_path: pathlib.Path) -> None:
             "valuation",
         }
         assert row["quick_composite_grade"] == row["composite_grade"]
+
+
+@pytest.mark.parametrize(
+    ("report_date", "expected"),
+    [
+        ("2026-03-31", 4.0),
+        ("2026-06-30", 2.0),
+        ("2026-09-30", 4.0 / 3.0),
+        ("2026-12-31", 1.0),
+        ("", 4.0),
+        ("2026-05-15", 4.0),
+    ],
+)
+def test_annualize_factor_by_report_month(report_date: str, expected: float) -> None:
+    assert abs(annualize_factor(report_date) - expected) < 1e-9
+
+
+@pytest.mark.parametrize(
+    ("report_date", "expected_pe"),
+    [
+        ("2026-03-31", 10.0 / (0.5 * 4.0)),
+        ("2026-06-30", 10.0 / (0.5 * 2.0)),
+        ("2026-09-30", 10.0 / (0.5 * (4.0 / 3.0))),
+        ("2026-12-31", 10.0 / (0.5 * 1.0)),
+    ],
+)
+def test_quick_metrics_pe_annualized_by_report_period(
+    report_date: str, expected_pe: float
+) -> None:
+    metrics: dict[str, float | None] = {"basic_eps": 0.5}
+    standard = build_quick_metrics(metrics, 10.0, report_date=report_date)
+    assert standard["pe"] is not None
+    assert abs(standard["pe"] - expected_pe) < 1e-9
+
+
+def test_quick_rank_stable_sort_with_mixed_report_periods(
+    tmp_path: pathlib.Path,
+) -> None:
+    """混合报告期（Q1/H1/Q3/年报）下重跑排序仍字节级一致。"""
+    cache = EvidenceCache(tmp_path / "evidence")
+    packages = []
+    for index in range(12):
+        symbol = f"600{index:03d}"
+        report_date = ("2026-03-31", "2026-06-30", "2026-09-30", "2026-12-31")[
+            index % 4
+        ]
+        cache.save_stock(
+            make_evidence(
+                symbol,
+                name=f"测试{index}",
+                report_dates=[report_date],
+                metrics={
+                    "basic_eps": 0.2 + index * 0.1,
+                    "index_weighted_avg_roe": 5.0 + index,
+                },
+            )
+        )
+        package = cache.evidence_package(symbol, "2026-12-31", "2026-08-10")
+        package["latest_price"] = 10.0 + index
+        package["original_clx_rank"] = index + 1
+        packages.append(package)
+    first = compute_quick_rank(packages, as_of="2026-08-10T15:00:00+08:00")
+    second = compute_quick_rank(packages, as_of="2026-08-10T15:00:00+08:00")
+    assert [row["quick_sort_key"] for row in first] == [
+        row["quick_sort_key"] for row in second
+    ]
+    csv_a = tmp_path / "mixed-a.csv"
+    csv_b = tmp_path / "mixed-b.csv"
+    write_ranking_csv(csv_a, first)
+    write_ranking_csv(csv_b, second)
+    assert csv_a.read_bytes() == csv_b.read_bytes()

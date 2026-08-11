@@ -52,7 +52,8 @@
 > ready generation，ready marker 为唯一锚点），校验 status=trade_date/batch_id/
 > content_hash/is_final 后保存 `clx-official-raw.json` +
 > `clx-batch-identity.json`；不通过 list_batches 猜测“最近 final 批次”，不依赖
-> 任何全局 skill 路径。
+> 任何全局 skill 路径。翻页时每页 batch_id/content_hash/generation_id 必须与
+> 第一页一致，不一致 fail-closed（防止翻页串到别的 generation）。
 2. prepare：按 `classify_direction_mode(directions)==pure_buy` 且
    `asset_type=stock` 提取全量标的（与
    `/api/clx-daily-selection/official?direction_mode=pure_buy` 同口径），
@@ -76,6 +77,9 @@
 
 深析未齐时 publish 默认失败（fail-closed）；显式 `-AllowIncompleteDeep` 可发布
 amber 批次（页面顶部琥珀提示）。
+
+`--allow-incomplete-deep` 发布时，`analysis_href` 只写给实际存在且通过 schema
+校验的深析 JSON（缺失/损坏的标的 href 为空，前端显示 no_document 而非 404）。
 
 深析 agent 会话通过仓库内适配器 `agent_run.py` 启动（默认生产协议）：
 
@@ -123,6 +127,8 @@ agent_run.py --symbol <s> --spec <spec.md> --output <symbol.json>
 - LLM 只输出六维离散等级与依据，不参与排序键；
 - 深析/初评分区边界固定（前 100 恒为深析）；前端切换排序维度只改行序；
 - 同输入重跑产出字节级一致的 CSV（固定精度与列序）；
+- PE 按报告期月年化：一季报(3月)×4、半年报(6月)×2、三季报(9月)×4/3、
+  年报(12月)×1，未知月份按 ×4 保守默认；
 - 2026-08-10 真实批次（159 只）重跑验证 CSV SHA-256 字节级一致。
 
 ## 批次质量门
@@ -142,12 +148,14 @@ agent_run.py --symbol <s> --spec <spec.md> --output <symbol.json>
 
 - ① CLX 基本面排序（40%）：虚拟滚动列表、两级密度（紧凑/舒适）、筛选
   （行业/证据等级/风险/分区/单维等级下限/搜索/星标）、排序切换（分区固定）、
-  URL 状态持久化、跨日连续入选 ×N 徽章、星标收藏（localStorage）；
+  URL 状态持久化（受控 query key 先清理再写入，取消筛选无残留）、跨日连续
+  入选 ×N 徽章、星标收藏（localStorage）；
 - ② 标的基本面详情（38%）：首屏决策卡（快照条/一句话定位/六维评分卡/关键
   指标/风险清单/三项优势/三项问题）+ 手风琴分节（业务结构、财务趋势、成长
   质量、资产负债、行业能力、估值情景、验证节点、证据溯源）；↑↓ 键盘切换
-  保持手风琴展开态；证据 D 级置灰并提示“仅初步观察，估值暂停”；初评标的
-  统一标注“本期初评”；
+  保持手风琴展开态；Esc 关闭详情并恢复列表焦点（列表内 Esc 仍为收起展开
+  行）；证据 D 级置灰并提示“仅初步观察，估值暂停”；初评标的统一标注
+  “本期初评”；
 - ③ 池子统计分析（22%）：KPI 卡、质量×估值散点、行业分布、六维等级分布
   （默认 4 图）+ 成长×盈利四象限、风险热力、证据覆盖、估值分位直方图
   （折叠 4 图）+ 全屏模式；点击行业条/散点只写入列表筛选（单向下钻，不

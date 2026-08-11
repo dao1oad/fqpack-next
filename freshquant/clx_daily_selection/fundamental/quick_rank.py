@@ -78,8 +78,20 @@ def _metric(metrics: dict[str, float | None], name: str) -> float | None:
     return number(metrics.get(name))
 
 
+def annualize_factor(report_date: str) -> float:
+    """按报告期月份返回 EPS 年化因子。
+
+    一季报(3月)×4、半年报(6月)×2、三季报(9月)×4/3、年报(12月)×1；
+    未知月份按一季报口径 ×4（保守默认，与旧行为一致）。
+    """
+    month = str(report_date or "")[5:7]
+    return {"03": 4.0, "06": 2.0, "09": 4.0 / 3.0, "12": 1.0}.get(month, 4.0)
+
+
 def build_quick_metrics(
-    metrics: dict[str, float | None], latest_price: float | None
+    metrics: dict[str, float | None],
+    latest_price: float | None,
+    report_date: str = "",
 ) -> dict[str, float | None]:
     """把 THS 指标名映射为标准指标（与既有 CLX 评价链路同口径）。"""
     eps = _metric(metrics, "basic_eps")
@@ -93,7 +105,7 @@ def build_quick_metrics(
         pb = latest_price / navps
     pe = None
     if latest_price and eps and eps > 0:
-        pe = latest_price / (eps * 4)
+        pe = latest_price / (eps * annualize_factor(report_date))
     return {
         "revenue_yoy_pct": _metric(
             metrics, "calculate_operating_income_total_yoy_growth_ratio"
@@ -160,7 +172,9 @@ def compute_quick_rank(
         latest_price = number(package.get("latest_price")) or number(
             quote.get("latest_price")
         )
-        standard = build_quick_metrics(metrics, latest_price)
+        standard = build_quick_metrics(
+            metrics, latest_price, report_date=clean_text(package.get("report_date"))
+        )
         parent_profit = standard.get("parent_profit")
         base_rows.append(
             {

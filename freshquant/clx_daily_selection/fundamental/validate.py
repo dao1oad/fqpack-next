@@ -33,7 +33,8 @@ def validate_schema(
         errors = sorted(error.message for error in validator.iter_errors(payload))
         return (not errors, errors)
     except ImportError:
-        return (True, [])
+        # fail-closed: jsonschema 缺失时不得静默通过 schema 校验
+        return (False, ["jsonschema is not installed; schema validation fails closed"])
 
 
 def validate_ranking(payload: dict[str, Any]) -> tuple[bool, list[str]]:

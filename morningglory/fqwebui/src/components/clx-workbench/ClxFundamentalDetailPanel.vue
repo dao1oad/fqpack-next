@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import {
   ACCORDION_SECTIONS,
@@ -66,6 +66,26 @@ const loadDetail = async () => {
     loading.value = false
   }
 }
+
+const onEscape = (event) => {
+  if (event.key !== 'Escape') return
+  const target = event.target
+  if (target && typeof target.closest === 'function' && target.closest('.clx-fund-list')) {
+    return // 列表自身的 Esc（收起展开行）优先，不关闭详情
+  }
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+    return
+  }
+  emit('close')
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onEscape)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onEscape)
+})
 
 watch(
   () => props.row?.symbol,

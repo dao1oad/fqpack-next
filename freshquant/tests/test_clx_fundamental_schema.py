@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import sys
 
 import pytest
 
@@ -155,3 +156,28 @@ def test_validate_run_dir_aggregates_checks(tmp_path: pathlib.Path) -> None:
     result = validate_run_dir(run_dir)
     assert result["passed"] is True
     assert result["checks"]["ranking"]["passed"] is True
+
+
+def test_validate_schema_fails_closed_when_jsonschema_missing(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """jsonschema 缺失时 schema 校验必须 fail-closed，不得静默通过。"""
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    rows = _fixture_rows(tmp_path)
+    payload = ranking_payload(
+        rows,
+        trade_date="2026-08-10",
+        run_id="run-1",
+        batch_id="batch-1",
+        content_hash="hash-1",
+        generated_at="2026-08-11T00:00:00Z",
+        as_of="2026-08-10T15:00:00+08:00",
+    )
+    ok, errors = validate_ranking(payload)
+    assert ok is False
+    assert any("jsonschema is not installed" in error for error in errors)
+
+    doc = build_snapshot_doc(rows[0], as_of="2026-08-10T15:00:00+08:00")
+    ok, errors = validate_snapshot_doc(doc)
+    assert ok is False
+    assert any("jsonschema is not installed" in error for error in errors)
