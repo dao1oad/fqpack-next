@@ -298,6 +298,55 @@ test('subject workbench controller defaults to the first entry and exposes slice
   )
 })
 
+test('#549 getSelectedEntrySlices passes slice position_type through', async () => {
+  const actions = {
+    async loadOverview() {
+      return makeOverviewRows()
+    },
+    async loadSubjectDetail(symbol) {
+      return makeDetail(symbol, {
+        entries: [
+          {
+            entry_id: '600000-entry-1',
+            position_type: 'base',
+            entry_price: 10.0,
+            buy_price_real: 10.0,
+            original_quantity: 300,
+            remaining_quantity: 300,
+            entry_slices: [
+              {
+                entry_slice_id: 'slice-1',
+                position_type: 'base',
+                guardian_price: 9.9,
+                original_quantity: 100,
+                remaining_quantity: 80,
+              },
+              {
+                entry_slice_id: 'slice-2',
+                position_type: 't',
+                guardian_price: 9.8,
+                original_quantity: 200,
+                remaining_quantity: 120,
+              },
+            ],
+          },
+        ],
+      })
+    },
+  }
+
+  const controller = createPositionManagementSubjectWorkbenchController({
+    actions,
+    notify: {},
+  })
+  await controller.refreshOverview({ preloadSymbols: ['600000'] })
+  controller.selectEntry('600000', '600000-entry-1')
+
+  const slices = controller.getSelectedEntrySlices('600000')
+  assert.equal(slices[0].position_type, 'base')
+  assert.equal(slices[1].position_type, 't')
+})
+
 test('subject workbench controller deduplicates concurrent detail hydration for the same symbol', async () => {
   const calls = []
   let releaseDetailLoad

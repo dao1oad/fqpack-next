@@ -8,8 +8,11 @@ import {
   buildOrderRows,
   buildOrderStats,
   createOrderManagementActions,
+  formatLedgerLabel,
   formatOrderPrice,
   formatOrderTimestamp,
+  ledgerChipVariant,
+  resolveOrderLedgerFromRequest,
 } from './orderManagement.mjs'
 
 let createOrderManagementPageController = null
@@ -493,4 +496,105 @@ maybeControllerTest('page controller auto-selects broker-only rows by broker_ord
   assert.deepEqual(calls, ['403701761'])
   assert.equal(controller.state.selectedOrderId, '403701761')
   assert.equal(controller.state.detail.order.broker_order_id, '403701761')
+})
+
+test('#549 buildOrderRows passes ledger fields through', () => {
+  const rows = buildOrderRows([
+    {
+      internal_order_id: 'ord_ledger_1',
+      request_id: 'req_ledger_1',
+      symbol: '600000',
+      side: 'buy',
+      state: 'FILLED',
+      ledger: 'base',
+      position_type: 'base',
+    },
+    {
+      internal_order_id: 'ord_ledger_2',
+      request_id: 'req_ledger_2',
+      symbol: '600000',
+      side: 'sell',
+      state: 'FILLED',
+      ledger: '-',
+      position_type: '',
+    },
+  ])
+
+  assert.equal(rows[1].ledger, 'base')
+  assert.equal(rows[1].position_type, 'base')
+  assert.equal(rows[0].ledger, '-')
+  assert.equal(rows[0].position_type, '')
+})
+
+test('#549 resolveOrderLedgerFromRequest mirrors backend 3.1 rules', () => {
+  assert.equal(
+    resolveOrderLedgerFromRequest('buy', {
+      strategy_context: { buy_ledger: 'base_line', guardian_buy_grid: { grid_level: 'BUY-2' } },
+    }),
+    'base',
+  )
+  assert.equal(
+    resolveOrderLedgerFromRequest('buy', {
+      strategy_context: { guardian_buy_grid: { grid_level: 'BUY-3' } },
+    }),
+    't',
+  )
+  assert.equal(resolveOrderLedgerFromRequest('buy', {}), 'base')
+  assert.equal(
+    resolveOrderLedgerFromRequest('sell', {
+      strategy_context: { guardian_sell_sources: { level: 1 } },
+    }),
+    't',
+  )
+  assert.equal(
+    resolveOrderLedgerFromRequest('sell', { scope_type: 'symbol_stoploss_batch' }),
+    '-',
+  )
+  assert.equal(resolveOrderLedgerFromRequest('sell', {}), '-')
+})
+
+test('#549 buildOrderDetailViewModel exposes ledger with request fallback', () => {
+  const detail = buildOrderDetailViewModel({
+    order: {
+      internal_order_id: 'ord_detail_1',
+      symbol: '600000',
+      side: 'buy',
+      state: 'FILLED',
+    },
+    request: {
+      strategy_context: { guardian_buy_grid: { grid_level: 'BUY-2' } },
+    },
+    events: [],
+    trades: [],
+    identifiers: {},
+  })
+
+  assert.equal(detail.order.ledger, 't')
+  assert.equal(detail.order.ledger_label, '做T')
+
+  const withBackendLedger = buildOrderDetailViewModel({
+    order: {
+      internal_order_id: 'ord_detail_2',
+      symbol: '600000',
+      side: 'sell',
+      state: 'FILLED',
+      ledger: '-',
+    },
+    request: { strategy_context: {} },
+    events: [],
+    trades: [],
+    identifiers: {},
+  })
+  assert.equal(withBackendLedger.order.ledger, '-')
+  assert.equal(withBackendLedger.order.ledger_label, '-')
+})
+
+test('#549 formatLedgerLabel and ledgerChipVariant map base/t/-', () => {
+  assert.equal(formatLedgerLabel('base'), '底仓')
+  assert.equal(formatLedgerLabel('t'), '做T')
+  assert.equal(formatLedgerLabel('-'), '-')
+  assert.equal(formatLedgerLabel(''), '-')
+  assert.equal(ledgerChipVariant('base'), 'info')
+  assert.equal(ledgerChipVariant('t'), 'warning')
+  assert.equal(ledgerChipVariant('-'), 'muted')
 })

@@ -74,6 +74,8 @@ export const buildOrderRows = (rows = []) => {
         source_type: toText(row?.source_type),
         strategy_name: toText(row?.strategy_name),
         account_type: toText(row?.account_type),
+        ledger: toText(row?.ledger),
+        position_type: toText(row?.position_type),
         created_at: toText(row?.created_at),
         submitted_at: toText(row?.submitted_at),
         updated_at: toText(row?.updated_at),
@@ -129,6 +131,10 @@ export const buildOrderStats = (stats = {}) => {
 
 export const buildOrderDetailViewModel = (detail = {}) => {
   const orderState = decorateOrderState(detail?.order || {})
+  const requestLedger = resolveOrderLedgerFromRequest(
+    detail?.order?.side,
+    detail?.request || {},
+  )
   const order = {
     ...(detail?.order || {}),
     internal_order_id: toText(detail?.order?.internal_order_id),
@@ -139,6 +145,9 @@ export const buildOrderDetailViewModel = (detail = {}) => {
     name: toText(detail?.order?.name),
     side: toText(detail?.order?.side),
     state: toText(detail?.order?.state),
+    // #549 双账本：优先后端订单行 ledger，缺失时按请求 strategy_context 推导。
+    ledger: toText(detail?.order?.ledger) || requestLedger,
+    ledger_label: formatLedgerLabel(toText(detail?.order?.ledger) || requestLedger),
     ...orderState,
     trace_id: toText(detail?.order?.trace_id),
     intent_id: toText(detail?.order?.intent_id),
@@ -190,6 +199,39 @@ export const buildOrderDetailViewModel = (detail = {}) => {
     requestSummary: [request.source, request.strategy_name].filter(Boolean).join(' · ') || '-',
     tradeSummary: `${tradeRows.length} 笔成交`,
   }
+}
+
+export const resolveOrderLedgerFromRequest = (side, request = {}) => {
+  const normalizedSide = toText(side).toLowerCase()
+  const context = request?.strategy_context || {}
+  if (normalizedSide === 'buy') {
+    const grid = context?.guardian_buy_grid || {}
+    const buyLedger = toText(context?.buy_ledger || grid?.buy_ledger)
+    if (buyLedger === 'base_line') return 'base'
+    if (context?.guardian_buy_grid) return 't'
+    return 'base'
+  }
+  if (normalizedSide === 'sell') {
+    if (context?.guardian_sell_sources) return 't'
+    const scopeType = toText(request?.scope_type).toLowerCase()
+    if (scopeType.includes('stoploss')) return '-'
+    return '-'
+  }
+  return '-'
+}
+
+export const formatLedgerLabel = (ledger) => {
+  const normalized = toText(ledger).toLowerCase()
+  if (normalized === 'base') return '底仓'
+  if (normalized === 't') return '做T'
+  return '-'
+}
+
+export const ledgerChipVariant = (ledger) => {
+  const normalized = toText(ledger).toLowerCase()
+  if (normalized === 'base') return 'info'
+  if (normalized === 't') return 'warning'
+  return 'muted'
 }
 
 export const createOrderManagementActions = (api) => ({

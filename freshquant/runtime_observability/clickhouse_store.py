@@ -767,21 +767,29 @@ def _to_json_text(value: Any) -> str:
 def _build_tpsl_event_visibility_condition() -> str:
     return """
     NOT (
-        component = 'tpsl_worker'
-        AND lowerUTF8(status) = 'info'
-        AND trace_id = ''
-        AND (
-            node IN ('tick_match', 'profile_load')
-            OR (
-                node = 'trigger_eval'
-                AND (
-                    (
-                        payload_json LIKE '%"kind": "takeprofit"%'
-                        AND payload_json LIKE '%"triggered": false%'
-                    )
-                    OR (
-                        payload_json LIKE '%"kind": "stoploss"%'
-                        AND payload_json LIKE '%"triggered_bindings": 0%'
+        (
+            component = 'tpsl_worker'
+            AND node = 'trigger_eval'
+            AND lowerUTF8(payload_json) LIKE '%"kind": "base_buyline"%'
+            AND lowerUTF8(payload_json) LIKE '%"skip_reason": "no_armed_buy_line"%'
+        )
+        OR (
+            component = 'tpsl_worker'
+            AND lowerUTF8(status) = 'info'
+            AND trace_id = ''
+            AND (
+                node IN ('tick_match', 'profile_load')
+                OR (
+                    node = 'trigger_eval'
+                    AND (
+                        (
+                            payload_json LIKE '%"kind": "takeprofit"%'
+                            AND payload_json LIKE '%"triggered": false%'
+                        )
+                        OR (
+                            payload_json LIKE '%"kind": "stoploss"%'
+                            AND payload_json LIKE '%"triggered_bindings": 0%'
+                        )
                     )
                 )
             )
@@ -876,6 +884,7 @@ def _build_trace_summary_query(
         end_time=end_time,
         include_session_key=True,
     )
+    visibility_condition = _build_tpsl_event_visibility_condition()
     having_clause = (
         f"\n    HAVING trace_kind = {_sql_string(trace_kind_filter)}"
         if trace_kind_filter
@@ -960,6 +969,7 @@ def _build_trace_summary_query(
         WHERE {matched_conditions}
     )
       AND {outer_conditions}
+      AND {visibility_condition}
     GROUP BY session_key
     {having_clause}
     """

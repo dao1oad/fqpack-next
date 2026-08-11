@@ -317,6 +317,60 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.positionLimitSummary.using_override, true)
 })
 
+test('#549 buildDetailViewModel passes entry position_type through', () => {
+  const detail = buildDetailViewModel({
+    subject: { symbol: '600000', name: '浦发银行' },
+    entries: [
+      {
+        entry_id: 'entry_base_1',
+        position_type: 'base',
+        entry_price: 10.0,
+        buy_price_real: 10.0,
+        original_quantity: 300,
+        remaining_quantity: 300,
+        entry_slices: [
+          {
+            entry_slice_id: 'slice_base_1',
+            position_type: 'base',
+            guardian_price: 10.0,
+            remaining_quantity: 300,
+          },
+        ],
+      },
+      {
+        entry_id: 'entry_t_1',
+        position_type: 't',
+        entry_price: 9.6,
+        buy_price_real: 9.6,
+        original_quantity: 200,
+        remaining_quantity: 200,
+        entry_slices: [
+          {
+            entry_slice_id: 'slice_t_1',
+            position_type: 't',
+            guardian_price: 9.6,
+            remaining_quantity: 200,
+          },
+        ],
+      },
+      {
+        entry_id: 'entry_missing_1',
+        entry_price: 9.0,
+        buy_price_real: 9.0,
+        original_quantity: 100,
+        remaining_quantity: 100,
+      },
+    ],
+  })
+
+  assert.equal(detail.entries[0].position_type, 'base')
+  assert.equal(detail.entries[0].entry_slices[0].position_type, 'base')
+  assert.equal(detail.entries[1].position_type, 't')
+  assert.equal(detail.entries[1].entry_slices[0].position_type, 't')
+  // 缺失时前端列按 base 展示（position_type 空串由列默认兜底）
+  assert.equal(detail.entries[2].position_type, '')
+})
+
 test('buildDenseConfigRows keeps only dense editable rows and renames labels to current stoploss semantics', () => {
   const detail = buildDetailViewModel({
     subject: {
