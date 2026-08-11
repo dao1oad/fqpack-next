@@ -149,6 +149,14 @@ Guardian 卖出请求当前会把本次卖量对应的来源入口计划一起�
 历史 `version=1` 请求（只有 `entries[]`、无 `entry_slice_id`）仍被兼容：按
 entry 级剩余预算分配，不回退到全量 open slice 猜测。
 
+`相关订单` 列表/详情的账本列当前按请求证据区分卖出归属：
+
+- TPSL 止盈卖出（`source=tpsl_takeprofit` / `scope_type=takeprofit_batch`）
+  归为 `base`（#549：TPSL 只卖底仓；止盈卖单虽然复用 `guardian_sell_sources`
+  做分配书签，但不再误标为做T）
+- Guardian 做T卖出（`guardian_sell_sources` v2）归为 `t`
+- 全仓止损（`scope_type` 含 stoploss）归为 `-`
+
 ### 撤单
 
 `cancel_order -> om_order_requests(cancel) -> om_orders / om_broker_orders state update -> STOCK_ORDER_QUEUE -> broker`
