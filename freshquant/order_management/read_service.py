@@ -103,10 +103,13 @@ class OrderManagementReadService:
         )
         exit_allocations = []
         if hasattr(self.repository, "list_exit_allocations_for_request"):
-            exit_allocations = self.repository.list_exit_allocations_for_request(
-                request_id=(request or {}).get("request_id"),
-                internal_order_id=order_id,
-            )
+            exit_allocations = [
+                _sanitize_document(item)
+                for item in self.repository.list_exit_allocations_for_request(
+                    request_id=(request or {}).get("request_id"),
+                    internal_order_id=order_id,
+                )
+            ]
         assembled_order = _assemble_order_row(
             order,
             request,

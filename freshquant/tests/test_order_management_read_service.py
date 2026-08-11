@@ -576,6 +576,16 @@ def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
     repository.order_requests[0]["_id"] = object()
     repository.order_events[0]["_id"] = object()
     repository.execution_fills[0]["_id"] = object()
+    repository.exit_allocations.append(
+        {
+            "_id": object(),
+            "allocation_id": "alloc_id_probe",
+            "request_id": "req_fill_1",
+            "internal_order_id": "ord_fill_1",
+            "position_type": "base",
+            "allocated_quantity": 100,
+        }
+    )
     service = OrderManagementReadService(repository=repository)
 
     orders_payload = service.list_orders(symbol="600000", state="FILLED")
@@ -586,6 +596,8 @@ def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
     assert "_id" not in detail_payload["request"]
     assert "_id" not in detail_payload["events"][0]
     assert "_id" not in detail_payload["fills"][0]
+    assert len(detail_payload["exit_allocations"]) == 1
+    assert "_id" not in detail_payload["exit_allocations"][0]
 
 
 def _build_ledger_repository():
