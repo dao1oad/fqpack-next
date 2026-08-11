@@ -715,3 +715,70 @@ def test_late_extra_fill_after_filled_keeps_filled_state_with_alert():
     assert aggregate["state"] == "FILLED"
     assert aggregate["filled_quantity"] == 100
     assert repository.order_events[-1]["event_type"] == "late_trade_after_terminal"
+
+
+def test_broker_only_trade_order_state_derived_without_dead_filled_quantity():
+    """#571：trade-only broker-only om_orders 初始状态经 OrderStateService
+    推导（不再字面 PARTIAL_FILLED），filled_quantity 死字段不再写入。"""
+
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    result = service.ingest_trade_report_with_meta(
+        {
+            "broker_trade_id": "T-BROKER-ONLY-1",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "account_id": "ACCT-1",
+            "order_sysid": "SYS-1",
+            "broker_order_id": "B-BROKER-ONLY-1",
+            "trading_day": 20240102,
+            "source": "xt_trade_callback",
+        }
+    )
+
+    assert result["created"] is True
+    internal_order_id = result["execution_fill"]["internal_order_id"]
+    order = repository.find_order(internal_order_id)
+    assert order["source_type"] == "broker_only"
+    assert order["state"] == "PARTIAL_FILLED"
+    assert "filled_quantity" not in order
+    assert "filled_quantity" not in repository.orders[0]
+
+
+def test_broker_only_order_report_passes_reported_state_through():
+    """#571：broker-only order 回报的显式状态原样透传（不走推导默认）。"""
+
+    from freshquant.order_management.broker_identity import (
+        build_broker_only_internal_order_id,
+    )
+
+    expected = build_broker_only_internal_order_id(
+        account_id="ACCT-1",
+        order_sysid="SYS-9",
+        trading_day=20240102,
+        symbol="000001",
+        side="sell",
+        broker_order_id="B-ORDRPT-1",
+    )
+    repository = InMemoryRepository()
+    service = OrderTrackingService(repository=repository)
+    meta = service.ingest_order_report_with_meta(
+        {
+            "internal_order_id": expected,
+            "account_id": "ACCT-1",
+            "order_sysid": "SYS-9",
+            "trading_day": 20240102,
+            "symbol": "000001",
+            "side": "sell",
+            "broker_order_id": "B-ORDRPT-1",
+            "state": "CANCELED",
+            "event_type": "xt_order_reported",
+        }
+    )
+
+    assert meta["absorbed"] is False
+    assert repository.find_order(expected)["state"] == "CANCELED"
+    assert "filled_quantity" not in repository.orders[0]

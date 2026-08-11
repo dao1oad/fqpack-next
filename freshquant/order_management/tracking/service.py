@@ -378,9 +378,7 @@ class OrderTrackingService:
         current_order = self.repository.find_order(report["internal_order_id"])
         created_broker_only = current_order is None
         if current_order is None:
-            current_order = self._build_broker_only_order(
-                {**report, "state": "PARTIAL_FILLED"}
-            )
+            current_order = self._build_broker_only_order(report)
         else:
             _assert_order_report_identity(current_order, report)
 
@@ -494,7 +492,7 @@ class OrderTrackingService:
                     "request_id": None,
                     "internal_order_id": report["internal_order_id"],
                     "event_type": "trade_reported",
-                    "state": (broker_order or {}).get("state", "PARTIAL_FILLED"),
+                    "state": (broker_order or {}).get("state", placeholder_state),
                     "created_at": _utc_now_iso(),
                 }
             )
@@ -541,6 +539,19 @@ class OrderTrackingService:
                 "broker-only internal_order_id is not deterministic"
             )
         now = _utc_now_iso()
+        reported_state = str(report.get("state") or "").strip().upper()
+        if reported_state:
+            initial_state = reported_state
+        else:
+            # #571：trade-only broker-only 单无显式状态时，初始状态由
+            # OrderStateService 推导（非终态 + 无 request 基数 → PARTIAL_FILLED），
+            # 不再字面硬编码。
+            initial_state = self.order_state.apply_fill_aggregate_state(
+                None,
+                next_quantity=0,
+                requested_quantity=report.get("requested_quantity")
+                or report.get("order_volume"),
+            )[0]
         return {
             "internal_order_id": expected_internal_order_id,
             "request_id": None,
@@ -556,12 +567,11 @@ class OrderTrackingService:
             "intent_id": report.get("intent_id"),
             "symbol": normalize_symbol(report.get("symbol")),
             "side": normalize_side(report.get("side")),
-            "state": report.get("state") or "PARTIAL_FILLED",
+            "state": initial_state,
             "source_type": "broker_only",
             "submitted_at": report.get("submitted_at"),
             "requested_quantity": report.get("requested_quantity")
             or report.get("order_volume"),
-            "filled_quantity": 0,
             "avg_filled_price": None,
             "created_at": now,
             "updated_at": now,

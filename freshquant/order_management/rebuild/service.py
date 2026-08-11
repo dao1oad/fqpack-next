@@ -862,6 +862,9 @@ def _collect_cross_day_reused_order_ids(*, xt_orders):
 
 
 def _normalize_broker_order_state(order_status):
+    """XT 原始状态文本 → canonical 状态（纯输入归一，非状态推导；
+    状态推导只走 OrderStateService 单一口径）。"""
+
     state_value = str(order_status or "").strip().lower()
     if state_value in {"filled", "alltraded"}:
         return "FILLED"
@@ -873,11 +876,14 @@ def _normalize_broker_order_state(order_status):
 
 
 def _resolve_fill_state(*, requested_quantity, filled_quantity):
-    requested_quantity = _coerce_int(requested_quantity)
-    filled_quantity = _coerce_int(filled_quantity) or 0
-    if requested_quantity not in {None, 0} and filled_quantity >= requested_quantity:
-        return "FILLED"
-    return "PARTIAL_FILLED" if filled_quantity > 0 else "OPEN"
+    """#571：数量→终态推导收敛到 OrderStateService 单一口径。"""
+
+    state, _ = _REBUILD_ORDER_STATE_SERVICE.apply_fill_aggregate_state(
+        None,
+        next_quantity=int(filled_quantity or 0),
+        requested_quantity=requested_quantity,
+    )
+    return state
 
 
 def _sort_execution_fills(execution_fills):

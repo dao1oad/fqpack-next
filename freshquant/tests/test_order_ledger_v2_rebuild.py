@@ -28,6 +28,44 @@ def test_rebuild_module_import_does_not_require_tzdata(monkeypatch):
     assert callable(getattr(rebuild_module, "build_rebuild_state", None))
 
 
+def test_rebuild_resolve_fill_state_delegates_to_order_state_service():
+    """#571：rebuild 数量→状态推导收敛到 OrderStateService 单一口径，
+    不再保留本地 OPEN 分支。"""
+
+    rebuild_module = importlib.import_module(
+        "freshquant.order_management.rebuild.service"
+    )
+    assert (
+        rebuild_module._resolve_fill_state(
+            requested_quantity=100,
+            filled_quantity=50,
+        )
+        == "PARTIAL_FILLED"
+    )
+    assert (
+        rebuild_module._resolve_fill_state(
+            requested_quantity=100,
+            filled_quantity=100,
+        )
+        == "FILLED"
+    )
+    assert (
+        rebuild_module._resolve_fill_state(
+            requested_quantity=None,
+            filled_quantity=200,
+        )
+        == "PARTIAL_FILLED"
+    )
+    # 0 成交不再推导为非 canonical 的 OPEN，统一由 OrderStateService 给出。
+    assert (
+        rebuild_module._resolve_fill_state(
+            requested_quantity=None,
+            filled_quantity=0,
+        )
+        == "PARTIAL_FILLED"
+    )
+
+
 def _get_rebuild_service_class():
     rebuild_module = importlib.import_module("freshquant.order_management.rebuild")
     service_class = getattr(rebuild_module, "OrderLedgerV2RebuildService", None)

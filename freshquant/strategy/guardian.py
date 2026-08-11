@@ -1,4 +1,3 @@
-import inspect
 import json
 from datetime import datetime, timedelta
 
@@ -1517,15 +1516,10 @@ class StrategyGuardian(metaclass=SingletonType):
             "strategy_context": strategy_context,
             # #571：最终架构直接强制传 ledger_intent，无兼容垫片。
             "ledger_intent": ledger_intent,
+            # #571：trace_id / intent_id 也强制统一直传，无参数探测垫片。
+            "trace_id": signal.get("trace_id"),
+            "intent_id": signal.get("intent_id"),
         }
-        try:
-            parameters = inspect.signature(submit_guardian_order).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-        if "trace_id" in parameters:
-            submit_kwargs["trace_id"] = signal.get("trace_id")
-        if "intent_id" in parameters:
-            submit_kwargs["intent_id"] = signal.get("intent_id")
         return submit_guardian_order(
             action,
             code,

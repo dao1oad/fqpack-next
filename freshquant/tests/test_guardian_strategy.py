@@ -448,6 +448,8 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
         strategy_context=None,
         ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         events.append("submit")
         captured.update(
@@ -459,6 +461,8 @@ def test_holding_buy_uses_guardian_buy_grid_and_sets_cooldown_after_submit(
                 "remark": remark,
                 "strategy_context": strategy_context,
                 "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -574,6 +578,8 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
         strategy_context=None,
         ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -584,6 +590,8 @@ def test_holding_buy_prefers_latest_execution_fill_over_arranged_fill(monkeypatc
                 "remark": remark,
                 "strategy_context": strategy_context,
                 "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -680,6 +688,8 @@ def test_holding_buy_uses_latest_execution_fill_as_threshold_base(monkeypatch):
         strategy_context=None,
         ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -690,6 +700,8 @@ def test_holding_buy_uses_latest_execution_fill_as_threshold_base(monkeypatch):
                 "remark": remark,
                 "strategy_context": strategy_context,
                 "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -793,6 +805,8 @@ def test_holding_buy_fallback_uses_broker_avg_price_when_no_fill(monkeypatch):
         strategy_context=None,
         ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -803,6 +817,8 @@ def test_holding_buy_fallback_uses_broker_avg_price_when_no_fill(monkeypatch):
                 "remark": remark,
                 "strategy_context": strategy_context,
                 "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
                 "is_profitable": is_profitable,
             }
         )
@@ -890,6 +906,8 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
         strategy_context=None,
         ledger_intent=None,
         is_profitable=None,
+        trace_id=None,
+        intent_id=None,
     ):
         captured.update(
             {
@@ -900,6 +918,8 @@ def test_new_open_for_must_pool_uses_new_open_decision_without_auto_open_gate(
                 "remark": remark,
                 "strategy_context": strategy_context,
                 "ledger_intent": ledger_intent,
+                "trace_id": trace_id,
+                "intent_id": intent_id,
             }
         )
         return {
