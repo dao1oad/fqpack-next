@@ -1,3 +1,5 @@
+const toText = (value) => String(value ?? '').trim()
+
 const errorMessage = (error) => (
   error?.response?.data?.error || error?.message || String(error || 'unknown error')
 )
@@ -251,6 +253,8 @@ export const createPositionManagementSubjectWorkbenchController = ({
     if (!entry) return []
     return (Array.isArray(entry.entry_slices) ? entry.entry_slices : []).map((slice) => ({
       ...slice,
+      // #549 双账本：显式透传 position_type（切片缺失按 base 展示）。
+      position_type: toText(slice?.position_type),
       entry_id: entry.entry_id,
       entryIdLabel: entry.entryIdLabel,
       entryCompactLabel: entry.entryCompactLabel,

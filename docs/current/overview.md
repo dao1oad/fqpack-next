@@ -11,6 +11,8 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 - CLX 盘后链采用 stock/ETF partition fork-join：任一侧 ready marker success 即启动本侧计算，partition 由 owner/token lease fencing；三个 sensor newest-first 追赶最近 5 个已完成交易日；双侧完成只门控持久化 finalization attempt、正式发布和跨资产统计，单侧完成可明确展示 partial
 - Guardian、订单管理、仓位管理、TPSL 已形成分层交易链
 - `PositionManagement / KlineSlim / RuntimeObservability / SystemSettings` 已统一为 workbench 风格页面
+- 独立「持仓列表」页（`/stock-position-list`，顶栏第二组入口）：表格含「底仓」「做T」双账本列（底仓靛蓝 / 做T 琥珀，数据来自 `/api/get_stock_position_list` 的 `base_quantity/base_amount/t_quantity/t_amount`）
+- 仓位管理-持仓账本 tab（聚合买入列表 + 切片明细）与相关订单 tab（订单列表 + 订单详情基础信息）均展示双账本「账本」列：entry/slice 读取 `position_type`（缺失按底仓），订单行由后端按 `strategy_context` 推导 `ledger`（base/t/-）
 - `/daily-screening?tab=clx` 是 CLX 18 模型正式工作区：在每日选股页内提供批次状态、完整筛选条件、cursor 结果列表、统计、详情、看图跳转和导入通达信；`看图` 进入 `/kline-slim` 并以所选 scope 交易日同步 K 线 `endDate`
 - `/clx-daily-screening` 只保留兼容深链并重定向到 `/daily-screening?tab=clx`，不再挂载第二套筛选页面
 - `PositionReview` 已通过顶部“持仓复盘”导航和独立 `/position-review` 路由提供只读历史交易复盘；当前持仓与已清仓标的使用同一套全量成交、策略判定和图表口径

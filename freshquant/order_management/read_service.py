@@ -348,6 +348,10 @@ def _assemble_order_row(order, request):
         "first_fill_time",
         "submitted_at",
     )
+    ledger = _resolve_order_ledger(
+        side=str(order_row.get("side") or "").strip().lower(),
+        request_row=request_row,
+    )
     return {
         **order_row,
         "request_id": order_row.get("request_id"),
@@ -381,7 +385,48 @@ def _assemble_order_row(order, request):
         "intent_id": _normalize_optional_text(
             order_row.get("intent_id") or request_row.get("intent_id")
         ),
+        # #549 双账本：按请求 strategy_context 推导订单归属账本（展示用）。
+        "ledger": ledger,
+        "position_type": "" if ledger == "-" else ledger,
     }
+
+
+def _resolve_order_ledger(*, side, request_row):
+    """推导订单归属账本（#549 §3.1，用于相关订单列表/详情展示）。
+
+    买（side=buy）：
+    - ``strategy_context.buy_ledger == "base_line"`` 或
+      ``guardian_buy_grid.buy_ledger == "base_line"`` → ``base``（买入线底仓补仓）；
+    - ``guardian_buy_grid`` 存在且无 base_line 标记 → ``t``（Guardian 做T）；
+    - 其余（手动加仓、首开等）→ ``base``（手动加仓=base 决策）。
+
+    卖（side=sell）：
+    - ``guardian_sell_sources`` 存在 → ``t``（Guardian TP 卖出做T仓）；
+    - 全仓止损（``scope_type`` 含 stoploss）→ ``-``（不区分账本）；
+    - 其余 → ``-``。
+    """
+
+    normalized_side = str(side or "").strip().lower()
+    context = dict((request_row or {}).get("strategy_context") or {})
+    if normalized_side == "buy":
+        grid = dict(context.get("guardian_buy_grid") or {})
+        buy_ledger = str(
+            context.get("buy_ledger") or grid.get("buy_ledger") or ""
+        ).strip()
+        if buy_ledger == "base_line":
+            return "base"
+        if context.get("guardian_buy_grid") is not None:
+            return "t"
+        return "base"
+    if normalized_side == "sell":
+        sell_sources = dict(context.get("guardian_sell_sources") or {})
+        if sell_sources:
+            return "t"
+        scope_type = str((request_row or {}).get("scope_type") or "").strip().lower()
+        if "stoploss" in scope_type:
+            return "-"
+        return "-"
+    return "-"
 
 
 def _order_sort_key(row):

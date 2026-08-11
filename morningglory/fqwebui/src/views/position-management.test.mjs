@@ -657,3 +657,22 @@ test('position-management module doc reflects independent reconciliation panel a
   assert.doesNotMatch(content, /对账中心入口/)
   assert.doesNotMatch(content, /打开对账中心/)
 })
+
+test('#549 PositionManagement.vue shows dual-ledger columns in ledger and order tabs', async () => {
+  const content = (await readFile(new URL('./PositionManagement.vue', import.meta.url), 'utf8')).replace(/\r/g, '')
+
+  // 持仓账本 tab：聚合买入列表 + 切片明细均新增「账本」列（缺失按 base）
+  assert.match(content, /<el-table-column label="账本" min-width="72" align="center">/)
+  assert.match(content, /ledgerChipVariant\(row\.position_type \|\| 'base'\)/)
+  assert.match(content, /formatLedgerLabel\(row\.position_type \|\| 'base'\)/)
+  // 相关订单 tab：订单列表账本列（后端推导值，含 '-'）
+  assert.match(content, /<el-table-column label="账本" width="76" align="center" show-overflow-tooltip>/)
+  assert.match(content, /ledgerChipVariant\(row\.ledger\)/)
+  assert.match(content, /formatLedgerLabel\(row\.ledger\)/)
+  // 订单详情-基础信息：账本项（后端 order.ledger 优先，前端推导兜底）
+  assert.match(content, /<el-descriptions-item label="账本">/)
+  assert.match(content, /ledgerChipVariant\(orderDetail\.order\.ledger\)/)
+  // 引入账本展示 helper
+  assert.match(content, /formatLedgerLabel,/)
+  assert.match(content, /ledgerChipVariant,/)
+})
