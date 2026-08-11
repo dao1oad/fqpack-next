@@ -6,7 +6,31 @@
 
 from __future__ import annotations
 
-from typing import Final
+import json
+import math
+from typing import Any, Final
+
+
+def sanitize_json_value(value: Any) -> Any:
+    """递归把非有限浮点（NaN/Infinity）归一为 None，保证 JSON 产物合法。
+
+    前端使用严格 ``JSON.parse``，裸 ``NaN``/``Infinity`` 会让整个产物解析失败
+    （Python ``json.dumps`` 默认会把 NaN 序列化成非法 JSON 文本）。本函数在
+    发布前统一清洗；清洗后 null 由前端按"无数据"渲染（如 `-`）。
+    """
+    if isinstance(value, float):
+        return None if not math.isfinite(value) else value
+    if isinstance(value, dict):
+        return {key: sanitize_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_json_value(item) for item in value]
+    return value
+
+
+def json_dumps_safe(payload: Any, **kwargs: Any) -> str:
+    """NaN/Infinity 清洗后的 JSON 序列化（allow_nan=False 兜底防再泄漏）。"""
+    return json.dumps(sanitize_json_value(payload), allow_nan=False, **kwargs)
+
 
 # ---------------------------------------------------------------------------
 # 等级口径（与 a-share-fundamental-analysis 评分框架一致）

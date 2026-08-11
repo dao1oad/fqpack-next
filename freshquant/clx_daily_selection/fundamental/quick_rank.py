@@ -28,7 +28,9 @@ from .contracts import (
     SIX_DIMENSIONS,
     TIER_DEEP,
     TIER_SNAPSHOT,
+    json_dumps_safe,
     rank_grade,
+    sanitize_json_value,
 )
 
 
@@ -460,7 +462,7 @@ def write_ranking_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         flat["snapshot_href"] = row.get("snapshot_href", "")
         return flat
 
-    flattened = [flatten(row) for row in rows]
+    flattened = [flatten(sanitize_json_value(row)) for row in rows]
     fields = list(flattened[0])
     with path.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
@@ -471,7 +473,9 @@ def write_ranking_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
 def write_ranking_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        json_dumps_safe(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ),
         encoding="utf-8",
     )
 
