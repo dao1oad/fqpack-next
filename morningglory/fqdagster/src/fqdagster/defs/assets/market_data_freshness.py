@@ -162,19 +162,25 @@ def assert_stock_min_fresh(
 
 
 def _is_etf_placeholder_day(document: Mapping[str, object]) -> bool:
-    """TDX 发行期 ETF 日线占位: OHLC=1 且成交量/额为浮点哨兵。"""
+    """TDX ETF 占位/停牌日线: 平盘 OHLC 且无成交。
+
+    与 ``_is_stock_placeholder_day`` 同构：OHLC 全部相等（含发行期 OHLC=1
+    与清盘/停牌平价形态，如 519622 全天 102.37）且成交量/额为浮点哨兵或≈0。
+    真实一字板虽平盘但有成交量，不会被误判。
+    """
     try:
-        ohlc_placeholder = all(
-            abs(float(str(document.get(field, 0))) - 1.0) < 1e-9
+        prices = [
+            float(str(document.get(field, 0)))
             for field in ("open", "close", "high", "low")
-        )
+        ]
+        flat_price = all(abs(price - prices[0]) < 1e-9 for price in prices[1:])
         no_turnover = all(
             abs(float(str(document.get(field, 0)))) < 1e-30
             for field in ("vol", "amount")
         )
     except (TypeError, ValueError):
         return False
-    return ohlc_placeholder and no_turnover
+    return flat_price and no_turnover
 
 
 def _is_stock_placeholder_day(document: Mapping[str, object]) -> bool:

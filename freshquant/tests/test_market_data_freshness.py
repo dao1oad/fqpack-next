@@ -106,15 +106,18 @@ class FakeEtfListCollection:
         return [{"code": code} for code in self.codes]
 
 
-def _etf_day_document(code: str, *, placeholder: bool = False) -> dict:
-    if placeholder:
+def _etf_day_document(
+    code: str, *, placeholder: bool = False, flat_price: float | None = None
+) -> dict:
+    if placeholder or flat_price is not None:
+        price = 1.0 if flat_price is None else float(flat_price)
         return {
             "code": code,
             "date": "2026-07-20",
-            "open": 1.0,
-            "close": 1.0,
-            "high": 1.0,
-            "low": 1.0,
+            "open": price,
+            "close": price,
+            "high": price,
+            "low": price,
             "vol": 5.877471754e-39,
             "amount": 5.877471754e-39,
         }
@@ -359,6 +362,68 @@ def test_etf_min_fresh_checks_all_frequencies_and_skips_placeholder():
         "30min",
         "60min",
     ]
+
+
+def test_etf_placeholder_day_flat_price_zero_turnover():
+    """清盘/停牌平价日线（519622 形态：平盘 102.37 + 哨兵量）按占位豁免。"""
+    module = _load_module()
+    assert module._is_etf_placeholder_day(
+        _etf_day_document("519622", flat_price=102.37)
+    )
+    # 发行期 OHLC=1 旧形态保持豁免（回归）。
+    assert module._is_etf_placeholder_day(_etf_day_document("159079", placeholder=True))
+
+
+def test_etf_placeholder_day_flat_price_with_volume_is_real():
+    """真实一字板：平盘但有成交量，不得误判为占位。"""
+    module = _load_module()
+    document = {
+        "code": "510300",
+        "date": "2026-07-20",
+        "open": 10.0,
+        "close": 10.0,
+        "high": 10.0,
+        "low": 10.0,
+        "vol": 123456,
+        "amount": 1234560,
+    }
+    assert module._is_etf_placeholder_day(document) is False
+
+
+def test_etf_placeholder_day_normal_ohlc_is_real():
+    module = _load_module()
+    assert module._is_etf_placeholder_day(_etf_day_document("510300")) is False
+
+
+def test_etf_min_fresh_skips_flat_price_zero_turnover_placeholder():
+    """assert_etf_min_fresh 对平盘+零成交的 ETF（如 519622）跳过分钟校验。"""
+    module = _load_module()
+    day_collection = FakeDayCollection(
+        {},
+        day_docs=2,
+        documents=[
+            _etf_day_document("510300"),
+            _etf_day_document("519622", flat_price=102.37),
+        ],
+    )
+    min_collection = FakeEtfMinCollection({"510300": _complete_etf_min_counts()})
+    etf_list_collection = FakeEtfListCollection(["510300", "519622"])
+
+    result = module.assert_etf_min_fresh(
+        day_collection,
+        min_collection,
+        etf_list_collection,
+        expected_trade_date="2026-07-20",
+        min_day_docs=2,
+        min_real_codes=1,
+        min_universe_codes=2,
+    )
+    assert result["universe_codes"] == 2
+    assert result["day_docs"] == 2
+    assert result["real_codes"] == 1
+    assert result["placeholder_codes"] == 1
+    assert result["checked_groups"] == 5
+    assert [query["code"] for query in min_collection.seen_queries] == ["510300"]
 
 
 def test_etf_min_missing_frequency_raises():
