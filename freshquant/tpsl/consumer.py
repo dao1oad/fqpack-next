@@ -85,9 +85,10 @@ class TpslTickConsumer:
                 and event.code not in self.active_buy_line_codes
             ):
                 return None
-            # #549：买入线评估插入点在 TP 评估之前（现 TP 命中即 return）。
-            # TP1 > BUY-1 价格区间不相交，同 tick 双命中不可能，先评估先提交
-            # 无冲突；双集合隔离（买入线 universe ≠ TP/SL universe）。
+            # #549：买入线评估插入点在 TP 评估之前。买入线不是本 tick 的终态——
+            # 仅返回 ready 才提交买单并终止本 tick；skipped 时双集合标的
+            # （同时命中 TP/SL universe active_codes）继续评估止盈、止损，
+            # buy-line-only 标的本 tick 终止（保持双集合隔离）。
             if event.code in self.active_buy_line_codes:
                 buy_line_batch = self.service.evaluate_base_buyline(
                     symbol=symbol,
@@ -96,13 +97,13 @@ class TpslTickConsumer:
                     last_price=event.last_price,
                     tick_time=event.tick_time,
                 )
-                if buy_line_batch:
-                    if buy_line_batch.get("status") != "ready":
-                        return buy_line_batch
+                if buy_line_batch and buy_line_batch.get("status") == "ready":
                     return self.service.submit_base_buy_batch(
                         buy_line_batch,
                         trace_id=None,
                     )
+                if event.code not in self.active_codes:
+                    return None
             takeprofit_batch = self.service.evaluate_takeprofit(
                 symbol=symbol,
                 code=event.code,
