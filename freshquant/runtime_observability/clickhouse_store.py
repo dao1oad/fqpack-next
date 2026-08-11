@@ -776,7 +776,10 @@ def _build_tpsl_event_visibility_condition() -> str:
         OR (
             component = 'tpsl_worker'
             AND lowerUTF8(status) = 'info'
-            AND trace_id = ''
+            -- trace summary SELECT defines an aggregate alias `anyIf(trace_id, ...) AS trace_id`;
+            -- qualify the raw column here so WHERE keeps referencing the base column
+            -- (ClickHouse: unqualified name resolves to the aggregate alias -> ILLEGAL_AGGREGATION).
+            AND runtime_events.trace_id = ''
             AND (
                 node IN ('tick_match', 'profile_load')
                 OR (

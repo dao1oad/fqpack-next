@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from freshquant.runtime_observability.schema import normalize_event
@@ -620,6 +621,11 @@ def test_clickhouse_store_list_traces_applies_tpsl_noise_visibility(monkeypatch)
         'lowerUTF8(payload_json) LIKE \'%"skip_reason": "no_armed_buy_line"%\''
         in summary_query
     )
+    # trace summary SELECT aliases anyIf(trace_id, ...) AS trace_id; the visibility
+    # condition must qualify the raw column, otherwise ClickHouse rejects the query
+    # with ILLEGAL_AGGREGATION (regression guard for the runtime 503).
+    assert "runtime_events.trace_id = ''" in summary_query
+    assert re.search(r"\btrace_id = ''\b", summary_query) is None
 
 
 def test_clickhouse_store_get_trace_detail_combines_summary_and_first_step_page(
