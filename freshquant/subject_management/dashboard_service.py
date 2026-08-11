@@ -606,7 +606,9 @@ class SubjectManagementDashboardService:
                 current["_avg_price_quantity"] += quantity
             for current in rows.values():
                 avg_price_quantity = int(current.pop("_avg_price_quantity", 0) or 0)
-                avg_price_numerator = _safe_float(current.pop("_avg_price_numerator", 0.0))
+                avg_price_numerator = _safe_float(
+                    current.pop("_avg_price_numerator", 0.0)
+                )
                 current["avg_price"] = (
                     avg_price_numerator / avg_price_quantity
                     if avg_price_quantity > 0
@@ -631,7 +633,10 @@ class SubjectManagementDashboardService:
         return rows
 
     def _default_position_type_quantity_loader(self):
-        return self.order_repository.list_position_entries(status="OPEN")
+        repository = self.order_repository
+        if not hasattr(repository, "list_position_entries"):
+            return []
+        return repository.list_position_entries(status="OPEN")
 
     def _stoploss_summary_map(self):
         rows = {}
