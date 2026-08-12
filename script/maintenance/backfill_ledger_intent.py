@@ -657,19 +657,27 @@ def _run_conservation(database):
     return l1_errors, allocation_errors, ledger_report
 
 
-def _record_execute_audit(database, *, counts, backup_db):
-    """execute 写前审计（#582 PR5）：记录操作/时间/影响计数/备份库。
+def _record_execute_audit_start(*, counts, backup_db) -> str:
+    """execute 写前审计（#582 PR5）：任何写入（含 backup）前先落 started 记录。
 
-    best-effort：审计写失败只告警不阻断；写侧始终走字段级 $set，
-    内容无变化的行不刷新任何时间戳（消灭无痕直写）。
+    失败/中断时记录保持 ``started``（有痕）；成功后由
+    ``_record_execute_audit_complete`` 补 ``completed``。审计统一写
+    ``freshquant.audit_log``（与仓库既有审计约定一致）。
+    best-effort：审计写失败只告警不阻断主流程。
     """
 
-    try:
-        import socket
-        from datetime import datetime, timezone
+    from uuid import uuid4
 
-        database["audit_log"].insert_one(
+    import socket
+    from datetime import datetime, timezone
+
+    try:
+        from freshquant.db import DBfreshquant
+
+        audit_id = f"audit_{uuid4().hex}"
+        DBfreshquant["audit_log"].insert_one(
             {
+                "audit_id": audit_id,
                 "operation": "maintenance_backfill_ledger_intent_execute",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "host": socket.gethostname(),
@@ -681,10 +689,35 @@ def _record_execute_audit(database, *, counts, backup_db):
                     "broker_states": len(counts.get("broker_states") or []),
                 },
                 "backup_db": backup_db,
+                "status": "started",
             }
         )
+        return audit_id
     except Exception as exc:  # pragma: no cover - 防御降级
         click.echo(f"warning: audit write failed: {exc}")
+        return ""
+
+
+def _record_execute_audit_complete(audit_id, *, verify: str) -> None:
+    if not audit_id:
+        return
+    try:
+        from datetime import datetime, timezone
+
+        from freshquant.db import DBfreshquant
+
+        DBfreshquant["audit_log"].update_one(
+            {"audit_id": audit_id},
+            {
+                "$set": {
+                    "status": "completed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "verify": verify,
+                }
+            },
+        )
+    except Exception as exc:  # pragma: no cover - 防御降级
+        click.echo(f"warning: audit update failed: {exc}")
 
 
 @click.command()
@@ -737,6 +770,16 @@ def main(*, dry_run, execute, backup_db):
         click.echo("dry-run complete; no writes performed")
         return
 
+    audit_id = _record_execute_audit_start(
+        counts={
+            "requests": request_updates,
+            "entries": entry_updates,
+            "slices": slice_updates,
+            "allocations": allocation_updates,
+            "broker_states": broker_state_updates,
+        },
+        backup_db=backup_db,
+    )
     if backup_db:
         _backup_collections(
             database,
@@ -828,18 +871,15 @@ def main(*, dry_run, execute, backup_db):
     ):
         raise click.ClickException("backfill is not idempotent; abort")
 
-    _record_execute_audit(
-        database,
-        counts={
-            "requests": request_updates,
-            "entries": entry_updates,
-            "slices": slice_updates,
-            "allocations": allocation_updates,
-            "broker_states": broker_state_updates,
-        },
-        backup_db=backup_db,
+    _record_execute_audit_complete(
+        audit_id,
+        verify=(
+            f"l1_errors={len(l1_errors)} "
+            f"allocation_integrity_errors={len(allocation_errors)} "
+            f"ledger_mismatches={len(ledger_report['ledger_mismatches'])}"
+        ),
     )
-    click.echo("backfill audit recorded")
+    click.echo("backfill audit completed")
 
 
 if __name__ == "__main__":

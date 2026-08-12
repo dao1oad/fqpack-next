@@ -877,6 +877,8 @@ def test_execute_keeps_zero_fill_broker_states_untouched(monkeypatch):
 def test_execute_records_audit(monkeypatch):
     """#582 PR5：execute 成功后必须落审计记录（操作/时间/影响计数）。"""
 
+    import freshquant.db as freshquant_db_module
+
     database = _build_db(
         requests=[
             {
@@ -907,18 +909,22 @@ def test_execute_records_audit(monkeypatch):
             }
         ],
     )
+    monkeypatch.setattr(freshquant_db_module, "DBfreshquant", database)
 
     response = _run(monkeypatch, database, "--execute")
 
     assert response.exit_code == 0, response.output
-    assert "backfill audit recorded" in response.output
+    assert "backfill audit completed" in response.output
     audit_docs = database["audit_log"].docs
     assert len(audit_docs) == 1
     assert (
         audit_docs[0]["operation"]
         == "maintenance_backfill_ledger_intent_execute"
     )
+    assert audit_docs[0]["status"] == "completed"
     assert audit_docs[0]["counts"]["requests"] == 1
     assert audit_docs[0]["counts"]["entries"] == 1
     assert audit_docs[0]["counts"]["slices"] == 1
     assert "timestamp" in audit_docs[0]
+    assert "completed_at" in audit_docs[0]
+    assert "audit_id" in audit_docs[0]
