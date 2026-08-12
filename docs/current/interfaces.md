@@ -194,6 +194,11 @@ python -m freshquant.rear.api_server --port 5000
   - 查询参数 `days` 控制新增记录有效期，默认 `30`
   - 返回 `source_count / synced_count / removed_count / holding_excluded_count / invalid_count` 及对应代码列表；只写 `stock_pools`，不写 `must_pool`，不触发交易动作
 - `POST /api/pools/must/sync-from-tdx`
+  - 参数：`days`（默认 30）、`allow_empty`（`1/true/yes`，可选）
+  - `allow_empty=1` 且分组文件存在、GBK 解码成功但有效代码为 0 时，按显式确认语义
+    清空 must_pool（删除全部旧记录）；未带 `allow_empty` 时该情形返回
+    `400 + {"code": "empty_group"}`（#589）
+  - 文件缺失 / 非 GBK 编码失败无论是否 `allow_empty` 均阻断（500，`code=1`）
   - 复用相同的 TDX `.blk` 读取/解码链路，从当前 TDX home 的 `T0002/blocknew/待买.blk` 读取「待买」分组（经 `blocknew.cfg` 按显示名解析，如 `DM.blk`），解码为 6 位标的代码，排除完整持仓后覆盖刷新 `freshquant.must_pool`
   - 覆盖同步契约与 stock 相同（文件阻断、完整持仓排除、先批量 upsert 后删除旧成员）
   - 已有记录保留 `stop_loss_price / initial_lot_amount / lot_amount` 交易参数；新代码自动解析统一系统默认参数（`lot_amount` 走 `get_trade_amount(code)`，`initial_lot_amount` 默认等于 `lot_amount`；`stop_loss_price` 使用系统默认止损配置 `params.guardian.value.stock.stop_loss_default`，未配置时以 `None` 导入——通达信「待买」分组不承载止损配置，不再因缺省止损阻断同步）

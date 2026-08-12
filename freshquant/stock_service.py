@@ -220,10 +220,15 @@ def _decode_tdx_block_codes(
     *,
     filename,
     display_name,
+    allow_empty=False,
 ) -> list[str]:
-    """读取并完整解析通达信 .blk 分组；文件缺失/解析失败/有效代码为 0 时阻断。
+    """读取并完整解析通达信 .blk 分组。
 
-    阻断时抛出 RuntimeError，调用方不得修改池子。
+    - 文件缺失 / 非 GBK 解析失败：无论 ``allow_empty`` 均抛 ``RuntimeError`` 阻断
+      （这两类不代表"用户清空分组"）；
+    - 有效代码为 0：``allow_empty=False`` 时抛 ``TdxEmptyGroupError``（#589 区分
+      空分组业务态），``allow_empty=True`` 且文件存在、解码成功时返回空列表
+      （用户显式确认清空分组）。
     """
     path = _tdx_self_select_path(tdx_home=tdx_home, filename=filename)
     if not path.exists():
@@ -240,9 +245,10 @@ def _decode_tdx_block_codes(
         if code and code not in codes:
             codes.append(code)
     if not codes:
-        raise RuntimeError(
-            f"通达信分组 {display_name} 没有有效代码，已阻断同步（不修改池子）: {path}"
-        )
+        if not allow_empty:
+            raise TdxEmptyGroupError(
+                f"通达信分组 {display_name} 没有有效代码，已阻断同步（不修改池子）: {path}"
+            )
     return codes
 
 
@@ -252,6 +258,15 @@ def _load_full_holding_codes() -> set[str]:
         return get_current_stock_holding_codes()
     except Exception as exc:  # pragma: no cover - fail closed 路径
         raise RuntimeError(f"持仓查询失败，已阻断同步: {exc}") from exc
+
+
+class TdxEmptyGroupError(RuntimeError):
+    """通达信分组有效代码为 0（空分组业务态，#589）。
+
+    区别于文件缺失 / 非 GBK 解析失败（RuntimeError，任何情况下都阻断）；
+    路由据此返回 400 + ``{"code": "empty_group"}``，供前端显式确认后以
+    ``allow_empty=1`` 重试清空池子。
+    """
 
 
 def sync_stock_pools_from_tdx_self_select(
@@ -387,6 +402,7 @@ def sync_must_pool_from_tdx_self_select(
     filename=None,
     category=TDX_MUST_POOL_CATEGORY,
     source=TDX_MUST_POOL_SOURCE,
+    allow_empty=False,
 ):
     """用通达信 DM 待买组覆盖刷新 must_pool。
 
@@ -396,6 +412,9 @@ def sync_must_pool_from_tdx_self_select(
     - 新代码自动解析统一系统默认参数；通达信「待买」分组不承载止损配置，系统默认止损
       （params.guardian.value.stock.stop_loss_default）未配置时以 stop_loss_price=None
       导入（与既有 must_pool 数据一致），资金参数仍走统一默认，不再因缺省止损阻断同步。
+    - ``allow_empty=True`` 且解码结果为空（文件存在、GBK 解码成功）时，按显式确认
+      语义**清空池子**（删除 must_pool 全部旧记录）；分组非空但代码全为无效/持仓时
+      不清空（#589 边界）。
     """
     if not filename:
         filename = resolve_tdx_block_filename(
@@ -407,7 +426,11 @@ def sync_must_pool_from_tdx_self_select(
         tdx_home=tdx_home,
         filename=filename,
         display_name=TDX_MUST_POOL_DISPLAY_NAME,
+        allow_empty=allow_empty,
     )
+    # 清空仅由"解码结果为空 且 allow_empty"显式驱动，不因 target_code_set 为空触发
+    # （分组非空但全部代码无效/持仓时不得清空，#589）。
+    allow_clear = bool(allow_empty) and not codes
     now = pendulum.now()
     expire_at = now.add(days=int(days or 30))
     synced_codes = []
@@ -486,7 +509,9 @@ def sync_must_pool_from_tdx_self_select(
     # 失败的代码保留旧记录，避免同步失败导致误删。
     target_code_set = set(synced_codes) | set(failed_codes)
     existing_docs = (
-        list(DBfreshquant["must_pool"].find({}, {"code": 1})) if target_code_set else []
+        list(DBfreshquant["must_pool"].find({}, {"code": 1}))
+        if (target_code_set or allow_clear)
+        else []
     )
     for existing in existing_docs:
         existing_code = _normalize_stock_code6(existing.get("code"))

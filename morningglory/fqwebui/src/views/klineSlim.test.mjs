@@ -109,6 +109,9 @@ test('KlineSlim must_pool sidebar can import TDX 待买 group', () => {
   assert.match(scriptSource, /async syncMustPoolFromTdxSelfSelect\(\)/)
   assert.match(scriptSource, /stockApi\.syncMustPoolFromTdx\(\{ days: 30 \}\)/)
   assert.match(scriptSource, /await this\.loadMustPools\(\)/)
+  // #589：空分组确认 → allowEmpty 重试路径
+  assert.match(scriptSource, /errorCode === 'empty_group'/)
+  assert.match(scriptSource, /allowEmpty: true/)
   assert.match(apiSource, /syncMustPoolFromTdx/)
   assert.match(apiSource, /\/api\/pools\/must\/sync-from-tdx/)
 })
