@@ -917,10 +917,7 @@ def test_execute_records_audit(monkeypatch):
     assert "backfill audit completed" in response.output
     audit_docs = database["audit_log"].docs
     assert len(audit_docs) == 1
-    assert (
-        audit_docs[0]["operation"]
-        == "maintenance_backfill_ledger_intent_execute"
-    )
+    assert audit_docs[0]["operation"] == "maintenance_backfill_ledger_intent_execute"
     assert audit_docs[0]["status"] == "completed"
     assert audit_docs[0]["counts"]["requests"] == 1
     assert audit_docs[0]["counts"]["entries"] == 1

@@ -666,10 +666,9 @@ def _record_execute_audit_start(*, counts, backup_db) -> str:
     best-effort：审计写失败只告警不阻断主流程。
     """
 
-    from uuid import uuid4
-
     import socket
     from datetime import datetime, timezone
+    from uuid import uuid4
 
     try:
         from freshquant.db import DBfreshquant
