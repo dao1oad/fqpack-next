@@ -1,12 +1,12 @@
 import pytest
 
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
+from freshquant.order_management.entry_aggregation import migrate_entry_member_key
 from freshquant.order_management.ingest.xt_reports import (
     OrderManagementXtIngestService,
     normalize_xt_order_report,
     normalize_xt_trade_report,
 )
-from freshquant.order_management.entry_aggregation import migrate_entry_member_key
 from freshquant.order_management.projection.stock_fills import (
     build_arranged_fills_view,
 )

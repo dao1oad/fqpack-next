@@ -248,11 +248,7 @@ def migrate_entry_member_key(entry, *, legacy_key, canonical_key):
     if members:
         normalized_entry["aggregation_members"] = members
     normalized_entry["aggregation_member_keys"] = [
-        (
-            canonical
-            if _normalize_text(item) == legacy
-            else _normalize_text(item)
-        )
+        (canonical if _normalize_text(item) == legacy else _normalize_text(item))
         for item in list(normalized_entry.get("aggregation_member_keys") or [])
         if _normalize_text(item)
     ]
