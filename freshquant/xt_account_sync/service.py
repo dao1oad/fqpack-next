@@ -394,12 +394,14 @@ def _check_ledger_invariants(*, positions, reconcile_result):
         slices = repository.list_all_entry_slices()
         broker_orders = repository.list_broker_orders()
         requests = repository.list_order_requests()
+        orders = repository.list_orders()
         violations = check_all_ledger_invariants(
             positions=positions,
             entries=entries,
             slices=slices,
             broker_orders=broker_orders,
             requests=requests,
+            orders=orders,
         )
         total = sum(len(items) for items in violations.values())
         if total:

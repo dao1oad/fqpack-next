@@ -393,6 +393,44 @@ def test_ledger_intent_alignment_token_does_not_mask_request_mismatch():
     assert violations[0]["expected"] == "base"
 
 
+def test_ledger_intent_alignment_token_falls_back_to_orders():
+    """#588 加固：broker order 侧 token 被幽灵写入抹掉时，回退 om_orders 同名字段。"""
+
+    entries = [
+        _cluster_entry(
+            "entry_101_mirror",
+            "600104",
+            "t",
+            "ord_broker_1201afddd169dff6f62cb731",
+            "t",
+        )
+    ]
+    broker_orders = [
+        {
+            "broker_order_key": "account:068000076370:day:20260811:sysid:1703",
+            "internal_order_id": "ord_broker_1201afddd169dff6f62cb731",
+            "request_id": None,
+            "broker_correlation_token": None,
+        }
+    ]
+    orders = [
+        {
+            "internal_order_id": "ord_broker_1201afddd169dff6f62cb731",
+            "broker_correlation_token": "FQOM8e56206a3555853e6f00",
+        }
+    ]
+
+    assert (
+        check_ledger_intent_alignment(
+            entries=entries,
+            broker_orders=broker_orders,
+            requests=[],
+            orders=orders,
+        )
+        == []
+    )
+
+
 def test_runtime_hook_uses_open_entries_and_all_slices(monkeypatch):
     """#582 PR4：运行时挂点必须用 status=OPEN 的 entry + 全量 slices。
 
@@ -424,6 +462,9 @@ def test_runtime_hook_uses_open_entries_and_all_slices(monkeypatch):
             return []
 
         def list_order_requests(self, **kwargs):
+            return []
+
+        def list_orders(self, **kwargs):
             return []
 
     entries = [
@@ -493,6 +534,9 @@ def test_runtime_hook_warns_on_violation(monkeypatch):
             return []
 
         def list_order_requests(self, **kwargs):
+            return []
+
+        def list_orders(self, **kwargs):
             return []
 
     monkeypatch.setattr(
