@@ -61,6 +61,9 @@ class _FakeCollection:
     def find_one(self, *args, **kwargs):
         return self.docs[0] if self.docs else None
 
+    def find(self, query=None, **kwargs):
+        return iter(self.docs)
+
     def count_documents(self, query, **kwargs):
         return self.count_value
 
@@ -350,6 +353,75 @@ def test_ops_kline_health_probe_error_counts_503_window(ops_app, monkeypatch):
     # 探针窗口记录了一次 error
     window_statuses = [status for (_ts, status) in ops_routes._probe_state["window"]]
     assert window_statuses.count("error") == 1
+
+
+def test_ops_ledger_invariants_reports_violations(ops_app, monkeypatch):
+    """#582 PR4：/api/ops/ledger-invariants 只读探针返回守恒违规。"""
+
+    class FakeRepository:
+        def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+            return [
+                {
+                    "entry_id": "entry_1",
+                    "symbol": "600104",
+                    "status": "OPEN",
+                    "original_quantity": 7400,
+                    "remaining_quantity": 7400,
+                    "aggregation_members": [
+                        {"broker_order_key": "k1", "quantity": 300}
+                    ],
+                }
+            ]
+
+        def list_all_entry_slices(self):
+            return [{"entry_id": "entry_1", "original_quantity": 7400}]
+
+    monkeypatch.setattr(
+        "freshquant.order_management.repository.OrderManagementRepository",
+        lambda: FakeRepository(),
+    )
+    _patch_mongo(monkeypatch, positions=[{"stock_code": "600104.SH", "volume": 7400}])
+
+    resp = ops_app.test_client().get("/api/ops/ledger-invariants")
+
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["ok"] is False
+    assert payload["violation_count"] >= 1
+    assert len(payload["violations"]["entry_member_conservation"]) == 1
+
+
+def test_ops_ledger_invariants_ok_when_conserved(ops_app, monkeypatch):
+    class FakeRepository:
+        def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+            return [
+                {
+                    "entry_id": "entry_1",
+                    "symbol": "600104",
+                    "status": "OPEN",
+                    "original_quantity": 7400,
+                    "remaining_quantity": 7400,
+                    "aggregation_members": [
+                        {"broker_order_key": "k1", "quantity": 7400}
+                    ],
+                }
+            ]
+
+        def list_all_entry_slices(self):
+            return [{"entry_id": "entry_1", "original_quantity": 7400}]
+
+    monkeypatch.setattr(
+        "freshquant.order_management.repository.OrderManagementRepository",
+        lambda: FakeRepository(),
+    )
+    _patch_mongo(monkeypatch, positions=[{"stock_code": "600104.SH", "volume": 7400}])
+
+    resp = ops_app.test_client().get("/api/ops/ledger-invariants")
+
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload["ok"] is True
+    assert payload["violation_count"] == 0
 
 
 def test_ops_kline_health_unknown_when_no_bar_age(ops_app, monkeypatch):

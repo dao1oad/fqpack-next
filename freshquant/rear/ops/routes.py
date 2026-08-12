@@ -1156,3 +1156,46 @@ def ops_kline_health():
             "health_error": health_error,
         }
     )
+
+
+@ops_bp.get("/ledger-invariants")
+def ops_ledger_invariants():
+    """#582 PR4：账本守恒只读探针（entry=Σ成员、Σslice=entry、券商=账本）。"""
+
+    generated_at = _iso(_now())
+    error: str | None = None
+    violations: dict[str, list[dict[str, Any]]] = {}
+    try:
+        from freshquant.order_management.ledger_invariants import (
+            check_all_ledger_invariants,
+        )
+        from freshquant.order_management.repository import (
+            OrderManagementRepository,
+        )
+
+        repository = OrderManagementRepository()
+        positions = list(
+            DBfreshquant["xt_positions"].find(
+                {"volume": {"$gt": 0}},
+                projection={"stock_code": 1, "volume": 1},
+            )
+        )
+        violations = check_all_ledger_invariants(
+            positions=positions,
+            entries=repository.list_position_entries(status="OPEN"),
+            slices=repository.list_all_entry_slices(),
+        )
+    except Exception as exc:  # pragma: no cover - 防御降级
+        error = f"ledger invariants unavailable（{exc}）"
+        logger.warning("ops ledger-invariants failed: %s", exc)
+
+    total = sum(len(items) for items in violations.values())
+    return jsonify(
+        {
+            "generated_at": generated_at,
+            "ok": total == 0 and error is None,
+            "violation_count": total,
+            "violations": violations,
+            "error": error,
+        }
+    )
