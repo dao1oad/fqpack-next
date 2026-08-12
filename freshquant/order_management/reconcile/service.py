@@ -538,6 +538,7 @@ class ExternalOrderReconcileService:
             status="warning",
             reason_code="auto_open_entry",
             payload={
+                "gap_id": gap["gap_id"],
                 "quantity_delta": quantity,
                 "chosen_price": chosen_price,
                 "chosen_price_source": chosen_price_snapshot.get("price_source"),
