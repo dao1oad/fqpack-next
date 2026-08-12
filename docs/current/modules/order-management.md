@@ -232,6 +232,10 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   repository 五个收口写方法（claim / update / CAS / fence / move）真写库前
   best-effort 落 `freshquant.audit_log`（`operation` 前缀 `broker_order_*`，
   记录 `broker_order_key` 与敏感字段 before/after 摘要，复用 #583 审计 schema）
+- `#597`：broker_only 订单不允许携带 `broker_correlation_token`（token 指向真实
+  下单机订单，`_classify_broker_order_owner` fail-closed）；历史人工修复误写入
+  token 造成的非法态由 `script/maintenance/repair_broker_only_correlation_token.py`
+  受控恢复（`--dry-run` 列出、`--execute` $unset + 写前审计，可选 `--backup-db`）
 - `buy_cluster` 归并规则当前固定为：
   - 同一 `symbol`
   - 同一北京时间交易日
