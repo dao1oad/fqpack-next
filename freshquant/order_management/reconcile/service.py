@@ -529,6 +529,28 @@ class ExternalOrderReconcileService:
                 },
             )
 
+        # #582：auto-open 自愈必须可见 —— 账本缺口被自动补记说明前置链路
+        # （ingest/entry 聚合）存在未收敛，发 warning 事件供运行面/复盘定位，
+        # 不再静默平账。
+        self._emit_runtime(
+            "auto_open",
+            {"gap_id": gap["gap_id"], "symbol": gap["symbol"]},
+            status="warning",
+            reason_code="auto_open_entry",
+            payload={
+                "quantity_delta": quantity,
+                "chosen_price": chosen_price,
+                "chosen_price_source": chosen_price_snapshot.get("price_source"),
+                "chosen_price_asof": chosen_price_snapshot.get("price_asof"),
+                "chosen_price_policy": gap.get("chosen_price_policy")
+                or "freeze_initial",
+                "first_detected_at": gap.get("first_detected_at"),
+                "observed_count": gap.get("observed_count"),
+                "resolution_id": resolution_id,
+                "source": gap.get("source"),
+            },
+        )
+
         trade_fact = {
             "symbol": gap["symbol"],
             "trade_time": int(now),
