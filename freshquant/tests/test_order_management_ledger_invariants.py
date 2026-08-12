@@ -350,6 +350,38 @@ def test_ledger_intent_alignment_still_flags_broker_only_without_token():
     assert violations[0]["expected"] == "base"
 
 
+def test_ledger_intent_alignment_token_does_not_mask_request_mismatch():
+    """#588 复审：提交机（request 存在）带 FQOM token 的错标仍必须报。"""
+
+    entries = [
+        _cluster_entry(
+            "entry_mis_with_token",
+            "300760",
+            "t",
+            "account:068000076370:day:20260812:sysid:230",
+            "t",
+        )
+    ]
+    broker_orders = [
+        {
+            "broker_order_key": "account:068000076370:day:20260812:sysid:230",
+            "internal_order_id": "ord_mis_token_1",
+            "request_id": "req_mis_token_1",
+            "broker_correlation_token": "FQOM8e56206a3555853e6f00",
+        }
+    ]
+    requests = [{"request_id": "req_mis_token_1", "ledger_intent": "base"}]
+
+    violations = check_ledger_intent_alignment(
+        entries=entries,
+        broker_orders=broker_orders,
+        requests=requests,
+    )
+
+    assert len(violations) == 1
+    assert violations[0]["expected"] == "base"
+
+
 def test_runtime_hook_uses_open_entries_and_all_slices(monkeypatch):
     """#582 PR4：运行时挂点必须用 status=OPEN 的 entry + 全量 slices。
 

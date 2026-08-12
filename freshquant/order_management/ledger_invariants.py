@@ -190,11 +190,14 @@ def check_ledger_intent_alignment(
                 broker = brokers_by_internal.get(key)
             if broker is None:
                 continue
-            token = str(broker.get("broker_correlation_token") or "").strip()
-            if token.startswith("FQOM"):
-                continue
             request = requests_by_id.get(str(broker.get("request_id") or "").strip())
             if request is None:
+                token = str(broker.get("broker_correlation_token") or "").strip()
+                if token.startswith("FQOM"):
+                    # 仅限"本地无 request"的镜像机场景：OM 提交订单在镜像机无本地
+                    # request 属预期（#588）。提交机（request 存在）不受影响，
+                    # 错标仍按 request 分支校验（#588 复审修正）。
+                    continue
                 expected = "base"
             else:
                 intent = str(request.get("ledger_intent") or "").strip().lower()
