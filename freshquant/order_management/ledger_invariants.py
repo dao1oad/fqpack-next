@@ -155,7 +155,10 @@ def check_ledger_intent_alignment(
       broker order → request 反查；``reconciliation_resolution:`` 自愈成员跳过；
     - 反查不到 broker order / request 的成员跳过（degraded，不误报）；
     - broker-only（无请求）预期 base；``ledger_intent=t`` 预期 t；
-      ``ledger_intent=base`` 或缺失预期 base。
+      ``ledger_intent=base`` 或缺失预期 base；
+    - broker-only 成员若 broker order 携带 OM 提交 token（``FQOM`` 前缀），表示
+      该订单经 OrderManagement 提交（共享账户镜像机上本地无 request 属预期），
+      跳过不误报（#588）。
     """
 
     requests_by_id = {
@@ -186,6 +189,9 @@ def check_ledger_intent_alignment(
             if broker is None and key.startswith("ord_"):
                 broker = brokers_by_internal.get(key)
             if broker is None:
+                continue
+            token = str(broker.get("broker_correlation_token") or "").strip()
+            if token.startswith("FQOM"):
                 continue
             request = requests_by_id.get(str(broker.get("request_id") or "").strip())
             if request is None:
