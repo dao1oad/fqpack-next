@@ -1182,7 +1182,8 @@ def ops_ledger_invariants():
         )
         violations = check_all_ledger_invariants(
             positions=positions,
-            entries=repository.list_position_entries(status="OPEN"),
+            # #587：守恒口径按 remaining>0 判定，取全量 entry（含 PARTIALLY_EXITED）
+            entries=repository.list_position_entries(),
             slices=repository.list_all_entry_slices(),
             broker_orders=repository.list_broker_orders(),
             requests=repository.list_order_requests(),

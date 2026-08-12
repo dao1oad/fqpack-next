@@ -106,7 +106,12 @@ def check_slice_conservation(entries: list[dict], slices: list[dict]) -> list[di
 
 
 def check_ledger_vs_positions(positions: list[dict], entries: list[dict]) -> list[dict]:
-    """券商持仓数量必须等于账本 open entry 剩余数量（按 symbol 合并 base+t）。"""
+    """券商持仓数量必须等于账本 entry 剩余数量（按 symbol 合并 base+t）。
+
+    计数口径为 ``remaining_quantity > 0``（含 PARTIALLY_EXITED 等非 OPEN 但仍
+    持有剩余仓位的 entry，#587：按 status==OPEN 过滤会把部分退出的持仓误报为
+    账本 0）；remaining<=0 的 CLOSED/清仓 entry 不参与。
+    """
 
     broker_quantity: dict[str, int] = {}
     for position in list(positions or []):
@@ -123,7 +128,7 @@ def check_ledger_vs_positions(positions: list[dict], entries: list[dict]) -> lis
         )
         if not code:
             continue
-        if str(entry.get("status") or "OPEN").upper() != "OPEN":
+        if _coerce_int(entry.get("remaining_quantity")) <= 0:
             continue
         ledger_quantity[code] = ledger_quantity.get(code, 0) + _coerce_int(
             entry.get("remaining_quantity")

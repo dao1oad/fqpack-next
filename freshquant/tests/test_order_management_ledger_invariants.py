@@ -110,6 +110,17 @@ def test_ledger_vs_positions_excludes_closed_entries():
     assert violations[0]["ledger_quantity"] == 94700
 
 
+def test_ledger_vs_positions_counts_partially_exited_with_remaining():
+    """#587：PARTIALLY_EXITED 但 remaining>0 的 entry 必须计入账本数量。"""
+
+    positions = [{"stock_code": "002262.SZ", "volume": 18000}]
+    entries = [
+        _entry("entry_002262", "002262", 27000, 18000, status="PARTIALLY_EXITED")
+    ]
+
+    assert check_ledger_vs_positions(positions, entries) == []
+
+
 def test_check_all_returns_grouped_violations():
     entries = [
         _entry(
@@ -452,7 +463,8 @@ def test_runtime_hook_uses_open_entries_and_all_slices(monkeypatch):
     )
 
     assert warnings == []
-    assert ("entries", "OPEN") in fake.calls
+    # #587：挂点取全量 entry（不再按 OPEN 过滤），由守恒函数按 remaining>0 判定
+    assert ("entries", None) in fake.calls
     assert ("slices",) in fake.calls
 
 
