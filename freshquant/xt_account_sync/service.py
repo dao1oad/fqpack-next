@@ -192,6 +192,10 @@ class XtAccountSyncService:
                 positions=effective_positions,
                 now=int(time.time()),
             )
+            _check_ledger_invariants(
+                positions=effective_positions,
+                reconcile_result=reconcile_result,
+            )
             return dict(
                 result,
                 account_type=query_client.account_type,
@@ -364,3 +368,35 @@ def _resolve_effective_positions(
             continue
         effective.append(dict(document))
     return effective
+
+
+def _check_ledger_invariants(*, positions, reconcile_result):
+    """#582 PR4：对账后执行账本守恒只读校验，违规打 warning（不阻断）。
+
+    best-effort：任何异常只降级为 warning，不影响账户同步主流程。
+    """
+
+    try:
+        from freshquant.order_management.ledger_invariants import (
+            check_all_ledger_invariants,
+        )
+        from freshquant.order_management.repository import (
+            OrderManagementRepository,
+        )
+
+        repository = OrderManagementRepository()
+        entries = repository.list_position_entries()
+        slices = repository.list_open_entry_slices()
+        violations = check_all_ledger_invariants(
+            positions=positions,
+            entries=entries,
+            slices=slices,
+        )
+        total = sum(len(items) for items in violations.values())
+        if total:
+            logger.warning(
+                f"[xt_account_sync] ledger invariant violations={total} "
+                f"detail={violations} reconcile={reconcile_result or {}}"
+            )
+    except Exception as exc:
+        logger.warning(f"[xt_account_sync] ledger invariant check failed: {exc}")
