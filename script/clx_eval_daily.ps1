@@ -1,7 +1,7 @@
 param(
     [string]$TradeDate = (Get-Date -Format "yyyy-MM-dd"),
     [string]$RunDir = "",
-    [int]$DeepWorkers = 2,
+    [int]$DeepWorkers = 3,
     [int]$DeepMaxAttempts = 2,
     [string]$AgentCommand = "",
     [switch]$SkipBootstrap,
@@ -15,8 +15,8 @@ $ErrorActionPreference = "Stop"
 
 # Repository-owned entrypoints only. No global skill paths are used by this
 # script: the official batch is fetched by the repo runner (bootstrap), and
-# top-100 deep analysis is executed by the repo deep executor via the repo
-# agent adapter. All artifacts stay in the run dir / external data dir.
+# deep analysis (up to --deep-limit) is executed by the repo deep executor via
+# the repo agent adapter. All artifacts stay in the run dir / external data dir.
 $repo = "D:/fqpack/freshquant-2026.2.23"
 $py = Join-Path $repo ".venv/Scripts/python.exe"
 $module = "freshquant.clx_daily_selection.fundamental.runner"
@@ -75,8 +75,11 @@ if (-not (Test-Path (Join-Path $RunDir "clx-official-raw.json"))) {
 # ---------- 2. prepare: pure-buy stocks + evidence (financial cached by report period) ----------
 Invoke-Runner "prepare --run-dir $RunDir --trade-date $TradeDate --evidence-dir $RunDir/evidence"
 
-# ---------- 3. rank: deterministic quick rank + snapshots + deep specs ----------
-Invoke-Runner "rank --run-dir $RunDir"
+# ---------- 2.5 data: multi-source data pack (local quotes + financials + compact) ----------
+Invoke-Runner "data --run-dir $RunDir"
+
+# ---------- 3. rank: deterministic quick rank + snapshots + deep specs (deep-limit 200) ----------
+Invoke-Runner "rank --run-dir $RunDir --deep-limit 200"
 
 # ---------- 4. deep-run: standard single-stock analysis for the top-100 (closed loop) ----------
 if (-not $SkipDeepRun) {

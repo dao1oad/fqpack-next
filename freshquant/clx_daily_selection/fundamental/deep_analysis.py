@@ -216,6 +216,16 @@ def merge_deep_docs(
             ) or row.get("dimension_scores")
             row["composite_grade"] = composite_from_dimensions(grades)
             row["grade_source"] = GRADE_SOURCE_DEEP
+            doc_evidence = str(doc.get("evidenceGrade") or "").strip()
+            if doc_evidence in ("A", "B", "C", "D"):
+                row["evidence_grade"] = doc_evidence
+            row["evidence_ids"] = sorted(
+                set(row.get("evidence_ids") or [])
+                | set(doc.get("evidenceIds") or [])
+            )
+            row["evidence_source_sha256"] = str(
+                doc.get("evidenceSourceSha256") or ""
+            ).strip() or row.get("evidence_source_sha256")
             row["analysis_href"] = doc.get(
                 "analysis_href", row.get("analysis_href", "")
             )

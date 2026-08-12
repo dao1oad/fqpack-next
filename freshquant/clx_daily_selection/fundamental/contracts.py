@@ -74,8 +74,8 @@ SIX_DIMENSIONS: Final[tuple[str, ...]] = (
 TIER_DEEP: Final[str] = "deep"
 TIER_SNAPSHOT: Final[str] = "snapshot"
 
-#: 快排前 N 只进入标准单股深析。
-DEEP_TIER_LIMIT: Final[int] = 100
+#: 快排前 N 只进入标准单股深析（#601 全量深析：默认 200，当日不足 200 时全量）。
+DEEP_TIER_LIMIT: Final[int] = 200
 
 #: 等级来源。
 GRADE_SOURCE_QUICK: Final[str] = "quick"
