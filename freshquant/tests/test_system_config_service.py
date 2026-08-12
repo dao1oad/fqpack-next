@@ -421,7 +421,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         "guardian": {
             "stock": {
                 "lot_amount": 50000,
-                "buy_amount_exponent": 3.0,
+                "buy_amount_exponent": 4.0,
                 "threshold": {"mode": "percent", "percent": 1.2},
                 "grid_interval": {
                     "mode": "atr",
@@ -471,7 +471,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         database["params"].find_one({"code": "guardian"})["value"]["stock"][
             "buy_amount_exponent"
         ]
-        == 3.0
+        == 4.0
     )
     assert (
         database["pm_configs"].find_one({"code": "default"})["thresholds"][

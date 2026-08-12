@@ -544,7 +544,7 @@ class GuardianBuyGridService:
         if corridor["below_break"]:
             capacity_ratio = 0.5
         else:
-            # #578：全局指数可配置（默认 2.0 走快路径，与现状逐位一致）。
+            # #578：全局指数可配置（设为 2.0 时走快路径，与历史行为逐位一致）。
             capacity_ratio = (
                 (t_value * t_value)
                 if buy_amount_exponent == 2.0

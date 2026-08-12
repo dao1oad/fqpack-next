@@ -83,7 +83,7 @@ def _build_service(database=None):
 
 @pytest.fixture(autouse=True)
 def _stub_global_buy_amount_exponent(monkeypatch):
-    """#578：默认桩指数 2.0，避免测试连接真实 Mongo params。"""
+    """#578：桩指数 2.0（覆盖既有 t² 断言场景），避免连接真实 Mongo params。"""
 
     monkeypatch.setattr(
         "freshquant.strategy.guardian_buy_grid._get_buy_amount_exponent",
@@ -138,7 +138,7 @@ def test_holding_add_uses_global_buy_amount_exponent(monkeypatch):
 
 
 def test_get_buy_amount_exponent_resolves_global_and_recovers(monkeypatch):
-    """#578：common 层读取只走 params.guardian.stock；缺失/越界回退 2.0。"""
+    """#578：common 层读取只走 params.guardian.stock；缺失/越界回退默认 3.0。"""
 
     from freshquant.database.cache import in_memory_cache
     from freshquant.strategy import common
@@ -159,7 +159,7 @@ def test_get_buy_amount_exponent_resolves_global_and_recovers(monkeypatch):
                     [
                         {
                             "code": "guardian",
-                            "value": {"stock": {"buy_amount_exponent": 3.0}},
+                            "value": {"stock": {"buy_amount_exponent": 4.0}},
                         }
                     ]
                 )
@@ -167,7 +167,7 @@ def test_get_buy_amount_exponent_resolves_global_and_recovers(monkeypatch):
         ),
     )
     _clear_memoize()
-    assert common.get_buy_amount_exponent() == 3.0
+    assert common.get_buy_amount_exponent() == 4.0
 
     monkeypatch.setattr(
         common,
@@ -186,7 +186,7 @@ def test_get_buy_amount_exponent_resolves_global_and_recovers(monkeypatch):
         ),
     )
     _clear_memoize()
-    assert common.get_buy_amount_exponent() == 2.0
+    assert common.get_buy_amount_exponent() == 3.0
 
     monkeypatch.setattr(
         common,
@@ -194,7 +194,7 @@ def test_get_buy_amount_exponent_resolves_global_and_recovers(monkeypatch):
         FakeDatabase({"params": FakeCollection([{"code": "guardian", "value": {}}])}),
     )
     _clear_memoize()
-    assert common.get_buy_amount_exponent() == 2.0
+    assert common.get_buy_amount_exponent() == 3.0
 
 
 def test_new_open_prefers_initial_lot_amount_then_lot_amount_then_default():

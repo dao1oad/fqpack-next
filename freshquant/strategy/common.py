@@ -131,8 +131,8 @@ def get_buy_amount_exponent() -> float:
     """全局做T买入金额指数（#578）：``B = R × t^n``。
 
     解析链只走全局 ``params.guardian.stock.buy_amount_exponent``（不传
-    instrument_code，避免产生标的级覆盖入口）；默认 2.0；读侧非法/越界
-    [1.0, 5.0] 回退 2.0 并告警（fail-safe 到现状），写侧由
+    instrument_code，避免产生标的级覆盖入口）；默认 3.0；读侧非法/越界
+    [1.0, 5.0] 回退 3.0 并告警（fail-safe 到默认），写侧由
     ``SystemConfigService._normalize_settings_values`` 校验。
     """
 
@@ -144,13 +144,13 @@ def get_buy_amount_exponent() -> float:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
-        parsed = 2.0
+        parsed = 3.0
     if not math.isfinite(parsed) or parsed < 1.0 or parsed > 5.0:
         logger.warning(
-            "params.guardian.stock.buy_amount_exponent 非法（{}），回退 2.0",
+            "params.guardian.stock.buy_amount_exponent 非法（{}），回退 3.0",
             value,
         )
-        return 2.0
+        return 3.0
     return parsed
 
 

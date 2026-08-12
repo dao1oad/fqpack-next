@@ -218,7 +218,7 @@ SETTINGS_SECTION_META = {
                 "source": "runtime_default.guardian",
             },
             {"field": "stock.lot_amount", "label": "默认买入金额"},
-            ("stock.buy_amount_exponent", "买入金额指数（t 的幂次，默认 2）"),
+            ("stock.buy_amount_exponent", "买入金额指数（t 的幂次，默认 3）"),
             ("stock.threshold.mode", "阈值模式"),
             ("stock.threshold.percent", "阈值百分比"),
             ("stock.threshold.atr.period", "阈值 ATR 周期"),
@@ -690,7 +690,7 @@ class SystemConfigService:
                         field_name="guardian.stock.lot_amount",
                     ),
                     "buy_amount_exponent": _require_buy_amount_exponent(
-                        guardian_stock.get("buy_amount_exponent", 2.0)
+                        guardian_stock.get("buy_amount_exponent", 3.0)
                     ),
                     "threshold": deepcopy(guardian_stock.get("threshold") or {}),
                     "grid_interval": deepcopy(

@@ -136,7 +136,7 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
                     "value": {
                         "stock": {
                             "lot_amount": 1800,
-                            "buy_amount_exponent": 3.0,
+                            "buy_amount_exponent": 4.0,
                             "threshold": {"mode": "atr", "atr": {"period": 14}},
                             "grid_interval": {"mode": "percent", "percent": 3},
                         }
@@ -181,7 +181,7 @@ def test_system_settings_reads_runtime_values_and_pm_thresholds():
     assert settings.xtquant.auto_repay_enabled is True
     assert settings.xtquant.auto_repay_reserve_cash == 7500.0
     assert settings.guardian.stock_lot_amount == 1800
-    assert settings.guardian.stock_buy_amount_exponent == 3.0
+    assert settings.guardian.stock_buy_amount_exponent == 4.0
     assert settings.guardian.stock_threshold == {
         "mode": "atr",
         "atr": {"period": 14},
@@ -279,7 +279,7 @@ def test_system_settings_marks_initial_load_unready_when_database_unavailable():
     assert settings.xtquant.auto_repay_enabled is True
     assert settings.xtquant.auto_repay_reserve_cash == 5000.0
     assert settings.guardian.stock_lot_amount == 50000
-    assert settings.guardian.stock_buy_amount_exponent == 2.0
+    assert settings.guardian.stock_buy_amount_exponent == 3.0
     assert settings.guardian.stock_threshold == {
         "mode": "percent",
         "percent": 1,
