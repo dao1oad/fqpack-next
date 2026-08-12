@@ -671,14 +671,19 @@ def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
 
     service.confirm_expired_candidates(now=1030)
 
+    # #582 PR2：auto_open 自愈告警先于 reconciliation 收尾事件发射。
     assert [event["node"] for event in runtime_logger.events] == [
+        "auto_open",
         "reconciliation",
     ]
-    assert runtime_logger.events[0]["symbol"] == "000001"
-    assert runtime_logger.events[0]["payload"]["resolution_type"] == "auto_open_entry"
-    assert runtime_logger.events[0]["payload"]["gap_state"] == "AUTO_OPENED"
-    assert runtime_logger.events[0]["payload"]["chosen_price_estimate"] == 10.5
+    assert runtime_logger.events[0]["status"] == "warning"
+    assert runtime_logger.events[0]["reason_code"] == "auto_open_entry"
+    assert runtime_logger.events[0]["payload"]["quantity_delta"] == 200
+    assert runtime_logger.events[1]["symbol"] == "000001"
+    assert runtime_logger.events[1]["payload"]["resolution_type"] == "auto_open_entry"
+    assert runtime_logger.events[1]["payload"]["gap_state"] == "AUTO_OPENED"
+    assert runtime_logger.events[1]["payload"]["chosen_price_estimate"] == 10.5
     assert (
-        runtime_logger.events[0]["payload"]["chosen_price_policy"] == "freeze_initial"
+        runtime_logger.events[1]["payload"]["chosen_price_policy"] == "freeze_initial"
     )
-    assert runtime_logger.events[0]["payload"]["arrange_status"] == "READY"
+    assert runtime_logger.events[1]["payload"]["arrange_status"] == "READY"

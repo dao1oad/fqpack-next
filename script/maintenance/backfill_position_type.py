@@ -6,7 +6,8 @@
 - 实现 = 所有持仓按 flatten 语义重建一次账本（每持仓按整仓成本价生成一条
   base 买入 entry/slice），幂等可重跑；
 - execute 只重建 ``om_position_entries`` / ``om_entry_slices``，**不激活**
-  止盈档；不导出备份（真实回滚 = 回退代码 + 重跑 flatten，旧代码忽略新字段）。
+  止盈档；默认不导出备份，可用 ``--backup-db <name>`` 显式导出
+  （真实回滚 = 回退代码 + 重跑 flatten，旧代码忽略新字段）。
 
 存量止盈档批量激活（独立步骤，**新代码部署并重启后、非交易时段**执行）：
 ``--activate-takeprofit`` 对每个持仓标的把 ``armed_levels`` 置全 True；
@@ -223,6 +224,15 @@ def main(*, dry_run, execute, backup_db, activate_takeprofit):
         raise click.ClickException("flatten invariants failed; abort")
 
     if execute:
+        audit_id = _record_execute_audit_start(
+            counts={
+                "entries": len(entry_documents),
+                "slices": len(slice_documents),
+                "base": base_count,
+                "preserved_t": t_count,
+            },
+            backup_db=backup_db,
+        )
         if backup_db:
             _backup_collections(
                 order_db,
@@ -244,8 +254,67 @@ def main(*, dry_run, execute, backup_db, activate_takeprofit):
             raise click.ClickException(
                 "backfill verification failed; re-run flatten to restore"
             )
+        _record_execute_audit_complete(
+            audit_id,
+            verify=f"checks={checks}",
+        )
+        click.echo("backfill audit completed")
     else:
         click.echo("dry-run complete; no writes performed")
+
+
+def _record_execute_audit_start(*, counts, backup_db) -> str:
+    """execute 写前审计（#582 PR5）：任何写入（含 backup/全量重建）前先落
+    started 记录；失败/中断保持 started（有痕），成功后补 completed。
+    审计统一写 ``freshquant.audit_log``（与仓库既有审计约定一致）。
+    best-effort：审计写失败只告警不阻断主流程。
+    """
+
+    import socket
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    try:
+        from freshquant.db import DBfreshquant
+
+        audit_id = f"audit_{uuid4().hex}"
+        DBfreshquant["audit_log"].insert_one(
+            {
+                "audit_id": audit_id,
+                "operation": "maintenance_backfill_position_type_execute",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "host": socket.gethostname(),
+                "counts": counts,
+                "backup_db": backup_db,
+                "status": "started",
+            }
+        )
+        return audit_id
+    except Exception as exc:  # pragma: no cover - 防御降级
+        click.echo(f"warning: audit write failed: {exc}")
+        return ""
+
+
+def _record_execute_audit_complete(audit_id, *, verify: str) -> None:
+    if not audit_id:
+        return
+    try:
+        from datetime import datetime, timezone
+
+        from freshquant.db import DBfreshquant
+
+        DBfreshquant["audit_log"].update_one(
+            {"audit_id": audit_id},
+            {
+                "$set": {
+                    "status": "completed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "verify": verify,
+                }
+            },
+        )
+    except Exception as exc:  # pragma: no cover - 防御降级
+        click.echo(f"warning: audit update failed: {exc}")
 
 
 if __name__ == "__main__":

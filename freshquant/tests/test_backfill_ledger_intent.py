@@ -69,6 +69,10 @@ class FakeCollection:
         self.docs.extend(dict(item) for item in documents)
         return SimpleNamespace(inserted_count=len(documents))
 
+    def insert_one(self, document):
+        self.docs.append(dict(document))
+        return SimpleNamespace(inserted_id=None)
+
 
 class FakeDatabase(dict):
     def __getitem__(self, name):
@@ -868,3 +872,56 @@ def test_execute_keeps_zero_fill_broker_states_untouched(monkeypatch):
     assert brokers["k_failed"]["state"] == "FAILED"
     assert brokers["k_zero_req"]["state"] == "SUBMITTED"
     assert "repeat_broker_states=0" in response.output
+
+
+def test_execute_records_audit(monkeypatch):
+    """#582 PR5：execute 成功后必须落审计记录（操作/时间/影响计数）。"""
+
+    import freshquant.db as freshquant_db_module
+
+    database = _build_db(
+        requests=[
+            {
+                "request_id": "req_rebuilt_entry",
+                "action": "buy",
+                "source": "order_ledger_rebuild",
+                "rebuild_source": "position_snapshot_flatten",
+                "rebuilt_open": True,
+                "strategy_context": {},
+            }
+        ],
+        entries=[
+            {
+                "entry_id": "entry_1",
+                "symbol": "000001",
+                "request_id": "req_rebuilt_entry",
+                "original_quantity": 200,
+                "remaining_quantity": 200,
+            }
+        ],
+        slices=[
+            {
+                "entry_slice_id": "slice_1",
+                "entry_id": "entry_1",
+                "symbol": "000001",
+                "original_quantity": 200,
+                "remaining_quantity": 200,
+            }
+        ],
+    )
+    monkeypatch.setattr(freshquant_db_module, "DBfreshquant", database)
+
+    response = _run(monkeypatch, database, "--execute")
+
+    assert response.exit_code == 0, response.output
+    assert "backfill audit completed" in response.output
+    audit_docs = database["audit_log"].docs
+    assert len(audit_docs) == 1
+    assert audit_docs[0]["operation"] == "maintenance_backfill_ledger_intent_execute"
+    assert audit_docs[0]["status"] == "completed"
+    assert audit_docs[0]["counts"]["requests"] == 1
+    assert audit_docs[0]["counts"]["entries"] == 1
+    assert audit_docs[0]["counts"]["slices"] == 1
+    assert "timestamp" in audit_docs[0]
+    assert "completed_at" in audit_docs[0]
+    assert "audit_id" in audit_docs[0]
