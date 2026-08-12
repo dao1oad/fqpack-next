@@ -244,8 +244,44 @@ def main(*, dry_run, execute, backup_db, activate_takeprofit):
             raise click.ClickException(
                 "backfill verification failed; re-run flatten to restore"
             )
+        _record_execute_audit(
+            order_db,
+            operation="maintenance_backfill_position_type_execute",
+            counts={
+                "entries": len(entry_documents),
+                "slices": len(slice_documents),
+                "base": base_count,
+                "preserved_t": t_count,
+            },
+            backup_db=backup_db,
+        )
+        click.echo("backfill audit recorded")
     else:
         click.echo("dry-run complete; no writes performed")
+
+
+def _record_execute_audit(database, *, operation, counts, backup_db):
+    """execute 写前审计（#582 PR5）：记录操作/时间/影响计数/备份库。
+
+    best-effort：审计写失败只告警不阻断；写侧始终走字段级写入，
+    内容无变化的行不刷新任何时间戳（消灭无痕直写）。
+    """
+
+    try:
+        import socket
+        from datetime import datetime, timezone
+
+        database["audit_log"].insert_one(
+            {
+                "operation": operation,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "host": socket.gethostname(),
+                "counts": counts,
+                "backup_db": backup_db,
+            }
+        )
+    except Exception as exc:  # pragma: no cover - 防御降级
+        click.echo(f"warning: audit write failed: {exc}")
 
 
 if __name__ == "__main__":

@@ -657,6 +657,36 @@ def _run_conservation(database):
     return l1_errors, allocation_errors, ledger_report
 
 
+def _record_execute_audit(database, *, counts, backup_db):
+    """execute 写前审计（#582 PR5）：记录操作/时间/影响计数/备份库。
+
+    best-effort：审计写失败只告警不阻断；写侧始终走字段级 $set，
+    内容无变化的行不刷新任何时间戳（消灭无痕直写）。
+    """
+
+    try:
+        import socket
+        from datetime import datetime, timezone
+
+        database["audit_log"].insert_one(
+            {
+                "operation": "maintenance_backfill_ledger_intent_execute",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "host": socket.gethostname(),
+                "counts": {
+                    "requests": len(counts.get("requests") or []),
+                    "entries": len(counts.get("entries") or []),
+                    "slices": len(counts.get("slices") or []),
+                    "allocations": len(counts.get("allocations") or []),
+                    "broker_states": len(counts.get("broker_states") or []),
+                },
+                "backup_db": backup_db,
+            }
+        )
+    except Exception as exc:  # pragma: no cover - 防御降级
+        click.echo(f"warning: audit write failed: {exc}")
+
+
 @click.command()
 @click.option("--dry-run", "dry_run", is_flag=True, default=False)
 @click.option("--execute", "execute", is_flag=True, default=False)
@@ -797,6 +827,19 @@ def main(*, dry_run, execute, backup_db):
         or repeat_contract["broker_state_mismatches"]
     ):
         raise click.ClickException("backfill is not idempotent; abort")
+
+    _record_execute_audit(
+        database,
+        counts={
+            "requests": request_updates,
+            "entries": entry_updates,
+            "slices": slice_updates,
+            "allocations": allocation_updates,
+            "broker_states": broker_state_updates,
+        },
+        backup_db=backup_db,
+    )
+    click.echo("backfill audit recorded")
 
 
 if __name__ == "__main__":
