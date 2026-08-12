@@ -14,10 +14,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from freshquant.order_management.broker_identity import BrokerIdentityConflict
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.tracking.service import OrderTrackingService
 from freshquant.tests.test_external_order_identity_p1 import (
+    _FakeCollection,
     _FakeDatabase,
+    _matches,
     _real_owner,
 )
 
@@ -207,3 +210,91 @@ def test_repository_real_write_records_write_audit(audit_log):
     assert latest["status"] == "started"
     assert "broker_correlation_token" in latest["before"]
     assert latest["after"]["execution_fence"] is True
+
+
+def test_broker_only_with_token_is_rejected_by_claim():
+    """#597 PR-2：broker_only + token 为非法态，claim 必须 fail-closed。"""
+
+    database = _FakeDatabase()
+    repository = OrderManagementRepository(database=database)
+    owner = _real_owner()
+    database["om_orders"].rows.append({**owner, "state": "FILLED"})
+    broker_only_id = "ord_broker_1201afddd169dff6f62cb731"
+    invalid = {
+        **owner,
+        "internal_order_id": broker_only_id,
+        "request_id": None,
+        "broker_correlation_token": "FQOM8e56206a3555853e6f00",
+        "source_type": "broker_only",
+    }
+
+    with pytest.raises(BrokerIdentityConflict, match="broker-only owner cannot carry"):
+        repository.claim_broker_order_owner(invalid)
+
+
+def test_repair_script_unsets_broker_only_token(monkeypatch):
+    """#597 PR-2：修复脚本 dry-run 列出、execute $unset 非法 token。"""
+
+    import script.maintenance.repair_broker_only_correlation_token as repair
+
+    database = _FakeDatabase()
+    collection = _UnsetAwareCollection()
+    collection.rows.append(
+        {
+            "broker_order_key": "account:068000076370:day:20260811:sysid:1703",
+            "internal_order_id": "ord_broker_1201afddd169dff6f62cb731",
+            "source_type": "broker_only",
+            "broker_correlation_token": "FQOM8e56206a3555853e6f00",
+            "updated_at": "2026-08-11T10:05:50.953571+00:00",
+        }
+    )
+    collection.rows.append(
+        {
+            "broker_order_key": "account:068000076370:day:20260811:sysid:1323",
+            "internal_order_id": "ord_broker_other",
+            "source_type": "broker_only",
+            "broker_correlation_token": None,
+        }
+    )
+    database["om_broker_orders"] = collection
+
+    monkeypatch.setattr(repair, "get_order_management_db", lambda: database)
+
+    violations = repair._collect_violations(database)
+    assert len(violations) == 1
+    assert violations[0]["broker_order_key"].endswith(":1703")
+
+    # dry-run 不写
+    repair._apply_repairs(database, [])
+    # execute
+    repair._apply_repairs(database, violations)
+    saved = database["om_broker_orders"].find_one(
+        {"broker_order_key": "account:068000076370:day:20260811:sysid:1703"}
+    )
+    assert "broker_correlation_token" not in saved
+    untouched = database["om_broker_orders"].find_one(
+        {"broker_order_key": "account:068000076370:day:20260811:sysid:1323"}
+    )
+    assert untouched.get("broker_correlation_token") is None
+
+
+class _UnsetAwareCollection(_FakeCollection):
+    """支持 $unset 的 fake collection（补 _FakeCollection 缺失语义）。"""
+
+    def update_one(self, query, update, upsert=False):
+        for index, document in enumerate(self.rows):
+            if not _matches(document, query or {}):
+                continue
+            saved = dict(document)
+            saved.update(dict((update or {}).get("$set") or {}))
+            for field in dict((update or {}).get("$unset") or {}):
+                saved.pop(field, None)
+            self.rows[index] = saved
+            return SimpleNamespace(matched_count=1, upserted_id=None)
+        if upsert:
+            saved = dict(query or {})
+            saved.update(dict((update or {}).get("$setOnInsert") or {}))
+            saved.update(dict((update or {}).get("$set") or {}))
+            self.rows.append(saved)
+            return SimpleNamespace(matched_count=0, upserted_id=len(self.rows))
+        return SimpleNamespace(matched_count=0, upserted_id=None)
