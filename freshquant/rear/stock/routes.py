@@ -457,8 +457,33 @@ def sync_must_pool_from_tdx():
     系统默认止损未配置时以 None 导入，不阻断同步）。"""
     try:
         days = int(request.args.get("days", "30"))
-        result = _get_stock_service().sync_must_pool_from_tdx_self_select(days=days)
+        raw_allow_empty = str(request.args.get("allow_empty", "")).strip().lower()
+        allow_empty = raw_allow_empty in {"1", "true", "yes"}
+        result = _get_stock_service().sync_must_pool_from_tdx_self_select(
+            days=days,
+            allow_empty=allow_empty,
+        )
     except Exception as exc:
+        # 空分组业务态：默认阻断，前端显式确认后 allow_empty=1 重试清空（#589）。
+        # 用模块属性判定，避免顶层导入造成循环依赖。
+        tdx_empty_group_error = getattr(
+            _get_stock_service(),
+            "TdxEmptyGroupError",
+            None,
+        )
+        if tdx_empty_group_error is not None and isinstance(
+            exc,
+            tdx_empty_group_error,
+        ):
+            return (
+                jsonify(
+                    {
+                        "code": "empty_group",
+                        "msg": f"待买分组为空: {exc}",
+                    }
+                ),
+                400,
+            )
         logging.error(
             "sync must_pool from TDX 待买 group failed: %s\n%s",
             exc,

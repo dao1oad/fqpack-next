@@ -56,11 +56,14 @@ export const stockApi = {
       params: { days }
     })
   },
-  syncMustPoolFromTdx ({ days = 30 } = {}) {
+  syncMustPoolFromTdx ({ days = 30, allowEmpty = false } = {}) {
     return http({
       url: '/api/pools/must/sync-from-tdx',
       method: 'post',
-      params: { days }
+      params: {
+        days,
+        ...(allowEmpty ? { allow_empty: 1 } : {})
+      }
     })
   },
   getStockPrePoolsCategory () {

@@ -691,3 +691,119 @@ def test_sync_must_pool_without_default_stop_loss_writes_none_into_stored_docume
     assert stored["stop_loss_price"] is None
     assert stored["initial_lot_amount"] == 60000
     assert stored["lot_amount"] == 60000
+
+
+def _must_pool_db(existing_codes=None):
+    return {
+        "stock_pools": FakeStockPoolsCollection(),
+        "must_pool": FakeStockPoolsCollection(
+            [{"code": code} for code in (existing_codes or [])]
+        ),
+        "xt_positions": FakeStockPoolsCollection(),
+        "params": FakeStockPoolsCollection(
+            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
+        ),
+        "instrument_strategy": FakeStockPoolsCollection(),
+    }
+
+
+def test_sync_must_pool_empty_group_blocks_by_default(monkeypatch, tmp_path):
+    """#589：空分组默认阻断（TdxEmptyGroupError），池子保留。"""
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("BAD\n", encoding="gbk")
+    fake_db = _must_pool_db(existing_codes=["000001"])
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 50000)
+    calls = []
+    monkeypatch.setattr(
+        stock_service.must_pool,
+        "import_pool",
+        lambda **kwargs: calls.append(kwargs) or True,
+    )
+
+    with pytest.raises(stock_service.TdxEmptyGroupError):
+        stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
+
+    assert [doc["code"] for doc in fake_db["must_pool"].docs] == ["000001"]
+    assert calls == []
+
+
+def test_sync_must_pool_empty_group_allow_empty_clears_pool(monkeypatch, tmp_path):
+    """#589：allow_empty=True 且分组为空 → 清空 must_pool。"""
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("BAD\n", encoding="gbk")
+    fake_db = _must_pool_db(existing_codes=["000001", "600000"])
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 50000)
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(
+        tdx_home=tmp_path,
+        allow_empty=True,
+    )
+
+    assert result["synced_codes"] == []
+    assert sorted(result["removed_codes"]) == ["000001", "600000"]
+    assert fake_db["must_pool"].docs == []
+
+
+def test_sync_must_pool_missing_file_still_blocks_with_allow_empty(
+    monkeypatch, tmp_path
+):
+    """#589：文件缺失 + allow_empty=True 仍阻断（RuntimeError）。"""
+
+    fake_db = _must_pool_db(existing_codes=["000001"])
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    with pytest.raises(RuntimeError, match="不存在"):
+        stock_service.sync_must_pool_from_tdx_self_select(
+            tdx_home=tmp_path,
+            allow_empty=True,
+        )
+
+    assert [doc["code"] for doc in fake_db["must_pool"].docs] == ["000001"]
+
+
+def test_sync_must_pool_non_gbk_file_still_blocks_with_allow_empty(
+    monkeypatch, tmp_path
+):
+    """#589：非 GBK 解码失败 + allow_empty=True 仍阻断。"""
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"\xff\xfe\x00invalid\xff")
+    fake_db = _must_pool_db(existing_codes=["000001"])
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    with pytest.raises(RuntimeError, match="解析失败"):
+        stock_service.sync_must_pool_from_tdx_self_select(
+            tdx_home=tmp_path,
+            allow_empty=True,
+        )
+
+    assert [doc["code"] for doc in fake_db["must_pool"].docs] == ["000001"]
+
+
+def test_sync_must_pool_invalid_only_group_not_cleared_with_allow_empty(
+    monkeypatch, tmp_path
+):
+    """#589：分组非空但代码全无效 + allow_empty=True → 不清空（边界）。"""
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_text("113000\n", encoding="gbk")
+    fake_db = _must_pool_db(existing_codes=["000001"])
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+    monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 50000)
+
+    result = stock_service.sync_must_pool_from_tdx_self_select(
+        tdx_home=tmp_path,
+        allow_empty=True,
+    )
+
+    assert result["synced_codes"] == []
+    assert result["removed_codes"] == []
+    assert [doc["code"] for doc in fake_db["must_pool"].docs] == ["000001"]

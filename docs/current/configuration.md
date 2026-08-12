@@ -202,6 +202,9 @@ CLX 不新增独立 Mongo/Redis 连接配置；API 与 Dagster 继续读取 Fres
 - Docker `fq_apiserver` 从正式 `env_file` `D:/fqpack/config/fqnext.compose.env` 读取 `FRESHQUANT_TDX__HOME=/opt/tdx`，以此解析容器内路径；`CLX_18.blk` 位于 `/opt/tdx/T0002/blocknew/CLX_18.blk`
 - Compose 定义默认 `${FQPACK_TDX_SYNC_DIR:-D:/new_tdx}` 把 `D:/new_tdx` 挂载为 API 容器 `/opt/tdx`；正式 `deploy-production.yml` job env 与人工部署入口仍会在调用 Compose 的同一进程显式设置 `FQPACK_TDX_SYNC_DIR=D:/new_tdx`。service `env_file` 不参与 Compose 插值，`FQPACK_TDX_SYNC_DIR` 只影响 `/opt/tdx` 挂载源
 - KlineSlim 的 `must_pool` 同步待买通过 `T0002/blocknew/blocknew.cfg` 按显示名「待买」解析真实 BLK 文件名（当前宿主机为 `DM.blk`），cfg 缺失或未登记时回退 `待买.blk`
+- `#589`：同步待买分组有效代码为 0 时默认阻断（`400 + code=empty_group`），需前端
+  显式确认后以 `allow_empty=1` 重试才会清空 `must_pool`；文件缺失/GBK 解码失败无论
+  是否 `allow_empty` 均阻断（不把异常空信号误当清空）
 - `FQ_RUNTIME_LOG_DIR` 可以覆盖 `runtime.log_dir`
 - `XTQUANT_PORT` 可以覆盖 `xtdata.port`
 

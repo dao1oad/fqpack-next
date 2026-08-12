@@ -12,10 +12,12 @@ test('stockApi exposes the single overwrite sync endpoint for stock_pools', () =
 })
 
 test('stockApi exposes the single overwrite sync endpoint for must_pool', () => {
-  assert.match(source, /syncMustPoolFromTdx \(\{ days = 30 \} = \{\}\)/)
+  assert.match(source, /syncMustPoolFromTdx \(\{ days = 30, allowEmpty = false \} = \{\}\)/)
   assert.match(source, /url: '\/api\/pools\/must\/sync-from-tdx'/)
   assert.match(source, /method: 'post'/)
-  assert.match(source, /params: \{ days \}/)
+  assert.match(source, /params: \{/)
+  // #589：allowEmpty 显式确认后透传 allow_empty=1
+  assert.match(source, /\.\.\.\(allowEmpty \? \{ allow_empty: 1 \} : \{\}\)/)
 })
 
 test('stockApi no longer exposes web direct-write endpoints', () => {
