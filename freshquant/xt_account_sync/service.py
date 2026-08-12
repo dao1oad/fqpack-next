@@ -388,7 +388,9 @@ def _check_ledger_invariants(*, positions, reconcile_result):
         # 守恒口径要求全量 slice（open+closed，Σoriginal == entry.original）；
         # list_open_entry_slices 只返回 remaining>0，会把已全部卖出的 slice 过滤掉
         # 导致结构性误报（#582 PR4 验收修正）。
-        entries = repository.list_position_entries(status="OPEN")
+        # #587：守恒口径按 remaining>0 判定，需取全量 entry（含 PARTIALLY_EXITED），
+        # 不能只取 OPEN——部分退出的持仓会被误报为账本 0。
+        entries = repository.list_position_entries()
         slices = repository.list_all_entry_slices()
         broker_orders = repository.list_broker_orders()
         requests = repository.list_order_requests()

@@ -2,10 +2,30 @@
 
 """#589：/api/pools/must/sync-from-tdx allow_empty 透传与 empty_group 400 响应测试。"""
 
+import sys
+
 import pytest
 from flask import Flask
 
-from freshquant.rear.stock import routes as stock_routes
+
+def _load_stock_routes():
+    """惰性导入 rear.stock.routes，避免集合期被既有模块级 stub 污染。
+
+    test_guardian_strategy.py 在模块级永久替换 ``freshquant.data.astock.holding``
+    为 stub（无 get_stock_fills）；若本文件在集合期直接导入 routes 会 ImportError。
+    这里临时恢复真实 holding 完成导入后还原 stub，不影响同进程其它测试。
+    """
+
+    holding = sys.modules.get("freshquant.data.astock.holding")
+    restore = holding is not None and not hasattr(holding, "get_stock_fills")
+    if restore:
+        sys.modules.pop("freshquant.data.astock.holding", None)
+    try:
+        from freshquant.rear.stock import routes as stock_routes
+    finally:
+        if restore:
+            sys.modules["freshquant.data.astock.holding"] = holding
+    return stock_routes
 
 
 class _FakeStockService:
@@ -26,7 +46,7 @@ class _FakeStockService:
 @pytest.fixture
 def route_app(monkeypatch):
     app = Flask(__name__)
-    app.register_blueprint(stock_routes.stock_bp)
+    app.register_blueprint(_load_stock_routes().stock_bp)
     app.testing = True
     return app
 
@@ -34,7 +54,7 @@ def route_app(monkeypatch):
 def test_sync_must_pool_allow_empty_passthrough(route_app, monkeypatch):
     seen = []
     monkeypatch.setattr(
-        stock_routes,
+        _load_stock_routes(),
         "_get_stock_service",
         lambda: _FakeStockService(seen=seen),
     )
@@ -53,7 +73,7 @@ def test_sync_must_pool_empty_group_returns_400(route_app, monkeypatch):
         fail_with=_FakeStockService.TdxEmptyGroupError("empty"),
         seen=[],
     )
-    monkeypatch.setattr(stock_routes, "_get_stock_service", lambda: service)
+    monkeypatch.setattr(_load_stock_routes(), "_get_stock_service", lambda: service)
 
     resp = route_app.test_client().post("/api/pools/must/sync-from-tdx")
 
@@ -67,7 +87,7 @@ def test_sync_must_pool_other_error_keeps_500(route_app, monkeypatch):
         fail_with=RuntimeError("boom"),
         seen=[],
     )
-    monkeypatch.setattr(stock_routes, "_get_stock_service", lambda: service)
+    monkeypatch.setattr(_load_stock_routes(), "_get_stock_service", lambda: service)
 
     resp = route_app.test_client().post("/api/pools/must/sync-from-tdx")
 
