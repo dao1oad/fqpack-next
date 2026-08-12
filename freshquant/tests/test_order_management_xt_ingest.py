@@ -785,6 +785,177 @@ def test_trade_report_creates_trade_fact_position_entry_and_slices():
     assert len(result["entry_slices"]) == 4
 
 
+def _multi_fill_setup():
+    """构造 #582 生产形态：委托回报先到 → broker_order_key 迁移为 canonical。"""
+
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    tracking_service.submit_order(
+        {
+            "action": "buy",
+            "ledger_intent": "t",
+            "symbol": "000001",
+            "price": 10.3,
+            "quantity": 7400,
+            "source": "xt_trade_callback",
+            "internal_order_id": "ord_mf_1",
+        }
+    )
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+
+    ingest_service.ingest_order_report(
+        {
+            "account_id": "068000087558",
+            "account_type": 2,
+            "order_id": 940572673,
+            "order_sysid": "1615",
+            "order_time": 1710000000,
+            "order_type": 27,
+            "order_volume": 7400,
+            "price": 10.38,
+            "price_type": 88,
+            "order_status": 50,
+            "order_remark": repository.find_order("ord_mf_1")[
+                "broker_correlation_token"
+            ],
+            "stock_code": "000001.SZ",
+            "strategy_name": "gb0h4lfNshUASvAc",
+        }
+    )
+    broker_orders = list(repository.broker_orders)
+    assert len(broker_orders) == 1
+    canonical_key = broker_orders[0]["broker_order_key"]
+    assert canonical_key != "ord_mf_1"
+    return repository, ingest_service, canonical_key
+
+
+def _ingest_multi_fills(ingest_service, *, extra_fill=None):
+    fill_quantities = [
+        4600,
+        600,
+        200,
+        100,
+        200,
+        200,
+        100,
+        100,
+        100,
+        100,
+        100,
+        200,
+        200,
+        100,
+        200,
+        300,
+    ]
+    if extra_fill is not None:
+        fill_quantities.append(extra_fill)
+    for index, quantity in enumerate(fill_quantities):
+        ingest_service.ingest_trade_report(
+            {
+                "internal_order_id": "ord_mf_1",
+                "broker_order_id": "940572673",
+                "broker_trade_id": f"T-MF-{index}",
+                "symbol": "000001",
+                "side": "buy",
+                "quantity": quantity,
+                "price": 10.3,
+                "trade_time": 1710000000 + index,
+                "date": 20240310,
+                "time": "09:31:00",
+                "source": "xt_trade_callback",
+            },
+            lot_amount=50000,
+            grid_interval_lookup=lambda _symbol, _trade_fact: 1.2,
+        )
+
+
+def test_multi_fill_buy_uses_whole_order_quantity_after_key_migration():
+    """#582：16 笔拆单成交，entry 必须等于整单数量（生产形状回归）。"""
+
+    repository, ingest_service, canonical_key = _multi_fill_setup()
+    _ingest_multi_fills(ingest_service)
+
+    assert repository.ingest_rejections == []
+    entries = repository.list_position_entries(symbol="000001")
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["position_type"] == "t"
+    assert entry["original_quantity"] == 7400
+    assert entry["remaining_quantity"] == 7400
+    members = entry["aggregation_members"]
+    assert len(members) == 1
+    assert members[0]["broker_order_key"] == canonical_key
+    assert members[0]["quantity"] == 7400
+    assert members[0]["position_type"] == "t"
+    assert entry["aggregation_member_keys"] == [canonical_key]
+    slices = repository.list_open_entry_slices(
+        symbol="000001",
+        entry_ids=[entry["entry_id"]],
+    )
+    assert sum(int(s["original_quantity"]) for s in slices) == 7400
+
+
+def test_legacy_internal_member_key_migrates_without_double_count():
+    """#582：存量 entry 成员键为 internal_order_id 时，同单后续 fill 不双计数。"""
+
+    repository, ingest_service, canonical_key = _multi_fill_setup()
+    _ingest_multi_fills(ingest_service)
+
+    entry = repository.list_position_entries(symbol="000001")[0]
+    legacy_member = dict(entry["aggregation_members"][0])
+    legacy_member["broker_order_key"] = "ord_mf_1"
+    entry["aggregation_members"] = [legacy_member]
+    entry["aggregation_member_keys"] = ["ord_mf_1"]
+    repository.replace_position_entry(entry)
+
+    # 同单再来一笔成交：成员键先迁移为 canonical，再以整单快照覆盖，不能双计数。
+    _ingest_multi_fills(ingest_service, extra_fill=100)
+
+    entries = repository.list_position_entries(symbol="000001")
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["original_quantity"] == 7500
+    assert len(entry["aggregation_members"]) == 1
+    assert entry["aggregation_members"][0]["broker_order_key"] == canonical_key
+    assert entry["aggregation_members"][0]["quantity"] == 7500
+    assert entry["aggregation_member_keys"] == [canonical_key]
+
+
+def test_upsert_broker_position_entry_fails_closed_when_broker_order_missing():
+    """#582：找不到 broker order 聚合时 fail-closed，禁止静默退化单笔数量。"""
+
+    repository, _ = _bootstrap_service()
+    trade_fact = {
+        "symbol": "000001",
+        "internal_order_id": "ord_ghost_1",
+        "broker_order_key": "account:ghost:day:20240310:sysid:1",
+        "broker_trade_id": "T-GHOST-1",
+        "quantity": 100,
+        "price": 10.0,
+        "trade_time": 1710000000,
+        "date": 20240309,
+        "time": "09:31:00",
+        "side": "buy",
+        "source": "xt_trade_callback",
+    }
+    entry, slices = xt_reports_module._upsert_broker_position_entry(
+        repository=repository,
+        trade_fact=trade_fact,
+        lot_amount=3000,
+        grid_interval=1.03,
+    )
+    assert entry is None
+    assert slices == []
+    assert len(repository.ingest_rejections) == 1
+    assert repository.ingest_rejections[0]["reason_code"] == "broker_order_missing"
+    assert repository.position_entries == []
+
+
 def test_trade_report_marks_holding_projection_updated(monkeypatch):
     repository, ingest_service = _bootstrap_service()
     marks = []
