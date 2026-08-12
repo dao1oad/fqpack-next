@@ -6,7 +6,8 @@
 - 实现 = 所有持仓按 flatten 语义重建一次账本（每持仓按整仓成本价生成一条
   base 买入 entry/slice），幂等可重跑；
 - execute 只重建 ``om_position_entries`` / ``om_entry_slices``，**不激活**
-  止盈档；不导出备份（真实回滚 = 回退代码 + 重跑 flatten，旧代码忽略新字段）。
+  止盈档；默认不导出备份，可用 ``--backup-db <name>`` 显式导出
+  （真实回滚 = 回退代码 + 重跑 flatten，旧代码忽略新字段）。
 
 存量止盈档批量激活（独立步骤，**新代码部署并重启后、非交易时段**执行）：
 ``--activate-takeprofit`` 对每个持仓标的把 ``armed_levels`` 置全 True；
