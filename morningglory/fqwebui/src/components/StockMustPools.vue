@@ -166,6 +166,39 @@ export default {
             type: 'success'
           })
         } catch (err) {
+          // #589：空分组业务态（400 + code=empty_group）→ 显式确认后 allow_empty 清空。
+          const errorCode = err?.response?.data?.code || err?.code
+          if (errorCode === 'empty_group') {
+            this.$confirm('待买分组为空，确认后清空 must_pool，是否继续？', '同步待买组', {
+              confirmButtonText: '清空',
+              cancelButtonText: '取消',
+              type: 'warning',
+            }).then(async () => {
+              this.mustTdxSyncing = true
+              try {
+                const result = await stockApi.syncMustPoolFromTdx({
+                  days: 30,
+                  allowEmpty: true
+                })
+                if (result && String(result.code ?? '0') !== '0') {
+                  throw new Error(result.msg || '同步待买组失败')
+                }
+                this.refreshStockMustPoolList()
+                this.$message({
+                  message: '待买分组为空，must_pool 已清空',
+                  type: 'success'
+                })
+              } catch (retryErr) {
+                this.$message({
+                  message: retryErr?.message || '同步待买组失败',
+                  type: 'error'
+                })
+              } finally {
+                this.mustTdxSyncing = false
+              }
+            }).catch(() => {})
+            return
+          }
           this.$message({
             message: err?.message || '同步待买组失败',
             type: 'error'

@@ -13,7 +13,7 @@
   - `/api/stock_data_v2`
   - `/api/stock_data_chanlun_structure`
   - `POST /api/sync_stock_pools_from_tdx_self_select`
-  - `POST /api/sync_must_pool_from_tdx_self_select`（按 `blocknew.cfg` 解析「待买」分组真实文件名，回退 `待买.blk`）
+- `POST /api/pools/must/sync-from-tdx`（按 `blocknew.cfg` 解析「待买」分组真实文件名，回退 `待买.blk`）
   - `/api/subject-management/<symbol>`
   - `/api/subject-management/<symbol>/guardian-buy-grid`
   - `/api/order-management/stoploss/bind`
@@ -109,7 +109,10 @@
   - `同步自选股` 调用 `POST /api/sync_stock_pools_from_tdx_self_select?days=30`，以后端读取的 TDX `ZXG.blk` 有效标的减去当前持仓作为唯一集合，覆盖 `stock_pools`；旧集合外记录会删除，同步完成后刷新列表并提示同步、移除旧标的和持仓去重数量
 - `must_pool` 左栏
   - 列表来自 `/api/get_stock_must_pools_list`，点击任一标的后使用同一 K 线加载链路
-  - `同步待买` 调用 `POST /api/sync_must_pool_from_tdx_self_select?days=30`，以后端读取的 TDX「待买」分组（经 `blocknew.cfg` 解析真实文件名，当前宿主机为 `DM.blk`）有效标的减去当前持仓覆盖刷新 `must_pool`；已存在记录保留交易参数并合并 `tdx_must_pool` provenance，分组外既有记录会被删除，新代码在系统默认止损未配置时以 `stop_loss_price=None` 导入（不阻断同步），同步完成后刷新列表并提示同步、删除、持仓排除、无效与失败数量
+- `同步待买` 调用 `POST /api/pools/must/sync-from-tdx?days=30`，以后端读取的 TDX「待买」分组（经 `blocknew.cfg` 解析真实文件名，当前宿主机为 `DM.blk`）有效标的减去当前持仓覆盖刷新 `must_pool`；已存在记录保留交易参数并合并 `tdx_must_pool` provenance，分组外既有记录会被删除，新代码在系统默认止损未配置时以 `stop_loss_price=None` 导入（不阻断同步），同步完成后刷新列表并提示同步、删除、持仓排除、无效与失败数量
+- `#589`：分组有效代码为 0 时默认返回 `400 + code=empty_group` 阻断；前端（KlineSlim 与
+  `/daily-screening` 必选股票池）识别后弹确认框，确认后带 `allow_empty=1` 重试清空
+  `must_pool`；文件缺失/编码失败仍直接失败提示，不进入确认流程
 - `CLX 信号工作台`
   - 按当前 symbol、asset type、日线 endDate（缺省时由服务端解析最新交易日）、barCount、模型/条件请求 `/api/clx-daily-selection/history/signals`
   - 只在 `profile=production_v1`、`switch_opt=1` 且 `future_function_guard.passed=true` 时把 marker 交给 chart renderer
