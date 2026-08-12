@@ -33,6 +33,7 @@ from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
     entry_requires_slice_rebuild,
     find_entry_for_broker_order,
+    migrate_entry_member_key,
     select_cluster_entry,
 )
 from freshquant.order_management.guardian.allocation_policy import (
@@ -213,33 +214,40 @@ class OrderManagementXtIngestService:
                             buy_lot["buy_lot_id"],
                             lot_slices,
                         )
-                    if hasattr(self.repository, "replace_position_entry") and hasattr(
-                        self.repository, "replace_entry_slices_for_entry"
-                    ):
+                    v2_buy_entry_path = hasattr(
+                        self.repository, "replace_position_entry"
+                    ) and hasattr(self.repository, "replace_entry_slices_for_entry")
+                    if v2_buy_entry_path:
                         position_entry, entry_slices = _upsert_broker_position_entry(
                             repository=self.repository,
                             trade_fact=trade_fact,
                             lot_amount=lot_amount,
                             grid_interval=grid_interval_lookup(symbol, trade_fact),
                         )
-                        self.repository.replace_entry_slices_for_entry(
-                            position_entry["entry_id"],
-                            entry_slices,
-                        )
-                    holdings_changed = True
-                    self._notify_new_buy_trade(
-                        symbol=symbol,
-                        price=trade_fact["price"],
-                        position_type=position_type_of(
-                            (position_entry or {}).get("position_type")
-                        ),
+                        if position_entry is not None:
+                            self.repository.replace_entry_slices_for_entry(
+                                position_entry["entry_id"],
+                                entry_slices,
+                            )
+                    # #582 fail-closed：找不到 broker order 聚合时不生成 entry，
+                    # 不触发买入投影/阶梯复位（交由 reconcile gap 自愈 + 告警）。
+                    holdings_changed = (
+                        not v2_buy_entry_path or position_entry is not None
                     )
-                    ladder_payload = {
-                        "position_type": position_type_of(
-                            (position_entry or {}).get("position_type")
-                        ),
-                        "tpsl_rearm": "base",
-                    }
+                    if holdings_changed:
+                        self._notify_new_buy_trade(
+                            symbol=symbol,
+                            price=trade_fact["price"],
+                            position_type=position_type_of(
+                                (position_entry or {}).get("position_type")
+                            ),
+                        )
+                        ladder_payload = {
+                            "position_type": position_type_of(
+                                (position_entry or {}).get("position_type")
+                            ),
+                            "tpsl_rearm": "base",
+                        }
                 if not holdings_changed and hasattr(
                     self.repository, "list_open_slices"
                 ):
@@ -1214,12 +1222,38 @@ def _upsert_broker_position_entry(
     grid_interval,
 ):
     symbol = trade_fact["symbol"]
-    broker_order_key = str(trade_fact.get("internal_order_id") or "").strip()
-    broker_order = (
-        repository.find_broker_order(broker_order_key)
-        if hasattr(repository, "find_broker_order")
-        else None
-    ) or {}
+    # #582：broker order 必须以 canonical broker_order_key 查找（trade_fact 已
+    # 携带）。旧写法把 internal_order_id 当 broker_order_key 使用，在委托回报
+    # 到达、key 迁移为 canonical 后恒查不到，导致多笔拆单 entry 只等于最后一
+    # 笔 fill 的数量（2026-08-11 600104 实盘事故根因）。
+    broker_order_key = str(
+        trade_fact.get("broker_order_key") or trade_fact.get("internal_order_id") or ""
+    ).strip()
+    internal_order_id = str(trade_fact.get("internal_order_id") or "").strip()
+    broker_order = None
+    if broker_order_key and hasattr(repository, "find_broker_order"):
+        broker_order = repository.find_broker_order(broker_order_key)
+    if (
+        broker_order is None
+        and internal_order_id
+        and internal_order_id != broker_order_key
+        and hasattr(repository, "find_broker_order")
+    ):
+        # broker-only / 未迁移占位键兜底：按 internal_order_id 再查一次。
+        broker_order = repository.find_broker_order(internal_order_id)
+    if broker_order is None:
+        # fail-closed：找不到订单聚合时拒绝生成 entry（禁止静默退化为单笔 fill
+        # 数量），留证据给 reconcile gap + auto_open（#582 自愈告警）收敛。
+        _record_ingest_rejection(
+            repository,
+            trade_fact=trade_fact,
+            reason_code="broker_order_missing",
+        )
+        return None, []
+    broker_order_key = str(broker_order.get("broker_order_key") or broker_order_key)
+    internal_order_id = str(
+        broker_order.get("internal_order_id") or internal_order_id or ""
+    ).strip()
     trade_payload = dict(trade_fact)
     trade_payload["trade_time"] = broker_order.get("first_fill_time") or trade_fact.get(
         "trade_time"
@@ -1232,9 +1266,7 @@ def _upsert_broker_position_entry(
         )
     buy_group_trade_fact = {
         **trade_payload,
-        "quantity": int(
-            broker_order.get("filled_quantity") or trade_fact.get("quantity") or 0
-        ),
+        "quantity": int(broker_order.get("filled_quantity") or 0),
         "price": float(
             broker_order.get("avg_filled_price") or trade_fact.get("price") or 0.0
         ),
@@ -1253,6 +1285,32 @@ def _upsert_broker_position_entry(
         broker_order_key,
         position_type=resolved_position_type,
     )
+    if (
+        existing_entry is None
+        and internal_order_id
+        and internal_order_id != broker_order_key
+    ):
+        # 成员键兼容（#582）：存量 entry 的聚合成员键可能是 internal_order_id
+        # （canonical 迁移前的历史数据）。命中后先把旧键迁移为 canonical，避免
+        # 同单后续 fill 落成第二个成员导致数量双计数。
+        existing_entry = select_cluster_entry(
+            existing_entries,
+            buy_group_trade_fact,
+            internal_order_id,
+            position_type=resolved_position_type,
+        )
+    if (
+        existing_entry is not None
+        and internal_order_id
+        and internal_order_id != broker_order_key
+    ):
+        # 无论以 canonical 还是 internal 键命中，只要成员键仍含旧键就统一迁移，
+        # 防止同单后续 fill 落成第二个成员导致数量双计数（#582）。
+        existing_entry = migrate_entry_member_key(
+            existing_entry,
+            legacy_key=internal_order_id,
+            canonical_key=broker_order_key,
+        )
     # 同 broker order 的既有 entry 账本必须与请求意图一致（fail-closed）；
     # 聚类命中则继承既有账本。
     if existing_entry is not None and position_type_of(

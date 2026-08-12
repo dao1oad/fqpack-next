@@ -220,6 +220,41 @@ def build_buy_group_member(group_trade_fact, *, broker_order_key):
     }
 
 
+def migrate_entry_member_key(entry, *, legacy_key, canonical_key):
+    """把 entry 聚合成员的旧键（internal_order_id 时代）统一迁移为 canonical key。
+
+    #582：broker_order_key 在委托回报到达后迁移为 canonical
+    （``account:day:sysid:...``）；历史 entry 的 ``aggregation_member_keys``
+    可能仍是 internal_order_id。合并前先把旧键改写为 canonical，避免同单
+    后续 fill 因键不一致落成第二个成员导致数量双计数。
+    """
+
+    normalized_entry = dict(entry or {})
+    if not normalized_entry:
+        return normalized_entry
+    legacy = _normalize_text(legacy_key)
+    canonical = _normalize_text(canonical_key)
+    if not legacy or not canonical or legacy == canonical:
+        return normalized_entry
+
+    members = []
+    for item in list(normalized_entry.get("aggregation_members") or []):
+        member = _normalize_member(item)
+        if member is None:
+            continue
+        if _normalize_text(member.get("broker_order_key")) == legacy:
+            member = {**member, "broker_order_key": canonical}
+        members.append(member)
+    if members:
+        normalized_entry["aggregation_members"] = members
+    normalized_entry["aggregation_member_keys"] = [
+        (canonical if _normalize_text(item) == legacy else _normalize_text(item))
+        for item in list(normalized_entry.get("aggregation_member_keys") or [])
+        if _normalize_text(item)
+    ]
+    return normalized_entry
+
+
 def build_reconciliation_resolution_member_key(*, resolution_id=None, entry_id=None):
     normalized_resolution_id = _normalize_text(resolution_id)
     if normalized_resolution_id:

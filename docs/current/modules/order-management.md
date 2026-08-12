@@ -233,6 +233,13 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
     禁止跨账本聚合；`aggregation_members[]` 逐成员携带
     `position_type`（A6 可审计）
 - 同一 broker order 的多笔 fill 会更新同一个聚合成员，而不是继续生成多条 entry
+- `#582`：buy entry 聚合以 **canonical `broker_order_key`**（trade_fact 携带）为
+  整单锚点——entry 数量取 `om_broker_orders.filled_quantity` 整单口径，多笔 fill
+  只刷新同一聚合成员；找不到 broker order 聚合时 fail-closed 写
+  `om_ingest_rejections.reason_code=broker_order_missing`，不生成 entry（由
+  reconcile gap + auto-open 收敛）；历史 entry 聚合成员键若为
+  `internal_order_id`（canonical 迁移前），命中后自动迁移为 canonical，避免同单
+  后续 fill 落成第二个成员导致数量双计数
 - sell fill 按 `guardian_sell_sources`（v2/v1 兼容）解析请求级来源计划；处理新
   fill 前先按 `request_id / internal_order_id` 查询已写入的
   `om_exit_allocations` 累计本请求已分配量，计算 `remaining_plan =
