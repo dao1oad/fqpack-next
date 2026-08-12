@@ -44,9 +44,63 @@ _BROKER_ORDER_AGGREGATE_FIELDS = (
     "first_fill_time",
     "last_fill_time",
 )
+_BROKER_ORDER_AUDIT_FIELDS = (
+    "internal_order_id",
+    "request_id",
+    "broker_correlation_token",
+    "execution_fence",
+    "state",
+    "aggregate_revision",
+    "updated_at",
+)
 _BROKER_ORDER_CLAIM_ATTEMPTS = 16
 _BROKER_ORDER_MOVE_ATTEMPTS = 16
 _MISSING = object()
+
+
+def _audit_broker_order_write(
+    *, operation, broker_order_key, before=None, after=None, extra=None
+):
+    """写前审计（#597 PR-3）：真写库前 best-effort 落 audit_log。
+
+    只记录 key 与敏感字段摘要，不记全文档；失败只降级不阻断主流程。
+    复用 #583 PR5 的 audit_log schema（``freshquant.audit_log``）。
+    业务写失败时记录保持 ``started``（有痕），与维护脚本审计约定一致。
+    """
+
+    try:
+        import socket
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        from freshquant.db import DBfreshquant
+
+        DBfreshquant["audit_log"].insert_one(
+            {
+                "audit_id": f"audit_{uuid4().hex}",
+                "operation": operation,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "host": socket.gethostname(),
+                "collection": "om_broker_orders",
+                "broker_order_key": broker_order_key,
+                "before": _broker_order_audit_snapshot(before),
+                "after": _broker_order_audit_snapshot(after),
+                **(extra or {}),
+                "status": "started",
+            }
+        )
+    except Exception:
+        pass
+
+
+def _broker_order_audit_snapshot(document):
+    if not document:
+        return None
+    return {
+        field: (document or {}).get(field)
+        for field in _BROKER_ORDER_AUDIT_FIELDS
+        if field in (document or {})
+    }
 
 
 class OrderManagementRepository:
@@ -282,6 +336,12 @@ class OrderManagementRepository:
                     raise BrokerIdentityConflict(
                         "new broker order requires complete canonical owner"
                     )
+                _audit_broker_order_write(
+                    operation="broker_order_claim_insert",
+                    broker_order_key=broker_order_key,
+                    before=None,
+                    after=payload,
+                )
                 try:
                     result = self.broker_orders.update_one(
                         {"broker_order_key": broker_order_key},
@@ -305,6 +365,12 @@ class OrderManagementRepository:
             next_payload = _merge_broker_order_claim(existing, payload)
             if _without_mongo_id(existing) == next_payload:
                 return existing, False
+            _audit_broker_order_write(
+                operation="broker_order_claim_merge",
+                broker_order_key=broker_order_key,
+                before=existing,
+                after=next_payload,
+            )
             result = self.broker_orders.replace_one(
                 _exact_document_selector(existing, identity_field="broker_order_key"),
                 next_payload,
@@ -381,6 +447,17 @@ class OrderManagementRepository:
         candidate = {**_without_mongo_id(current), **payload}
         _assert_broker_order_identity_consistent(current, candidate)
         _assert_broker_order_owner_unchanged(current, candidate)
+        # #597 PR-3：拒绝 updated_at-only 写（无业务字段时只刷新 updated_at 属于
+        # "幽灵写入"合法 API 滥用面），直接返回不落库。
+        business_updates = {
+            key: value
+            for key, value in payload.items()
+            if key not in _BROKER_ORDER_OWNER_FIELDS
+            and key not in ("broker_order_key", "updated_at")
+            and current.get(key) != value
+        }
+        if not business_updates:
+            return current
         update_fields = {
             key: value
             for key, value in payload.items()
@@ -394,6 +471,12 @@ class OrderManagementRepository:
         for field in (*_BROKER_ORDER_OWNER_FIELDS, *_BROKER_ORDER_IDENTITY_FIELDS):
             if field != "broker_order_key":
                 selector[field] = current.get(field)
+        _audit_broker_order_write(
+            operation="broker_order_update_fields",
+            broker_order_key=normalized_key,
+            before=current,
+            after={**current, **update_fields},
+        )
         result = self.broker_orders.update_one(selector, {"$set": update_fields})
         saved = self.find_broker_order(normalized_key)
         if result.matched_count or (
@@ -427,6 +510,12 @@ class OrderManagementRepository:
                 )
             if current.get("execution_fence") is True:
                 return current
+            _audit_broker_order_write(
+                operation="broker_order_execution_fence",
+                broker_order_key=broker_order_key,
+                before=current,
+                after={**current, "execution_fence": True},
+            )
             result = self.broker_orders.update_one(
                 _exact_document_selector(current, identity_field="broker_order_key"),
                 {"$set": {"execution_fence": True}},
@@ -451,6 +540,12 @@ class OrderManagementRepository:
         after_payload["broker_order_key"] = broker_order_key
         _assert_broker_order_identity_consistent(before_payload, after_payload)
         _assert_broker_order_owner_unchanged(before_payload, after_payload)
+        _audit_broker_order_write(
+            operation="broker_order_compare_and_set",
+            broker_order_key=broker_order_key,
+            before=before_payload,
+            after=after_payload,
+        )
         result = self.broker_orders.replace_one(
             _exact_document_selector(before_payload, identity_field="broker_order_key"),
             after_payload,
@@ -487,6 +582,12 @@ class OrderManagementRepository:
             )
             self.claim_broker_order_owner(candidate)
             saved = self._converge_broker_order_move_target(new_key, candidate)
+            _audit_broker_order_write(
+                operation="broker_order_key_move_delete",
+                broker_order_key=old_key,
+                before=source,
+                after=None,
+            )
             result = self.broker_orders.delete_one(
                 _exact_document_selector(source, identity_field="broker_order_key")
             )
