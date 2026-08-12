@@ -287,7 +287,8 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - `#588`：归属一致性对共享账户**镜像机**场景豁免——本地无 request 的 broker-only
   成员若 broker order 携带 OM 提交 token（`FQOM` 前缀），跳过（该订单由真实下单机
   经 OrderManagement 提交，意图证据在对方机）；提交机（request 存在）路径不受影响，
-  错标仍必报
+  错标仍必报；broker order 侧 token 缺失时回退到 `om_orders.broker_correlation_token`
+  再判定（历史幽灵写入可能抹掉 broker order 侧 token，#588 加固）
 - `#587`：`ledger_vs_positions` 计数口径为 **`remaining_quantity > 0`**（与 entry
   status 解耦）——`PARTIALLY_EXITED` 等非 OPEN 但仍持有剩余仓位的 entry 计入账本
   数量，`remaining<=0` 的 CLOSED 排除；挂点与探针数据源取全量 entry，由守恒函数

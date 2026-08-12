@@ -152,6 +152,7 @@ def check_ledger_intent_alignment(
     entries: list[dict],
     broker_orders: list[dict],
     requests: list[dict],
+    orders: list[dict] | None = None,
 ) -> list[dict]:
     """归属一致性：buy_cluster entry 归属必须与订单 ledger_intent 一致（#582 收口）。
 
@@ -163,7 +164,8 @@ def check_ledger_intent_alignment(
       ``ledger_intent=base`` 或缺失预期 base；
     - broker-only 成员若 broker order 携带 OM 提交 token（``FQOM`` 前缀），表示
       该订单经 OrderManagement 提交（共享账户镜像机上本地无 request 属预期），
-      跳过不误报（#588）。
+      跳过不误报（#588）；broker order 侧 token 缺失时回退到 ``om_orders``
+      同名字段（历史幽灵写入可能抹掉 broker order 侧 token，#588 加固）。
     """
 
     requests_by_id = {
@@ -181,6 +183,11 @@ def check_ledger_intent_alignment(
         for item in list(broker_orders or [])
         if str(item.get("internal_order_id") or "").strip()
     }
+    orders_by_internal = {
+        str(item.get("internal_order_id") or "").strip(): item
+        for item in list(orders or [])
+        if str(item.get("internal_order_id") or "").strip()
+    }
     violations: list[dict] = []
     for entry in list(entries or []):
         if str(entry.get("source_ref_type") or "").strip() != "buy_cluster":
@@ -195,9 +202,16 @@ def check_ledger_intent_alignment(
                 broker = brokers_by_internal.get(key)
             if broker is None:
                 continue
+            token = str(broker.get("broker_correlation_token") or "").strip()
+            if not token:
+                order_doc = orders_by_internal.get(
+                    str(broker.get("internal_order_id") or "").strip()
+                )
+                token = str(
+                    (order_doc or {}).get("broker_correlation_token") or ""
+                ).strip()
             request = requests_by_id.get(str(broker.get("request_id") or "").strip())
             if request is None:
-                token = str(broker.get("broker_correlation_token") or "").strip()
                 if token.startswith("FQOM"):
                     # 仅限"本地无 request"的镜像机场景：OM 提交订单在镜像机无本地
                     # request 属预期（#588）。提交机（request 存在）不受影响，
@@ -237,6 +251,7 @@ def check_all_ledger_invariants(
     slices: list[dict] | None = None,
     broker_orders: list[dict] | None = None,
     requests: list[dict] | None = None,
+    orders: list[dict] | None = None,
 ) -> dict[str, list[dict]]:
     """汇总执行全部守恒检查，返回按 invariant 分组的违规列表。"""
 
@@ -252,5 +267,6 @@ def check_all_ledger_invariants(
             entries=entries,
             broker_orders=list(broker_orders or []),
             requests=list(requests or []),
+            orders=list(orders or []),
         ),
     }
