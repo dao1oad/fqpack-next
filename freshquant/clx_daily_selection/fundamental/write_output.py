@@ -28,12 +28,6 @@ SECTION_TITLES = {
     "8_conclusion_verification": "结论与验证节点",
 }
 
-EVIDENCE_IDS = [
-    "akshare-abstract", "akshare-indicator", "baostock",
-    "cninfo-profile", "eastmoney-zygc", "local-quantaxis",
-]
-
-
 def _num(d: dict, key: str, period: str):
     v = (d.get(key) or {}).get(period)
     return v if isinstance(v, (int, float)) else None
@@ -218,6 +212,12 @@ def assemble_doc(compact: dict, an: dict, symbol: str, data_hash: str) -> dict:
     for key, title in SECTION_TITLES.items():
         items = (an.get("sections") or {}).get(key) or []
         sections[key] = {"title": title, "items": items}
+    evidence_ids = sorted(compact.get("dataSources") or [])
+    if not evidence_ids:
+        evidence_ids = ["compact-only"]
+    evidence_grade = str(an.get("evidenceGrade") or "C").strip().upper()
+    if evidence_grade not in ("A", "B", "C", "D"):
+        evidence_grade = "C"
     return {
         "schemaVersion": "fundamental-analysis.v1",
         "symbol": symbol,
@@ -235,8 +235,8 @@ def assemble_doc(compact: dict, an: dict, symbol: str, data_hash: str) -> dict:
         "advantages": an.get("advantages") or [],
         "problems": an.get("problems") or [],
         "sections": sections,
-        "evidenceGrade": an.get("evidenceGrade") or "B",
-        "evidenceIds": EVIDENCE_IDS,
+        "evidenceGrade": evidence_grade,
+        "evidenceIds": evidence_ids,
         "evidenceSourceSha256": data_hash,
         "generatedBy": "a-share-fundamental-analysis",
         "generatedAt": an.get("generatedAt") or "",

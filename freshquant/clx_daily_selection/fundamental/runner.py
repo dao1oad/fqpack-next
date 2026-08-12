@@ -350,6 +350,14 @@ def cmd_data(args: argparse.Namespace) -> None:
         )
         proc.start()
         proc.join(3600)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(15)
+            if proc.is_alive():
+                proc.kill()
+            raise SystemExit(
+                f"data fetch worker timed out after 3600s; partial report: {partial}"
+            )
         if proc.exitcode != 0:
             raise SystemExit(
                 f"data fetch worker failed with exit={proc.exitcode}; "

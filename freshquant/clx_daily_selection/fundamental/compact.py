@@ -125,6 +125,23 @@ def build_compact(
 
     profile = (business.get("profile") or [{}])[0]
     shares_rec = business.get("shares") or {}
+    data_sources: list[str] = []
+    if quotes.get("close") is not None:
+        data_sources.append("local-quantaxis")
+    source_map = {
+        "abstract": "akshare-abstract",
+        "indicator": "akshare-indicator",
+        "profit_bs": "baostock",
+        "growth_bs": "baostock",
+        "profile": "cninfo-profile",
+        "shares": "akshare-em",
+        "zygc": "eastmoney-zygc",
+        "yjkb": "akshare-yjkb",
+    }
+    for key, label in source_map.items():
+        if key in financials or key in business:
+            if label not in data_sources:
+                data_sources.append(label)
     return {
         "schemaVersion": "clx-compact-data.v1",
         "symbol": symbol,
@@ -140,6 +157,7 @@ def build_compact(
         "periods": periods,
         "latestPeriod": latest_period,
         "annualPeriod": annual,
+        "dataSources": sorted(data_sources),
         "keyMetrics": metrics,
         "growth": growth,
         "business": {

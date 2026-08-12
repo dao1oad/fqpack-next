@@ -99,6 +99,8 @@ def test_build_compact_shape() -> None:
     assert compact["business"]["注册资金"] == 10000.0
     assert "zygc_annual_products" in compact
     assert "zygc_annual_regions" in compact
+    assert "local-quantaxis" in compact["dataSources"]
+    assert "akshare-abstract" in compact["dataSources"]
 
 
 def test_merge_compact_metrics_override_and_fallback() -> None:
@@ -145,6 +147,45 @@ def test_write_output_validates_before_writing(tmp_path: pathlib.Path) -> None:
         code = write_output.main()
     assert code == 1
     assert not (run_dir / "out.json").exists()
+
+
+def test_write_output_evidence_from_actual_sources(tmp_path: pathlib.Path) -> None:
+    """evidenceIds 来自 compact 实际数据来源、evidenceGrade 缺失时保守降级 C。"""
+    import sys
+    from unittest import mock
+
+    from freshquant.clx_daily_selection.fundamental import write_output
+
+    run_dir = tmp_path / "run"
+    (run_dir / "data").mkdir(parents=True)
+    compact = _minimal_compact()
+    (run_dir / "data" / "compact_000001.json").write_text(
+        json.dumps(compact, ensure_ascii=False), encoding="utf-8"
+    )
+    # 缺少 evidenceGrade（模型未写）→ 降级 C；sources 只含实际成功来源
+    analysis = {"name": "测试公司", "sixDimensionScores": {}}
+    (run_dir / "data" / "analysis_000001.json").write_text(
+        json.dumps(analysis, ensure_ascii=False), encoding="utf-8"
+    )
+    with mock.patch.object(
+        sys, "argv", [
+            "write_output", "--run-dir", str(run_dir), "--symbol", "000001",
+            "--analysis", "data/analysis_000001.json", "--out", "out.json",
+        ]
+    ):
+        with mock.patch(
+            "freshquant.clx_daily_selection.fundamental.validate.validate_analysis_doc",
+            return_value=(True, None),
+        ):
+            code = write_output.main()
+    assert code == 0
+    doc = json.loads((run_dir / "out.json").read_text(encoding="utf-8"))
+    assert doc["evidenceGrade"] == "C"
+    assert doc["evidenceIds"] == compact["dataSources"]
+    assert "baostock" not in doc["evidenceIds"]  # fixture 未提供 baostock 数据
+    assert "akshare-abstract" in doc["evidenceIds"]
+    assert "eastmoney-zygc" in doc["evidenceIds"]
+    assert "local-quantaxis" in doc["evidenceIds"]
 
 
 def test_cmd_data_idempotent_skips_existing(tmp_path: pathlib.Path) -> None:
