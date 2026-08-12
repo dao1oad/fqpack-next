@@ -385,8 +385,11 @@ def _check_ledger_invariants(*, positions, reconcile_result):
         )
 
         repository = OrderManagementRepository()
-        entries = repository.list_position_entries()
-        slices = repository.list_open_entry_slices()
+        # 守恒口径要求全量 slice（open+closed，Σoriginal == entry.original）；
+        # list_open_entry_slices 只返回 remaining>0，会把已全部卖出的 slice 过滤掉
+        # 导致结构性误报（#582 PR4 验收修正）。
+        entries = repository.list_position_entries(status="OPEN")
+        slices = repository.list_all_entry_slices()
         violations = check_all_ledger_invariants(
             positions=positions,
             entries=entries,
