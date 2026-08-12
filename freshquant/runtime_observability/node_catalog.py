@@ -78,6 +78,10 @@ COMPONENT_NODES: dict[str, tuple[str, ...]] = {
         "internal_match",
         "externalize",
         "projection_update",
+        "auto_open",
+        "auto_close",
+        "reconciliation",
+        "snapshot_fuse",
     ),
 }
 
