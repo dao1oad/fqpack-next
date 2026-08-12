@@ -540,6 +540,18 @@ def test_get_order_detail_resolves_broker_order_by_internal_id_without_full_scan
     assert repository.list_broker_orders_calls == calls_before
 
 
+def test_get_order_detail_falls_back_to_broker_order_id_lookup():
+    """#582 PR3：internal 反查 miss 时保留 broker_order_id 兜底（旧路径参数语义）。"""
+
+    repository = _build_repository()
+    repository.broker_orders[0]["internal_order_id"] = "ord_other"
+    service = OrderManagementReadService(repository=repository)
+
+    detail = service.get_order_detail("BRK-1")
+
+    assert detail["broker_order"]["broker_order_id"] == "BRK-1"
+
+
 def test_get_stats_aggregates_side_state_and_missing_broker_counts():
     repository = _build_repository()
     service = OrderManagementReadService(repository=repository)

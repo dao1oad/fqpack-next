@@ -70,11 +70,6 @@ class OrderManagementRepository:
                 "uq_om_broker_orders_broker_order_key",
             ),
             (
-                self.broker_orders,
-                "internal_order_id",
-                "uq_om_broker_orders_internal_order_id",
-            ),
-            (
                 self.trade_facts,
                 "execution_identity",
                 "uq_om_trade_facts_execution_identity",
@@ -93,6 +88,17 @@ class OrderManagementRepository:
                     partialFilterExpression={field: {"$type": "string"}},
                     name=name,
                 )
+        # #582 PR3：internal_order_id 反查索引。注意必须是普通（非 unique）索引：
+        # move_broker_order_key 在 key 迁移窗口内同一 internal_order_id 会同时存在
+        # 目标/源两个文档（先 claim 新 key 后删源），unique 会击穿该活跃生产路径。
+        create_broker_index = getattr(self.broker_orders, "create_index", None)
+        if callable(create_broker_index):
+            create_broker_index(
+                [("internal_order_id", 1)],
+                unique=False,
+                partialFilterExpression={"internal_order_id": {"$type": "string"}},
+                name="ix_om_broker_orders_internal_order_id",
+            )
         self._canonical_indexes_ready = True
 
     @property
