@@ -758,7 +758,27 @@ def test_sync_must_pool_missing_file_still_blocks_with_allow_empty(
     fake_db = _must_pool_db(existing_codes=["000001"])
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="不存在"):
+        stock_service.sync_must_pool_from_tdx_self_select(
+            tdx_home=tmp_path,
+            allow_empty=True,
+        )
+
+    assert [doc["code"] for doc in fake_db["must_pool"].docs] == ["000001"]
+
+
+def test_sync_must_pool_non_gbk_file_still_blocks_with_allow_empty(
+    monkeypatch, tmp_path
+):
+    """#589：非 GBK 解码失败 + allow_empty=True 仍阻断。"""
+
+    target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"\xff\xfe\x00invalid\xff")
+    fake_db = _must_pool_db(existing_codes=["000001"])
+    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
+
+    with pytest.raises(RuntimeError, match="解析失败"):
         stock_service.sync_must_pool_from_tdx_self_select(
             tdx_home=tmp_path,
             allow_empty=True,
