@@ -14,7 +14,7 @@ const defaultFilters = () => ({
   broker_order_id: '',
   date_from: '',
   date_to: '',
-  time_field: 'updated_at',
+  time_field: 'submitted_at',
   missing_broker_only: false,
 })
 

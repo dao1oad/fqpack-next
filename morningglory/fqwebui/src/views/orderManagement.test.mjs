@@ -120,7 +120,7 @@ test('order helpers keep instrument name, 3-decimal prices and second-level time
   assert.equal(formatOrderTimestamp(1774417570), '2026-03-25 13:46:10')
 })
 
-test('OrderManagement table uses Chinese semantics and places 更新时间 after 标的代码', () => {
+test('OrderManagement table uses Chinese semantics and places 提交时间/台账更新时间 after 标的代码', () => {
   assert.match(orderManagementPageSource, /{{ row\.name \|\| '-' }}/)
   assert.match(orderManagementPageSource, /<el-table-column prop="side" label="方向" width="86" \/>/)
   assert.match(orderManagementPageSource, /<el-table-column label="订单状态" width="160">/)
@@ -128,17 +128,21 @@ test('OrderManagement table uses Chinese semantics and places 更新时间 after
   assert.match(orderManagementPageSource, /<el-table-column prop="strategy_name" label="策略" min-width="132" \/>/)
   assert.match(orderManagementPageSource, /<el-table-column prop="source" label="来源" width="148" \/>/)
   assert.match(orderManagementPageSource, /{{ formatOrderPrice\(row\.price\) }} \/ {{ formatOrderQuantity\(row\.quantity\) }}/)
-  assert.match(orderManagementPageSource, /{{ formatOrderTimestamp\(row\.updated_at \|\| row\.created_at\) }}/)
+  assert.match(orderManagementPageSource, /{{ formatOrderTimestamp\(row\.submitted_at \|\| row\.updated_at \|\| row\.created_at\) }}/)
+  assert.match(orderManagementPageSource, /<el-table-column label="台账更新时间" min-width="176">/)
   assert.match(orderManagementPageSource, /<el-table-column prop="broker_order_id" label="券商单号" min-width="132" \/>/)
 
   const symbolColumnIndex = orderManagementPageSource.indexOf('<el-table-column label="标的代码"')
-  const updatedColumnIndex = orderManagementPageSource.indexOf('<el-table-column label="更新时间"')
+  const submittedColumnIndex = orderManagementPageSource.indexOf('<el-table-column label="提交时间"')
+  const updatedColumnIndex = orderManagementPageSource.indexOf('<el-table-column label="台账更新时间"')
   const sideColumnIndex = orderManagementPageSource.indexOf('<el-table-column prop="side" label="方向"')
   const brokerColumnIndex = orderManagementPageSource.indexOf('<el-table-column prop="broker_order_id" label="券商单号"')
 
   assert.ok(symbolColumnIndex > -1)
+  assert.ok(submittedColumnIndex > -1)
   assert.ok(updatedColumnIndex > -1)
-  assert.ok(updatedColumnIndex > symbolColumnIndex)
+  assert.ok(submittedColumnIndex > symbolColumnIndex)
+  assert.ok(updatedColumnIndex > submittedColumnIndex)
   assert.ok(sideColumnIndex > updatedColumnIndex)
   assert.ok(brokerColumnIndex > sideColumnIndex)
   assert.doesNotMatch(orderManagementPageSource, /label="ACCEPTED"/)

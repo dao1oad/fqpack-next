@@ -60,9 +60,9 @@
           <el-input v-model="filters.request_id" placeholder="request_id" clearable />
           <el-input v-model="filters.broker_order_id" placeholder="broker_order_id" clearable />
           <el-select v-model="filters.time_field" placeholder="时间口径">
-            <el-option label="更新时间" value="updated_at" />
-            <el-option label="创建时间" value="created_at" />
             <el-option label="提交时间" value="submitted_at" />
+            <el-option label="创建时间" value="created_at" />
+            <el-option label="更新时间" value="updated_at" />
           </el-select>
           <el-input v-model="filters.date_from" placeholder="date_from，ISO 时间或 YYYY-MM-DD（按北京时间）" clearable />
           <el-input v-model="filters.date_to" placeholder="date_to，ISO 时间或 YYYY-MM-DD（按北京时间）" clearable />
@@ -177,9 +177,14 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="更新时间" min-width="176">
+                <el-table-column label="提交时间" min-width="176">
                   <template #default="{ row }">
-                    {{ formatOrderTimestamp(row.updated_at || row.created_at) }}
+                    {{ formatOrderTimestamp(row.submitted_at || row.updated_at || row.created_at) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="台账更新时间" min-width="176">
+                  <template #default="{ row }">
+                    {{ formatOrderTimestamp(row.updated_at) }}
                   </template>
                 </el-table-column>
                 <el-table-column prop="side" label="方向" width="86" />
