@@ -284,6 +284,10 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   必须与对应 `om_order_requests.ledger_intent` 一致（t→t、base→base、
   broker-only/无请求→base；resolution/无法反查成员跳过），做T买单被误归
   底仓等错配会被探针与对账告警自动捕获
+- `#588`：归属一致性对共享账户**镜像机**场景豁免——本地无 request 的 broker-only
+  成员若 broker order 携带 OM 提交 token（`FQOM` 前缀），跳过（该订单由真实下单机
+  经 OrderManagement 提交，意图证据在对方机）；提交机（request 存在）路径不受影响，
+  错标仍必报
 - `xt_account_sync` 对账后 best-effort 执行守恒检查（`status=OPEN` entries +
   全量 slices），违规打 `ledger invariant violations` warning 不阻断
 - ops 只读探针 `/api/ops/ledger-invariants` 返回
