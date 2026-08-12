@@ -233,6 +233,13 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
     禁止跨账本聚合；`aggregation_members[]` 逐成员携带
     `position_type`（A6 可审计）
 - 同一 broker order 的多笔 fill 会更新同一个聚合成员，而不是继续生成多条 entry
+- `#582`：buy entry 聚合以 **canonical `broker_order_key`**（trade_fact 携带）为
+  整单锚点——entry 数量取 `om_broker_orders.filled_quantity` 整单口径，多笔 fill
+  只刷新同一聚合成员；找不到 broker order 聚合时 fail-closed 写
+  `om_ingest_rejections.reason_code=broker_order_missing`，不生成 entry（由
+  reconcile gap + auto-open 收敛）；历史 entry 聚合成员键若为
+  `internal_order_id`（canonical 迁移前），命中后自动迁移为 canonical，避免同单
+  后续 fill 落成第二个成员导致数量双计数
 - sell fill 按 `guardian_sell_sources`（v2/v1 兼容）解析请求级来源计划；处理新
   fill 前先按 `request_id / internal_order_id` 查询已写入的
   `om_exit_allocations` 累计本请求已分配量，计算 `remaining_plan =
@@ -261,6 +268,11 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - `SubjectManagement` detail 会把 `om_position_entries` 上的 `aggregation_members / aggregation_window` 与 `om_entry_slices` 一并下发
 - `KlineSlim` 继续只消费 entry 摘要，不展开完整切片表
 - entry 级“剩余市值”优先按 symbol snapshot 最新价乘剩余数量；缺失最新价时才回退到持仓均价
+- `#582`：订单详情读侧按 `om_broker_orders.internal_order_id` 索引反查
+  （`find_broker_order_by_internal_order_id`，非 unique partial 索引
+  `ix_om_broker_orders_internal_order_id`），不再把 internal_order_id 当
+  `broker_order_key` 直查，也不再全表扫描兜底；broker_order_id 兜底与
+  `om_orders` 回退保留
 
 ### 账本守恒守门
 
@@ -335,6 +347,9 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 - 若 `grid_interval / lot_amount / arrange_entry_slices` 任一环节异常，entry 仍保持 `OPEN`
 - 降级状态通过 `arrange_status / arrange_degraded / arrange_error_* / arrange_runtime_errors` 落在 entry 上
 - 降级时仍会写 compat mirror 与 holdings cache，避免真值已确认但视图长期滞后
+- `#582`：auto-open 确认时发 `status=warning`、`reason_code=auto_open_entry`
+  的 runtime 事件（payload 含 gap_id/quantity_delta/价格快照来源/观察次数/
+  resolution_id）——账本与券商真值失配后的自动补记不再静默，运行面可直接定位
 
 当前 external reconcile 不按同价、同量、部分数量或时间邻近猜测 XT 回报归属。
 FQOM 或完整 canonical identity 能证明归属时才挂回内部订单；完整 canonical

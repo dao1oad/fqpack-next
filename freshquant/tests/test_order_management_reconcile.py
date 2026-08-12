@@ -1254,6 +1254,40 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
     assert repository.buy_lots == []
 
 
+def test_auto_open_entry_emits_warning_runtime_event(monkeypatch):
+    """#582：auto_open 自愈必须发 warning 事件，禁止静默平账。"""
+
+    runtime_events = []
+    repository, service = _build_service(monkeypatch, runtime_events=runtime_events)
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_000,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_015,
+    )
+    service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
+        detected_at=1_030,
+    )
+
+    confirmed = service.confirm_expired_candidates(now=1_030)
+
+    assert len(confirmed) == 1
+    assert repository.reconciliation_gaps[0]["state"] == "AUTO_OPENED"
+    auto_open_events = [
+        item
+        for item in runtime_events
+        if item.get("node") == "auto_open"
+        and item.get("reason_code") == "auto_open_entry"
+    ]
+    assert len(auto_open_events) == 1
+    assert auto_open_events[0]["status"] == "warning"
+    assert auto_open_events[0]["symbol"] == "000001"
+    assert auto_open_events[0]["payload"]["quantity_delta"] == 200
+
+
 def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypatch):
     repository, service = _build_service(monkeypatch)
     # 确定性：屏蔽真实行情/昨收查询，价格回退到券商 avg_price（10.02），
