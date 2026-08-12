@@ -492,7 +492,8 @@ class GuardianBuyGridService:
                 "stage": None,
             }
         # 做T四段走廊（#549 v4）：回补走廊 / [BUY-1,BUY-2] / [BUY-2,BUY-3] /
-        # 破线区；B = R × t²；破线区 B = R × 1/2（global_cap 基数）。
+        # 破线区；B = R × t^n（n 为全局 buy_amount_exponent，#578，默认 3；
+        # 破线区固定 B = R × 1/2，global_cap 基数）。
         hit_levels = self._resolve_hit_levels(
             price=source_price,
             config=config,
