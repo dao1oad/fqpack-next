@@ -222,6 +222,16 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   `late_trade_after_terminal` 告警事件；迟到成交事实照常落账不丢弃；broker
   聚合不再被 trade 回调无条件覆写为 `PARTIAL_FILLED`（终态单不回退，避免
   `_PENDING_BUY_STATES` 卡死占用买入容量）
+- `#597`：`om_broker_orders.submitted_at` 比较与新写入统一按 UTC 时刻口径
+  （存量不主动重写）；`_sync_broker_order_report` 对 submitted_at 用"归秒时刻比较"（忽略微秒与
+  时区字符串差异），XT 回调（北京时间无时区）与 place_order（UTC ISO）同一
+  时刻不再产生伪差异，终态订单重复/迟到回报不会仅因时间格式不同而刷新
+  `updated_at`（幽灵写入防护）
+- `#597`：`repository.update_broker_order_fields` 拒绝 **updated_at-only 写**
+  （无业务字段时直接返回不落库），堵住"只刷新台账时间"的合法 API 滥用面；
+  repository 五个收口写方法（claim / update / CAS / fence / move）真写库前
+  best-effort 落 `freshquant.audit_log`（`operation` 前缀 `broker_order_*`，
+  记录 `broker_order_key` 与敏感字段 before/after 摘要，复用 #583 审计 schema）
 - `buy_cluster` 归并规则当前固定为：
   - 同一 `symbol`
   - 同一北京时间交易日

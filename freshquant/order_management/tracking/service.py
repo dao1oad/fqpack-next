@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from hashlib import sha256
+from zoneinfo import ZoneInfo
 
 from freshquant.order_management.broker_correlation import (
     build_broker_correlation_token,
@@ -613,17 +614,28 @@ class OrderTrackingService:
             "state": report.get("state") or broker_order.get("state"),
             "broker_order_id": report.get("broker_order_id")
             or broker_order.get("broker_order_id"),
-            "submitted_at": report.get("submitted_at")
-            or broker_order.get("submitted_at"),
+            # #597：submitted_at 统一归一为 UTC ISO 后再比较/写入。XT 回调路径
+            # （_xt_timestamp_to_datetime）产出北京时间无时区字符串，place_order
+            # 路径产出 UTC ISO（+00:00），同一时刻两种格式会在终态订单重复回报
+            # 时产生伪差异，触发 om_broker_orders.updated_at 无痕刷新。
+            "submitted_at": _normalize_submitted_at(
+                report.get("submitted_at") or broker_order.get("submitted_at")
+            ),
             "requested_quantity": report.get("requested_quantity")
             or report.get("order_volume")
             or broker_order.get("requested_quantity"),
         }
-        update_fields = {
-            key: value
-            for key, value in updates.items()
-            if value is not None and broker_order.get(key) != value
-        }
+        update_fields = {}
+        for key, value in updates.items():
+            if value is None:
+                continue
+            current_value = broker_order.get(key)
+            if key == "submitted_at":
+                # #597：submitted_at 用时刻比较（归秒，忽略微秒/时区字符串差异）
+                if not _same_submitted_at_instant(current_value, value):
+                    update_fields[key] = value
+            elif current_value != value:
+                update_fields[key] = value
         if not update_fields:
             return broker_order
         update_fields["updated_at"] = _utc_now_iso()
@@ -691,6 +703,59 @@ class OrderTrackingService:
 
 def _utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_submitted_at(value):
+    """把 submitted_at 归一为 UTC ISO，用于跨路径一致比较与写入（#597）。
+
+    - 带时区 ISO：转为 UTC ISO；
+    - 无时区 ISO：按 Asia/Shanghai（XT 回报语义）解释后转 UTC ISO；
+    - 无法解析：保留原样（不猜测）。
+    """
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _submitted_at_instant(value):
+    """把 submitted_at 解析为 aware UTC datetime 用于同一时刻比较（#597）。
+
+    与 ``_normalize_submitted_at`` 的区别：比较语义忽略字符串表示差异
+    （如微秒有无、时区写法），只比时刻；无法解析返回 None。
+    """
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    return parsed.astimezone(timezone.utc)
+
+
+def _same_submitted_at_instant(left, right):
+    """submitted_at 是否同一时刻（归秒比较，忽略微秒与时区字符串差异）。"""
+
+    left_instant = _submitted_at_instant(left)
+    right_instant = _submitted_at_instant(right)
+    if left_instant is None or right_instant is None:
+        return False
+    return left_instant.replace(microsecond=0) == right_instant.replace(microsecond=0)
 
 
 def _resolve_broker_order_key(report, *, current_order=None):
