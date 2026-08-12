@@ -171,6 +171,7 @@
                         :model-value="readRowValue(row)"
                         size="small"
                         :min="row.editor.min"
+                        :max="row.editor.max"
                         :step="row.editor.step"
                         :precision="row.editor.precision"
                         controls-position="right"
@@ -351,6 +352,7 @@ function defaultSettingsForm () {
       stock: {
         initial_lot_amount_default: null,
         lot_amount: null,
+        buy_amount_exponent: null,
         threshold: {
           mode: null,
           percent: null,

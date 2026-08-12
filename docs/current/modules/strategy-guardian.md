@@ -59,7 +59,7 @@ Guardian 持仓加仓数量（`build_holding_add_decision`）按价格四段走�
 3. `[BUY-2, BUY-3]`：cap3；
 4. 破线区 `p ≤ BUY-3`：`global_cap` 基数、`B = R × 1/2` 收敛、冷却用 T 侧 `buy:<code>`。
 
-`t = (上界 − p)/(上界 − 下界)`；`B = R × t²`；`Q = floor(B/p/100)×100`；`B < min_buy_amount`（`params.guardian.stock.min_buy_amount`，默认/下限 10000）不买（不消耗冷却）；`p > 上界`（含 p > TP3 不买入区）不买；触线 `t=1` 归属抄底线 base 补仓，T 侧不重复。
+`t = (上界 − p)/(上界 − 下界)`；`B = R × t^n`（`n = params.guardian.stock.buy_amount_exponent`，全局参数，默认 3，范围 [1, 5]，系统设置页可改；`n=2` 时按 `t×t` 快路径计算，与历史行为逐位一致）；`Q = floor(B/p/100)×100`；`B < min_buy_amount`（`params.guardian.stock.min_buy_amount`，默认/下限 10000）不买（不消耗冷却）；`p > 上界`（含 p > TP3 不买入区）不买；触线 `t=1` 归属抄底线 base 补仓，T 侧不重复。
 
 做T买入门槛基准（`_resolve_guardian_buy_fill_reference`）：最近一笔 execution fill 成交价 → 全部持仓（base+T）剩余股数加权平均成本 → `xt_positions.avg_price` 兜底 → 三者皆无不买；无 fill_time 基准时跳过时序校验。已删除 `guardian_slice_next_level` 回退（情况2）及其函数。
 
@@ -99,7 +99,7 @@ Guardian 持仓加仓数量（`build_holding_add_decision`）按价格四段走�
 
 - 持仓加仓
   - `_handle_holding_buy`
-  - 数量决策由 `GuardianBuyGridService.build_holding_add_decision()` 完成（#549 做T四段走廊，见「做T买入（四段走廊金字塔）」）：`R = cap − max(D+C, MV) − 在途`，`B = R × t²`（破线区 `R × 1/2`），受 `min_buy_amount` 与整手约束
+  - 数量决策由 `GuardianBuyGridService.build_holding_add_decision()` 完成（#549 做T四段走廊，见「做T买入（四段走廊金字塔）」）：`R = cap − max(D+C, MV) − 在途`，`B = R × t^n`（`n` 为全局 `params.guardian.stock.buy_amount_exponent`，默认 3；破线区 `R × 1/2` 固定），受 `min_buy_amount` 与整手约束
 - `_handle_holding_buy` 的 `timing_check` / `price_threshold_check` 以最近一笔 execution fill 成交价为基准（无 execution fill 时按全部持仓剩余股数加权平均成本、再兜底 `xt_positions.avg_price`），价格阈值沿用 `threshold` 配置；`fill_reference_source` 在 Trace 中标注（`execution_fill` / `ledger_average_cost` / `broker_position_avg_price`）
 - 无 execution fill 基准时无 `fill_time` → 跳过时序校验（timing_check 仅在 fill_time 存在时执行）
 - must_pool 新开仓

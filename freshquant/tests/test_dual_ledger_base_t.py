@@ -25,6 +25,16 @@ from freshquant.strategy.guardian_ladder import GuardianLadderState
 sys.modules.pop("freshquant.message", None)
 
 
+@pytest.fixture(autouse=True)
+def _stub_global_buy_amount_exponent(monkeypatch):
+    """#578：默认桩指数 2.0，避免测试连接真实 Mongo params。"""
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian_buy_grid._get_buy_amount_exponent",
+        lambda: 2.0,
+    )
+
+
 @dataclass
 class _UpdateResult:
     matched_count: int

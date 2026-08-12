@@ -84,6 +84,7 @@ DEFAULT_XTQUANT = {
 DEFAULT_GUARDIAN = {
     "stock": {
         "lot_amount": 50000,
+        "buy_amount_exponent": 3.0,
         "threshold": {"mode": "percent", "percent": 1},
         "grid_interval": {"mode": "percent", "percent": 3},
     }
@@ -144,6 +145,7 @@ class XtquantSettings:
 @dataclass(frozen=True)
 class GuardianSettings:
     stock_lot_amount: int = 50000
+    stock_buy_amount_exponent: float = 3.0
     stock_threshold: dict[str, Any] = field(
         default_factory=lambda: {"mode": "percent", "percent": 1}
     )
@@ -343,6 +345,9 @@ class SystemSettings:
         )
         self.guardian = GuardianSettings(
             stock_lot_amount=int(get(guardian_doc, "stock.lot_amount", 50000) or 50000),
+            stock_buy_amount_exponent=float(
+                get(guardian_doc, "stock.buy_amount_exponent", 3.0) or 3.0
+            ),
             stock_threshold=dict(
                 get(guardian_doc, "stock.threshold", {"mode": "percent", "percent": 1})
             ),

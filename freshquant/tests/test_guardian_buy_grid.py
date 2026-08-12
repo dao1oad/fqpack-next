@@ -4,6 +4,8 @@ import sys
 import types
 from dataclasses import dataclass
 
+import pytest
+
 sys.modules.setdefault("freshquant.message", types.ModuleType("freshquant.message"))
 
 from freshquant.strategy.guardian_buy_grid import GuardianBuyGridService
@@ -77,6 +79,122 @@ def _build_service(database=None):
         database=database or FakeDatabase(),
         get_trade_amount_fn=lambda _code: 50000,
     )
+
+
+@pytest.fixture(autouse=True)
+def _stub_global_buy_amount_exponent(monkeypatch):
+    """#578：桩指数 2.0（覆盖既有 t² 断言场景），避免连接真实 Mongo params。"""
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian_buy_grid._get_buy_amount_exponent",
+        lambda: 2.0,
+    )
+
+
+def test_holding_add_uses_global_buy_amount_exponent(monkeypatch):
+    """#578：全局指数=3 时 capacity_ratio == t³，且 context 输出 exponent。"""
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian_buy_grid._get_buy_amount_exponent",
+        lambda: 3.0,
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian_buy_grid._get_min_buy_amount",
+        lambda *_args, **_kwargs: 10000,
+    )
+    database = FakeDatabase(
+        {
+            "guardian_buy_grid_configs": FakeCollection(
+                [
+                    {
+                        "code": "000001",
+                        "BUY-1": 10.0,
+                        "BUY-2": 9.0,
+                        "BUY-3": 8.0,
+                        "max_position_amounts": [200000, 350000, 500000],
+                        "buy_enabled": [True, True, True],
+                        "enabled": True,
+                    }
+                ]
+            ),
+            "guardian_buy_grid_states": FakeCollection(
+                [{"code": "000001", "buy_active": [False, False, False]}]
+            ),
+        }
+    )
+    service = _build_service(database)
+    service._load_position_capacity = lambda _code: (200000.0, 800000.0)
+
+    decision = service.build_holding_add_decision("000001", 9.5)
+
+    # t = (10.0 - 9.5) / (10.0 - 9.0) = 0.5；t³ = 0.125
+    assert decision["stage"] == "BUY-1_TO_BUY-2"
+    assert decision["remaining_amount"] == 150000
+    assert decision["capacity_ratio"] == 0.125
+    assert decision["buy_amount_exponent"] == 3.0
+    # B = 150000 × 0.125 = 18750；Q = int(18750 / 9.5 / 100) × 100 = 1900
+    assert decision["capacity_quantity"] == 1900
+    assert decision["quantity"] == 1900
+
+
+def test_get_buy_amount_exponent_resolves_global_and_recovers(monkeypatch):
+    """#578：common 层读取只走 params.guardian.stock；缺失/越界回退默认 3.0。"""
+
+    from freshquant.database.cache import in_memory_cache
+    from freshquant.strategy import common
+
+    def _clear_memoize():
+        try:
+            in_memory_cache.invalidate_memoize("get_buy_amount_exponent")
+        except AttributeError:
+            for wrapper in in_memory_cache._memoized_wrappers:
+                wrapper._memoizit_cache.clear()
+
+    monkeypatch.setattr(
+        common,
+        "DBfreshquant",
+        FakeDatabase(
+            {
+                "params": FakeCollection(
+                    [
+                        {
+                            "code": "guardian",
+                            "value": {"stock": {"buy_amount_exponent": 4.0}},
+                        }
+                    ]
+                )
+            }
+        ),
+    )
+    _clear_memoize()
+    assert common.get_buy_amount_exponent() == 4.0
+
+    monkeypatch.setattr(
+        common,
+        "DBfreshquant",
+        FakeDatabase(
+            {
+                "params": FakeCollection(
+                    [
+                        {
+                            "code": "guardian",
+                            "value": {"stock": {"buy_amount_exponent": 9.0}},
+                        }
+                    ]
+                )
+            }
+        ),
+    )
+    _clear_memoize()
+    assert common.get_buy_amount_exponent() == 3.0
+
+    monkeypatch.setattr(
+        common,
+        "DBfreshquant",
+        FakeDatabase({"params": FakeCollection([{"code": "guardian", "value": {}}])}),
+    )
+    _clear_memoize()
+    assert common.get_buy_amount_exponent() == 3.0
 
 
 def test_new_open_prefers_initial_lot_amount_then_lot_amount_then_default():

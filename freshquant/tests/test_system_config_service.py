@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
 from bson import ObjectId
 
 
@@ -420,6 +421,7 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         "guardian": {
             "stock": {
                 "lot_amount": 50000,
+                "buy_amount_exponent": 4.0,
                 "threshold": {"mode": "percent", "percent": 1.2},
                 "grid_interval": {
                     "mode": "atr",
@@ -466,6 +468,12 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
         == "atr"
     )
     assert (
+        database["params"].find_one({"code": "guardian"})["value"]["stock"][
+            "buy_amount_exponent"
+        ]
+        == 4.0
+    )
+    assert (
         database["pm_configs"].find_one({"code": "default"})["thresholds"][
             "allow_open_min_bail"
         ]
@@ -482,6 +490,34 @@ def test_system_config_service_update_settings_persists_params_and_pm_config(
     assert settings.xtquant.auto_repay_reserve_cash == 12000.0
     assert settings.position_management.holding_only_min_bail == 150000
     assert settings.position_management.single_symbol_position_limit == 780000
+
+
+def test_system_config_service_rejects_out_of_range_buy_amount_exponent(
+    tmp_path, monkeypatch
+):
+    """#578：写侧指数越界 [1.0, 5.0] 拒绝（fail-closed）。"""
+
+    bootstrap_file = tmp_path / "freshquant_bootstrap.yaml"
+    _write_bootstrap_file(bootstrap_file)
+    monkeypatch.setenv("FRESHQUANT_BOOTSTRAP_FILE", str(bootstrap_file))
+
+    from freshquant import bootstrap_config as bootstrap_module
+    from freshquant.system_config_service import SystemConfigService
+    from freshquant.system_settings import SystemSettings
+
+    bootstrap_module.reload_bootstrap_config()
+    database = _build_database()
+    service = SystemConfigService(
+        database=database,
+        bootstrap_loader=bootstrap_module.load_bootstrap_config,
+        bootstrap_reloader=bootstrap_module.reload_bootstrap_config,
+        settings=SystemSettings(database=database),
+    )
+
+    with pytest.raises(ValueError):
+        service.update_settings({"guardian": {"stock": {"buy_amount_exponent": 6.0}}})
+    with pytest.raises(ValueError):
+        service.update_settings({"guardian": {"stock": {"buy_amount_exponent": 0.5}}})
 
 
 def test_system_config_service_dashboard_exposes_item_level_activation_metadata(

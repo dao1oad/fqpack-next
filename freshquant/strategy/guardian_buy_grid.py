@@ -43,6 +43,18 @@ def _get_min_buy_amount(instrument_code):
     return get_min_buy_amount(instrument_code)
 
 
+def _get_buy_amount_exponent():
+    """惰性获取全局做T买入金额指数（#578）。
+
+    采用函数内导入：测试桩会整体替换 ``freshquant.strategy.common``，
+    模块级导入在部分 shard 组合下会因桩缺少新函数而 ImportError。
+    """
+
+    from freshquant.strategy.common import get_buy_amount_exponent
+
+    return get_buy_amount_exponent()
+
+
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -480,7 +492,8 @@ class GuardianBuyGridService:
                 "stage": None,
             }
         # 做T四段走廊（#549 v4）：回补走廊 / [BUY-1,BUY-2] / [BUY-2,BUY-3] /
-        # 破线区；B = R × t²；破线区 B = R × 1/2（global_cap 基数）。
+        # 破线区；B = R × t^n（n 为全局 buy_amount_exponent，#578，默认 3；
+        # 破线区固定 B = R × 1/2，global_cap 基数）。
         hit_levels = self._resolve_hit_levels(
             price=source_price,
             config=config,
@@ -528,10 +541,17 @@ class GuardianBuyGridService:
                 "stage": corridor["stage"],
             }
         t_value = corridor["t"]
+        buy_amount_exponent = _get_buy_amount_exponent()
         if corridor["below_break"]:
-            buy_amount = capacity["remaining"] * 0.5
+            capacity_ratio = 0.5
         else:
-            buy_amount = capacity["remaining"] * t_value * t_value
+            # #578：全局指数可配置（设为 2.0 时走快路径，与历史行为逐位一致）。
+            capacity_ratio = (
+                (t_value * t_value)
+                if buy_amount_exponent == 2.0
+                else (t_value**buy_amount_exponent)
+            )
+        buy_amount = capacity["remaining"] * capacity_ratio
         min_buy_amount = _get_min_buy_amount(normalized)
         if buy_amount < min_buy_amount:
             return {
@@ -543,14 +563,13 @@ class GuardianBuyGridService:
                 "stage": corridor["stage"],
                 "buy_amount": round(buy_amount, 2),
                 "min_buy_amount": min_buy_amount,
-                "capacity_ratio": (
-                    0.5 if corridor["below_break"] else t_value * t_value
-                ),
+                "capacity_ratio": capacity_ratio,
                 "current_market_value": capacity["market_value"],
                 "remaining_amount": capacity["remaining"],
                 "ledger_occupancy": capacity["ledger_occupancy"],
                 "pending_buy_amount": capacity["pending_buy_amount"],
                 "t_value": t_value,
+                "buy_amount_exponent": buy_amount_exponent,
             }
         quantity = _amount_to_quantity(buy_amount, source_price)
         context = {
@@ -558,7 +577,7 @@ class GuardianBuyGridService:
             "effective_stage_cap": effective_cap,
             "current_market_value": capacity["market_value"],
             "remaining_amount": capacity["remaining"],
-            "capacity_ratio": (0.5 if corridor["below_break"] else t_value * t_value),
+            "capacity_ratio": capacity_ratio,
             "base_quantity": _amount_to_quantity(base_amount, source_price),
             "capacity_quantity": quantity,
             "buy_amount": round(buy_amount, 2),
@@ -566,6 +585,7 @@ class GuardianBuyGridService:
             "ledger_occupancy": capacity["ledger_occupancy"],
             "pending_buy_amount": capacity["pending_buy_amount"],
             "t_value": t_value,
+            "buy_amount_exponent": buy_amount_exponent,
         }
         if quantity < 100:
             context["skip_reason"] = "below_board_lot"

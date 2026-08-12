@@ -218,6 +218,7 @@ SETTINGS_SECTION_META = {
                 "source": "runtime_default.guardian",
             },
             {"field": "stock.lot_amount", "label": "默认买入金额"},
+            ("stock.buy_amount_exponent", "买入金额指数（t 的幂次，默认 3）"),
             ("stock.threshold.mode", "阈值模式"),
             ("stock.threshold.percent", "阈值百分比"),
             ("stock.threshold.atr.period", "阈值 ATR 周期"),
@@ -441,6 +442,7 @@ class SystemConfigService:
                 "stock": {
                     "initial_lot_amount_default": int(DEFAULT_INITIAL_LOT_AMOUNT),
                     "lot_amount": provider.guardian.stock_lot_amount,
+                    "buy_amount_exponent": provider.guardian.stock_buy_amount_exponent,
                     "threshold": deepcopy(provider.guardian.stock_threshold),
                     "grid_interval": deepcopy(provider.guardian.stock_grid_interval),
                 }
@@ -687,6 +689,9 @@ class SystemConfigService:
                         guardian_stock.get("lot_amount"),
                         field_name="guardian.stock.lot_amount",
                     ),
+                    "buy_amount_exponent": _require_buy_amount_exponent(
+                        guardian_stock.get("buy_amount_exponent", 3.0)
+                    ),
                     "threshold": deepcopy(guardian_stock.get("threshold") or {}),
                     "grid_interval": deepcopy(
                         guardian_stock.get("grid_interval") or {}
@@ -764,4 +769,15 @@ def _require_float(value, *, field_name):
         raise ValueError(f"{field_name} must be finite") from error
     if not math.isfinite(number):
         raise ValueError(f"{field_name} must be finite")
+    return number
+
+
+def _require_buy_amount_exponent(
+    value, *, field_name="guardian.stock.buy_amount_exponent"
+):
+    """写侧校验做T买入金额指数（#578）：必须落在 [1.0, 5.0]。"""
+
+    number = _require_float(value, field_name=field_name)
+    if number < 1.0 or number > 5.0:
+        raise ValueError(f"{field_name} must be in [1.0, 5.0]")
     return number

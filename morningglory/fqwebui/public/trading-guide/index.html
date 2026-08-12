@@ -532,7 +532,7 @@
 
     <!-- 公式 -->
     <div class="card dl-formula">
-      <h3>买入数量公式（α = 2：做T金字塔；抄底线触线 t=1 用满 cap−占用；破线区 B = R/2）</h3>
+      <h3>买入数量公式（α = t 的指数 n，默认 3，可配置 [1,5]：做T金字塔；抄底线触线 t=1 用满 cap−占用；破线区 B = R/2）</h3>
       <div class="dl-formula-grid">
         <div class="dl-f-item">
           <span class="dl-f-name">门槛</span>
@@ -546,8 +546,9 @@
         </div>
         <div class="dl-f-item">
           <span class="dl-f-name">买入金额</span>
-          <code>B = R × t²</code>
-          <p>t = (上界−p)/(上界−下界)；触线 t=1 → B=R，正好用满 cap−占用（归属抄底线 base）</p>
+          <code>B = R × t^n</code>
+          <p>n = 全局 buy_amount_exponent（默认 3，范围 [1,5]，设置页可改，n=2 与历史一致）；
+            t = (上界−p)/(上界−下界)；触线 t=1 → B=R，正好用满 cap−占用（归属抄底线 base）</p>
         </div>
         <div class="dl-f-item">
           <span class="dl-f-name">下限与整手</span>

@@ -223,12 +223,14 @@ CLX 不新增独立 Mongo/Redis 连接配置；API 与 Dagster 继续读取 Fres
 - `xtquant.auto_repay.enabled`
 - `xtquant.auto_repay.reserve_cash`
 - `guardian.stock.lot_amount`
+- `guardian.stock.buy_amount_exponent`
 - `guardian.stock.threshold.*`
 - `guardian.stock.grid_interval.*`
 
 其中：
 
 - `guardian.stock.lot_amount` 是 Guardian 持仓内加仓路径的基础金额，也是 `SubjectManagement` / `PositionManagement` 标的编辑区“默认买入金额”在 `instrument_strategy.lot_amount` 和 `must_pool.lot_amount` 都缺失时的最终回退值
+- `guardian.stock.buy_amount_exponent` 是 Guardian 做T加仓数量公式 `B = R × t^n` 的指数 `n`（默认 3，范围 [1, 5]），由 `common.get_buy_amount_exponent()` 读取（900s 内存缓存，修改后最长 15 分钟生效）
 - `xtquant.auto_repay.enabled` 与 `xtquant.auto_repay.reserve_cash` 只对 `CREDIT` 账户有意义；当前由 `xt_auto_repay.worker` 消费，用于控制普通融资负债自动还款
 - `SubjectManagement` / `PositionManagement` 标的总览已不再行内展示“默认买入金额”；当前统一在 `/system-settings -> 交易控制 / 策略 -> Guardian` 中维护这条系统级真值
 - Guardian 首次开仓默认金额不走 `guardian.stock.lot_amount`，当前固定回退到代码默认值 `100000`
@@ -306,6 +308,7 @@ Guardian 当前有两条买入路径：
 - `Guardian` section 当前固定包含两类买入金额口径：
   - `首笔买入金额`：只读展示运行默认值 `100000`
   - `默认买入金额`：正式对应 `guardian.stock.lot_amount`
+  - `买入金额指数（t 的幂次，默认 3）`：正式对应 `guardian.stock.buy_amount_exponent`
 - `XTQuant` section 当前除了 `path / account / account_type / broker_submit_mode`，还会直接编辑：
   - `xtquant.auto_repay.enabled`
   - `xtquant.auto_repay.reserve_cash`

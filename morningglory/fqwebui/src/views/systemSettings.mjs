@@ -95,6 +95,7 @@ const NUMBER_FIELD_META = {
   'monitor.xtdata.queue_backlog_threshold': { min: 1, step: 1 },
   'monitor.xtdata.prewarm.max_bars': { min: 1, step: 1 },
   'guardian.stock.lot_amount': { min: 0, step: 100 },
+  'guardian.stock.buy_amount_exponent': { min: 1, max: 5, step: 0.1, precision: 1 },
   'guardian.stock.threshold.percent': { min: 0.1, step: 0.1, precision: 2 },
   'guardian.stock.threshold.atr.period': { min: 1, step: 1 },
   'guardian.stock.threshold.atr.multiplier': { min: 0.1, step: 0.1, precision: 2 },
