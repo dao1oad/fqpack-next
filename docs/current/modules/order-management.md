@@ -479,7 +479,11 @@ flatten 模式执行时的归档/清理边界：
 - `/position-management -> 相关订单`
   - 当前是唯一正式订单排障入口
   - 继续展示 request / order / event / trade 主线
-  - 订单列表当前会优先显示 `updated_at`，若 broker-only 行缺失该字段，则回退 `last_fill_time / first_fill_time`
+  - 订单列表主列当前显示 `submitted_at`（业务提交时间，缺失回退
+    `updated_at / created_at`），另列“台账更新时间”（`updated_at`）供对账排障；
+    时间筛选默认 `submitted_at`（`#582` PR6）
+  - 订单列表顶部摘要与详情 badge 的“最近更新时间”仍使用 `updated_at`；若
+    broker-only 行缺失该字段，则回退 `last_fill_time / first_fill_time`
   - 订单列表、顶部摘要、详情 badge、timeline 当前统一通过 shared `orderStateMeta` 输出状态 label / chip variant / severity
   - 状态筛选仍使用 raw enum value，但前端展示 label 已统一为中文语义
   - 订单详情中的成交解释已经基于 `broker_order + execution_fill`
