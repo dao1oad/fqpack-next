@@ -336,31 +336,29 @@ def cmd_data(args: argparse.Namespace) -> None:
             report["symbols"][s] = {"status": "skipped", "compact": True}
 
     # akshare 的 py_mini_racer（新浪财务指标）非线程安全，并发会触发
-    # mini_racer.dll 崩溃；这里顺序执行，稳定优先（76 只约 5-8 分钟）。
-    for symbol in pending:
-        try:
-            financials = fetch_financials(symbol, latest_period=latest_period)
-            business = fetch_business(symbol, latest_period=latest_period)
-        except Exception as exc:  # noqa: BLE001
-            report["symbols"][symbol] = {"error": f"fetch: {exc}"}
-            continue
-        write_symbol_files(run_dir, symbol, financials, business)
-        compact = build_compact(
-            symbol,
-            quotes.get(symbol) or {},
-            financials,
-            business,
-            latest_period=latest_period,
+    # mini_racer.dll 崩溃，且第三方库会残留非 daemon 线程导致进程挂起；
+    # 网络抓取整体放入子进程（顺序执行），子进程退出即清理线程，主进程
+    # 不受影响（避免 os._exit 影响 pytest/CI 调用方）。
+    partial = run_dir / "data" / "data_report_partial.json"
+    if pending:
+        import multiprocessing
+
+        ctx = multiprocessing.get_context("spawn")
+        proc = ctx.Process(
+            target=_data_fetch_worker,
+            args=(str(run_dir), pending, latest_period, str(partial)),
         )
-        write_compact(run_dir, symbol, compact)
-        report["symbols"][symbol] = {
-            "financials": sorted(financials.keys()),
-            "business": sorted(business.keys()),
-            "compact": True,
-            "quote": quotes.get(symbol) is not None,
-        }
-        if len(report["symbols"]) % 10 == 0:
-            print(f"  data progress: {len(report['symbols'])}/{len(symbols)}", flush=True)
+        proc.start()
+        proc.join(3600)
+        if proc.exitcode != 0:
+            raise SystemExit(
+                f"data fetch worker failed with exit={proc.exitcode}; "
+                f"see {partial}"
+            )
+    if partial.is_file():
+        partial_payload = json.loads(partial.read_text(encoding="utf-8"))
+        report["symbols"].update(partial_payload.get("symbols") or {})
+        report["fetchErrors"] = partial_payload.get("fetchErrors", 0)
 
     (run_dir / "data_report.json").write_text(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2),
@@ -385,10 +383,60 @@ def cmd_data(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
-    sys.stdout.flush()
-    # akshare/baostock 等第三方库会残留非 daemon 线程，正常 return 会让进程
-    # 挂住不退出；产物与 report 均已落盘，直接强制退出。
-    os._exit(0)
+
+
+def _data_fetch_worker(
+    run_dir_str: str,
+    pending: list[str],
+    latest_period: str,
+    partial_path: str,
+) -> None:
+    """子进程：串行抓取财务/业务数据并写文件；退出即清理第三方残留线程。"""
+    run_dir = pathlib.Path(run_dir_str)
+    symbols_payload = {
+        "generatedAt": utc_now(),
+        "symbols": {},
+        "fetchErrors": 0,
+    }
+    for symbol in pending:
+        try:
+            financials = fetch_financials(symbol, latest_period=latest_period)
+            business = fetch_business(symbol, latest_period=latest_period)
+        except Exception as exc:  # noqa: BLE001
+            symbols_payload["symbols"][symbol] = {"error": f"fetch: {exc}"}
+            symbols_payload["fetchErrors"] += 1
+            continue
+        write_symbol_files(run_dir, symbol, financials, business)
+        quotes_path = run_dir / "data"
+        import json as _json
+
+        quotes_files = list(quotes_path.glob("quotes_local_*.json"))
+        quotes = {}
+        if quotes_files:
+            quotes = _json.loads(quotes_files[0].read_text(encoding="utf-8")).get(
+                symbol
+            ) or {}
+        compact = build_compact(
+            symbol,
+            quotes,
+            financials,
+            business,
+            latest_period=latest_period,
+        )
+        write_compact(run_dir, symbol, compact)
+        symbols_payload["symbols"][symbol] = {
+            "financials": sorted(financials.keys()),
+            "business": sorted(business.keys()),
+            "compact": True,
+            "quote": bool(quotes),
+        }
+        if len(symbols_payload["symbols"]) % 10 == 0:
+            print(f"  data progress: {len(symbols_payload['symbols'])}", flush=True)
+    pathlib.Path(partial_path).write_text(
+        json.dumps(symbols_payload, ensure_ascii=False, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    sys.exit(0)
 
 
 def cmd_rank(args: argparse.Namespace) -> None:

@@ -1,6 +1,6 @@
 你是 A 股标准单股深析执行器（CLX 基本面评价自动主链 v6 模板化）。工作目录 {run_dir}。
 
-请先读取技能说明 C:\Users\Administrator\.codex\skills\a-share-fundamental-analysis\SKILL.md 及其 references 子文档，对 {symbol} 执行标准单股分析（默认工作流，不简化）。
+请先读取技能说明 {skill_root}\SKILL.md 及其 references 子文档，对 {symbol} 执行标准单股分析（默认工作流，不简化）。
 as-of {as_of} 之前可见证据为准；最新报告期不超过规格中的报告期；无未来数据泄漏。
 硬性约束：本链路只保留基本面分析引擎，禁止调用/读取 a-share-market-replay 技能或任何市场复盘、市场主线/主题匹配工具；不得做市场叙事与短线方向判断。
 

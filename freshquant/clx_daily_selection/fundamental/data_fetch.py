@@ -75,6 +75,18 @@ def _ak_profile(symbol: str) -> Any:
     return ak.stock_profile_cninfo(symbol=symbol).to_dict(orient="records")
 
 
+@_guard("akshare-shares")
+def _ak_shares(symbol: str) -> Any:
+    """总股本（股），优先接口口径；失败由调用方回退注册资金假设。"""
+    import akshare as ak
+    df = ak.stock_individual_info_em(symbol=symbol)
+    record = df[df["item"] == "总股本"]
+    if record.empty:
+        return {"__error__": True, "source": "akshare-shares",
+                "error": "总股本 item missing"}
+    return {"value": int(float(record.iloc[0]["value"])), "source": "akshare-em"}
+
+
 @functools.lru_cache(maxsize=2)
 def _yjkb_all(date: str) -> Any:
     """业绩报表为全市场单期数据，一次拉取供全部标的过滤（避免 76 次重复下载）。"""
@@ -145,6 +157,7 @@ def fetch_business(symbol: str, latest_period: str = "20260331") -> dict[str, An
     out: dict[str, Any] = {}
     for name, fn in [
         ("profile", _ak_profile),
+        ("shares", _ak_shares),
         ("zygc", _ak_zygc),
         ("yjkb", lambda s: _ak_yjkb(s, date=latest_period)),
     ]:

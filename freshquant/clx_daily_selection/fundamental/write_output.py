@@ -51,12 +51,21 @@ def build_key_metrics(compact: dict) -> dict:
          if p[4:] == latest[4:] and p[:4] != latest[:4]),
         None,
     )
-    registered_capital = (compact.get("business") or {}).get("注册资金")
-    shares = (
-        int(float(registered_capital) * 10000)
-        if registered_capital not in (None, "", "nan")
-        else None
-    )
+    biz = compact.get("business") or {}
+    shares = biz.get("总股本")
+    shares_source = biz.get("总股本来源")
+    if shares is None:
+        registered_capital = biz.get("注册资金")
+        try:
+            capital = float(registered_capital)
+            if capital > 0:
+                # 注册资金（万元）→ 股本（股），假设面值 1 元；非 1 元面值
+                # 标的（如 601899 面值 0.1 元）会系统性偏差，以来源标记暴露。
+                shares = int(capital * 10000)
+                shares_source = "registered-capital-assumption(face=1)"
+        except (TypeError, ValueError):
+            shares = None
+            shares_source = None
 
     close = q.get("close")
     mcap = close * shares if close else None
@@ -125,6 +134,7 @@ def build_key_metrics(compact: dict) -> dict:
         "closePrice": close,
         "quoteDate": q.get("quoteDate") or "",
         "totalShares": shares,
+        "totalSharesSource": shares_source,
         "marketCapYuan": mcap,
         "marketCapYiYuan": mcap_yi,
         "high52w": q.get("high52w"),

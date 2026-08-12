@@ -124,6 +124,7 @@ def build_compact(
         ]
 
     profile = (business.get("profile") or [{}])[0]
+    shares_rec = business.get("shares") or {}
     return {
         "schemaVersion": "clx-compact-data.v1",
         "symbol": symbol,
@@ -148,6 +149,10 @@ def build_compact(
             "上市日期": profile.get("上市日期"),
             "官方网站": profile.get("官方网站"),
             "注册资金": profile.get("注册资金"),
+            "总股本": shares_rec.get("value") if isinstance(shares_rec, dict) else None,
+            "总股本来源": (
+                shares_rec.get("source") if isinstance(shares_rec, dict) else None
+            ),
             "主营业务": profile.get("主营业务"),
             "机构简介": (profile.get("机构简介") or "")[:1500],
         },

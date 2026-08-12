@@ -164,6 +164,14 @@
 - `qfq-daily-v1` 对每根纳入计算的 bar 要求有效复权因子；覆盖缺失或因子非法时本侧 fail-closed，不以未复权价格继续计算。
 - `/api/clx-daily-selection/history/signals` 只用闭合日线输入，返回 `future_function_guard`；Kline 只有在 profile 与 guard 通过时才显示 CLX marker series。
 
+## CLX 基本面评价每日主链（#601 全量深析）
+
+- 入口：`script/clx_eval_daily.ps1 -TradeDate <date>`（工作日 18:00 自动化触发）。
+- 阶段顺序：`bootstrap`（official ready 拉取，batch/content_hash/generation 三键锁定）→ `prepare`（pure-buy 证据包）→ `data`（多源数据包：本机 quantaxis 行情 + akshare/baostock 财务业务 + compact 预聚合；串行执行，76 只约 5 分钟，幂等跳过已生成标的）→ `rank --deep-limit 200`（快排指标源切换为 compact 多源数据；当日不足 200 时全量深析、snapshot=0）→ `deep-run --workers 3`（每标的一路 codex exec：模型只写 analysis json，`write_output.py` 确定性组装 keyMetrics 并 jsonschema 校验，先校验后写）→ `rank` 重合并（深析 evidenceGrade/evidenceIds/SHA256 回写）→ `stats` → `validate` → `publish`。
+- 数据来源：行情=本机 MongoDB `quantaxis.stock_day`（零网络）；财务/业务=akshare（东财/新浪/巨潮）→ baostock 降级；无 PDF 下载解析；多源一致性抽检 ≥99%。
+- 并发限制：`-DeepWorkers` 默认 3——6 并发实测使本机 opencodex 代理（127.0.0.1:10100）全部挂起，3 并发无退化。
+- 质量门：`deepCompletionRate=1.0`、`evidenceABShare≥0.8`、`collectionCompleteness≥0.95`；evidence_gap 按维度保守降级，不伪造总分。
+
 ## Runtime Observability 页面口径
 
 - `/runtime-observability` 主视图固定拆成 `全局 Trace` 与 `组件 Event` 两个视角。

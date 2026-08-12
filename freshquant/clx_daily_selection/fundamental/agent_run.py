@@ -40,8 +40,24 @@ def build_prompt(
         match = re.search(r"as-of[:：]\s*([0-9TZ+:.+-]+)", spec_text)
         if match:
             as_of = match.group(1).strip()
+        default_as_of = ""
+        match_dir = re.search(r"clx-(\d{4}-\d{2}-\d{2})", str(run_dir))
+        if match_dir:
+            from .compact import latest_report_period
+
+            trade_date = match_dir.group(1)
+            month = int(trade_date[5:7])
+            year = int(trade_date[:4])
+            if month <= 4:
+                default_as_of = f"{year - 1}-12-31T15:00:00+08:00"
+            elif month <= 8:
+                default_as_of = f"{year}-03-31T15:00:00+08:00"
+            elif month <= 10:
+                default_as_of = f"{year}-06-30T15:00:00+08:00"
+            else:
+                default_as_of = f"{year}-09-30T15:00:00+08:00"
         if not as_of:
-            as_of = "2026-08-12T15:00:00+08:00"
+            as_of = default_as_of or "2026-08-12T15:00:00+08:00"
         return template.read_text(encoding="utf-8").format(
             symbol=symbol,
             run_dir=run_dir,
@@ -49,6 +65,7 @@ def build_prompt(
             analysis_path=analysis_path,
             output_path=output,
             as_of=as_of,
+            skill_root=skill_root,
         )
     return (
         f"你是 A 股标准单股深析执行器（CLX 基本面评价自动主链）。\n"
@@ -122,20 +139,37 @@ def run(args: argparse.Namespace) -> int:
         prompt,
     ]
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=str(spec.parent.parent),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=args.timeout,
         )
-    except subprocess.TimeoutExpired:
-        print(
-            f"AGENT_RUN_ERROR timeout after {args.timeout}s: {symbol}", file=sys.stderr
-        )
-        return 5
+        try:
+            stdout, stderr = process.communicate(timeout=args.timeout)
+            result = subprocess.CompletedProcess(
+                command, process.returncode, stdout, stderr
+            )
+        except subprocess.TimeoutExpired:
+            # Windows 下 Popen 超时只杀直接子进程，孙进程会残留并占用
+            # opencodex 代理连接（并发放大因素）；用 taskkill /T 杀整棵进程树。
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+            )
+            print(
+                f"AGENT_RUN_ERROR timeout after {args.timeout}s (tree killed): "
+                f"{symbol}",
+                file=sys.stderr,
+            )
+            return 5
+    except OSError as exc:
+        print(f"AGENT_RUN_ERROR spawn failed: {exc}", file=sys.stderr)
+        return 8
     if result.returncode != 0:
         print(
             f"AGENT_RUN_ERROR exit={result.returncode} symbol={symbol}\n"
