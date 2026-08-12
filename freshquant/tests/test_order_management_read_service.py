@@ -60,10 +60,23 @@ class InMemoryOrderManagementRepository:
         self.order_events = []
         self.execution_fills = []
         self.exit_allocations = []
+        self.list_broker_orders_calls = 0
 
     def find_broker_order(self, broker_order_key):
         for item in self.broker_orders:
             if item.get("broker_order_key") == broker_order_key:
+                return item
+        return None
+
+    def find_broker_order_by_internal_order_id(self, internal_order_id):
+        for item in self.broker_orders:
+            if item.get("internal_order_id") == internal_order_id:
+                return item
+        return None
+
+    def find_broker_order_by_broker_order_id(self, broker_order_id):
+        for item in self.broker_orders:
+            if str(item.get("broker_order_id") or "") == str(broker_order_id):
                 return item
         return None
 
@@ -142,6 +155,7 @@ class InMemoryOrderManagementRepository:
         states=None,
         broker_order_keys=None,
     ):
+        self.list_broker_orders_calls += 1
         rows = list(self.broker_orders)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
@@ -506,6 +520,24 @@ def test_get_order_detail_uses_broker_order_key_to_load_execution_fills():
 
     assert detail["broker_order"]["broker_order_key"] == "border_fill_1"
     assert [item["execution_fill_id"] for item in detail["fills"]] == ["fill_1"]
+
+
+def test_get_order_detail_resolves_broker_order_by_internal_id_without_full_scan():
+    """#582：读侧按 internal_order_id 索引反查，不再全表扫描兜底。"""
+
+    repository = _build_repository()
+    repository.broker_orders[0]["broker_order_key"] = (
+        "account:068000087558:day:20260313:sysid:1"
+    )
+    service = OrderManagementReadService(repository=repository)
+    calls_before = repository.list_broker_orders_calls
+
+    detail = service.get_order_detail("ord_fill_1")
+
+    assert detail["broker_order"]["broker_order_key"] == (
+        "account:068000087558:day:20260313:sysid:1"
+    )
+    assert repository.list_broker_orders_calls == calls_before
 
 
 def test_get_stats_aggregates_side_state_and_missing_broker_counts():

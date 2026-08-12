@@ -70,6 +70,11 @@ class OrderManagementRepository:
                 "uq_om_broker_orders_broker_order_key",
             ),
             (
+                self.broker_orders,
+                "internal_order_id",
+                "uq_om_broker_orders_internal_order_id",
+            ),
+            (
                 self.trade_facts,
                 "execution_identity",
                 "uq_om_trade_facts_execution_identity",
@@ -526,6 +531,19 @@ class OrderManagementRepository:
 
     def find_broker_order_by_broker_order_id(self, broker_order_id):
         return self.broker_orders.find_one({"broker_order_id": str(broker_order_id)})
+
+    def find_broker_order_by_internal_order_id(self, internal_order_id):
+        """按内部订单编号（而非 canonical key）查询 broker order 聚合。
+
+        #582：内部编号与 canonical broker_order_key 是两套身份，读侧按
+        internal_order_id 反查必须走本方法（internal_order_id 索引），
+        不再把 internal_order_id 当 broker_order_key 使用或全表扫描兜底。
+        """
+
+        normalized = normalize_identifier(internal_order_id)
+        if normalized is None:
+            return None
+        return self.broker_orders.find_one({"internal_order_id": normalized})
 
     def find_order_by_request_id(self, request_id):
         return self.orders.find_one({"request_id": request_id})
