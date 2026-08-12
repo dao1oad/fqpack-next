@@ -125,6 +125,7 @@ const createPayload = () => ({
         stock: {
           initial_lot_amount_default: 100000,
           lot_amount: 50000,
+          buy_amount_exponent: 2.0,
           threshold: {
             mode: 'percent',
             percent: 1,
@@ -228,6 +229,7 @@ const createPayload = () => ({
         items: [
           { key: 'guardian.stock.initial_lot_amount_default', label: '首笔买入金额', value: 100000, editable: false },
           { key: 'guardian.stock.lot_amount', label: '默认买入金额', value: 50000 },
+          { key: 'guardian.stock.buy_amount_exponent', label: '买入金额指数（t 的幂次，默认 2）', value: 2.0 },
           { key: 'guardian.stock.threshold.mode', label: '阈值模式', value: 'percent' },
           { key: 'guardian.stock.threshold.percent', label: '阈值百分比', value: 1 },
           { key: 'guardian.stock.threshold.atr.period', label: '阈值 ATR 周期', value: 14 },

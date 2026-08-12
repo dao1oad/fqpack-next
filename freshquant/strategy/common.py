@@ -1,6 +1,8 @@
+import math
 from typing import Optional
 
 import pydash
+from loguru import logger
 
 from freshquant.database.cache import in_memory_cache
 from freshquant.db import DBfreshquant
@@ -122,6 +124,34 @@ def get_min_buy_amount(instrument_code: Optional[str] = None) -> int:
     if parsed is None:
         parsed = 10000
     return max(parsed, 10000)
+
+
+@in_memory_cache.memoize(expiration=900)
+def get_buy_amount_exponent() -> float:
+    """全局做T买入金额指数（#578）：``B = R × t^n``。
+
+    解析链只走全局 ``params.guardian.stock.buy_amount_exponent``（不传
+    instrument_code，避免产生标的级覆盖入口）；默认 2.0；读侧非法/越界
+    [1.0, 5.0] 回退 2.0 并告警（fail-safe 到现状），写侧由
+    ``SystemConfigService._normalize_settings_values`` 校验。
+    """
+
+    value = _resolve_guardian_config_value(
+        None,
+        strategy_key="buy_amount_exponent",
+        params_path="stock.buy_amount_exponent",
+    )
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = 2.0
+    if not math.isfinite(parsed) or parsed < 1.0 or parsed > 5.0:
+        logger.warning(
+            "params.guardian.stock.buy_amount_exponent 非法（{}），回退 2.0",
+            value,
+        )
+        return 2.0
+    return parsed
 
 
 if __name__ == "__main__":
