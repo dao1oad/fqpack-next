@@ -262,6 +262,16 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - `KlineSlim` 继续只消费 entry 摘要，不展开完整切片表
 - entry 级“剩余市值”优先按 symbol snapshot 最新价乘剩余数量；缺失最新价时才回退到持仓均价
 
+### 账本守恒守门
+
+- `freshquant.order_management.ledger_invariants`（#582 PR4）提供三条只读守恒
+  不变量：entry=Σ聚合成员数量、Σslice=entry、券商持仓=账本 open entry 剩余
+  （base+t 合并、symbol 后缀归一）
+- `xt_account_sync` 对账后 best-effort 执行守恒检查（`status=OPEN` entries +
+  全量 slices），违规打 `ledger invariant violations` warning 不阻断
+- ops 只读探针 `/api/ops/ledger-invariants` 返回
+  `ok / violation_count / violations / error`
+
 ### 自动平账
 
 `xt_positions delta -> om_reconciliation_gaps -> stable observation -> om_reconciliation_resolutions -> auto_open_entry / auto_close_allocation`

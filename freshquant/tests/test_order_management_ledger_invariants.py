@@ -213,7 +213,9 @@ def test_runtime_hook_warns_on_violation(monkeypatch):
                     "status": "OPEN",
                     "original_quantity": 7400,
                     "remaining_quantity": 7400,
-                    "aggregation_members": [{"broker_order_key": "k1", "quantity": 300}],
+                    "aggregation_members": [
+                        {"broker_order_key": "k1", "quantity": 300}
+                    ],
                 }
             ]
 

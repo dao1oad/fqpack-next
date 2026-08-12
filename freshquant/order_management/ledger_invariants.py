@@ -44,9 +44,7 @@ def check_entry_member_conservation(entries: list[dict]) -> list[dict]:
         members = list(entry.get("aggregation_members") or [])
         if not members:
             continue
-        member_quantity = sum(
-            _coerce_int(member.get("quantity")) for member in members
-        )
+        member_quantity = sum(_coerce_int(member.get("quantity")) for member in members)
         original_quantity = _coerce_int(entry.get("original_quantity"))
         if member_quantity != original_quantity:
             violations.append(
