@@ -1184,6 +1184,8 @@ def ops_ledger_invariants():
             positions=positions,
             entries=repository.list_position_entries(status="OPEN"),
             slices=repository.list_all_entry_slices(),
+            broker_orders=repository.list_broker_orders(),
+            requests=repository.list_order_requests(),
         )
     except Exception as exc:  # pragma: no cover - 防御降级
         error = f"ledger invariants unavailable（{exc}）"
