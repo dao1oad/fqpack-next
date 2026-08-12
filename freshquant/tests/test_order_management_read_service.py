@@ -526,9 +526,9 @@ def test_get_order_detail_resolves_broker_order_by_internal_id_without_full_scan
     """#582：读侧按 internal_order_id 索引反查，不再全表扫描兜底。"""
 
     repository = _build_repository()
-    repository.broker_orders[0]["broker_order_key"] = (
-        "account:068000087558:day:20260313:sysid:1"
-    )
+    repository.broker_orders[0][
+        "broker_order_key"
+    ] = "account:068000087558:day:20260313:sysid:1"
     service = OrderManagementReadService(repository=repository)
     calls_before = repository.list_broker_orders_calls
 

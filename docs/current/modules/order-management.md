@@ -261,6 +261,11 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - `SubjectManagement` detail 会把 `om_position_entries` 上的 `aggregation_members / aggregation_window` 与 `om_entry_slices` 一并下发
 - `KlineSlim` 继续只消费 entry 摘要，不展开完整切片表
 - entry 级“剩余市值”优先按 symbol snapshot 最新价乘剩余数量；缺失最新价时才回退到持仓均价
+- `#582`：订单详情读侧按 `om_broker_orders.internal_order_id` 索引反查
+  （`find_broker_order_by_internal_order_id`，非 unique partial 索引
+  `ix_om_broker_orders_internal_order_id`），不再把 internal_order_id 当
+  `broker_order_key` 直查，也不再全表扫描兜底；broker_order_id 兜底与
+  `om_orders` 回退保留
 
 ### 自动平账
 
