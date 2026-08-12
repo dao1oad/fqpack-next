@@ -386,16 +386,20 @@ class OrderManagementReadService:
         return orders
 
     def _find_broker_order(self, internal_order_id):
-        if hasattr(self.repository, "find_broker_order"):
-            order = self.repository.find_broker_order(internal_order_id)
+        # #582：按 internal_order_id 走索引反查，不再把 internal_order_id 当
+        # broker_order_key 直查，也不再全表扫描兜底。
+        if hasattr(self.repository, "find_broker_order_by_internal_order_id"):
+            order = self.repository.find_broker_order_by_internal_order_id(
+                internal_order_id
+            )
             if order is not None:
                 return order
-        if hasattr(self.repository, "list_broker_orders"):
-            for item in self.repository.list_broker_orders():
-                if item.get("internal_order_id") == internal_order_id:
-                    return item
-                if str(item.get("broker_order_id") or "").strip() == internal_order_id:
-                    return item
+        if hasattr(self.repository, "find_broker_order_by_broker_order_id"):
+            order = self.repository.find_broker_order_by_broker_order_id(
+                internal_order_id
+            )
+            if order is not None:
+                return order
         return self.repository.find_order(internal_order_id)
 
     def _list_execution_fills(self, broker_order_key, *, internal_order_id):
