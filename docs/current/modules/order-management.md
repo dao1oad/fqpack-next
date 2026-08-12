@@ -325,6 +325,9 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 - 若 `grid_interval / lot_amount / arrange_entry_slices` 任一环节异常，entry 仍保持 `OPEN`
 - 降级状态通过 `arrange_status / arrange_degraded / arrange_error_* / arrange_runtime_errors` 落在 entry 上
 - 降级时仍会写 compat mirror 与 holdings cache，避免真值已确认但视图长期滞后
+- `#582`：auto-open 确认时发 `status=warning`、`reason_code=auto_open_entry`
+  的 runtime 事件（payload 含 gap_id/quantity_delta/价格快照来源/观察次数/
+  resolution_id）——账本与券商真值失配后的自动补记不再静默，运行面可直接定位
 
 当前 external reconcile 不按同价、同量、部分数量或时间邻近猜测 XT 回报归属。
 FQOM 或完整 canonical identity 能证明归属时才挂回内部订单；完整 canonical
