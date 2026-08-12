@@ -6,6 +6,7 @@ from freshquant.order_management.ingest.xt_reports import (
     normalize_xt_order_report,
     normalize_xt_trade_report,
 )
+from freshquant.order_management.entry_aggregation import migrate_entry_member_key
 from freshquant.order_management.projection.stock_fills import (
     build_arranged_fills_view,
 )
@@ -954,6 +955,78 @@ def test_upsert_broker_position_entry_fails_closed_when_broker_order_missing():
     assert len(repository.ingest_rejections) == 1
     assert repository.ingest_rejections[0]["reason_code"] == "broker_order_missing"
     assert repository.position_entries == []
+
+
+def test_upsert_broker_position_entry_falls_back_to_internal_key():
+    """#582：trade_fact 携带 canonical key 但 broker order 仍为 internal 占位键
+    （order report 未迁移的竞态）时，internal 兜底查找必须命中。"""
+
+    repository, ingest_service = _bootstrap_service()
+    ingest_service.ingest_trade_report(
+        _buy_report("T-FBK-SEED"),
+        lot_amount=3000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    assert repository.broker_orders[0]["broker_order_key"] == "ord_test_1"
+
+    trade_fact = {
+        "symbol": "000001",
+        "internal_order_id": "ord_test_1",
+        "broker_order_key": "account:068000087558:day:20240310:sysid:1615",
+        "broker_trade_id": "T-FBK-2",
+        "quantity": 100,
+        "price": 10.0,
+        "trade_time": 1710000000,
+        "date": 20240310,
+        "time": "09:31:00",
+        "side": "buy",
+        "source": "xt_trade_callback",
+    }
+    entry, slices = xt_reports_module._upsert_broker_position_entry(
+        repository=repository,
+        trade_fact=trade_fact,
+        lot_amount=3000,
+        grid_interval=1.03,
+    )
+
+    assert entry is not None
+    assert entry["original_quantity"] == 900
+    assert len(entry["aggregation_members"]) == 1
+    assert entry["aggregation_member_keys"] == ["ord_test_1"]
+    assert repository.ingest_rejections == []
+
+
+def test_migrate_entry_member_key_preserves_reconciliation_resolution_members():
+    """#582：成员键迁移只改写 internal_order_id 旧键，不改写 resolution 成员。"""
+
+    entry = {
+        "entry_id": "entry_1",
+        "aggregation_members": [
+            {"broker_order_key": "ord_mf_1", "quantity": 300},
+            {
+                "broker_order_key": "reconciliation_resolution:resolution_x",
+                "quantity": 7100,
+            },
+        ],
+        "aggregation_member_keys": [
+            "ord_mf_1",
+            "reconciliation_resolution:resolution_x",
+        ],
+    }
+    migrated = migrate_entry_member_key(
+        entry,
+        legacy_key="ord_mf_1",
+        canonical_key="account:068000087558:day:20240310:sysid:1615",
+    )
+
+    assert [item["broker_order_key"] for item in migrated["aggregation_members"]] == [
+        "account:068000087558:day:20240310:sysid:1615",
+        "reconciliation_resolution:resolution_x",
+    ]
+    assert migrated["aggregation_member_keys"] == [
+        "account:068000087558:day:20240310:sysid:1615",
+        "reconciliation_resolution:resolution_x",
+    ]
 
 
 def test_trade_report_marks_holding_projection_updated(monkeypatch):
