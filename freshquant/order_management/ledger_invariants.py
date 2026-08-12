@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 
-"""账本守恒只读校验（#582 PR4）。
+"""账本守恒只读校验（#582 PR4 / 收口）。
 
-三条守恒不变量：
+四条守恒不变量：
 
 1. entry 数量 == Σ聚合成员数量（``aggregation_members[].quantity``）；
    成员缺失（如 flattened/legacy 形态）不判定为违反，只标记 degraded。
 2. Σentry slice 数量 == entry 数量（按 entry_id 聚合
    ``om_entry_slices.original_quantity``）。
 3. 券商持仓数量 == 账本 open entry 剩余数量（按 symbol，base+t 合并口径）。
+4. 归属一致性：``buy_cluster`` entry 及其成员的 ``position_type`` 必须与
+   对应 ``om_order_requests.ledger_intent`` 一致（t→t、base→base、
+   broker-only/无请求→base）；无法反查订单的成员跳过（degraded 不误报）。
 
 全部为纯函数：只读输入数据，不访问数据库、不修改任何集合，可重复执行。
 """
@@ -34,6 +37,20 @@ def _normalize_code(value: Any) -> str:
             text = text[: -len(suffix)]
             break
     return text
+
+
+def _position_type_of(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"t", "base", "-", "mixed"}:
+        return text
+    return "base"
+
+
+def _member_is_broker_evidence(member: dict) -> bool:
+    """仅评估能关联真实券商订单的成员（canonical key 或 internal 占位键）。"""
+
+    key = str(member.get("broker_order_key") or "").strip()
+    return key.startswith("account:") or key.startswith("ord_")
 
 
 def check_entry_member_conservation(entries: list[dict]) -> list[dict]:
@@ -125,11 +142,87 @@ def check_ledger_vs_positions(positions: list[dict], entries: list[dict]) -> lis
     return violations
 
 
+def check_ledger_intent_alignment(
+    *,
+    entries: list[dict],
+    broker_orders: list[dict],
+    requests: list[dict],
+) -> list[dict]:
+    """归属一致性：buy_cluster entry 归属必须与订单 ledger_intent 一致（#582 收口）。
+
+    - 只评估 ``source_ref_type=buy_cluster`` 且有可反查订单成员的 entry；
+    - 成员键为 canonical（``account:...``）或 internal（``ord_...``）时按
+      broker order → request 反查；``reconciliation_resolution:`` 自愈成员跳过；
+    - 反查不到 broker order / request 的成员跳过（degraded，不误报）；
+    - broker-only（无请求）预期 base；``ledger_intent=t`` 预期 t；
+      ``ledger_intent=base`` 或缺失预期 base。
+    """
+
+    requests_by_id = {
+        str(item.get("request_id") or "").strip(): item
+        for item in list(requests or [])
+        if str(item.get("request_id") or "").strip()
+    }
+    brokers_by_key = {
+        str(item.get("broker_order_key") or "").strip(): item
+        for item in list(broker_orders or [])
+        if str(item.get("broker_order_key") or "").strip()
+    }
+    brokers_by_internal = {
+        str(item.get("internal_order_id") or "").strip(): item
+        for item in list(broker_orders or [])
+        if str(item.get("internal_order_id") or "").strip()
+    }
+    violations: list[dict] = []
+    for entry in list(entries or []):
+        if str(entry.get("source_ref_type") or "").strip() != "buy_cluster":
+            continue
+        entry_type = _position_type_of(entry.get("position_type"))
+        for member in list(entry.get("aggregation_members") or []):
+            if not _member_is_broker_evidence(member):
+                continue
+            key = str(member.get("broker_order_key") or "").strip()
+            broker = brokers_by_key.get(key)
+            if broker is None and key.startswith("ord_"):
+                broker = brokers_by_internal.get(key)
+            if broker is None:
+                continue
+            request = requests_by_id.get(str(broker.get("request_id") or "").strip())
+            if request is None:
+                expected = "base"
+            else:
+                intent = str(request.get("ledger_intent") or "").strip().lower()
+                if intent == "t":
+                    expected = "t"
+                elif intent in {"base", ""}:
+                    expected = "base"
+                else:
+                    continue
+            member_type = _position_type_of(member.get("position_type"))
+            if entry_type != expected or member_type != expected:
+                violations.append(
+                    {
+                        "invariant": "ledger_intent_alignment",
+                        "symbol": entry.get("symbol"),
+                        "entry_id": entry.get("entry_id"),
+                        "entry_type": entry_type,
+                        "member_type": member_type,
+                        "expected": expected,
+                        "broker_order_key": key,
+                        "request_id": broker.get("request_id"),
+                        "ledger_intent": (request or {}).get("ledger_intent"),
+                    }
+                )
+    return violations
+
+
 def check_all_ledger_invariants(
     *,
     positions: list[dict] | None = None,
     entries: list[dict] | None = None,
     slices: list[dict] | None = None,
+    broker_orders: list[dict] | None = None,
+    requests: list[dict] | None = None,
 ) -> dict[str, list[dict]]:
     """汇总执行全部守恒检查，返回按 invariant 分组的违规列表。"""
 
@@ -140,5 +233,10 @@ def check_all_ledger_invariants(
         "ledger_vs_positions": check_ledger_vs_positions(
             list(positions or []),
             entries,
+        ),
+        "ledger_intent_alignment": check_ledger_intent_alignment(
+            entries=entries,
+            broker_orders=list(broker_orders or []),
+            requests=list(requests or []),
         ),
     }

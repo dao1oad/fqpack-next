@@ -376,6 +376,12 @@ def test_ops_ledger_invariants_reports_violations(ops_app, monkeypatch):
         def list_all_entry_slices(self):
             return [{"entry_id": "entry_1", "original_quantity": 7400}]
 
+        def list_broker_orders(self, **kwargs):
+            return []
+
+        def list_order_requests(self, **kwargs):
+            return []
+
     monkeypatch.setattr(
         "freshquant.order_management.repository.OrderManagementRepository",
         lambda: FakeRepository(),
@@ -409,6 +415,12 @@ def test_ops_ledger_invariants_ok_when_conserved(ops_app, monkeypatch):
 
         def list_all_entry_slices(self):
             return [{"entry_id": "entry_1", "original_quantity": 7400}]
+
+        def list_broker_orders(self, **kwargs):
+            return []
+
+        def list_order_requests(self, **kwargs):
+            return []
 
     monkeypatch.setattr(
         "freshquant.order_management.repository.OrderManagementRepository",

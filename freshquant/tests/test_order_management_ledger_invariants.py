@@ -5,6 +5,7 @@
 from freshquant.order_management.ledger_invariants import (
     check_all_ledger_invariants,
     check_entry_member_conservation,
+    check_ledger_intent_alignment,
     check_ledger_vs_positions,
     check_slice_conservation,
 )
@@ -133,6 +134,160 @@ def test_check_all_returns_grouped_violations():
     assert len(result["ledger_vs_positions"]) == 1
 
 
+def _cluster_entry(entry_id, symbol, ptype, member_key, member_type):
+    return {
+        "entry_id": entry_id,
+        "symbol": symbol,
+        "source_ref_type": "buy_cluster",
+        "position_type": ptype,
+        "aggregation_members": [
+            {
+                "broker_order_key": member_key,
+                "position_type": member_type,
+                "quantity": 100,
+            }
+        ],
+    }
+
+
+def test_ledger_intent_alignment_passes_when_t_matches_t():
+    entries = [
+        _cluster_entry(
+            "entry_t",
+            "002262",
+            "t",
+            "account:068000087558:day:20260812:sysid:154",
+            "t",
+        )
+    ]
+    broker_orders = [
+        {
+            "broker_order_key": "account:068000087558:day:20260812:sysid:154",
+            "internal_order_id": "ord_t_1",
+            "request_id": "req_t_1",
+        }
+    ]
+    requests = [{"request_id": "req_t_1", "ledger_intent": "t"}]
+
+    assert (
+        check_ledger_intent_alignment(
+            entries=entries,
+            broker_orders=broker_orders,
+            requests=requests,
+        )
+        == []
+    )
+
+
+def test_ledger_intent_alignment_reports_t_request_booked_as_base():
+    """#582 收口：做T买单被归为底仓必须被探针捕获（002262/300760 事故形态）。"""
+
+    entries = [
+        _cluster_entry(
+            "entry_mis",
+            "002262",
+            "base",
+            "account:068000087558:day:20260812:sysid:154",
+            "base",
+        )
+    ]
+    broker_orders = [
+        {
+            "broker_order_key": "account:068000087558:day:20260812:sysid:154",
+            "internal_order_id": "ord_mis_1",
+            "request_id": "req_mis_1",
+        }
+    ]
+    requests = [{"request_id": "req_mis_1", "ledger_intent": "t"}]
+
+    violations = check_ledger_intent_alignment(
+        entries=entries,
+        broker_orders=broker_orders,
+        requests=requests,
+    )
+
+    assert len(violations) == 1
+    assert violations[0]["entry_id"] == "entry_mis"
+    assert violations[0]["expected"] == "t"
+    assert violations[0]["entry_type"] == "base"
+    assert violations[0]["member_type"] == "base"
+
+
+def test_ledger_intent_alignment_base_request_booked_as_t_is_violation():
+    entries = [
+        _cluster_entry(
+            "entry_ovr",
+            "300760",
+            "t",
+            "account:068000076370:day:20260812:sysid:230",
+            "t",
+        )
+    ]
+    broker_orders = [
+        {
+            "broker_order_key": "account:068000076370:day:20260812:sysid:230",
+            "internal_order_id": "ord_ovr_1",
+            "request_id": "req_ovr_1",
+        }
+    ]
+    requests = [{"request_id": "req_ovr_1", "ledger_intent": "base"}]
+
+    violations = check_ledger_intent_alignment(
+        entries=entries,
+        broker_orders=broker_orders,
+        requests=requests,
+    )
+
+    assert len(violations) == 1
+    assert violations[0]["expected"] == "base"
+
+
+def test_ledger_intent_alignment_skips_resolution_and_unresolvable_members():
+    entries = [
+        {
+            "entry_id": "entry_600104",
+            "symbol": "600104",
+            "source_ref_type": "buy_cluster",
+            "position_type": "t",
+            "aggregation_members": [
+                {
+                    "broker_order_key": "account:068000087558:day:20260811:sysid:1615",
+                    "position_type": "t",
+                    "quantity": 300,
+                },
+                {
+                    "broker_order_key": "reconciliation_resolution:resolution_x",
+                    "position_type": "t",
+                    "quantity": 7100,
+                },
+                {
+                    "broker_order_key": "ord_ghost",
+                    "position_type": "t",
+                    "quantity": 100,
+                },
+            ],
+        }
+    ]
+    broker_orders = [
+        {
+            "broker_order_key": "account:068000087558:day:20260811:sysid:1615",
+            "internal_order_id": "ord_600104",
+            "request_id": "req_600104",
+        }
+    ]
+    requests = [{"request_id": "req_600104", "ledger_intent": "t"}]
+
+    # resolution 成员跳过、ord_ghost 无法反查跳过、真实成员一致 → 无违规
+    assert (
+        check_ledger_intent_alignment(
+            entries=entries,
+            broker_orders=broker_orders,
+            requests=requests,
+        )
+        == []
+    )
+
+
 def test_runtime_hook_uses_open_entries_and_all_slices(monkeypatch):
     """#582 PR4：运行时挂点必须用 status=OPEN 的 entry + 全量 slices。
 
@@ -159,6 +314,12 @@ def test_runtime_hook_uses_open_entries_and_all_slices(monkeypatch):
         def list_all_entry_slices(self):
             self.calls.append(("slices",))
             return list(self.slices)
+
+        def list_broker_orders(self, **kwargs):
+            return []
+
+        def list_order_requests(self, **kwargs):
+            return []
 
     entries = [
         {
@@ -221,6 +382,12 @@ def test_runtime_hook_warns_on_violation(monkeypatch):
 
         def list_all_entry_slices(self):
             return [{"entry_id": "entry_1", "original_quantity": 7400}]
+
+        def list_broker_orders(self, **kwargs):
+            return []
+
+        def list_order_requests(self, **kwargs):
+            return []
 
     monkeypatch.setattr(
         "freshquant.order_management.repository.OrderManagementRepository",

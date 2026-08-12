@@ -390,10 +390,14 @@ def _check_ledger_invariants(*, positions, reconcile_result):
         # 导致结构性误报（#582 PR4 验收修正）。
         entries = repository.list_position_entries(status="OPEN")
         slices = repository.list_all_entry_slices()
+        broker_orders = repository.list_broker_orders()
+        requests = repository.list_order_requests()
         violations = check_all_ledger_invariants(
             positions=positions,
             entries=entries,
             slices=slices,
+            broker_orders=broker_orders,
+            requests=requests,
         )
         total = sum(len(items) for items in violations.values())
         if total:
