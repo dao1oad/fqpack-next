@@ -815,7 +815,6 @@ class StrategyConsumer:
                     continue
                 model = int(s.get("model") or 0)
                 close = float(s.get("close") or 0.0)
-                stop_loss = float(s.get("stop_loss") or 0.0)
             except Exception:
                 continue
 
@@ -839,7 +838,6 @@ class StrategyConsumer:
                 "period": period,
                 "model": f"CLX{model}",
                 "close": close,
-                "stop_loss_price": stop_loss or None,
                 "source": "XTData_Realtime",
             }
             docs.append(doc)
@@ -904,7 +902,7 @@ class StrategyConsumer:
             lines = [f"### {title}"]
             for d in docs:
                 lines.append(
-                    f"- {d.get('code')} {d.get('name','')} {d.get('model')} close={d.get('close')} stop={d.get('stop_loss_price') or ''}"
+                    f"- {d.get('code')} {d.get('name','')} {d.get('model')} close={d.get('close')}"
                 )
             send_private_message(title, "  \n".join(lines))
         except Exception:

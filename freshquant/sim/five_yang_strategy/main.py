@@ -310,22 +310,13 @@ class FiveYangStrategy(BaseStrategy):
         # 获取参数
         atr_period = self.input_param_model.get_param('atr_period', 20)
         atr_multiplier = self.input_param_model.get_param('atr_multiplier', 2.0)
-        profit_loss_ratio = self.input_param_model.get_param('profit_loss_ratio', 1.0)
 
-        stop_loss_price = self.get_volume_long_stop_loss_price(pos.code)
-        if not stop_loss_price:
-            stop_loss_price = cost_price - atr_multiplier * self.calculate_atr(
-                hist_data, period=atr_period
-            )
-
-        take_profit_price = (
-            cost_price + (cost_price - stop_loss_price) * profit_loss_ratio
+        take_profit_price = cost_price + atr_multiplier * self.calculate_atr(
+            hist_data, period=atr_period
         )
 
-        # 卖出条件：收盘价低于止损价或高于止盈价
-        if today_close < stop_loss_price:
-            return True
-        elif today_close > take_profit_price:
+        # 卖出条件：收盘价高于止盈价（止损功能已随 Issue #603 下线）
+        if today_close > take_profit_price:
             return True
 
         return False
@@ -341,50 +332,7 @@ class FiveYangStrategy(BaseStrategy):
         dt: 成交时间
         market_data: 市场数据字典，格式为 {'1d': DataFrame, '1w': DataFrame, ...}
         """
-        try:
-            # 获取日线数据
-            if '1d' not in market_data:
-                return
-
-            hist_data = market_data['1d']
-            current_idx = len(hist_data) - 1
-
-            # 确保有足够的历史数据
-            if current_idx < 4:
-                return
-
-            # 获取最近5天的数据
-            recent_data = hist_data.iloc[current_idx - 4 : current_idx + 1]
-
-            # 计算5天最高价和最低价的中间价格作为止损价1
-            high_5d = recent_data['high'].max()
-            low_5d = recent_data['low'].min()
-            stop_loss_1 = (high_5d + low_5d) / 2
-
-            # 获取参数
-            atr_period = self.input_param_model.get_param('atr_period', 20)
-            atr_multiplier = self.input_param_model.get_param('atr_multiplier', 2.0)
-
-            # 使用BaseStrategy中的ATR计算函数
-            atr = self.calculate_atr(hist_data, period=atr_period)
-
-            # 计算price - atr_multiplier*atr作为止损价2
-            stop_loss_2 = price - atr_multiplier * atr
-
-            # 选择较低的价格作为最终止损价
-            final_stop_loss = min(stop_loss_1, stop_loss_2)
-
-            # 记录止损价信息
-            print(f"成交回调 - 代码: {code}, 成交价: {price:.2f}, 成交量: {volume}")
-            print(f"5天高低价中间价(止损价1): {stop_loss_1:.2f}")
-            print(f"ATR止损价(止损价2): {stop_loss_2:.2f} (ATR: {atr:.2f})")
-            print(f"最终止损价: {final_stop_loss:.2f}")
-
-            self.set_volume_long_stop_loss_price(code, final_stop_loss)
-
-        except Exception as e:
-            print(f"设置止损价时发生错误: {e}")
-            traceback.print_exc()
+        print(f"成交回调 - 代码: {code}, 成交价: {price:.2f}, 成交量: {volume}")
 
 
 def main():
@@ -398,7 +346,6 @@ def main():
         var_chan_30m_market_direction=None,
         var_atr_period=20,
         var_atr_multiplier=2.0,
-        var_profit_loss_ratio=1.0,
         var_min_volume_ratio=0.7,
     )
 

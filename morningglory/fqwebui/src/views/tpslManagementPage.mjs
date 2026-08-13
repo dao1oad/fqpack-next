@@ -38,65 +38,27 @@ export const createTpslManagementPageController = ({
     detail: null,
     takeprofitDrafts: [],
     historyKind: 'all',
-    stoplossDrafts: {},
-    savingStoploss: {},
   })
 
   const holdingCount = computed(() => state.overviewRows.filter((row) => row.position_quantity > 0).length)
-  const activeStoplossCount = computed(() => state.overviewRows.filter((row) => row.has_active_stoploss).length)
   const armedLevels = computed(() => state.detail?.takeprofit?.state?.armed_levels || {})
-
-  const syncStoplossDrafts = (rows = []) => {
-    for (const key of Object.keys(state.stoplossDrafts)) {
-      delete state.stoplossDrafts[key]
-    }
-    for (const row of rows) {
-      const entryId = row.entry_id
-      if (!entryId) continue
-      state.stoplossDrafts[entryId] = {
-        stop_price: row.stoploss?.stop_price ?? null,
-        enabled: Boolean(row.stoploss?.enabled),
-      }
-    }
-  }
 
   const hydrateDetail = async (
     symbol,
     {
       historyLimit = HISTORY_LIMIT,
       preserveTakeprofitDrafts = false,
-      preserveStoplossDrafts = false,
     } = {},
   ) => {
     const previousSymbol = state.selectedSymbol
     const previousTakeprofitDrafts = cloneTiers(state.takeprofitDrafts)
-    const previousStoplossDrafts = Object.fromEntries(
-      Object.entries(state.stoplossDrafts).map(([entryId, payload]) => [
-        entryId,
-        {
-          stop_price: payload?.stop_price ?? null,
-          enabled: Boolean(payload?.enabled),
-        },
-      ]),
-    )
     state.loadingDetail = true
     try {
       const nextDetail = await actions.loadSymbolDetail(symbol, { historyLimit })
       state.detail = nextDetail
       state.takeprofitDrafts = cloneTiers(nextDetail.takeprofit?.tiers || [])
-      syncStoplossDrafts(nextDetail.entries || [])
       if (previousSymbol === nextDetail.symbol && preserveTakeprofitDrafts && previousTakeprofitDrafts.length > 0) {
         state.takeprofitDrafts = previousTakeprofitDrafts
-      }
-      if (previousSymbol === nextDetail.symbol && preserveStoplossDrafts) {
-        for (const [entryId, payload] of Object.entries(previousStoplossDrafts)) {
-          if (state.stoplossDrafts[entryId]) {
-            state.stoplossDrafts[entryId] = {
-              ...state.stoplossDrafts[entryId],
-              ...payload,
-            }
-          }
-        }
       }
       state.selectedSymbol = nextDetail.symbol
       state.pageError = ''
@@ -165,7 +127,6 @@ export const createTpslManagementPageController = ({
       emitNotify(notify, 'success', '止盈层级已保存')
       await hydrateDetail(state.selectedSymbol, {
         historyLimit: HISTORY_LIMIT,
-        preserveStoplossDrafts: true,
       })
     } catch (error) {
       state.pageError = errorMessage(error)
@@ -181,7 +142,6 @@ export const createTpslManagementPageController = ({
       emitNotify(notify, 'success', `L${level} 已${enabled ? '启用' : '停用'}`)
       await hydrateDetail(state.selectedSymbol, {
         historyLimit: HISTORY_LIMIT,
-        preserveStoplossDrafts: true,
       })
     } catch (error) {
       state.pageError = errorMessage(error)
@@ -195,28 +155,9 @@ export const createTpslManagementPageController = ({
       emitNotify(notify, 'success', '已重新布防')
       await hydrateDetail(state.selectedSymbol, {
         historyLimit: HISTORY_LIMIT,
-        preserveStoplossDrafts: true,
       })
     } catch (error) {
       state.pageError = errorMessage(error)
-    }
-  }
-
-  const handleSaveStoploss = async (entryId) => {
-    if (!entryId) return
-    state.savingStoploss[entryId] = true
-    try {
-      await actions.saveStoploss(entryId, state.stoplossDrafts[entryId] || {})
-      emitNotify(notify, 'success', `已更新 ${entryId}`)
-      await hydrateDetail(state.selectedSymbol, {
-        historyLimit: HISTORY_LIMIT,
-        preserveTakeprofitDrafts: true,
-        preserveStoplossDrafts: true,
-      })
-    } catch (error) {
-      state.pageError = errorMessage(error)
-    } finally {
-      state.savingStoploss[entryId] = false
     }
   }
 
@@ -243,7 +184,6 @@ export const createTpslManagementPageController = ({
   return {
     state,
     holdingCount,
-    activeStoplossCount,
     armedLevels,
     hydrateDetail,
     refreshOverview,
@@ -254,7 +194,6 @@ export const createTpslManagementPageController = ({
     handleSaveTakeprofit,
     handleToggleTier,
     handleRearm,
-    handleSaveStoploss,
     loadHistory,
   }
 }

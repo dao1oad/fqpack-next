@@ -271,7 +271,6 @@ def remove(id=None, category=None, codes=None):
 def import_pool(
     code: str,
     category: str,
-    stop_loss_price: float | None = None,
     initial_lot_amount: float = None,
     lot_amount: float = None,
     forever: bool = True,
@@ -283,7 +282,6 @@ def import_pool(
         code: 股票代码
         lot_amount: 每次买入金额
         category: 分类名称
-        stop_loss_price: 止损价格（可为 None，表示尚未配置）
         initial_lot_amount: 首次买入金额 (可选，默认等于lot_amount)
     """
 
@@ -340,7 +338,6 @@ def import_pool(
                     "categories": merged_provenance.get("categories", []),
                     "memberships": merged_provenance.get("memberships", []),
                     "workspace_order_hint": workspace_order_hint,
-                    "stop_loss_price": stop_loss_price,
                     "forever": forever,
                     "disabled": False,
                     "updated_at": datetime.datetime.now(),
@@ -362,7 +359,6 @@ def import_pool(
                 "categories": merged_provenance.get("categories", []),
                 "memberships": merged_provenance.get("memberships", []),
                 "workspace_order_hint": workspace_order_hint,
-                "stop_loss_price": stop_loss_price,
                 "forever": forever,
                 "disabled": False,
                 "created_at": datetime.datetime.now(),

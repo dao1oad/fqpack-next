@@ -288,7 +288,6 @@ class PrePoolService:
         category: str,
         added_at: Any = None,
         expire_at: Any = None,
-        stop_loss_price: Any = None,
         source_remark: str | None = None,
         row_category: str | None = None,
         row_remark: str | None = None,
@@ -311,7 +310,6 @@ class PrePoolService:
             "updated_at": added_at,
             "datetime": added_at,
             "expire_at": expire_at,
-            "stop_loss_price": stop_loss_price,
             "category": _to_text(row_category),
             "remark": _to_text(row_remark),
             "extra": _deepcopy_dict(row_extra),
@@ -361,11 +359,6 @@ class PrePoolService:
             "updated_at": updated_at,
             "datetime": created_at,
             "expire_at": _pick_latest(existing.get("expire_at"), expire_at),
-            "stop_loss_price": (
-                stop_loss_price
-                if stop_loss_price is not None
-                else existing.get("stop_loss_price")
-            ),
             "category": _to_text(row_category) or _to_text(existing.get("category")),
             "remark": _to_text(row_remark) or _to_text(existing.get("remark")),
             "extra": _deepcopy_dict(row_extra) or _deepcopy_dict(existing.get("extra")),
@@ -403,7 +396,6 @@ class PrePoolService:
                     "updated_at": None,
                     "datetime": None,
                     "expire_at": None,
-                    "stop_loss_price": None,
                     "workspace_order": None,
                     "_memberships": {},
                 },
@@ -527,9 +519,6 @@ class PrePoolService:
         group["expire_at"] = _pick_latest(
             group.get("expire_at"), raw_row.get("expire_at")
         )
-        if raw_row.get("stop_loss_price") is not None:
-            group["stop_loss_price"] = raw_row.get("stop_loss_price")
-
         workspace_order = raw_row.get("workspace_order")
         if workspace_order is None:
             workspace_order = _deepcopy_dict(raw_row.get("extra")).get(
@@ -576,7 +565,6 @@ class PrePoolService:
             "updated_at": updated_at,
             "datetime": created_at,
             "expire_at": group.get("expire_at"),
-            "stop_loss_price": group.get("stop_loss_price"),
             "sources": _dedupe_text_list([item.get("source") for item in memberships]),
             "categories": _dedupe_text_list(
                 [item.get("category") for item in memberships]

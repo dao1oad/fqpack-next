@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from freshquant.order_management.entry_adapter import (
-    list_entry_stoploss_bindings_compat,
     list_open_entry_slices_compat,
     list_open_entry_views,
 )
@@ -59,16 +58,6 @@ class TpslManagementService:
             for item in self.tpsl_repository.list_takeprofit_profiles()
             if item.get("symbol")
         }
-        bindings = list_entry_stoploss_bindings_compat(
-            enabled=None,
-            repository=self.order_repository,
-        )
-        active_stoploss_counts = {}
-        for binding in bindings:
-            symbol = _normalize_symbol(binding.get("symbol"))
-            if not symbol or not bool(binding.get("enabled")):
-                continue
-            active_stoploss_counts[symbol] = active_stoploss_counts.get(symbol, 0) + 1
         open_entry_counts = {}
         for entry in self.entry_view_loader(None):
             symbol = _normalize_symbol(entry.get("symbol"))
@@ -76,12 +65,7 @@ class TpslManagementService:
                 continue
             open_entry_counts[symbol] = open_entry_counts.get(symbol, 0) + 1
 
-        symbols = (
-            set(positions)
-            | set(profile_map)
-            | set(active_stoploss_counts)
-            | set(open_entry_counts)
-        )
+        symbols = set(positions) | set(profile_map) | set(open_entry_counts)
         latest_events = {}
         if symbols:
             if hasattr(
@@ -119,10 +103,6 @@ class TpslManagementService:
                     "takeprofit_tiers": _normalize_takeprofit_tiers(
                         profile.get("tiers")
                     ),
-                    "has_active_stoploss": active_stoploss_counts.get(symbol, 0) > 0,
-                    "active_stoploss_entry_count": active_stoploss_counts.get(
-                        symbol, 0
-                    ),
                     "open_entry_count": open_entry_counts.get(symbol, 0),
                     "last_trigger": latest_events.get(symbol),
                 }
@@ -155,22 +135,12 @@ class TpslManagementService:
             takeprofit = self.takeprofit_service.get_profile_with_state(
                 normalized_symbol
             )
-        bindings = {
-            item["entry_id"]: item
-            for item in list_entry_stoploss_bindings_compat(
-                symbol=normalized_symbol,
-                enabled=None,
-                repository=self.order_repository,
-            )
-            if item.get("entry_id")
-        }
         entries = []
         for item in self.entry_view_loader(normalized_symbol):
             if int(item.get("remaining_quantity") or 0) <= 0:
                 continue
             entry = dict(item)
             entry["sell_history"] = list(entry.get("sell_history") or [])
-            entry["stoploss"] = bindings.get(item["entry_id"])
             entries.append(entry)
         entries.sort(
             key=lambda item: (
@@ -266,8 +236,7 @@ class TpslManagementService:
         order_requests = [
             item
             for item in order_requests
-            if item.get("scope_type")
-            in {"takeprofit_batch", "stoploss_batch", "symbol_stoploss_batch"}
+            if item.get("scope_type") == "takeprofit_batch"
         ]
         requests_by_batch = {}
         for item in order_requests:
@@ -531,8 +500,6 @@ def _derive_kind(row):
     event_type = str(row.get("event_type") or "").strip().lower()
     if "takeprofit" in event_type:
         return "takeprofit"
-    if "stoploss" in event_type:
-        return "stoploss"
     return ""
 
 

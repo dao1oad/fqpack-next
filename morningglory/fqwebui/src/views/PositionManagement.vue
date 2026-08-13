@@ -140,7 +140,7 @@
                   class="position-selection-panel__body"
                 >
                   <section class="position-selection-section">
-                    <div class="position-selection-section__title">聚合买入列表 / 按持仓入口止损</div>
+                    <div class="position-selection-section__title">聚合买入列表</div>
                     <div v-if="selectedSubjectEntryRows.length" class="position-selection-table-wrap">
                       <el-table
                         :data="selectedSubjectEntryRows"
@@ -203,43 +203,6 @@
                           </template>
                         </el-table-column>
 
-                        <el-table-column label="单笔止损" min-width="96">
-                          <template #default="{ row }">
-                            <el-input-number
-                              v-if="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol]?.[row.entry_id]"
-                              v-model="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol][row.entry_id].stop_price"
-                              size="small"
-                              :min="0"
-                              :step="0.01"
-                              :precision="2"
-                              controls-position="right"
-                            />
-                            <span v-else class="position-selection-inline-empty">-</span>
-                          </template>
-                        </el-table-column>
-
-                        <el-table-column label="启用" min-width="72" align="center">
-                          <template #default="{ row }">
-                            <el-switch
-                              v-if="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol]?.[row.entry_id]"
-                              v-model="subjectWorkbenchRuntime.state.stoplossDrafts[selectedSubjectSymbol][row.entry_id].enabled"
-                            />
-                            <span v-else class="position-selection-inline-empty">-</span>
-                          </template>
-                        </el-table-column>
-
-                        <el-table-column label="保存" min-width="76" fixed="right">
-                          <template #default="{ row }">
-                            <el-button
-                              size="small"
-                              type="primary"
-                              :loading="Boolean(subjectWorkbenchRuntime.state.savingStoploss[selectedSubjectSymbol])"
-                              @click="saveSubjectStoploss(selectedSubjectSymbol, row.entry_id)"
-                            >
-                              保存
-                            </el-button>
-                          </template>
-                        </el-table-column>
                       </el-table>
                     </div>
                     <div v-else class="runtime-empty-panel">
@@ -944,18 +907,6 @@ const saveSubjectConfigBundle = async (symbol) => {
   await subjectWorkbenchController.saveConfigBundle(symbol)
 }
 
-const saveSubjectStoploss = async (symbol, entryId) => {
-  const draft = subjectWorkbenchController.state.stoplossDrafts?.[symbol]?.[entryId] || {}
-  if (draft.enabled) {
-    const parsed = Number(draft.stop_price)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      ElMessage.warning(`开启止损前请先填写 ${entryId} 的 stop_price`)
-      return
-    }
-  }
-  await subjectWorkbenchController.saveStoploss(symbol, entryId)
-}
-
 const subjectWorkbenchRuntime = {
   state: subjectWorkbenchController.state,
   refreshOverview: async (options) => subjectWorkbenchController.refreshOverview(options),
@@ -965,7 +916,6 @@ const subjectWorkbenchRuntime = {
   getSelectedEntry: (symbol) => subjectWorkbenchController.getSelectedEntry(symbol),
   getSelectedEntrySlices: (symbol) => subjectWorkbenchController.getSelectedEntrySlices(symbol),
   saveConfigBundle: async (symbol) => saveSubjectConfigBundle(symbol),
-  saveStoploss: async (symbol, entryId) => saveSubjectStoploss(symbol, entryId),
 }
 
 const statePanel = computed(() => buildStatePanel(dashboard.value))

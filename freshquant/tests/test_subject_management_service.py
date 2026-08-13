@@ -54,9 +54,6 @@ def _install_dashboard_service_stubs(monkeypatch):
         def list_buy_lots(self, symbol=None, buy_lot_ids=None):
             return []
 
-        def list_stoploss_bindings(self, symbol=None, enabled=None):
-            return []
-
     order_repository_module.OrderManagementRepository = OrderManagementRepository
     monkeypatch.setitem(
         sys.modules, "freshquant.order_management.repository", order_repository_module
@@ -190,10 +187,8 @@ class InMemoryTpslRepository:
 class InMemoryOrderManagementRepository:
     def __init__(self):
         self.position_entries = []
-        self.entry_stoploss_bindings = []
         self.open_entry_slices = []
         self.buy_lots = []
-        self.stoploss_bindings = []
 
     def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
         rows = list(self.position_entries)
@@ -215,14 +210,6 @@ class InMemoryOrderManagementRepository:
             rows = [item for item in rows if item.get("buy_lot_id") in allowed]
         return rows
 
-    def list_entry_stoploss_bindings(self, symbol=None, enabled=None):
-        rows = list(self.entry_stoploss_bindings)
-        if symbol is not None:
-            rows = [item for item in rows if item.get("symbol") == symbol]
-        if enabled is not None:
-            rows = [item for item in rows if bool(item.get("enabled")) == bool(enabled)]
-        return rows
-
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         rows = list(self.open_entry_slices)
         if symbol is not None:
@@ -230,14 +217,6 @@ class InMemoryOrderManagementRepository:
         if entry_ids is not None:
             allowed = set(entry_ids)
             rows = [item for item in rows if item.get("entry_id") in allowed]
-        return rows
-
-    def list_stoploss_bindings(self, symbol=None, enabled=None):
-        rows = list(self.stoploss_bindings)
-        if symbol is not None:
-            rows = [item for item in rows if item.get("symbol") == symbol]
-        if enabled is not None:
-            rows = [item for item in rows if bool(item.get("enabled")) == bool(enabled)]
         return rows
 
 
@@ -250,7 +229,6 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
                         "code": "600000",
                         "name": "浦发银行",
                         "category": "银行",
-                        "stop_loss_price": 9.2,
                         "initial_lot_amount": 80000,
                         "lot_amount": 50000,
                         "forever": True,
@@ -302,14 +280,6 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
                 "level": 2,
                 "created_at": "2026-03-16T10:40:00+08:00",
             },
-            {
-                "event_id": "evt_2",
-                "event_type": "entry_stoploss_hit",
-                "kind": "stoploss",
-                "symbol": "600000",
-                "batch_id": "sl_batch_1",
-                "created_at": "2026-03-16T10:42:00+08:00",
-            },
         ]
     )
     order_repository = InMemoryOrderManagementRepository()
@@ -353,39 +323,6 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
             },
         ]
     )
-    order_repository.entry_stoploss_bindings.extend(
-        [
-            {
-                "entry_id": "lot_1",
-                "symbol": "600000",
-                "stop_price": 9.2,
-                "enabled": True,
-            },
-            {
-                "entry_id": "lot_2",
-                "symbol": "600000",
-                "stop_price": 9.0,
-                "enabled": False,
-            },
-        ]
-    )
-    order_repository.stoploss_bindings.extend(
-        [
-            {
-                "buy_lot_id": "lot_1",
-                "symbol": "600000",
-                "stop_price": 9.2,
-                "enabled": True,
-            },
-            {
-                "buy_lot_id": "lot_2",
-                "symbol": "600000",
-                "stop_price": 9.0,
-                "enabled": False,
-            },
-        ]
-    )
-
     service = SubjectManagementDashboardService(
         database=database,
         tpsl_repository=tpsl_repository,
@@ -417,7 +354,6 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
 
     assert len(rows) == 1
     assert rows[0]["symbol"] == "600000"
-    assert rows[0]["must_pool"]["stop_loss_price"] == 9.2
     assert rows[0]["must_pool"]["initial_lot_amount"] == 80000
     assert rows[0]["guardian"]["enabled"] is True
     assert rows[0]["guardian"]["buy_1"] == 10.2
@@ -431,22 +367,15 @@ def test_subject_management_overview_aggregates_subject_configs_and_runtime():
         2: False,
         3: False,
     }
-    assert rows[0]["stoploss"]["active_count"] == 1
-    assert rows[0]["stoploss"]["active_stoploss_entry_count"] == 1
-    assert rows[0]["stoploss"]["open_entry_count"] == 1
     assert rows[0]["runtime"]["position_quantity"] == 500
     assert rows[0]["runtime"]["position_amount"] == 0.0
-    assert rows[0]["runtime"]["last_trigger_kind"] == "stoploss"
-    assert rows[0]["runtime"]["last_trigger_level"] is None
-    assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:42:00+08:00"
+    assert rows[0]["runtime"]["last_trigger_kind"] == "takeprofit"
+    assert rows[0]["runtime"]["last_trigger_level"] == 2
+    assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:40:00+08:00"
     assert rows[0]["runtime"]["last_takeprofit_trigger_level"] == 2
     assert (
         rows[0]["runtime"]["last_takeprofit_trigger_time"]
         == "2026-03-16T10:40:00+08:00"
-    )
-    assert (
-        rows[0]["runtime"]["last_entry_stoploss_trigger_time"]
-        == "2026-03-16T10:42:00+08:00"
     )
     assert rows[0]["position_limit_summary"]["effective_limit"] == 500000.0
     assert rows[0]["position_limit_summary"]["using_override"] is True
@@ -477,14 +406,6 @@ def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
                 "symbol": "600000",
                 "batch_id": "tp_batch_1",
                 "created_at": "2026-03-16T10:40:00+00:00",
-            },
-            {
-                "event_id": "evt_2",
-                "event_type": "entry_stoploss_hit",
-                "kind": "stoploss",
-                "symbol": "600000",
-                "batch_id": "sl_batch_1",
-                "created_at": "2026-03-16T10:41:00+00:00",
             },
         ]
     )
@@ -519,15 +440,11 @@ def test_subject_management_overview_clears_recent_trigger_after_auto_rearm():
         2: True,
         3: False,
     }
-    assert rows[0]["runtime"]["last_trigger_kind"] == "stoploss"
+    assert rows[0]["runtime"]["last_trigger_kind"] is None
     assert rows[0]["runtime"]["last_trigger_level"] is None
-    assert rows[0]["runtime"]["last_trigger_time"] == "2026-03-16T10:41:00+00:00"
+    assert rows[0]["runtime"]["last_trigger_time"] is None
     assert rows[0]["runtime"]["last_takeprofit_trigger_level"] is None
     assert rows[0]["runtime"]["last_takeprofit_trigger_time"] is None
-    assert (
-        rows[0]["runtime"]["last_entry_stoploss_trigger_time"]
-        == "2026-03-16T10:41:00+00:00"
-    )
 
 
 def test_subject_management_overview_falls_back_to_guardian_state_updated_at_when_hit_time_missing():
@@ -577,7 +494,7 @@ def test_subject_management_overview_falls_back_to_guardian_state_updated_at_whe
     assert rows[0]["guardian"]["last_hit_signal_time"] == "2026-04-04T09:30:00+08:00"
 
 
-def test_subject_management_detail_exposes_split_takeprofit_and_entry_stoploss_triggers():
+def test_subject_management_detail_exposes_takeprofit_trigger():
     tpsl_repository = InMemoryTpslRepository()
     tpsl_repository.events.extend(
         [
@@ -589,14 +506,6 @@ def test_subject_management_detail_exposes_split_takeprofit_and_entry_stoploss_t
                 "batch_id": "tp_batch_1",
                 "level": 3,
                 "created_at": "2026-03-18T09:50:00+08:00",
-            },
-            {
-                "event_id": "evt_stoploss",
-                "event_type": "entry_stoploss_hit",
-                "kind": "stoploss",
-                "symbol": "600000",
-                "batch_id": "sl_batch_1",
-                "created_at": "2026-03-18T09:55:00+08:00",
             },
         ]
     )
@@ -627,17 +536,13 @@ def test_subject_management_detail_exposes_split_takeprofit_and_entry_stoploss_t
 
     detail = service.get_detail("600000")
 
-    assert detail["runtime_summary"]["last_trigger_kind"] == "stoploss"
-    assert detail["runtime_summary"]["last_trigger_level"] is None
-    assert detail["runtime_summary"]["last_trigger_time"] == "2026-03-18T09:55:00+08:00"
+    assert detail["runtime_summary"]["last_trigger_kind"] == "takeprofit"
+    assert detail["runtime_summary"]["last_trigger_level"] == 3
+    assert detail["runtime_summary"]["last_trigger_time"] == "2026-03-18T09:50:00+08:00"
     assert detail["runtime_summary"]["last_takeprofit_trigger_level"] == 3
     assert (
         detail["runtime_summary"]["last_takeprofit_trigger_time"]
         == "2026-03-18T09:50:00+08:00"
-    )
-    assert (
-        detail["runtime_summary"]["last_entry_stoploss_trigger_time"]
-        == "2026-03-18T09:55:00+08:00"
     )
 
 
@@ -890,7 +795,6 @@ def test_subject_management_overview_normalizes_must_pool_codes_before_grouping(
                         "code": "600000.SH",
                         "name": "浦发银行",
                         "category": "银行",
-                        "stop_loss_price": 9.2,
                         "initial_lot_amount": 80000,
                         "lot_amount": 50000,
                         "forever": True,
@@ -940,7 +844,6 @@ def test_subject_management_overview_normalizes_must_pool_codes_before_grouping(
     assert len(rows) == 1
     assert rows[0]["symbol"] == "600000"
     assert rows[0]["must_pool"]["symbol"] == "600000"
-    assert rows[0]["must_pool"]["stop_loss_price"] == 9.2
 
 
 def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries_and_pm_summary():
@@ -952,7 +855,6 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
                         "code": "600000",
                         "name": "浦发银行",
                         "category": "银行",
-                        "stop_loss_price": 9.2,
                         "initial_lot_amount": 80000,
                         "lot_amount": 50000,
                         "forever": True,
@@ -1027,27 +929,6 @@ def test_subject_management_detail_returns_must_pool_guardian_takeprofit_entries
             }
         ]
     )
-    order_repository.entry_stoploss_bindings.extend(
-        [
-            {
-                "entry_id": "lot_1",
-                "symbol": "600000",
-                "stop_price": 9.2,
-                "enabled": True,
-            }
-        ]
-    )
-    order_repository.stoploss_bindings.extend(
-        [
-            {
-                "buy_lot_id": "lot_1",
-                "symbol": "600000",
-                "stop_price": 9.2,
-                "enabled": True,
-            }
-        ]
-    )
-
     service = SubjectManagementDashboardService(
         database=database,
         tpsl_repository=tpsl_repository,
@@ -1341,14 +1222,6 @@ def test_subject_management_detail_exposes_entry_slices_and_latest_price_remaini
             },
         }
     )
-    order_repository.entry_stoploss_bindings.append(
-        {
-            "entry_id": "entry_cluster_1",
-            "symbol": "600104",
-            "stop_price": 9.5,
-            "enabled": True,
-        }
-    )
     order_repository.open_entry_slices.extend(
         [
             {
@@ -1617,9 +1490,6 @@ def test_subject_management_detail_returns_base_config_summary_defaults_when_mus
     assert summary["category"]["configured"] is False
     assert summary["category"]["effective_value"] is None
     assert summary["category"]["effective_source"] == "unconfigured"
-    assert summary["stop_loss_price"]["configured"] is False
-    assert summary["stop_loss_price"]["effective_value"] is None
-    assert summary["stop_loss_price"]["effective_source"] == "unconfigured"
     assert summary["initial_lot_amount"]["configured"] is False
     assert summary["initial_lot_amount"]["effective_value"] == 100000
     assert (
@@ -1750,15 +1620,6 @@ def test_subject_management_detail_reads_v2_entries_without_legacy_buy_lots():
             "status": "OPEN",
         }
     )
-    order_repository.entry_stoploss_bindings.append(
-        {
-            "entry_id": "entry_v2_1",
-            "symbol": "600000",
-            "stop_price": 9.2,
-            "enabled": True,
-        }
-    )
-
     service = SubjectManagementDashboardService(
         database=FakeDatabase(),
         tpsl_repository=InMemoryTpslRepository(),
@@ -1787,7 +1648,6 @@ def test_subject_management_detail_reads_v2_entries_without_legacy_buy_lots():
 
     assert len(detail["entries"]) == 1
     assert detail["entries"][0]["entry_id"] == "entry_v2_1"
-    assert detail["entries"][0]["stoploss"]["stop_price"] == 9.2
     assert "buy_lots" not in detail
 
 
@@ -1828,29 +1688,6 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
             }
         ]
     )
-    order_repository.entry_stoploss_bindings.extend(
-        [
-            {
-                "_id": ObjectId(),
-                "entry_id": "lot_1",
-                "symbol": "002262",
-                "stop_price": 18.6,
-                "enabled": True,
-            }
-        ]
-    )
-    order_repository.stoploss_bindings.extend(
-        [
-            {
-                "_id": ObjectId(),
-                "buy_lot_id": "lot_1",
-                "symbol": "002262",
-                "stop_price": 18.6,
-                "enabled": True,
-            }
-        ]
-    )
-
     service = SubjectManagementDashboardService(
         database=database,
         tpsl_repository=tpsl_repository,
@@ -1873,7 +1710,6 @@ def test_subject_management_detail_strips_mongo_ids_from_nested_documents():
     json.dumps(detail)
     assert "_id" not in detail["takeprofit"]["state"]
     assert "_id" not in detail["entries"][0]
-    assert "_id" not in detail["entries"][0]["stoploss"]
 
 
 def test_subject_management_uses_default_position_loader_when_not_injected(monkeypatch):
@@ -1928,7 +1764,6 @@ def test_subject_management_detail_exposes_must_pool_provenance():
                         "name": "浦发银行",
                         "category": "银行",
                         "manual_category": "银行",
-                        "stop_loss_price": 9.2,
                         "initial_lot_amount": 80000,
                         "lot_amount": 50000,
                         "forever": True,

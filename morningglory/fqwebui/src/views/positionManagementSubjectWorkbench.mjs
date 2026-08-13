@@ -13,7 +13,6 @@ const emitNotify = (notify, level, message) => {
 
 const cloneMustPoolDraft = (draft = {}) => ({
   category: String(draft?.category || '').trim(),
-  stop_loss_price: draft?.stop_loss_price ?? null,
   initial_lot_amount: draft?.initial_lot_amount ?? null,
   lot_amount: draft?.lot_amount ?? null,
 })
@@ -21,16 +20,6 @@ const cloneMustPoolDraft = (draft = {}) => ({
 const clonePositionLimitDraft = (draft = {}) => ({
   limit: draft?.limit ?? draft?.effective_limit ?? draft?.override_limit ?? draft?.default_limit ?? null,
 })
-
-const cloneStoplossDraftMap = (entries = {}) => Object.fromEntries(
-  Object.entries(entries).map(([entryId, payload]) => [
-    entryId,
-    {
-      stop_price: payload?.stop_price ?? null,
-      enabled: Boolean(payload?.enabled),
-    },
-  ]),
-)
 
 const hasMustPoolDraftChanges = (detail, draft) => {
   const baseline = cloneMustPoolDraft(detail?.mustPool || {})
@@ -83,10 +72,8 @@ export const createPositionManagementSubjectWorkbenchController = ({
     loadingDetail: {},
     mustPoolDrafts: {},
     positionLimitDrafts: {},
-    stoplossDrafts: {},
     selectedEntryIds: {},
     savingConfigBundle: {},
-    savingStoploss: {},
   })
 
   const pruneMapsForOverview = (rows = []) => {
@@ -97,10 +84,8 @@ export const createPositionManagementSubjectWorkbenchController = ({
       state.loadingDetail,
       state.mustPoolDrafts,
       state.positionLimitDrafts,
-      state.stoplossDrafts,
       state.selectedEntryIds,
       state.savingConfigBundle,
-      state.savingStoploss,
     ]) {
       Object.keys(bucket).forEach((symbol) => {
         if (!allowedSymbols.has(symbol)) {
@@ -115,7 +100,6 @@ export const createPositionManagementSubjectWorkbenchController = ({
     {
       preserveMustPoolDraft = false,
       preservePositionLimitDraft = false,
-      preserveStoplossDrafts = false,
     } = {},
   ) => {
     const symbol = String(detail?.symbol || '').trim()
@@ -123,22 +107,12 @@ export const createPositionManagementSubjectWorkbenchController = ({
 
     const previousMustPoolDraft = cloneMustPoolDraft(state.mustPoolDrafts[symbol] || {})
     const previousPositionLimitDraft = clonePositionLimitDraft(state.positionLimitDrafts[symbol] || {})
-    const previousStoplossDrafts = cloneStoplossDraftMap(state.stoplossDrafts[symbol] || {})
     const previousSelectedEntryId = normalizeEntryId(state.selectedEntryIds[symbol])
 
     state.detailMap[symbol] = detail
     state.detailErrors[symbol] = ''
     state.mustPoolDrafts[symbol] = cloneMustPoolDraft(detail?.mustPool || {})
     state.positionLimitDrafts[symbol] = clonePositionLimitDraft(detail?.positionLimitSummary || {})
-    state.stoplossDrafts[symbol] = cloneStoplossDraftMap(
-      Object.fromEntries((detail?.entries || []).map((entry) => [
-        entry.entry_id,
-        {
-          stop_price: entry?.stoploss?.stop_price ?? null,
-          enabled: Boolean(entry?.stoploss?.enabled),
-        },
-      ])),
-    )
     state.selectedEntryIds[symbol] = resolveSelectedEntryId(detail, previousSelectedEntryId)
 
     if (preserveMustPoolDraft) {
@@ -147,12 +121,6 @@ export const createPositionManagementSubjectWorkbenchController = ({
     if (preservePositionLimitDraft) {
       state.positionLimitDrafts[symbol] = previousPositionLimitDraft
     }
-    if (preserveStoplossDrafts) {
-      state.stoplossDrafts[symbol] = {
-        ...state.stoplossDrafts[symbol],
-        ...previousStoplossDrafts,
-      }
-    }
   }
 
   const hydrateSymbol = async (
@@ -160,7 +128,6 @@ export const createPositionManagementSubjectWorkbenchController = ({
     {
       preserveMustPoolDraft = false,
       preservePositionLimitDraft = false,
-      preserveStoplossDrafts = false,
     } = {},
   ) => {
     const normalizedSymbol = String(symbol || '').trim()
@@ -176,7 +143,6 @@ export const createPositionManagementSubjectWorkbenchController = ({
         applyDetail(detail, {
           preserveMustPoolDraft,
           preservePositionLimitDraft,
-          preserveStoplossDrafts,
         })
         state.pageError = ''
         return detail
@@ -221,12 +187,10 @@ export const createPositionManagementSubjectWorkbenchController = ({
     {
       preserveMustPoolDraft = false,
       preservePositionLimitDraft = false,
-      preserveStoplossDrafts = false,
     } = {},
   ) => hydrateSymbol(symbol, {
     preserveMustPoolDraft,
     preservePositionLimitDraft,
-    preserveStoplossDrafts,
   })
 
   const getSelectedEntryId = (symbol) => {
@@ -314,38 +278,12 @@ export const createPositionManagementSubjectWorkbenchController = ({
         emitNotify(notify, 'warning', `${normalizedSymbol} 基础设置已保存，仓位上限保存失败`)
         await reloadSymbol(normalizedSymbol, {
           preservePositionLimitDraft: true,
-          preserveStoplossDrafts: true,
         })
         await refreshOverview()
       }
       state.pageError = errorMessage(error)
     } finally {
       state.savingConfigBundle[normalizedSymbol] = false
-    }
-  }
-
-  const saveStoploss = async (symbol, entryId) => {
-    const normalizedSymbol = String(symbol || '').trim()
-    const normalizedEntryId = String(entryId || '').trim()
-    if (!normalizedSymbol || !normalizedEntryId) return
-
-    const symbolDrafts = state.stoplossDrafts[normalizedSymbol] || {}
-    const payload = symbolDrafts[normalizedEntryId]
-    if (!payload) return
-
-    state.savingStoploss[normalizedSymbol] = true
-    try {
-      await actions.saveStoploss(normalizedEntryId, payload)
-      await reloadSymbol(normalizedSymbol, {
-        preserveMustPoolDraft: true,
-        preservePositionLimitDraft: true,
-      })
-      await refreshOverview()
-      emitNotify(notify, 'success', `${normalizedSymbol} 入口止损已保存 ${normalizedEntryId}`)
-    } catch (error) {
-      state.pageError = errorMessage(error)
-    } finally {
-      state.savingStoploss[normalizedSymbol] = false
     }
   }
 
@@ -359,6 +297,5 @@ export const createPositionManagementSubjectWorkbenchController = ({
     getSelectedEntrySlices,
     selectEntry,
     saveConfigBundle,
-    saveStoploss,
   }
 }

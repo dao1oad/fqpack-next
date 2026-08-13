@@ -283,25 +283,6 @@ def test_order_management_repository_supports_v2_collections_and_basic_crud():
     repository.insert_exit_allocations([allocation])
     assert repository.list_exit_allocations(entry_ids=["entry_1"]) == [allocation]
 
-    binding = {"entry_id": "entry_1", "symbol": "000001", "enabled": True}
-    repository.upsert_entry_stoploss_binding(binding)
-    assert repository.find_entry_stoploss_binding("entry_1") == binding
-    assert repository.list_entry_stoploss_bindings(symbol="000001", enabled=True) == [
-        binding
-    ]
-    updated_binding = {
-        "entry_id": "entry_1",
-        "symbol": "000001",
-        "enabled": False,
-        "trigger_price": 12.3,
-    }
-    repository.upsert_entry_stoploss_binding(updated_binding)
-    assert repository.find_entry_stoploss_binding("entry_1") == updated_binding
-    assert repository.list_entry_stoploss_bindings(symbol="000001", enabled=True) == []
-    assert repository.list_entry_stoploss_bindings(symbol="000001", enabled=False) == [
-        updated_binding
-    ]
-
     rejection = {
         "rejection_id": "reject_1",
         "symbol": "000001",

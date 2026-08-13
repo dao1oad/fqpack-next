@@ -789,10 +789,6 @@ def _build_tpsl_event_visibility_condition() -> str:
                             payload_json LIKE '%"kind": "takeprofit"%'
                             AND payload_json LIKE '%"triggered": false%'
                         )
-                        OR (
-                            payload_json LIKE '%"kind": "stoploss"%'
-                            AND payload_json LIKE '%"triggered_bindings": 0%'
-                        )
                     )
                 )
             )
@@ -914,20 +910,6 @@ def _build_trace_summary_query(
                     )
                 )
             ) > 0, 'takeprofit',
-            countIf(
-                lowerUTF8(source) IN ('stoploss', 'tpsl_stoploss', 'tpsl_symbol_stoploss')
-                OR lowerUTF8(strategy_name) LIKE '%stoploss%'
-                OR lowerUTF8(payload_json) LIKE '%"kind": "stoploss"%'
-                OR lowerUTF8(payload_json) LIKE '%"scope_type": "stoploss_batch"%'
-                OR lowerUTF8(payload_json) LIKE '%"scope_type": "symbol_stoploss_batch"%'
-                OR (
-                    component = 'tpsl_worker'
-                    AND (
-                        reason_code = 'stoploss'
-                        OR lowerUTF8(message) LIKE '%stoploss%'
-                    )
-                )
-            ) > 0, 'stoploss',
             countIf(
                 component = 'order_submit'
                 AND lowerUTF8(source) IN ('api', 'web-order', 'manual_import')

@@ -233,9 +233,6 @@ class ClxsStrategy(ScreenStrategy):
 
             # 检查最新信号
             if sigs[-1] > 0:
-                # 找止损价格（往前找最近笔底的最低价）
-                stop_loss_price = self._find_stop_loss(bi, lows)
-
                 results.append(
                     self._make_result(
                         code=stock['code'],
@@ -244,7 +241,6 @@ class ClxsStrategy(ScreenStrategy):
                         period="1d",
                         fire_time=dates[-1],
                         price=closes[-1],
-                        stop_loss_price=stop_loss_price,
                         signal_type=f"CLXS_{self.model_opt}",
                         position="BUY_LONG",
                     )
@@ -281,23 +277,6 @@ class ClxsStrategy(ScreenStrategy):
             logger.info(f"获取数据失败 {code}: {e}")
             return None
 
-    def _find_stop_loss(self, bi: list, lows: list) -> float | None:
-        """查找止损价格
-
-        从最新位置往前找最近一个笔底的最低价
-
-        Args:
-            bi: 笔信号列表
-            lows: 最低价列表
-
-        Returns:
-            止损价格
-        """
-        for x in range(len(bi) - 1, -1, -1):
-            if bi[x] == -1:  # 笔底
-                return lows[x]
-        return None
-
     def _deduplicate(self, results: list[ScreenResult]) -> list[ScreenResult]:
         """去重（按 code + date）
 
@@ -333,7 +312,6 @@ class ClxsStrategy(ScreenStrategy):
             "period": result.period,
             "fire_time": result.fire_time,
             "price": result.price,
-            "stop_loss_price": result.stop_loss_price,
             "signal_type": result.signal_type,
             "position": result.position,
             "remark": result.remark,

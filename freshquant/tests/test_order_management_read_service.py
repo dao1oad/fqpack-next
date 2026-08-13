@@ -705,13 +705,13 @@ def _build_ledger_repository():
                 },
             },
             {
-                "request_id": "req_ledger_stoploss",
+                "request_id": "req_ledger_manual_sell",
                 "action": "sell",
-                "source": "tpsl_symbol_stoploss",
+                "source": "web-order",
                 "symbol": "600000",
                 "price": 9.0,
                 "quantity": 500,
-                "scope_type": "symbol_stoploss_batch",
+                "scope_type": "manual",
                 "ledger_intent": "-",
             },
         ]
@@ -761,9 +761,9 @@ def test_list_orders_derives_dual_ledger_for_sell_orders():
     # TPSL 止盈卖单（ledger_intent=base，即使带 guardian_sell_sources 分配书签）→ base
     assert by_request["req_ledger_tp_sell"]["ledger"] == "base"
     assert by_request["req_ledger_tp_sell"]["position_type"] == "base"
-    # 全仓止损（ledger_intent=-）→ -
-    assert by_request["req_ledger_stoploss"]["ledger"] == "-"
-    assert by_request["req_ledger_stoploss"]["position_type"] == ""
+    # 手动/网页卖单（ledger_intent=-）→ -
+    assert by_request["req_ledger_manual_sell"]["ledger"] == "-"
+    assert by_request["req_ledger_manual_sell"]["position_type"] == ""
 
 
 def test_list_orders_derives_dual_ledger_for_guardian_t_sell():

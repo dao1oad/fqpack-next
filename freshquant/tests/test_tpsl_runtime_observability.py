@@ -99,9 +99,6 @@ class FakeOrderRepository:
             }
         ]
 
-    def list_stoploss_bindings(self, symbol=None, enabled=True):
-        return []
-
 
 class FixedPositionReader:
     def get_can_use_volume(self, _symbol):
@@ -171,10 +168,6 @@ def test_tpsl_tick_consumer_does_not_emit_pretrigger_info_events():
             self.calls.append(("takeprofit", kwargs["symbol"]))
             return {"status": "blocked", "symbol": kwargs["symbol"], "quantity": 0}
 
-        def evaluate_stoploss(self, **kwargs):
-            self.calls.append(("stoploss", kwargs["symbol"]))
-            return None
-
     service = FakeService()
     consumer = TpslTickConsumer(
         service=service,
@@ -206,10 +199,6 @@ def test_tpsl_tick_consumer_ignores_preopen_ticks_without_runtime_events():
 
         def evaluate_takeprofit(self, **kwargs):
             self.calls.append(("takeprofit", kwargs["symbol"]))
-            return None
-
-        def evaluate_stoploss(self, **kwargs):
-            self.calls.append(("stoploss", kwargs["symbol"]))
             return None
 
     service = FakeService()
@@ -565,50 +554,3 @@ def test_evaluate_takeprofit_uses_largest_slice_when_no_slice_reaches_tier_price
     assert runtime_logger.events[0]["trace_id"] == batch["trace_id"]
     assert batch["quantity"] == 100
     assert takeprofit_service.mark_calls == []
-
-
-def test_evaluate_stoploss_blocked_result_does_not_emit_trace_ids(monkeypatch):
-    runtime_logger = FakeRuntimeLogger()
-
-    class StoplossOrderRepository(FakeOrderRepository):
-        def list_stoploss_bindings(self, symbol=None, enabled=True):
-            return [
-                {
-                    "buy_lot_id": "lot1",
-                    "symbol": symbol or "000001",
-                    "stop_price": 9.2,
-                    "enabled": enabled,
-                }
-            ]
-
-    service = TpslService(
-        takeprofit_service=FakeTakeprofitService(),
-        order_submit_service=FakeOrderSubmitService(),
-        order_repository=StoplossOrderRepository(),
-        position_reader=FixedPositionReader(),
-        lock_client=AlwaysAvailableLockClient(),
-        runtime_logger=runtime_logger,
-    )
-    monkeypatch.setattr(
-        "freshquant.tpsl.service.build_stoploss_batch",
-        lambda **_kwargs: {
-            "status": "blocked",
-            "symbol": "000001",
-            "blocked_reason": "board_lot",
-            "quantity": 0,
-        },
-    )
-
-    batch = service.evaluate_stoploss(
-        symbol="000001",
-        code="sz000001",
-        bid1=9.1,
-        ask1=9.2,
-        last_price=9.1,
-        tick_time=1710000000,
-    )
-
-    assert batch["status"] == "blocked"
-    assert batch["blocked_reason"] == "board_lot"
-    assert [event["node"] for event in runtime_logger.events] == ["trigger_eval"]
-    assert all(not event.get("trace_id") for event in runtime_logger.events)

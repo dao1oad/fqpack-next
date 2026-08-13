@@ -18,7 +18,6 @@ test('buildOverviewRows keeps dense summary columns and split trigger summaries'
       name: '浦发银行',
       category: '银行',
       must_pool: {
-        stop_loss_price: 9.2,
         initial_lot_amount: 80000,
         lot_amount: 50000,
         forever: true,
@@ -34,20 +33,15 @@ test('buildOverviewRows keeps dense summary columns and split trigger summaries'
       takeprofit: {
         tiers: [],
       },
-      stoploss: {
-        active_count: 2,
-        open_entry_count: 5,
-      },
       runtime: {
         position_quantity: 500,
         position_amount: 123456,
         last_hit_level: 'BUY-2',
         last_trigger_level: null,
-        last_trigger_kind: 'stoploss',
-        last_trigger_time: '2026-03-16T10:42:00+08:00',
+        last_trigger_kind: 'takeprofit',
+        last_trigger_time: '2026-03-16T10:40:00+08:00',
         last_takeprofit_trigger_level: 2,
         last_takeprofit_trigger_time: '2026-03-16T10:40:00+08:00',
-        last_entry_stoploss_trigger_time: '2026-03-16T10:42:00+08:00',
       },
       position_limit_summary: {
         market_value: 123456,
@@ -67,17 +61,13 @@ test('buildOverviewRows keeps dense summary columns and split trigger summaries'
   assert.equal(rows[0].guardianTrigger.kindLabel, 'B2')
   assert.equal(rows[0].guardianTrigger.timeLabel, '2026-03-16 10:41:00')
   assert.equal(rows[0].guardianSummaryLabel.includes('B1'), true)
-  assert.equal(rows[0].stoplossSummaryLabel, '2 / 5')
   assert.equal(rows[0].runtimeSummaryLabel.includes('12.35 万'), true)
   assert.equal(rows[0].runtimeSummaryLabel.includes('500'), true)
   assert.equal(rows[0].takeprofitTrigger.kindLabel, 'L2')
   assert.equal(rows[0].takeprofitTrigger.timeLabel, '2026-03-16 10:40:00')
-  assert.equal(rows[0].entryStoplossTrigger.kindLabel, '止损')
-  assert.equal(rows[0].entryStoplossTrigger.timeLabel, '2026-03-16 10:42:00')
   assert.equal(rows[0].runtime.last_takeprofit_trigger_level, 2)
   assert.equal(rows[0].runtime.last_takeprofit_trigger_time, '2026-03-16T10:40:00+08:00')
-  assert.equal(rows[0].runtime.last_entry_stoploss_trigger_time, '2026-03-16T10:42:00+08:00')
-  assert.equal(rows[0].runtimeSummaryLabel.includes('stoploss'), true)
+  assert.equal(rows[0].runtimeSummaryLabel.includes('takeprofit'), true)
   assert.equal(rows[0].positionLimitSummaryLabel.includes('50.00 万'), true)
   assert.equal(rows[0].positionLimitSummaryLabel.includes('单独设置'), true)
   assert.equal(rows[0].baseSummaryLabel.includes('永久'), false)
@@ -98,7 +88,6 @@ test('buildOverviewRows separates guardian trigger from level summary', () => {
         last_hit_signal_time: '2026-03-18T09:45:00+08:00',
       },
       runtime: {},
-      stoploss: {},
       position_limit_summary: {},
     },
   ])
@@ -111,7 +100,7 @@ test('buildOverviewRows separates guardian trigger from level summary', () => {
   )
 })
 
-test('buildOverviewRows formats takeprofit and entry stoploss triggers independently', () => {
+test('buildOverviewRows formats takeprofit triggers independently', () => {
   const rows = buildOverviewRows([
     {
       symbol: '600271',
@@ -119,25 +108,18 @@ test('buildOverviewRows formats takeprofit and entry stoploss triggers independe
         last_takeprofit_trigger_level: 3,
         last_takeprofit_trigger_time: '2026-03-18T09:50:00+08:00',
       },
-      stoploss: {},
       position_limit_summary: {},
     },
     {
       symbol: '600272',
-      runtime: {
-        last_entry_stoploss_trigger_time: '2026-03-18T09:55:00+08:00',
-      },
-      stoploss: {},
+      runtime: {},
       position_limit_summary: {},
     },
   ])
 
   assert.equal(rows[0].takeprofitTrigger.kindLabel, 'L3')
   assert.equal(rows[0].takeprofitTrigger.timeLabel, '2026-03-18 09:50:00')
-  assert.equal(rows[0].entryStoplossTrigger.kindLabel, '-')
   assert.equal(rows[1].takeprofitTrigger.kindLabel, '-')
-  assert.equal(rows[1].entryStoplossTrigger.kindLabel, '止损')
-  assert.equal(rows[1].entryStoplossTrigger.timeLabel, '2026-03-18 09:55:00')
 })
 
 test('buildOverviewRows derives takeprofit runtime truth from manual_enabled and armed_levels together', () => {
@@ -156,7 +138,6 @@ test('buildOverviewRows derives takeprofit runtime truth from manual_enabled and
         },
       },
       runtime: {},
-      stoploss: {},
       position_limit_summary: {},
     },
   ])
@@ -188,7 +169,6 @@ test('buildOverviewRows treats missing takeprofit state as inactive', () => {
         state: {},
       },
       runtime: {},
-      stoploss: {},
       position_limit_summary: {},
     },
   ])
@@ -207,7 +187,6 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
       category: '银行',
     },
     must_pool: {
-      stop_loss_price: 9.2,
       initial_lot_amount: 80000,
       lot_amount: 50000,
       forever: true,
@@ -252,10 +231,6 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
           { entry_slice_id: 'slice_1', slice_seq: 1, guardian_price: 9.8, remaining_quantity: 80 },
           { entry_slice_id: 'slice_2', slice_seq: 2, guardian_price: 9.6, remaining_quantity: 120 },
         ],
-        stoploss: {
-          stop_price: 9.2,
-          enabled: true,
-        },
       },
     ],
     runtime_summary: {
@@ -285,7 +260,6 @@ test('buildDetailViewModel keeps right-panel fields and at least three takeprofi
   assert.equal(detail.takeprofitDrafts.length, 3)
   assert.equal(detail.takeprofitDrafts[1].level, 2)
   assert.equal(detail.takeprofitDrafts[1].price, null)
-  assert.equal(detail.entries[0].stoplossLabel, '9.2')
   assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
   assert.equal(detail.entries[0].entryCompactLabel, '#1 / 316d2a')
   assert.equal(detail.entries[0].entryIdLabel, 'ID 尾号 316d2a')
@@ -371,7 +345,7 @@ test('#549 buildDetailViewModel passes entry position_type through', () => {
   assert.equal(detail.entries[2].position_type, '')
 })
 
-test('buildDenseConfigRows keeps only dense editable rows and renames labels to current stoploss semantics', () => {
+test('buildDenseConfigRows keeps only dense editable rows for base config and position limit', () => {
   const detail = buildDetailViewModel({
     subject: {
       symbol: '600000',
@@ -380,7 +354,6 @@ test('buildDenseConfigRows keeps only dense editable rows and renames labels to 
     },
     must_pool: {
       category: '银行',
-      stop_loss_price: 9.2,
       initial_lot_amount: 80000,
       lot_amount: 50000,
       forever: true,
@@ -411,23 +384,22 @@ test('buildDenseConfigRows keeps only dense editable rows and renames labels to 
 
   assert.deepEqual(
     rows.map((row) => row.key),
-    ['stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_value'],
+    ['initial_lot_amount', 'lot_amount', 'position_limit_value'],
   )
   assert.deepEqual(
     rows.map((row) => row.label),
-    ['全仓止损价', '首笔买入金额', '默认买入金额', '单标的仓位上限'],
+    ['首笔买入金额', '默认买入金额', '单标的仓位上限'],
   )
   assert.equal(rows[0].group, '基础')
-  assert.equal(rows[0].currentLabel, '9.2')
-  assert.equal(rows[1].currentLabel, '80000')
-  assert.equal(rows[2].currentLabel, '50000')
-  assert.equal(rows[3].group, '仓位上限')
-  assert.equal(rows[3].statusLabel, '单独设置')
-  assert.equal(rows[3].currentLabel, '50.00 万')
-  assert.equal(rows[3].note.includes('当前市值'), true)
+  assert.equal(rows[0].currentLabel, '80000')
+  assert.equal(rows[1].currentLabel, '50000')
+  assert.equal(rows[2].group, '仓位上限')
+  assert.equal(rows[2].statusLabel, '单独设置')
+  assert.equal(rows[2].currentLabel, '50.00 万')
+  assert.equal(rows[2].note.includes('当前市值'), true)
 })
 
-test('buildDenseConfigRows removes category row and keeps stoploss editor keys stable', () => {
+test('buildDenseConfigRows removes category row and keeps base config keys stable', () => {
   const detail = buildDetailViewModel({
     subject: {
       symbol: '600000',
@@ -446,7 +418,7 @@ test('buildDenseConfigRows removes category row and keeps stoploss editor keys s
   assert.equal(rows.some((row) => row.key === 'category'), false)
   assert.deepEqual(
     rows.map((row) => row.key),
-    ['stop_loss_price', 'initial_lot_amount', 'lot_amount', 'position_limit_value'],
+    ['initial_lot_amount', 'lot_amount', 'position_limit_value'],
   )
 })
 
@@ -460,12 +432,6 @@ test('buildDenseConfigRows shows effective fallback values when must-pool is mis
     must_pool: null,
     base_config_summary: {
       category: {
-        configured: false,
-        configured_value: null,
-        effective_value: null,
-        effective_source: 'unconfigured',
-      },
-      stop_loss_price: {
         configured: false,
         configured_value: null,
         effective_value: null,
@@ -498,17 +464,15 @@ test('buildDenseConfigRows shows effective fallback values when must-pool is mis
 
   assert.deepEqual(
     rows.map((row) => row.label),
-    ['全仓止损价', '首笔买入金额', '默认买入金额', '单标的仓位上限'],
+    ['首笔买入金额', '默认买入金额', '单标的仓位上限'],
   )
-  assert.equal(rows[0].currentLabel, '未配置')
-  assert.equal(rows[0].statusLabel, '未配置')
-  assert.equal(rows[1].currentLabel, '100000')
+  assert.equal(rows[0].currentLabel, '100000')
+  assert.equal(rows[0].statusLabel, '默认值')
+  assert.match(rows[0].note, /100000/)
+  assert.equal(rows[1].currentLabel, '50000')
   assert.equal(rows[1].statusLabel, '默认值')
-  assert.match(rows[1].note, /100000/)
-  assert.equal(rows[2].currentLabel, '50000')
-  assert.equal(rows[2].statusLabel, '默认值')
-  assert.match(rows[2].note, /guardian/i)
-  assert.equal(rows[3].currentLabel, '80.00 万')
+  assert.match(rows[1].note, /guardian/i)
+  assert.equal(rows[2].currentLabel, '80.00 万')
 })
 
 test('PositionSubjectOverviewPanel removes category filter and uses renamed dense columns', () => {
@@ -522,17 +486,13 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   assert.match(source, /label="订单状态"/)
   assert.match(source, /label="Guardian 层级触发"/)
   assert.match(source, /label="止盈层级触发"/)
-  assert.match(source, /label="单笔止损触发"/)
   assert.match(source, /label="Guardian 买入层级"/)
   assert.match(source, /label="止盈价格层级"/)
-  assert.match(source, /label="全仓止损价"/)
   assert.match(source, /label="单标的仓位上限"/)
   assert.match(source, /row\.position_quantity/)
   assert.match(source, /row\.position_amount/)
-  assert.match(source, /row\.stoplossActiveCount/)
   assert.match(source, /row\.openEntryCount/)
   assert.match(source, /row\.takeprofitTrigger\?\.kindLabel/)
-  assert.match(source, /row\.entryStoplossTrigger\?\.kindLabel/)
   assert.match(source, /row\.guardianLevelSummary/)
   assert.match(source, /row\.guardianTrigger\?\.kindLabel/)
   assert.match(source, /position-subject-trigger-line/)
@@ -554,14 +514,14 @@ test('PositionSubjectOverviewPanel removes category filter and uses renamed dens
   assert.doesNotMatch(source, /label="Guardian 层级买入"/)
   assert.doesNotMatch(source, /label="Guardian层级触发"/)
   assert.doesNotMatch(source, /label="止盈价格"/)
-  assert.doesNotMatch(source, /label="首笔买入金额"/)
-  assert.doesNotMatch(source, /label="默认买入金额"/)
   assert.doesNotMatch(source, /row\.guardianLastHitLabel/)
   assert.doesNotMatch(source, /label="开仓数量"/)
   assert.doesNotMatch(source, /label="单标的上限"/)
   assert.doesNotMatch(source, /label="首笔金额"/)
   assert.doesNotMatch(source, /label="常规金额"/)
   assert.doesNotMatch(source, /label="活跃止损"/)
+  assert.doesNotMatch(source, /label="单笔止损触发"/)
+  assert.doesNotMatch(source, /label="全仓止损价"/)
 })
 
 test('buildDetailSummaryChips compresses subject, runtime and pm state into header chips', () => {
@@ -584,10 +544,7 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
       ],
       state: { armed_levels: { 1: true } },
     },
-    entries: [
-      { entry_id: 'entry-1', stoploss: { enabled: true } },
-      { entry_id: 'entry-2', stoploss: { enabled: false } },
-    ],
+    entries: [],
     runtime_summary: {
       position_quantity: 500,
       position_amount: 123456,
@@ -609,21 +566,20 @@ test('buildDetailSummaryChips compresses subject, runtime and pm state into head
 
   assert.deepEqual(
     chips.map((chip) => chip.key),
-    ['category', 'position_quantity', 'position_limit', 'guardian_enabled', 'takeprofit_enabled_count', 'stoploss_active_count', 'pm_state'],
+    ['category', 'position_quantity', 'position_limit', 'guardian_enabled', 'takeprofit_enabled_count', 'pm_state'],
   )
   assert.equal(chips.some((chip) => chip.key === 'must_pool'), false)
   assert.equal(chips[1].value, '500 股 / 12.35 万')
   assert.equal(chips[2].value, '50.00 万 / 单独设置')
   assert.equal(chips[4].value, '1 / 3')
-  assert.equal(chips[5].value, '1 / 2')
 })
 
 test('buildDetailSummaryChips treats missing takeprofit state as inactive', () => {
   const detail = buildDetailViewModel({
     subject: {
       symbol: '600000',
-      name: '娴﹀彂閾惰',
-      category: '閾惰',
+      name: '浦发银行',
+      category: '银行',
     },
     takeprofit: {
       tiers: [
@@ -669,7 +625,7 @@ test('buildTakeprofitDrafts preserves existing tiers beyond level 3 while keepin
   )
 })
 
-test('createSubjectManagementActions calls subject, position-limit and stoploss apis', async () => {
+test('createSubjectManagementActions calls subject and position-limit apis', async () => {
   const calls = []
   const api = {
     async getOverview() {
@@ -710,10 +666,6 @@ test('createSubjectManagementActions calls subject, position-limit and stoploss 
       calls.push(['saveTakeprofitProfile', symbol, payload.tiers.length])
       return { symbol, tiers: payload.tiers }
     },
-    async bindStoploss(payload) {
-      calls.push(['bindStoploss', payload.entry_id, payload.stop_price, payload.enabled])
-      return payload
-    },
   }
 
   const actions = createSubjectManagementActions(api)
@@ -721,19 +673,16 @@ test('createSubjectManagementActions calls subject, position-limit and stoploss 
   const detail = await actions.loadSubjectDetail('600000')
   const mustPool = await actions.saveMustPool('600000', { category: '银行' })
   const positionLimit = await actions.savePositionLimit('600000', { limit: 500000 })
-  const stoploss = await actions.saveStoploss('entry_1', { stop_price: 9.2, enabled: true })
 
   assert.equal(overview[0].symbol, '600000')
   assert.equal(detail.symbol, '600000')
   assert.equal(mustPool.category, '银行')
   assert.equal(positionLimit.limit, 500000)
-  assert.equal(stoploss.entry_id, 'entry_1')
   assert.deepEqual(calls, [
     ['getOverview'],
     ['getDetail', '600000'],
     ['saveMustPool', '600000', '银行'],
     ['saveSymbolPositionLimit', '600000', 500000],
-    ['bindStoploss', 'entry_1', 9.2, true],
   ])
 })
 
@@ -743,7 +692,6 @@ test('SubjectManagement view uses symbol-limit editor layout and leaves guardian
   assert.match(source, /subject-editor-summarybar/)
   assert.match(source, /subject-editor-table-panel/)
   assert.match(source, /subject-editor-config-table/)
-  assert.match(source, /subject-editor-stoploss-table/)
   assert.match(source, /基础配置 \+ 单标的仓位上限/)
   assert.match(source, /仓位上限/)
   assert.match(source, /当前生效值会显示来源；未配置项会明确标记/)
@@ -755,19 +703,7 @@ test('SubjectManagement view uses symbol-limit editor layout and leaves guardian
   assert.doesNotMatch(source, /subject-runtime-grid/)
   assert.doesNotMatch(source, /保存基础与 Guardian/)
   assert.doesNotMatch(source, /保存止盈/)
-})
-
-test('SubjectManagement stoploss rows show the same entry summary fields as KlineSlim', () => {
-  const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8').replace(/\r/g, '')
-
-  assert.match(source, /row\.entryDisplayLabel/)
-  assert.match(source, /row\.entryIdLabel/)
-  assert.match(source, /row\.entrySummaryDisplay\.entryPriceLabel/)
-  assert.match(source, /row\.entrySummaryDisplay\.originalQuantityLabel/)
-  assert.match(source, /row\.entrySummaryDisplay\.remainingQuantityLabel/)
-  assert.match(source, /row\.entrySummaryDisplay\.remainingPercentLabel/)
-  assert.match(source, /row\.entrySummaryDisplay\.entryDateTimeLabel/)
-  assert.match(source, /row\.entrySummaryDisplay\.remainingMarketValueLabel/)
+  assert.doesNotMatch(source, /按持仓入口止损/)
 })
 
 test('buildDetailViewModel ignores zero latest-price market values and keeps non-zero fallback labels', () => {
@@ -796,26 +732,6 @@ test('buildDetailViewModel ignores zero latest-price market values and keeps non
 
   assert.equal(detail.entries[0].entrySummaryDisplay.remainingMarketValueLabel, '4.76 万')
 })
-
-test('SubjectManagement view uses a master-detail stoploss layout instead of expandable slice toggles', () => {
-  const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8').replace(/\r/g, '')
-
-  assert.match(source, /subject-editor-stoploss-layout/)
-  assert.match(source, /subject-editor-stoploss-master/)
-  assert.match(source, /subject-editor-stoploss-detail/)
-  assert.match(source, /selectedStoplossEntry/)
-  assert.match(source, /selectStoplossEntry\(row\.entry_id\)/)
-  assert.match(source, /聚合买入列表/)
-  assert.match(source, /切片明细/)
-  assert.doesNotMatch(source, /subject-editor-stoploss-detail__summary/)
-  assert.doesNotMatch(source, /selectedStoplossEntry\.entryDisplayLabel/)
-  assert.doesNotMatch(source, /selectedStoplossEntry\.aggregation_members/)
-  assert.doesNotMatch(source, /selectedStoplossEntry\.aggregation_window/)
-  assert.doesNotMatch(source, /当前入口没有聚合买入成员/)
-  assert.doesNotMatch(source, /查看切片/)
-  assert.doesNotMatch(source, /收起切片/)
-})
-
 
 test('buildOverviewRows expands position_type_quantity into base/t quantities', () => {
   const rows = buildOverviewRows([

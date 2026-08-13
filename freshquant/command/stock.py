@@ -191,7 +191,6 @@ def stock_must_pool_copy_command(category: str):
 @stock_must_pool_command_group.command(name="import")
 @click.option("-c", "--code", type=str, required=True)
 @click.option("-cat", "--category", type=str, required=True, default="自选股")
-@click.option("-slp", "--stop-loss-price", type=float, required=True)
 @click.option("-d", "--days", type=int, default=89)
 @click.option("-ila", "--initial-lot-amount", type=float, help="第一次买入的金额")
 @click.option("-la", "--lot-amount", type=float, help="每次买入的金额")
@@ -200,16 +199,13 @@ def stock_must_pool_import_command(
     category: str,
     days: int,
     code: str,
-    stop_loss_price: float = None,
     initial_lot_amount: float = None,
     lot_amount: float = None,
     forever: bool = False,
 ):
-    if not all([code, category, stop_loss_price]):
-        raise ValueError("--code, --category, --stop_loss_price 参数必须提供")
-    must_pool.import_pool(
-        code, category, stop_loss_price, initial_lot_amount, lot_amount, forever
-    )
+    if not all([code, category]):
+        raise ValueError("--code, --category 参数必须提供")
+    must_pool.import_pool(code, category, initial_lot_amount, lot_amount, forever)
     list_stock_pool(category, "must-pool")
 
 
@@ -257,7 +253,6 @@ def stock_must_pool_update_command(
             - initial_lot_amount: 第一次买入的金额
             - forever: 是否永久交易
             - disabled: 是否禁用
-            - stop_loss_price: 止损价格
             - category: 分类名称
     """
     # 合并位置参数和选项参数中的code
@@ -279,7 +274,6 @@ def stock_must_pool_update_command(
         'initial_lot_amount',
         'forever',
         'disabled',
-        'stop_loss_price',
         'enabled',
         'category',
     }
@@ -302,7 +296,7 @@ def stock_must_pool_update_command(
             )
 
         # 类型转换
-        if key in {'lot_amount', 'initial_lot_amount', 'stop_loss_price'}:
+        if key in {'lot_amount', 'initial_lot_amount'}:
             try:
                 value = float(value)
             except ValueError:
@@ -552,7 +546,6 @@ def list_stock_pool(category: str, pool_name: str):
         "lot_amount": {"justify": "right", "overflow": "fold"},
         "initial_lot_amount": {"justify": "right", "overflow": "fold"},
         "forever": {"justify": "center", "overflow": "fold"},
-        "stop_loss_price": {"justify": "right", "overflow": "fold"},
         "disabled": {"justify": "center", "overflow": "fold"},
         "created_at": {"overflow": "fold"},
         "expire_at": {"overflow": "fold"},
@@ -568,7 +561,6 @@ def list_stock_pool(category: str, pool_name: str):
         "lot_amount": "每次金额",
         "initial_lot_amount": "首次金额",
         "forever": "永久",
-        "stop_loss_price": "止损价",
         "disabled": "禁用",
         "created_at": "创建时间",
         "expire_at": "过期时间",
@@ -585,7 +577,6 @@ def list_stock_pool(category: str, pool_name: str):
             'lot_amount',
             'initial_lot_amount',
             'forever',
-            'stop_loss_price',
             'disabled',
             'created_at',
         ]
@@ -621,7 +612,7 @@ def list_stock_pool(category: str, pool_name: str):
                 else:
                     expire = 'N/A'
                 row_data.append(expire)
-            elif field in ["lot_amount", "initial_lot_amount", "stop_loss_price"]:
+            elif field in ["lot_amount", "initial_lot_amount"]:
                 value = record.get(field)
                 row_data.append(f"{value:.2f}" if value is not None else "N/A")
             elif field == "forever":

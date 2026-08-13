@@ -213,7 +213,6 @@ function buildPriceGuideRenderVersion({
 function cloneSubjectPanelMustPoolDraft(draft = {}) {
   return {
     category: String(draft?.category || '').trim(),
-    stop_loss_price: draft?.stop_loss_price ?? null,
     initial_lot_amount: draft?.initial_lot_amount ?? null,
     lot_amount: draft?.lot_amount ?? null
   }
@@ -229,24 +228,11 @@ function cloneSubjectPanelPositionLimitDraft(draft = {}) {
   }
 }
 
-function cloneSubjectPanelStoplossDrafts(rows = []) {
-  return Object.fromEntries(
-    (Array.isArray(rows) ? rows : []).map((row) => [
-      row.entry_id,
-      {
-        stop_price: row?.stoploss?.stop_price ?? null,
-        enabled: Boolean(row?.stoploss?.enabled)
-      }
-    ])
-  )
-}
-
 function applySubjectPanelDetailState(state, detail) {
   state.subjectPanelDetail = detail
   state.lastSubjectSymbol = detail?.symbol || ''
   state.mustPoolDraft = cloneSubjectPanelMustPoolDraft(detail?.mustPool || {})
   state.positionLimitDraft = cloneSubjectPanelPositionLimitDraft(detail?.positionLimit || {})
-  state.stoplossDrafts = cloneSubjectPanelStoplossDrafts(detail?.entries || [])
 }
 
 function resolvePanelErrorMessage(error, fallback = '保存失败') {
@@ -1507,36 +1493,6 @@ export default {
         this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '恢复系统默认失败')
       } finally {
         this.subjectPanelState.savingSubjectConfigBundle = false
-      }
-    },
-    async handleSaveSubjectStoploss(entryId) {
-      if (!entryId) {
-        return
-      }
-      const draft = this.subjectPanelState.stoplossDrafts?.[entryId] || {}
-      if (draft.enabled) {
-        const parsedPrice = Number(draft.stop_price)
-        if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-          this.$message?.warning?.(`开启止损前请先填写 ${entryId} 的 stop_price`)
-          return
-        }
-      }
-
-      this.subjectPanelState.savingStoploss = {
-        ...this.subjectPanelState.savingStoploss,
-        [entryId]: true
-      }
-      try {
-        await this.subjectPanelActions.saveStoploss(entryId, draft)
-        await this.loadSubjectPanelDetail({ force: true })
-        this.$message?.success?.(`止损已更新 ${entryId}`)
-      } catch (error) {
-        this.subjectPanelState.pageError = resolvePanelErrorMessage(error, '止损保存失败')
-      } finally {
-        this.subjectPanelState.savingStoploss = {
-          ...this.subjectPanelState.savingStoploss,
-          [entryId]: false
-        }
       }
     },
     resetChanlunStructureState() {

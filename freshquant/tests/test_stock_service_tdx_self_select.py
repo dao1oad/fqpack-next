@@ -186,9 +186,6 @@ def test_sync_must_pool_from_tdx_self_select_reads_dai_mai_group(monkeypatch, tm
         "stock_pools": FakeStockPoolsCollection(),
         "must_pool": FakeStockPoolsCollection(),
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -230,7 +227,6 @@ def test_sync_must_pool_from_tdx_self_select_preserves_existing_params(
                 {
                     "code": "300127",
                     "category": "人工",
-                    "stop_loss_price": 9.8,
                     "initial_lot_amount": 80000,
                     "lot_amount": 50000,
                 }
@@ -252,7 +248,6 @@ def test_sync_must_pool_from_tdx_self_select_preserves_existing_params(
     assert result["synced_codes"] == ["300127"]
     call = calls[0]
     assert call["code"] == "300127"
-    assert call["stop_loss_price"] == 9.8
     assert call["initial_lot_amount"] == 80000
     assert call["lot_amount"] == 50000
 
@@ -272,9 +267,6 @@ def test_sync_must_pool_from_tdx_self_select_keeps_records_outside_group(
         "stock_pools": FakeStockPoolsCollection(),
         "must_pool": collection,
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -308,9 +300,6 @@ def test_sync_must_pool_from_tdx_self_select_skips_current_holdings(
                 {"symbol": "sz300127"},
             ]
         ),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -341,7 +330,6 @@ def test_sync_must_pool_from_tdx_self_select_keeps_failed_existing_record(
             {
                 "code": "300127",
                 "category": "人工",
-                "stop_loss_price": 9.8,
                 "initial_lot_amount": 80000,
                 "lot_amount": 50000,
             }
@@ -351,9 +339,6 @@ def test_sync_must_pool_from_tdx_self_select_keeps_failed_existing_record(
         "stock_pools": FakeStockPoolsCollection(),
         "must_pool": collection,
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -401,9 +386,6 @@ def test_sync_must_pool_reads_dai_mai_group_by_mapped_file(monkeypatch, tmp_path
         "stock_pools": FakeStockPoolsCollection(),
         "must_pool": FakeStockPoolsCollection(),
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -434,9 +416,6 @@ def test_sync_must_pool_accepts_explicit_filename_override(monkeypatch, tmp_path
         "stock_pools": FakeStockPoolsCollection(),
         "must_pool": FakeStockPoolsCollection(),
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -486,7 +465,9 @@ def test_sync_stock_pools_blocks_when_file_has_no_valid_codes(monkeypatch, tmp_p
     assert collection.find_one({"code": "300127"}) is not None
 
 
-def test_sync_must_pool_new_code_uses_system_default_params(monkeypatch, tmp_path):
+def test_sync_must_pool_new_code_defers_trade_params_to_import_pool(
+    monkeypatch, tmp_path
+):
     target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
     target.parent.mkdir(parents=True)
     target.write_text("0300127\n", encoding="gbk")
@@ -494,9 +475,6 @@ def test_sync_must_pool_new_code_uses_system_default_params(monkeypatch, tmp_pat
         "stock_pools": FakeStockPoolsCollection(),
         "must_pool": FakeStockPoolsCollection(),
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 7.77}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -514,14 +492,11 @@ def test_sync_must_pool_new_code_uses_system_default_params(monkeypatch, tmp_pat
     assert result["synced_codes"] == ["300127"]
     assert result["failed_codes"] == []
     call = calls[0]
-    assert call["stop_loss_price"] == 7.77
-    assert call["initial_lot_amount"] == 60000
-    assert call["lot_amount"] == 60000
+    assert call["initial_lot_amount"] is None
+    assert call["lot_amount"] is None
 
 
-def test_sync_must_pool_new_code_without_default_stop_loss_imports_with_none(
-    monkeypatch, tmp_path
-):
+def test_sync_must_pool_new_code_imports_without_trade_params(monkeypatch, tmp_path):
     target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
     target.parent.mkdir(parents=True)
     target.write_text("0300127\n000002\n", encoding="gbk")
@@ -529,7 +504,6 @@ def test_sync_must_pool_new_code_without_default_stop_loss_imports_with_none(
         "stock_pools": FakeStockPoolsCollection(),
         "must_pool": FakeStockPoolsCollection(),
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
     monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
@@ -544,11 +518,10 @@ def test_sync_must_pool_new_code_without_default_stop_loss_imports_with_none(
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
 
-    # 通达信分组不承载止损配置：无默认止损配置时新代码仍同步，止损以 None 导入
+    # 通达信分组不承载资金参数：新代码仍同步，资金参数由 import_pool 兜底解析
     assert result["synced_codes"] == ["300127", "000002"]
     assert result["failed_codes"] == []
     assert [call["code"] for call in calls] == ["300127", "000002"]
-    assert all(call["stop_loss_price"] is None for call in calls)
     assert all(call["initial_lot_amount"] is None for call in calls)
     assert all(call["lot_amount"] is None for call in calls)
 
@@ -573,40 +546,6 @@ def test_sync_stock_pools_second_run_is_idempotent(monkeypatch, tmp_path):
     assert sorted(doc["code"] for doc in collection.docs) == ["000001", "300127"]
 
 
-def test_resolve_must_pool_default_params_uses_system_config(monkeypatch):
-    fake_db = {
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 7.77}}}]
-        ),
-        "must_pool": FakeStockPoolsCollection(),
-        "instrument_strategy": FakeStockPoolsCollection(),
-    }
-    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
-    monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 60000)
-
-    resolved = stock_service.resolve_must_pool_default_params("300127")
-
-    assert resolved == {
-        "stop_loss_price": 7.77,
-        "initial_lot_amount": 60000,
-        "lot_amount": 60000,
-    }
-
-
-def test_resolve_must_pool_default_params_returns_none_without_stop_loss_config(
-    monkeypatch,
-):
-    fake_db = {
-        "params": FakeStockPoolsCollection(),
-        "must_pool": FakeStockPoolsCollection(),
-        "instrument_strategy": FakeStockPoolsCollection(),
-    }
-    monkeypatch.setattr(stock_service, "DBfreshquant", fake_db)
-    monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 60000)
-
-    assert stock_service.resolve_must_pool_default_params("300127") is None
-
-
 def test_sync_must_pool_writes_default_params_into_stored_documents(
     monkeypatch, tmp_path
 ):
@@ -623,9 +562,6 @@ def test_sync_must_pool_writes_default_params_into_stored_documents(
             "stock_pools": FakeStockPoolsCollection(),
             "must_pool": FakeStockPoolsCollection(),
             "xt_positions": FakeStockPoolsCollection(),
-            "params": FakeStockPoolsCollection(
-                [{"code": "guardian", "value": {"stock": {"stop_loss_default": 7.77}}}]
-            ),
             "instrument_strategy": FakeStockPoolsCollection(),
         }
     )
@@ -637,6 +573,7 @@ def test_sync_must_pool_writes_default_params_into_stored_documents(
         lambda code: {"name": "测试标的", "sec": "stock_cn"},
     )
     monkeypatch.setattr(stock_service, "get_trade_amount", lambda code: 60000)
+    monkeypatch.setattr(stock_service.must_pool, "get_trade_amount", lambda code: 60000)
 
     result = stock_service.sync_must_pool_from_tdx_self_select(tdx_home=tmp_path)
 
@@ -645,12 +582,11 @@ def test_sync_must_pool_writes_default_params_into_stored_documents(
     # 真实 must_pool.import_pool 必须把默认参数写入存储文档，而不是只停留在 UI 层
     stored = fake_db["must_pool"].find_one({"code": "300127"})
     assert stored is not None
-    assert stored["stop_loss_price"] == 7.77
     assert stored["initial_lot_amount"] == 60000
     assert stored["lot_amount"] == 60000
 
 
-def test_sync_must_pool_without_default_stop_loss_writes_none_into_stored_documents(
+def test_sync_must_pool_without_trade_params_resolves_defaults_in_stored_documents(
     monkeypatch, tmp_path
 ):
     target = Path(tmp_path) / "T0002" / "blocknew" / "待买.blk"
@@ -666,7 +602,6 @@ def test_sync_must_pool_without_default_stop_loss_writes_none_into_stored_docume
             "stock_pools": FakeStockPoolsCollection(),
             "must_pool": FakeStockPoolsCollection(),
             "xt_positions": FakeStockPoolsCollection(),
-            "params": FakeStockPoolsCollection(),
             "instrument_strategy": FakeStockPoolsCollection(),
         }
     )
@@ -685,10 +620,9 @@ def test_sync_must_pool_without_default_stop_loss_writes_none_into_stored_docume
 
     assert result["synced_codes"] == ["300127"]
     assert result["failed_codes"] == []
-    # 真实 must_pool.import_pool 在无默认止损配置时必须落库 None，而不是阻断同步
+    # 真实 must_pool.import_pool 在缺省资金参数时按 get_trade_amount 兜底解析
     stored = fake_db["must_pool"].find_one({"code": "300127"})
     assert stored is not None
-    assert stored["stop_loss_price"] is None
     assert stored["initial_lot_amount"] == 60000
     assert stored["lot_amount"] == 60000
 
@@ -700,9 +634,6 @@ def _must_pool_db(existing_codes=None):
             [{"code": code} for code in (existing_codes or [])]
         ),
         "xt_positions": FakeStockPoolsCollection(),
-        "params": FakeStockPoolsCollection(
-            [{"code": "guardian", "value": {"stock": {"stop_loss_default": 9.5}}}]
-        ),
         "instrument_strategy": FakeStockPoolsCollection(),
     }
 

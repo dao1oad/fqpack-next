@@ -454,7 +454,7 @@ def sync_stock_pools_from_tdx():
 @stock_bp.route("/pools/must/sync-from-tdx", methods=["POST"])
 def sync_must_pool_from_tdx():
     """用通达信 DM 待买组覆盖刷新 must_pool（排除完整持仓，新代码自动补资金默认参数；
-    系统默认止损未配置时以 None 导入，不阻断同步）。"""
+    资金参数缺失时由 import_pool 兜底解析，不阻断同步）。"""
     try:
         days = int(request.args.get("days", "30"))
         raw_allow_empty = str(request.args.get("allow_empty", "")).strip().lower()

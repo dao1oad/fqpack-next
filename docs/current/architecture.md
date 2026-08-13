@@ -123,7 +123,7 @@ broker-only 买单显式 base；跨 base/t 分摊卖单订单级 `mixed`，逐�
 
 `XTData -> Guardian -> PositionManagement gate -> OrderManagement submit -> broker -> XT callback -> OrderManagement ingest -> Position/TPSL/Subject/Kline read models`
 
-### 止盈止损链
+### 止盈链
 
 `tick -> TpslTickConsumer -> TpslService -> OrderSubmitService -> broker -> XT callback -> OrderManagement ingest`
 
@@ -155,7 +155,7 @@ om_entry_slices / om_exit_allocations`）；`om_execution_history_archive` 与
 ### 订单账本层
 
 - `om_order_requests`
-  - `ledger_intent` 必填（base/t/mixed/-），TPSL/Guardian/手动/网页/stoploss
+  - `ledger_intent` 必填（base/t/mixed/-），TPSL/Guardian/手动/网页
     全写入方显式声明，缺失 fail-closed
 - `om_orders`
   - 内部订单壳；`filled_quantity` 死字段退役，数量真值在 `om_broker_orders`
@@ -226,11 +226,11 @@ buy 先解析归属后聚类，禁止跨账本聚合。
 - `PositionManagement`
   - `券商仓位 / 账本仓位 / 对账状态`
 - `SubjectManagement`
-  - `entries + entry stoploss + must_pool + limit summary`
+  - `entries + must_pool + limit summary`
 - `TpslManagement`
-  - `entries + entry_slices + takeprofit + stoploss`
+  - `entries + entry_slices + takeprofit`
 - `KlineSlim`
-  - `entries + entry stoploss + guardian/takeprofit + 可选订单级交易复盘覆盖层`
+  - `entries + guardian/takeprofit + 可选订单级交易复盘覆盖层`
   - CLX 选股工作区入口为 `/daily-screening`（三面板工作台），左栏读取 ready generation 的 pure-buy 结果（`direction_mode=pure_buy`），支持资产、模型、条件、方向、线关系、最少模型数和文本查询，并按服务端 cursor 追加结果
   - 点击左栏标的时更新当前 symbol/asset type，并把 `scope.tradeDate` 映射为 K 线与历史信号共同使用的 `endDate`
   - 左栏“筛选哪些标的”的模型/条件状态与右栏“显示哪些历史 marker”的模型/条件状态分别维护，切换任一侧都不静默改写另一侧
@@ -284,7 +284,6 @@ buy 先解析归属后聚类，禁止跨账本聚合。
 
 - buy fill 默认按 broker order 聚合成一个 entry
 - 对账补开的 `auto_reconciled_open` 若与相邻 open entry 满足同标的、同交易日、5 分钟内且价差不超过 0.3%，也会并入同一个 buy cluster
-- stoploss 绑定对象是 `entry_id`
 - odd-lot 不进入 `position_entries`
 - odd-lot 进入 `om_ingest_rejections`
 - XT 自动还款当前只处理普通融资负债；盘中低频巡检只把快照当候选信号，真正提交前始终再查一次实时 `credit_detail`

@@ -18,7 +18,7 @@ class GuardianSignal:
     tags: list[str]
 
 
-def _stop_loss_from_bi(
+def _stop_lose_from_bi(
     *,
     bi_list: list[int],
     idx: int,
@@ -165,7 +165,7 @@ def calculate_guardian_signals_latest(
                 signal_type="buy_zs_huila",
                 fire_time=fire_time,
                 price=float(close_list[idx]),
-                stop_lose_price=_stop_loss_from_bi(
+                stop_lose_price=_stop_lose_from_bi(
                     bi_list=bi_list,
                     idx=idx,
                     is_buy=True,
@@ -182,7 +182,7 @@ def calculate_guardian_signals_latest(
                 signal_type="sell_zs_huila",
                 fire_time=fire_time,
                 price=float(close_list[idx]),
-                stop_lose_price=_stop_loss_from_bi(
+                stop_lose_price=_stop_lose_from_bi(
                     bi_list=bi_list,
                     idx=idx,
                     is_buy=False,
@@ -209,7 +209,7 @@ def calculate_guardian_signals_latest(
                 signal_type="buy_v_reverse",
                 fire_time=fire_time,
                 price=float(close_list[idx]),
-                stop_lose_price=_stop_loss_from_bi(
+                stop_lose_price=_stop_lose_from_bi(
                     bi_list=bi_list,
                     idx=idx,
                     is_buy=True,
@@ -226,7 +226,7 @@ def calculate_guardian_signals_latest(
                 signal_type="sell_v_reverse",
                 fire_time=fire_time,
                 price=float(close_list[idx]),
-                stop_lose_price=_stop_loss_from_bi(
+                stop_lose_price=_stop_lose_from_bi(
                     bi_list=bi_list,
                     idx=idx,
                     is_buy=False,
@@ -256,7 +256,7 @@ def calculate_guardian_signals_latest(
                         signal_type="macd_bullish_divergence",
                         fire_time=fire_time,
                         price=float(close_list[idx]),
-                        stop_lose_price=_stop_loss_from_bi(
+                        stop_lose_price=_stop_lose_from_bi(
                             bi_list=bi_list,
                             idx=idx,
                             is_buy=True,
@@ -273,7 +273,7 @@ def calculate_guardian_signals_latest(
                         signal_type="macd_bearish_divergence",
                         fire_time=fire_time,
                         price=float(close_list[idx]),
-                        stop_lose_price=_stop_loss_from_bi(
+                        stop_lose_price=_stop_lose_from_bi(
                             bi_list=bi_list,
                             idx=idx,
                             is_buy=False,

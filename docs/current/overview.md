@@ -24,7 +24,7 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 - `/system-settings` 已补入仓位管理 inventory 去重后的只读补充项
 - 独立 `/order-management` 路由已移除；订单列表、订单详情与对账排障统一收口到 `/position-management`
 - 独立 `/tpsl`、`/futures-control`、`/stock-cjsd` 路由已移除
-- SubjectManagement、TPSL、KlineSlim 的“单笔止损”都已切为 entry 级语义
+- 止损触发功能（全仓止损 + 单笔止损）已随 Issue #603 整体下线，三条 BUY 抄底线承担补仓
 - `stock_fills` 旧接口仍保留，但底层优先读取 entry ledger
 
 ## 当前目录职责

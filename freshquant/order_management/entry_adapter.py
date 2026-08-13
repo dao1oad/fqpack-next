@@ -121,51 +121,6 @@ def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
     return rows
 
 
-def list_entry_stoploss_bindings_compat(symbol=None, enabled=True, repository=None):
-    repository = repository or OrderManagementRepository()
-    rows = {}
-    supports_v2_bindings = hasattr(repository, "list_entry_stoploss_bindings")
-
-    if supports_v2_bindings:
-        for item in repository.list_entry_stoploss_bindings(
-            symbol=symbol, enabled=enabled
-        ):
-            normalized = _normalize_entry_binding(item)
-            rows[normalized["entry_id"]] = normalized
-
-    if not supports_v2_bindings and hasattr(repository, "list_stoploss_bindings"):
-        legacy_bindings = repository.list_stoploss_bindings(
-            symbol=symbol,
-            enabled=enabled,
-        )
-        for item in legacy_bindings:
-            normalized = _legacy_binding_to_entry_binding(item)
-            rows.setdefault(normalized["entry_id"], normalized)
-
-    return list(rows.values())
-
-
-def get_entry_stoploss_binding(entry_id, repository=None):
-    repository = repository or OrderManagementRepository()
-    entry_id_text = str(entry_id or "").strip()
-    if not entry_id_text:
-        return None
-
-    if hasattr(repository, "find_entry_stoploss_binding"):
-        binding = repository.find_entry_stoploss_binding(entry_id_text)
-        if binding is not None:
-            return _normalize_entry_binding(binding)
-        if not _is_legacy_buy_lot_id(entry_id_text):
-            return None
-
-    if not hasattr(repository, "find_stoploss_binding"):
-        return None
-    legacy_binding = repository.find_stoploss_binding(entry_id_text)
-    if legacy_binding is None:
-        return None
-    return _legacy_binding_to_entry_binding(legacy_binding)
-
-
 def _normalize_entry(entry):
     row = dict(entry)
     row["entry_id"] = str(row.get("entry_id") or "").strip()
@@ -233,19 +188,3 @@ def _legacy_lot_slice_to_entry_slice(item):
         "symbol": row.get("symbol"),
         "status": row.get("status") or "OPEN",
     }
-
-
-def _normalize_entry_binding(item):
-    row = dict(item)
-    row["entry_id"] = str(row.get("entry_id") or "").strip()
-    row["binding_scope"] = row.get("binding_scope") or "position_entry"
-    return row
-
-
-def _legacy_binding_to_entry_binding(item):
-    row = dict(item)
-    entry_id = str(row.get("buy_lot_id") or "").strip()
-    row["entry_id"] = entry_id
-    row["buy_lot_id"] = entry_id
-    row["binding_scope"] = "legacy_buy_lot"
-    return row

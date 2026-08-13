@@ -67,7 +67,6 @@ def test_subject_management_must_pool_route_updates_subject_config(monkeypatch):
         data=json.dumps(
             {
                 "category": "银行",
-                "stop_loss_price": 9.2,
                 "initial_lot_amount": 80000,
                 "lot_amount": 50000,
                 "forever": True,
@@ -82,7 +81,6 @@ def test_subject_management_must_pool_route_updates_subject_config(monkeypatch):
         "600000",
         {
             "category": "银行",
-            "stop_loss_price": 9.2,
             "initial_lot_amount": 80000,
             "lot_amount": 50000,
             "forever": True,

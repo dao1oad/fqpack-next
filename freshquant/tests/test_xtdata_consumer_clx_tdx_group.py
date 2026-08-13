@@ -106,9 +106,9 @@ def _meta_and_result(code="sh600000", period="15min"):
     }
     fc_res = {
         "signals": [
-            {"signal": 1, "model": 10000, "close": 10.5, "stop_loss": 9.8},
-            {"signal": 0, "model": 10001, "close": 10.5, "stop_loss": 9.8},
-            {"signal": 1, "model": 10001, "close": 10.6, "stop_loss": 9.9},
+            {"signal": 1, "model": 10000, "close": 10.5},
+            {"signal": 0, "model": 10001, "close": 10.5},
+            {"signal": 1, "model": 10001, "close": 10.6},
         ]
     }
     return meta, fc_res

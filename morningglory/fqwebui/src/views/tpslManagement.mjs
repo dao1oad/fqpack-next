@@ -55,7 +55,6 @@ const buildTakeprofitSummary = (row = {}) => {
 const buildBadges = (row = {}) => {
   const badges = []
   if (row.takeprofit_configured) badges.push('止盈')
-  if (row.has_active_stoploss) badges.push('止损')
   return badges
 }
 
@@ -74,16 +73,6 @@ const buildTriggerLabel = (row = {}) => {
   if (kind === 'takeprofit') {
     const level = toNumber(row?.level, 0)
     return level > 0 ? `L${level}` : '-'
-  }
-  if (kind === 'stoploss') {
-    const stopPrices = Array.from(
-      new Set(
-        (Array.isArray(row?.entry_details) ? row.entry_details : [])
-          .map((item) => formatNumericLabel(item?.stop_price))
-          .filter(Boolean),
-      ),
-    )
-    return stopPrices.length ? stopPrices.join(', ') : '-'
   }
   return '-'
 }
@@ -118,7 +107,6 @@ export const buildOverviewRows = (rows = []) => {
       position_quantity: toNumber(row?.position_quantity),
       position_amount: toNumber(row?.position_amount),
       position_amount_label: formatAmountWanLabel(row?.position_amount),
-      active_stoploss_entry_count: toNumber(row?.active_stoploss_entry_count),
       open_entry_count: toNumber(row?.open_entry_count),
       badges: buildBadges(row),
       takeprofitSummary: buildTakeprofitSummary(row),
@@ -159,7 +147,6 @@ export const buildDetailViewModel = (detail = {}) => {
   const takeprofit = detail?.takeprofit || { tiers: [], state: { armed_levels: {} } }
   const rawEntries = Array.isArray(detail?.entries) ? detail.entries : []
   const entries = rawEntries.map((row) => {
-    const stoploss = row?.stoploss || {}
     const sellHistory = Array.isArray(row?.sell_history) ? row.sell_history : []
     const entryPrice = row?.entry_price ?? row?.buy_price_real
     const originalQuantity = toNumber(row?.original_quantity)
@@ -181,11 +168,7 @@ export const buildDetailViewModel = (detail = {}) => {
       remaining_ratio: remainingRatio,
       remaining_ratio_label: remainingRatio === null ? '-' : `${(remainingRatio * 100).toFixed(1)}%`,
       buy_time_label: formatBeijingDateTimeParts(row?.date, row?.time),
-      stoploss,
       sell_history: sellHistory,
-      stoplossLabel: stoploss?.stop_price === null || stoploss?.stop_price === undefined
-        ? '-'
-        : String(stoploss.stop_price),
       sellHistoryLabel: `${sellHistory.length} 次卖出分配`,
     }
   })
@@ -237,12 +220,6 @@ export const createTpslManagementActions = (api) => ({
   },
   async rearmTakeprofit (symbol) {
     return api.rearmTakeprofit(symbol)
-  },
-  async saveStoploss (entryId, payload = {}) {
-    return api.bindStoploss({
-      entry_id: entryId,
-      ...payload,
-    })
   },
   async loadHistory (filters = {}) {
     const response = await api.listHistory(filters)

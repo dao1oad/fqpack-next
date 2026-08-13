@@ -43,8 +43,6 @@ _MUTABLE_ORDER_COLLECTIONS = {
     "om_lot_slices",
     "om_sell_allocations",
     "om_external_candidates",
-    "om_stoploss_bindings",
-    "om_entry_stoploss_bindings",
 }
 _READ_ONLY_ORDER_COLLECTIONS = {
     "om_order_requests",

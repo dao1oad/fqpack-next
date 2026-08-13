@@ -924,7 +924,7 @@ test('buildComponentEventEmptyState distinguishes issue-filter empty state from 
     }),
     {
       title: 'tpsl_worker 当前没有真实触发 Event',
-      detail: '未命中止盈止损价、空价格和盘后空跑评估默认不会显示；如需查看原始评估日志，请打开 Raw Browser。',
+      detail: '未命中止盈价、空价格和盘后空跑评估默认不会显示；如需查看原始评估日志，请打开 Raw Browser。',
     },
   )
 })
@@ -1407,8 +1407,8 @@ test('buildEventLedgerRows derives chinese semantic values for supported runtime
       status: 'info',
       symbol: '000001',
       payload: {
-        scope_type: 'stoploss_batch',
-        batch_id: 'sl_batch_1',
+        scope_type: 'takeprofit_batch',
+        batch_id: 'tp_batch_1',
       },
     },
     {
@@ -1491,7 +1491,7 @@ test('buildEventLedgerRows derives chinese semantic values for supported runtime
   assert.equal(rows[0].semantic_value, '阻断')
   assert.equal(rows[1].semantic_value, '允许')
   assert.equal(rows[2].semantic_value, '通过')
-  assert.equal(rows[3].semantic_value, '止损')
+  assert.equal(rows[3].semantic_value, '止盈')
   assert.equal(rows[4].semantic_value, '融资买入')
   assert.equal(rows[5].semantic_value, '仅允许持仓内买入')
   assert.equal(rows[6].semantic_value, '买入成交')
@@ -1514,12 +1514,12 @@ test('filterTracesByKind keeps all traces by default and narrows by selected kin
   const traces = [
     { trace_id: 'trc_guardian', trace_kind: 'guardian_signal', steps: [] },
     { trace_id: 'trc_takeprofit', trace_kind: 'takeprofit', steps: [] },
-    { trace_id: 'trc_stoploss', trace_kind: 'stoploss', steps: [] },
+    { trace_id: 'trc_external', trace_kind: 'external_reported', steps: [] },
   ]
 
   assert.deepEqual(
     filterTracesByKind(traces, 'all').map((item) => item.trace_id),
-    ['trc_guardian', 'trc_takeprofit', 'trc_stoploss'],
+    ['trc_guardian', 'trc_takeprofit', 'trc_external'],
   )
   assert.deepEqual(
     filterTracesByKind(traces, 'takeprofit').map((item) => item.trace_id),
@@ -1538,7 +1538,6 @@ test('buildTraceKindOptions returns chinese labels for available trace kinds', (
     { value: 'all', label: '全部链路' },
     { value: 'guardian_signal', label: 'Guardian 信号' },
     { value: 'takeprofit', label: '止盈链路' },
-    { value: 'stoploss', label: '止损链路' },
     { value: 'external_reported', label: '外部上报' },
     { value: 'external_inferred', label: '外部推断' },
     { value: 'manual_api_order', label: '手动下单' },
@@ -1566,8 +1565,8 @@ test('pickDefaultTraceKind keeps a valid current kind and otherwise falls back t
   assert.equal(
     pickDefaultTraceKind([
       { trace_id: 'trc_takeprofit', trace_kind: 'takeprofit', steps: [] },
-    ], 'stoploss'),
-    'stoploss',
+    ], 'external_reported'),
+    'external_reported',
   )
 })
 

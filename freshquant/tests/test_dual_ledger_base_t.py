@@ -781,10 +781,6 @@ def test_tpsl_consumer_dual_universe_buy_line_before_takeprofit(monkeypatch):
             calls.append(("takeprofit", kwargs.get("symbol")))
             return None
 
-        def evaluate_stoploss(self, **kwargs):
-            calls.append(("stoploss", kwargs.get("symbol")))
-            return None
-
     consumer = TpslTickConsumer(
         service=_FakeService(),
         universe_loader=lambda: ["sh000001"],
@@ -820,10 +816,6 @@ def test_tpsl_consumer_buy_line_only_symbol_still_evaluates():
 
         def evaluate_takeprofit(self, **kwargs):
             calls.append(("takeprofit", kwargs.get("symbol")))
-            return None
-
-        def evaluate_stoploss(self, **kwargs):
-            calls.append(("stoploss", kwargs.get("symbol")))
             return None
 
     consumer = TpslTickConsumer(

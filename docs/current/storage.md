@@ -48,7 +48,6 @@
 - `om_exit_allocations`
 - `om_reconciliation_gaps`
 - `om_reconciliation_resolutions`
-- `om_entry_stoploss_bindings`
 - `om_ingest_rejections`
 - `om_takeprofit_profiles`
 - `om_takeprofit_states`
@@ -76,7 +75,6 @@
 - `om_lot_slices`
 - `om_sell_allocations`
 - `om_external_candidates`
-- `om_stoploss_bindings`
 
 ### `freshquant_position_management`
 

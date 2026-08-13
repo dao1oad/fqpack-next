@@ -48,10 +48,7 @@ _SUMMARY_COUNT_KEYS = (
 _FLATTEN_EXTRA_PURGE_COLLECTIONS = ("om_takeprofit_states",)
 # flatten-cost-price 模式额外归档的辅助状态集合。
 _FLATTEN_AUXILIARY_ARCHIVE_COLLECTION = "order_ledger_flatten_auxiliary_archive"
-_FLATTEN_AUXILIARY_SOURCE_COLLECTIONS = (
-    "om_entry_stoploss_bindings",
-    "om_takeprofit_states",
-)
+_FLATTEN_AUXILIARY_SOURCE_COLLECTIONS = ("om_takeprofit_states",)
 
 
 def _get_order_management_db():

@@ -18,9 +18,7 @@ def load_active_tpsl_codes() -> list[str]:
 def load_active_buy_line_codes() -> list[str]:
     """买入线 universe（#549）：当前持仓 ∩ 有 buy grid 配置。
 
-    与 TP/SL 集合（``load_active_tpsl_codes``）双集合隔离，不得混入——
-    ``evaluate_stoploss`` 依赖 ``must_pool.stop_loss_price``，扩展集合会让
-    仅配 buy 线且 must_pool 带止损价的标的被全仓止损误触发。
+    与止盈集合（``load_active_tpsl_codes``）双集合隔离，不得混入。
     """
 
     holding_codes = _load_holding_codes()
@@ -70,14 +68,6 @@ def _load_buy_grid_configured_codes() -> set[str]:
 
 def _load_configured_codes() -> set[str]:
     codes: set[str] = set()
-
-    for doc in DBOrderManagement["om_stoploss_bindings"].find(
-        {"enabled": True},
-        {"symbol": 1},
-    ):
-        code = normalize_prefixed_code(str(doc.get("symbol") or "")).lower()
-        if code:
-            codes.add(code)
 
     for doc in DBOrderManagement["om_takeprofit_profiles"].find({}, {"symbol": 1}):
         code = normalize_prefixed_code(str(doc.get("symbol") or "")).lower()

@@ -340,9 +340,6 @@ def sync_stock_pools_from_tdx_self_select(
                     "file_name": filename,
                 },
             },
-            "$setOnInsert": {
-                "stop_loss_price": None,
-            },
         }
         DBfreshquant["stock_pools"].update_one(
             {"code": code},
@@ -408,10 +405,8 @@ def sync_must_pool_from_tdx_self_select(
 
     覆盖同步契约与 stock_pools 相同（文件阻断、完整持仓排除、先批量 upsert 后删除）；
     差异：
-    - 已有记录保留原交易参数（stop_loss_price / initial_lot_amount / lot_amount）；
-    - 新代码自动解析统一系统默认参数；通达信「待买」分组不承载止损配置，系统默认止损
-      （params.guardian.value.stock.stop_loss_default）未配置时以 stop_loss_price=None
-      导入（与既有 must_pool 数据一致），资金参数仍走统一默认，不再因缺省止损阻断同步。
+    - 已有记录保留原交易参数（initial_lot_amount / lot_amount）；
+    - 新代码资金参数走统一默认（import_pool 内部兜底 get_trade_amount 解析）。
     - ``allow_empty=True`` 且解码结果为空（文件存在、GBK 解码成功）时，按显式确认
       语义**清空池子**（删除 must_pool 全部旧记录）；分组非空但代码全为无效/持仓时
       不清空（#589 边界）。
@@ -451,22 +446,11 @@ def sync_must_pool_from_tdx_self_select(
         existing = DBfreshquant["must_pool"].find_one({"code": code}) or {}
         has_existing = bool(existing)
         if has_existing:
-            stop_loss_price = existing.get("stop_loss_price")
             initial_lot_amount = existing.get("initial_lot_amount")
             lot_amount = existing.get("lot_amount")
         else:
-            default_params = resolve_must_pool_default_params(code)
-            if default_params is None:
-                # 通达信「待买」分组不承载止损配置：默认止损未配置时不阻断同步，
-                # 以 stop_loss_price=None 导入（与既有 must_pool 数据一致）；
-                # 资金参数由 import_pool 内部兜底 get_trade_amount 解析。
-                stop_loss_price = None
-                initial_lot_amount = None
-                lot_amount = None
-            else:
-                stop_loss_price = default_params["stop_loss_price"]
-                initial_lot_amount = default_params["initial_lot_amount"]
-                lot_amount = default_params["lot_amount"]
+            initial_lot_amount = None
+            lot_amount = None
 
         provenance = {
             "sources": [source],
@@ -488,7 +472,6 @@ def sync_must_pool_from_tdx_self_select(
             ok = must_pool.import_pool(
                 code=code,
                 category=category,
-                stop_loss_price=stop_loss_price,
                 initial_lot_amount=initial_lot_amount,
                 lot_amount=lot_amount,
                 forever=True,
@@ -544,43 +527,6 @@ def sync_must_pool_from_tdx_self_select(
         "invalid_codes": skipped_invalid_codes,
         "failed_codes": failed_codes,
     }
-
-
-def resolve_must_pool_default_params(code: str) -> dict | None:
-    """解析 must 新代码的统一系统默认参数。
-
-    - lot_amount 使用现有 get_trade_amount(code)；
-    - initial_lot_amount 默认等于 lot_amount；
-    - stop_loss_price 使用系统正式默认止损配置；
-    - 默认止损未配置时返回 None（调用方将该代码列入同步失败清单）。
-    """
-    lot_amount = get_trade_amount(code)
-    stop_loss_price = _resolve_default_stop_loss_price()
-    if stop_loss_price is None:
-        return None
-    return {
-        "stop_loss_price": stop_loss_price,
-        "initial_lot_amount": lot_amount,
-        "lot_amount": lot_amount,
-    }
-
-
-def _resolve_default_stop_loss_price():
-    """系统正式默认止损配置：``params.guardian.value.stock.stop_loss_default``。"""
-    try:
-        param = DBfreshquant["params"].find_one({"code": "guardian"}) or {}
-        value = (param.get("value") or {}).get("stock") or {}
-        candidate = value.get("stop_loss_default")
-        if candidate is None:
-            candidate = value.get("stop_loss")
-        if candidate is None:
-            return None
-        parsed = float(candidate)
-    except (TypeError, ValueError):
-        return None
-    if parsed <= 0:
-        return None
-    return parsed
 
 
 def get_stock_signal_list(page=1, size=1000, category="candidates"):
@@ -670,7 +616,6 @@ def get_stock_model_signal_list(page=1, size=1000):
                 "period": doc.get("period") or "",
                 "model": doc.get("model") or "",
                 "close": doc.get("close"),
-                "stop_loss_price": doc.get("stop_loss_price"),
                 "source": doc.get("source") or "",
             }
         )
@@ -852,7 +797,6 @@ def add_to_stock_pools_by_code(
             code=code,
             category=direct_category,
             dt=now,
-            stop_loss_price=None,
             expire_at=expire_at,
             sources=[direct_source],
             categories=[direct_category],
@@ -893,7 +837,6 @@ def add_to_stock_pools_by_code(
         code=code,
         category=target_category,
         dt=record.get("updated_at") or record.get("datetime") or pendulum.now(),
-        stop_loss_price=record.get("stop_loss_price"),
         expire_at=pendulum.now().add(days=days),
         sources=list(record.get("sources") or []),
         categories=list(record.get("categories") or []),
@@ -938,14 +881,13 @@ def delete_from_stock_pools_by_code(code):
     return result.acknowledged
 
 
-def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount):
+def add_to_must_pool(code, initial_lot_amount, lot_amount):
     """
     根据code从stock_pools中插入到must_pool中
     Args:
         code: 股票代码
         lot_amount: 每次买入金额
         category: 分类名称
-        stop_loss_price: 止损价格
         initial_lot_amount: 首次买入金额 (可选，默认等于lot_amount)
     Returns:
         bool: 操作是否成功，如果记录不存在也会返回True
@@ -961,7 +903,6 @@ def add_to_must_pool(code, stop_loss_price, initial_lot_amount, lot_amount):
     ok = must_pool.import_pool(
         code=code,
         category=record.get("category"),
-        stop_loss_price=stop_loss_price,
         initial_lot_amount=initial_lot_amount,
         lot_amount=lot_amount,
         forever=True,
@@ -1051,8 +992,5 @@ def add_to_stock_pools_by_stock(stock):
     category = stock.get("category")
     if category is None:
         return False
-    stop_loss_price = stock.get("stop_loss_price")
-    if stop_loss_price is None:
-        return False
-    save_a_stock_pools(code=code, category=category, stop_loss_price=stop_loss_price)
+    save_a_stock_pools(code=code, category=category)
     return True

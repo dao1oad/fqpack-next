@@ -76,7 +76,6 @@
                   </template>
                 </template>
               </el-table-column>
-              <el-table-column prop="stop_loss_price" label="止损价格" />
               <el-table-column prop="datetime" label="时间" />
             </el-table>
           </div>

@@ -11,7 +11,7 @@
           <span>分组</span>
           <span>模型</span>
           <span>来源</span>
-          <span>触发价/止损价/止损%</span>
+          <span>触发价</span>
         </div>
         <div class="stock-control-ledger__viewport">
           <div
@@ -27,7 +27,7 @@
             <span class="stock-control-ledger__cell" :title="formatModelGroup(row.model)">{{ formatModelGroup(row.model) }}</span>
             <span class="stock-control-ledger__cell" :title="formatModelLabel(row.model)">{{ formatModelLabel(row.model) }}</span>
             <span class="stock-control-ledger__cell" :title="formatText(row.source)">{{ formatText(row.source) }}</span>
-            <span class="stock-control-ledger__cell stock-control-ledger__cell--mono stock-control-ledger__cell--strong stock-control-ledger__cell--price">{{ formatPriceSummary(row.close, row.stop_loss_price) }}</span>
+            <span class="stock-control-ledger__cell stock-control-ledger__cell--mono stock-control-ledger__cell--strong stock-control-ledger__cell--price">{{ formatPrice(row.close) }}</span>
           </div>
           <div v-if="!isLoading && signalRows.length === 0" class="stock-control-ledger__empty">
             暂无数据
@@ -127,17 +127,6 @@ export default {
       }
       return parsed.toFixed(3)
     },
-    formatStopLossRate (price, stopLossPrice) {
-      const firePrice = Number(price)
-      const stopPrice = Number(stopLossPrice)
-      if (!Number.isFinite(firePrice) || !Number.isFinite(stopPrice) || firePrice === 0) {
-        return '--'
-      }
-      return `${(((stopPrice - firePrice) / firePrice) * 100).toFixed(3)}%`
-    },
-    formatPriceSummary (price, stopLossPrice) {
-      return `${this.formatPrice(price)}/${this.formatPrice(stopLossPrice)}/${this.formatStopLossRate(price, stopLossPrice)}`
-    }
   }
 }
 </script>

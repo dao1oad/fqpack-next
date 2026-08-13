@@ -52,39 +52,39 @@ def locate_v_reversal(
             # 买入V反信号 (正值)
             if signal_value > 0:
                 # 寻找止损价格：往前找最近的笔底
-                stop_loss_price = None
+                stop_lose_price = None
                 for j in range(i, -1, -1):
                     if bi_list[j] == -1:
-                        stop_loss_price = low_list[j]
+                        stop_lose_price = low_list[j]
                         break
 
                 # 如果没有找到止损价格，使用当前价格下方5%
-                if stop_loss_price is None:
-                    stop_loss_price = close_list[i] * 0.95
+                if stop_lose_price is None:
+                    stop_lose_price = close_list[i] * 0.95
 
                 result["buy_v_reverse"]['idx'].append(i)
                 result["buy_v_reverse"]['datetime'].append(datetime_list[i])
                 result["buy_v_reverse"]['price'].append(close_list[i])
-                result["buy_v_reverse"]['stop_lose_price'].append(stop_loss_price)
+                result["buy_v_reverse"]['stop_lose_price'].append(stop_lose_price)
                 result["buy_v_reverse"]['tag'].append('')
 
             # 卖出V反信号 (负值)
             elif signal_value < 0:
                 # 寻找止损价格：往前找最近的笔顶
-                stop_loss_price = None
+                stop_lose_price = None
                 for j in range(i, -1, -1):
                     if bi_list[j] == 1:
-                        stop_loss_price = high_list[j]
+                        stop_lose_price = high_list[j]
                         break
 
                 # 如果没有找到止损价格，使用当前价格上方5%
-                if stop_loss_price is None:
-                    stop_loss_price = close_list[i] * 1.05
+                if stop_lose_price is None:
+                    stop_lose_price = close_list[i] * 1.05
 
                 result["sell_v_reverse"]['idx'].append(i)
                 result["sell_v_reverse"]['datetime'].append(datetime_list[i])
                 result["sell_v_reverse"]['price'].append(close_list[i])
-                result["sell_v_reverse"]['stop_lose_price'].append(stop_loss_price)
+                result["sell_v_reverse"]['stop_lose_price'].append(stop_lose_price)
                 result["sell_v_reverse"]['tag'].append('')
 
     except Exception as e:

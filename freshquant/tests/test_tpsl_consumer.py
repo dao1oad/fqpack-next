@@ -16,12 +16,10 @@ class FakeTpslService:
     def __init__(
         self,
         takeprofit_batch=None,
-        stoploss_batch=None,
         buy_line_batch=None,
         buy_line_submit_result=None,
     ):
         self.takeprofit_batch = takeprofit_batch
-        self.stoploss_batch = stoploss_batch
         self.buy_line_batch = buy_line_batch
         self.buy_line_submit_result = buy_line_submit_result
         self.calls = []
@@ -44,25 +42,11 @@ class FakeTpslService:
         self.calls.append("submit_takeprofit")
         return batch
 
-    def evaluate_stoploss(self, **_kwargs):
-        self.calls.append("evaluate_stoploss")
-        return self.stoploss_batch
 
-    def submit_stoploss_batch(self, batch):
-        self.calls.append("submit_stoploss")
-        return batch
-
-
-def test_consumer_executes_takeprofit_before_stoploss():
+def test_consumer_submits_takeprofit_when_ready():
     service = FakeTpslService(
         takeprofit_batch={
             "batch_id": "tp1",
-            "status": "ready",
-            "symbol": "000001",
-            "quantity": 300,
-        },
-        stoploss_batch={
-            "batch_id": "sl1",
             "status": "ready",
             "symbol": "000001",
             "quantity": 300,
@@ -95,12 +79,6 @@ def test_consumer_skips_symbols_outside_active_tpsl_universe():
             "symbol": "000001",
             "quantity": 300,
         },
-        stoploss_batch={
-            "batch_id": "sl1",
-            "status": "ready",
-            "symbol": "000001",
-            "quantity": 300,
-        },
     )
     consumer = TpslTickConsumer(
         service=service,
@@ -122,39 +100,6 @@ def test_consumer_skips_symbols_outside_active_tpsl_universe():
     assert service.calls == []
 
 
-def test_consumer_runs_stoploss_when_takeprofit_not_hit():
-    service = FakeTpslService(
-        takeprofit_batch=None,
-        stoploss_batch={
-            "batch_id": "sl1",
-            "status": "ready",
-            "symbol": "000001",
-            "quantity": 500,
-        },
-    )
-    consumer = TpslTickConsumer(
-        service=service,
-        universe_loader=lambda: ["sz000001"],
-        refresh_interval_s=999,
-    )
-
-    consumer.handle_tick(
-        {
-            "code": "000001.SZ",
-            "ask1": 10.0,
-            "bid1": 9.2,
-            "lastPrice": 9.6,
-            "time": AFTER_CONTINUOUS_AUCTION_TS,
-        }
-    )
-
-    assert service.calls == [
-        "evaluate_takeprofit",
-        "evaluate_stoploss",
-        "submit_stoploss",
-    ]
-
-
 def test_consumer_returns_zero_quantity_takeprofit_trigger_without_submitting():
     takeprofit_result = {
         "status": "triggered_no_order",
@@ -163,7 +108,6 @@ def test_consumer_returns_zero_quantity_takeprofit_trigger_without_submitting():
     }
     service = FakeTpslService(
         takeprofit_batch=takeprofit_result,
-        stoploss_batch={"batch_id": "sl1", "symbol": "000001", "quantity": 500},
     )
     consumer = TpslTickConsumer(
         service=service,
@@ -218,12 +162,6 @@ def test_consumer_ignores_ticks_before_continuous_auction():
     service = FakeTpslService(
         takeprofit_batch={
             "batch_id": "tp1",
-            "status": "ready",
-            "symbol": "000001",
-            "quantity": 300,
-        },
-        stoploss_batch={
-            "batch_id": "sl1",
             "status": "ready",
             "symbol": "000001",
             "quantity": 300,
@@ -289,8 +227,8 @@ def test_consumer_dual_universe_buy_line_skipped_still_evaluates_takeprofit():
     ]
 
 
-def test_consumer_dual_universe_buy_line_skipped_runs_stoploss_when_tp_none():
-    """双集合标的 + 买入线 skipped + TP None → 止损仍被评估（#549 短路修复）。"""
+def test_consumer_dual_universe_buy_line_skipped_returns_none_when_tp_none():
+    """双集合标的 + 买入线 skipped + TP None → 本 tick 终止（止损已随 Issue #603 下线）。"""
 
     service = FakeTpslService(
         buy_line_batch={
@@ -299,12 +237,6 @@ def test_consumer_dual_universe_buy_line_skipped_runs_stoploss_when_tp_none():
             "skip_reason": "no_armed_buy_line",
         },
         takeprofit_batch=None,
-        stoploss_batch={
-            "batch_id": "sl1",
-            "status": "ready",
-            "symbol": "000001",
-            "quantity": 500,
-        },
     )
     consumer = TpslTickConsumer(
         service=service,
@@ -323,12 +255,7 @@ def test_consumer_dual_universe_buy_line_skipped_runs_stoploss_when_tp_none():
         }
     )
 
-    assert service.calls == [
-        "evaluate_base_buyline",
-        "evaluate_takeprofit",
-        "evaluate_stoploss",
-        "submit_stoploss",
-    ]
+    assert service.calls == ["evaluate_base_buyline", "evaluate_takeprofit"]
 
 
 def test_consumer_buy_line_ready_submits_and_skips_takeprofit():
@@ -369,7 +296,7 @@ def test_consumer_buy_line_ready_submits_and_skips_takeprofit():
 
 
 def test_consumer_buy_line_only_symbol_skipped_stops_tick():
-    """buy-line-only 标的（不在 TP/SL universe）+ 买入线 skipped → TP/SL 均不评估。"""
+    """buy-line-only 标的（不在止盈 universe）+ 买入线 skipped → 止盈不评估。"""
 
     service = FakeTpslService(
         buy_line_batch={
@@ -382,12 +309,6 @@ def test_consumer_buy_line_only_symbol_skipped_stops_tick():
             "status": "ready",
             "symbol": "000002",
             "quantity": 300,
-        },
-        stoploss_batch={
-            "batch_id": "sl1",
-            "status": "ready",
-            "symbol": "000002",
-            "quantity": 500,
         },
     )
     consumer = TpslTickConsumer(

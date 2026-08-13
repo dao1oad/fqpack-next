@@ -96,14 +96,8 @@ const buildTakeprofitTrigger = (runtime = {}) => ({
   timeLabel: formatBeijingTimestamp(runtime?.last_takeprofit_trigger_time),
 })
 
-const buildEntryStoplossTrigger = (runtime = {}) => ({
-  kindLabel: toText(runtime?.last_entry_stoploss_trigger_time) ? '止损' : '-',
-  timeLabel: formatBeijingTimestamp(runtime?.last_entry_stoploss_trigger_time),
-})
-
 const normalizeMustPool = (row = {}) => ({
   category: toText(row?.category),
-  stop_loss_price: toNullableNumber(row?.stop_loss_price),
   initial_lot_amount: toNullableNumber(row?.initial_lot_amount),
   lot_amount: toNullableNumber(row?.lot_amount),
 })
@@ -113,7 +107,6 @@ const baseConfigSourceLabel = (source) => {
     unconfigured: '未配置',
     'must_pool.category': 'must_pool 分类',
     'must_pool.provenance': 'must_pool 归因分类',
-    'must_pool.stop_loss_price': 'must_pool 全仓止损价',
     'must_pool.initial_lot_amount': 'must_pool 首笔买入金额',
     'must_pool.lot_amount': 'must_pool 默认买入金额',
     'instrument_strategy.lot_amount': 'instrument_strategy.lot_amount',
@@ -166,7 +159,6 @@ const normalizeBaseConfigItem = ({
 
 const buildFallbackBaseConfigSummary = (mustPool = {}) => {
   const category = toText(mustPool?.category)
-  const stopLossPrice = toNullableNumber(mustPool?.stop_loss_price)
   const initialLotAmount = toNullableNumber(mustPool?.initial_lot_amount)
   const lotAmount = toNullableNumber(mustPool?.lot_amount)
   const effectiveInitialLotAmount = (
@@ -188,12 +180,6 @@ const buildFallbackBaseConfigSummary = (mustPool = {}) => {
       effective_value: category || null,
       effective_source: category ? 'must_pool.category' : 'unconfigured',
     }),
-    stop_loss_price: normalizeBaseConfigItem({
-      configured_value: stopLossPrice,
-      configured_source: 'must_pool.stop_loss_price',
-      effective_value: stopLossPrice,
-      effective_source: stopLossPrice !== null ? 'must_pool.stop_loss_price' : 'unconfigured',
-    }),
     initial_lot_amount: normalizeBaseConfigItem({
       configured_value: initialLotAmount,
       configured_source: 'must_pool.initial_lot_amount',
@@ -213,7 +199,6 @@ const normalizeBaseConfigSummary = (summary = {}, mustPool = {}) => {
   const fallback = buildFallbackBaseConfigSummary(mustPool)
   return {
     category: normalizeBaseConfigItem(summary?.category || fallback.category),
-    stop_loss_price: normalizeBaseConfigItem(summary?.stop_loss_price || fallback.stop_loss_price),
     initial_lot_amount: normalizeBaseConfigItem(summary?.initial_lot_amount || fallback.initial_lot_amount),
     lot_amount: normalizeBaseConfigItem(summary?.lot_amount || fallback.lot_amount),
   }
@@ -408,7 +393,6 @@ const buildEntryMetaLabel = (row = {}, runtimeSummary = {}) => {
 
 const buildEntries = (rows = [], runtimeSummary = {}) => {
   return (Array.isArray(rows) ? rows : []).map((row, index) => {
-    const stoploss = row?.stoploss || {}
     const entryPrice = row?.entry_price ?? row?.buy_price_real
     const entrySummaryDisplay = buildEntrySummaryDisplay(row, runtimeSummary)
     const entrySummaryLines = buildEntrySummaryLinesFromDisplay(entrySummaryDisplay)
@@ -434,12 +418,6 @@ const buildEntries = (rows = [], runtimeSummary = {}) => {
       latest_price_source: toText(row?.latest_price_source),
       remaining_market_value: toNullableNumber(row?.remaining_market_value),
       remaining_market_value_source: toText(row?.remaining_market_value_source),
-      stoploss: {
-        stop_price: toNullableNumber(stoploss?.stop_price),
-        ratio: toNullableNumber(stoploss?.ratio),
-        enabled: Boolean(stoploss?.enabled),
-      },
-      stoplossLabel: formatPrice(stoploss?.stop_price),
       entryDisplayLabel: `第 ${index + 1} 笔持仓入口`,
       entryCompactLabel: buildEntryCompactLabel(index, row?.entry_id),
       entryIdLabel: buildEntryIdLabel(row?.entry_id),
@@ -462,18 +440,14 @@ export const buildOverviewRows = (rows = []) => {
         last_hit_price: toNullableNumber(row?.guardian?.last_hit_price),
         last_hit_signal_time: toText(row?.guardian?.last_hit_signal_time),
       }
-      const stoploss = row?.stoploss || {}
       const runtime = row?.runtime || {}
       const takeprofitSummary = buildTakeprofitSummary(
         row?.takeprofit?.tiers || [],
         row?.takeprofit?.state || {},
       )
       const positionLimitSummary = normalizePositionLimitSummary(row?.position_limit_summary || {})
-      const activeStoplossCount = toNumber(stoploss?.active_count)
-      const openEntryCount = toNumber(stoploss?.open_entry_count)
       const hasMustPoolConfig = Boolean(
         mustPool.category
-        || mustPool.stop_loss_price !== null
         || mustPool.initial_lot_amount !== null
         || mustPool.lot_amount !== null,
       )
@@ -488,7 +462,6 @@ export const buildOverviewRows = (rows = []) => {
         guardianLevelSummary,
         guardianTrigger: buildGuardianTrigger(guardian),
         takeprofitTrigger: buildTakeprofitTrigger(runtime),
-        entryStoplossTrigger: buildEntryStoplossTrigger(runtime),
         takeprofitSummary,
         takeprofitSummaryLabel: takeprofitSummary
           .map((item) => `L${item.level} ${item.priceLabel} ${item.enabledLabel}`)
@@ -500,11 +473,9 @@ export const buildOverviewRows = (rows = []) => {
           `B3 ${formatPrice(guardian.buy_3)}`,
         ].join(' / '),
         baseSummaryLabel: [
-          `SL ${formatPrice(mustPool.stop_loss_price)}`,
           `首 ${formatInteger(mustPool.initial_lot_amount)}`,
           `常 ${formatInteger(mustPool.lot_amount)}`,
         ].join(' / '),
-        stoplossSummaryLabel: `${activeStoplossCount} / ${openEntryCount}`,
         positionLimitSummary,
         positionLimitSummaryLabel: [
           formatAmountWan(positionLimitSummary.market_value),
@@ -522,11 +493,8 @@ export const buildOverviewRows = (rows = []) => {
         position_amount: toNullableNumber(runtime?.position_amount),
         position_base_quantity: toNumber(runtime?.position_type_quantity?.base),
         position_t_quantity: toNumber(runtime?.position_type_quantity?.t),
-        stoplossActiveCount: activeStoplossCount,
-        openEntryCount,
         hasMustPoolConfig,
         hasTakeprofitConfig: Array.isArray(row?.takeprofit?.tiers) && row.takeprofit.tiers.length > 0,
-        hasActiveStoploss: activeStoplossCount > 0,
         has_position: toNumber(runtime?.position_quantity) > 0,
       }
     })
@@ -630,24 +598,12 @@ export const buildDenseConfigRows = (detail = {}) => {
     if (statusLabel === '默认值' || statusLabel === '继承常规金额' || statusLabel === '策略覆盖') return 'warning'
     return 'info'
   }
-  const stopLossItem = baseConfigSummary.stop_loss_price
   const initialLotItem = baseConfigSummary.initial_lot_amount
   const lotAmountItem = baseConfigSummary.lot_amount
-  const stopLossStatus = resolveBaseStatus('stop_loss_price', stopLossItem)
   const initialStatus = resolveBaseStatus('initial_lot_amount', initialLotItem)
   const lotStatus = resolveBaseStatus('lot_amount', lotAmountItem)
 
   return [
-    {
-      group: '基础',
-      key: 'stop_loss_price',
-      label: '全仓止损价',
-      currentLabel: formatEffectiveValue(stopLossItem, formatPrice),
-      editor: 'number',
-      statusLabel: stopLossStatus,
-      statusTone: resolveBaseTone(stopLossStatus),
-      note: buildBaseConfigNote(stopLossItem, formatPrice),
-    },
     {
       group: '基础',
       key: 'initial_lot_amount',
@@ -697,8 +653,6 @@ export const buildDetailSummaryChips = (detail = {}) => {
     && Boolean(row.manual_enabled)
     && isTakeprofitLevelArmed(takeprofitState, row.level)
   )).length
-  const entries = Array.isArray(detail?.entries) ? detail.entries : []
-  const activeStoplossCount = entries.filter((row) => row?.stoploss?.enabled).length
   const positionQuantity = toNumber(detail?.runtimeSummary?.position_quantity)
   const pmState = toText(detail?.positionManagementSummary?.effective_state) || '-'
 
@@ -736,12 +690,6 @@ export const buildDetailSummaryChips = (detail = {}) => {
       label: '止盈',
       value: `${takeprofitEnabledCount} / ${takeprofitVisible.length || 3}`,
       tone: takeprofitEnabledCount > 0 ? 'success' : 'muted',
-    },
-    {
-      key: 'stoploss_active_count',
-      label: '止损',
-      value: `${activeStoplossCount} / ${entries.length}`,
-      tone: activeStoplossCount > 0 ? 'danger' : 'muted',
     },
     {
       key: 'pm_state',
@@ -787,12 +735,6 @@ export const createSubjectManagementActions = (api) => ({
   async saveTakeprofit (symbol, tiers) {
     return api.saveTakeprofitProfile(symbol, {
       tiers: buildTakeprofitPayload(tiers),
-    })
-  },
-  async saveStoploss (entryId, payload = {}) {
-    return api.bindStoploss({
-      entry_id: entryId,
-      ...payload,
     })
   },
 })

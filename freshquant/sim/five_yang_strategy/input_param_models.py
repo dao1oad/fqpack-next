@@ -12,7 +12,7 @@ class FiveYangInputParamModel(InputParamModel):
     """
     五阳策略输入参数模型
 
-    定义五阳策略的运行参数，包括止损止盈比例、ATR周期等
+    定义五阳策略的运行参数，包括止盈基准、ATR周期等
     """
 
     def __init__(
@@ -22,7 +22,6 @@ class FiveYangInputParamModel(InputParamModel):
         var_chan_30m_market_direction: MarketDirection | None = None,
         var_atr_period: int = 20,
         var_atr_multiplier: float = 2.0,
-        var_profit_loss_ratio: float = 1.0,
         var_min_volume_ratio: float = 0.7,
     ):
         """
@@ -33,8 +32,7 @@ class FiveYangInputParamModel(InputParamModel):
         var_chan_60m_market_direction: 60分钟趋势方向，默认多头
         var_chan_30m_market_direction: 30分钟趋势方向，默认空头
         var_atr_period: ATR计算周期，默认20天
-        var_atr_multiplier: ATR倍数，用于计算止损价，默认2.0
-        var_profit_loss_ratio: 止盈止损比例，默认1.0（1:1）
+        var_atr_multiplier: ATR倍数，用于计算止盈价，默认2.0
         var_min_volume_ratio: 最小成交量比例，用于判断成交量是否萎缩，默认0.7
         """
         # 调用父类初始化
@@ -46,21 +44,14 @@ class FiveYangInputParamModel(InputParamModel):
             var_atr_period,
             int,
             (1, 100),
-            'ATR计算周期，用于计算止损价',
+            'ATR计算周期，用于计算止盈价',
         )
         self.set_param(
             'var_atr_multiplier',
             var_atr_multiplier,
             float,
             (0.5, 5.0),
-            'ATR倍数，用于计算止损价（止损价 = 成交价 - ATR * 倍数）',
-        )
-        self.set_param(
-            'var_profit_loss_ratio',
-            var_profit_loss_ratio,
-            float,
-            (0.5, 5.0),
-            '止盈止损比例（止盈价 = 成本价 + (成本价 - 止损价) * 比例）',
+            'ATR倍数，用于计算止盈价（止盈价 = 成本价 + ATR * 倍数）',
         )
         self.set_param(
             'var_min_volume_ratio',

@@ -11,7 +11,6 @@ const makeOverviewRows = () => buildOverviewRows([
     name: '浦发银行',
     category: '银行',
     must_pool: {
-      stop_loss_price: 9.2,
       initial_lot_amount: 80000,
       lot_amount: 50000,
       forever: true,
@@ -24,10 +23,6 @@ const makeOverviewRows = () => buildOverviewRows([
     },
     takeprofit: {
       tiers: [],
-    },
-    stoploss: {
-      active_count: 1,
-      open_entry_count: 2,
     },
     runtime: {
       position_quantity: 500,
@@ -49,7 +44,6 @@ const makeOverviewRows = () => buildOverviewRows([
     name: '平安银行',
     category: '银行',
     must_pool: {
-      stop_loss_price: 8.8,
       initial_lot_amount: 60000,
       lot_amount: 40000,
       forever: false,
@@ -62,10 +56,6 @@ const makeOverviewRows = () => buildOverviewRows([
     },
     takeprofit: {
       tiers: [{ level: 1, price: 10.2, enabled: true }],
-    },
-    stoploss: {
-      active_count: 0,
-      open_entry_count: 0,
     },
     runtime: {
       position_quantity: 0,
@@ -94,7 +84,6 @@ const makeDetail = (symbol = '600000', overrides = {}) => buildDetailViewModel({
   },
   must_pool: {
     category: '银行',
-    stop_loss_price: symbol === '600000' ? 9.2 : 8.8,
     initial_lot_amount: symbol === '600000' ? 80000 : 60000,
     lot_amount: symbol === '600000' ? 50000 : 40000,
     forever: symbol === '600000',
@@ -122,10 +111,6 @@ const makeDetail = (symbol = '600000', overrides = {}) => buildDetailViewModel({
       entry_price: 10.0,
       original_quantity: 300,
       remaining_quantity: 200,
-      stoploss: {
-        stop_price: 9.2,
-        enabled: true,
-      },
     },
   ],
   runtime_summary: {
@@ -163,7 +148,7 @@ test('page controller loads overview first, then detail, switches rows and refre
       return makeDetail(symbol)
     },
     async saveMustPool(symbol, payload) {
-      calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
+      calls.push(['saveMustPool', symbol, payload.category])
       return { symbol, ...payload }
     },
     async savePositionLimit(symbol, payload) {
@@ -173,10 +158,6 @@ test('page controller loads overview first, then detail, switches rows and refre
     async saveTakeprofit(symbol, tiers) {
       calls.push(['saveTakeprofit', symbol, tiers.length])
       return { symbol, tiers }
-    },
-    async saveStoploss(entryId, payload) {
-      calls.push(['saveStoploss', entryId, payload.stop_price, payload.enabled])
-      return { entryId, ...payload }
     },
   }
 
@@ -198,7 +179,7 @@ test('page controller loads overview first, then detail, switches rows and refre
   await controller.selectSymbol('000001')
   assert.equal(controller.state.selectedSymbol, '000001')
 
-  controller.state.mustPoolDraft.stop_loss_price = 8.6
+  controller.state.mustPoolDraft.category = '核心银行'
   await controller.handleSaveMustPool()
 
   assert.equal(controller.state.selectedSymbol, '000001')
@@ -206,7 +187,7 @@ test('page controller loads overview first, then detail, switches rows and refre
     ['loadOverview'],
     ['loadSubjectDetail', '600000'],
     ['loadSubjectDetail', '000001'],
-    ['saveMustPool', '000001', '银行', 8.6],
+    ['saveMustPool', '000001', '核心银行'],
     ['loadSubjectDetail', '000001'],
     ['loadOverview'],
   ])
@@ -226,7 +207,7 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
       return makeDetail(symbol)
     },
     async saveMustPool(symbol, payload) {
-      calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
+      calls.push(['saveMustPool', symbol, payload.category])
       return { symbol, ...payload }
     },
     async savePositionLimit(symbol, payload) {
@@ -236,10 +217,6 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
     async saveTakeprofit(symbol, tiers) {
       calls.push(['saveTakeprofit', symbol, tiers.length])
       return { symbol, tiers }
-    },
-    async saveStoploss(entryId, payload) {
-      calls.push(['saveStoploss', entryId, payload.stop_price, payload.enabled])
-      return { entryId, ...payload }
     },
   }
 
@@ -254,7 +231,6 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
 
   await controller.refreshOverview()
   controller.state.mustPoolDraft.category = '核心银行'
-  controller.state.mustPoolDraft.stop_loss_price = 9.1
   controller.state.positionLimitDraft.limit = 460000
 
   await controller.handleSaveConfigBundle()
@@ -262,7 +238,7 @@ test('page controller saves dense config table via must-pool and symbol-limit ap
   assert.deepEqual(calls, [
     ['loadOverview'],
     ['loadSubjectDetail', '600000'],
-    ['saveMustPool', '600000', '核心银行', 9.1],
+    ['saveMustPool', '600000', '核心银行'],
     ['savePositionLimit', '600000', 460000],
     ['loadSubjectDetail', '600000'],
     ['loadOverview'],
@@ -284,7 +260,6 @@ test('page controller uses must-pool category draft instead of subject category 
         },
         must_pool: {
           category: '守护池',
-          stop_loss_price: 9.2,
           initial_lot_amount: 80000,
           lot_amount: 50000,
           forever: true,
@@ -298,9 +273,6 @@ test('page controller uses must-pool category draft instead of subject category 
       throw new Error('should not save')
     },
     async saveTakeprofit() {
-      throw new Error('should not save')
-    },
-    async saveStoploss() {
       throw new Error('should not save')
     },
   }
@@ -330,7 +302,6 @@ test('page controller reloads persisted state and warns when position-limit save
         ? makeDetail(symbol, {
           must_pool: {
             category: '银行',
-            stop_loss_price: 9.2,
             initial_lot_amount: 80000,
             lot_amount: 50000,
             forever: true,
@@ -347,7 +318,6 @@ test('page controller reloads persisted state and warns when position-limit save
         : makeDetail(symbol, {
           must_pool: {
             category: '核心银行',
-            stop_loss_price: 9.1,
             initial_lot_amount: 80000,
             lot_amount: 50000,
             forever: true,
@@ -363,7 +333,7 @@ test('page controller reloads persisted state and warns when position-limit save
         })
     },
     async saveMustPool(symbol, payload) {
-      calls.push(['saveMustPool', symbol, payload.category, payload.stop_loss_price])
+      calls.push(['saveMustPool', symbol, payload.category])
       detailVersion = 'must-pool-saved'
       return { symbol, ...payload }
     },
@@ -372,9 +342,6 @@ test('page controller reloads persisted state and warns when position-limit save
       throw new Error('position limit failed')
     },
     async saveTakeprofit() {
-      throw new Error('should not save')
-    },
-    async saveStoploss() {
       throw new Error('should not save')
     },
   }
@@ -393,20 +360,18 @@ test('page controller reloads persisted state and warns when position-limit save
 
   await controller.refreshOverview()
   controller.state.mustPoolDraft.category = '核心银行'
-  controller.state.mustPoolDraft.stop_loss_price = 9.1
   controller.state.positionLimitDraft.limit = 460000
 
   await controller.handleSaveConfigBundle()
 
   assert.equal(controller.state.mustPoolDraft.category, '核心银行')
-  assert.equal(controller.state.mustPoolDraft.stop_loss_price, 9.1)
   assert.equal(controller.state.positionLimitDraft.limit, 460000)
   assert.equal(controller.state.pageError, 'position limit failed')
   assert.deepEqual(messages, [['warning', '基础设置已保存，仓位上限保存失败']])
   assert.deepEqual(calls, [
     ['loadOverview'],
     ['loadSubjectDetail', '600000', 'initial'],
-    ['saveMustPool', '600000', '核心银行', 9.1],
+    ['saveMustPool', '600000', '核心银行'],
     ['savePositionLimit', '600000', 460000],
     ['loadSubjectDetail', '600000', 'must-pool-saved'],
     ['loadOverview'],

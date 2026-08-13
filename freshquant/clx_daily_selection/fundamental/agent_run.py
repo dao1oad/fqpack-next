@@ -43,8 +43,6 @@ def build_prompt(
         default_as_of = ""
         match_dir = re.search(r"clx-(\d{4}-\d{2}-\d{2})", str(run_dir))
         if match_dir:
-            from .compact import latest_report_period
-
             trade_date = match_dir.group(1)
             month = int(trade_date[5:7])
             year = int(trade_date[:4])

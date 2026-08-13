@@ -247,13 +247,6 @@ def _infer_trace_kind(steps: list[dict]) -> str:
             or kind == "takeprofit"
         ):
             return "takeprofit"
-        if (
-            source in {"stoploss", "tpsl_stoploss"}
-            or "stoploss" in strategy_name
-            or scope_type == "stoploss_batch"
-            or kind == "stoploss"
-        ):
-            return "stoploss"
         if source == "external_reported" or source_type == "external_reported":
             return "external_reported"
         if source == "external_inferred" or source_type == "external_inferred":

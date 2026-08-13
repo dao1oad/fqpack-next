@@ -7,7 +7,7 @@
   订单级必须返回 ``mixed``，逐笔账本真值由 ``om_exit_allocations.position_type``
   表达；
 - ``om_order_requests.ledger_intent`` 是订单级账本意图的唯一字段：TPSL、
-  Guardian、手动/网页、stoploss 全写入方在提交时显式声明，缺失或非法时
+  Guardian、手动/网页全写入方在提交时显式声明，缺失或非法时
   fail-closed（``LedgerIntentMissingError`` / ``InvalidLedgerIntentError``），
   不提供隐式默认；
 - broker-only 手动买入（无请求）显式归 ``base``（A8）；

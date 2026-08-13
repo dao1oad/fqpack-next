@@ -75,14 +75,4 @@ export const subjectManagementApi = {
       },
     })
   },
-  bindStoploss (payload) {
-    return http({
-      url: '/api/order-management/stoploss/bind',
-      method: 'post',
-      data: {
-        ...payload,
-        updated_by: 'web',
-      },
-    })
-  },
 }

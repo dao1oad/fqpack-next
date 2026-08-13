@@ -68,12 +68,10 @@ class InMemoryTpslRepository:
 class InMemoryOrderManagementRepository:
     def __init__(self):
         self.position_entries = []
-        self.entry_stoploss_bindings = []
         self.entry_slices = []
         self.reconciliation_gaps = []
         self.reconciliation_resolutions = []
         self.buy_lots = []
-        self.stoploss_bindings = []
         self.order_requests = []
         self.orders = []
         self.order_events = []
@@ -97,22 +95,6 @@ class InMemoryOrderManagementRepository:
         if buy_lot_ids is not None:
             allowed = set(buy_lot_ids)
             rows = [item for item in rows if item.get("buy_lot_id") in allowed]
-        return rows
-
-    def list_entry_stoploss_bindings(self, symbol=None, enabled=None):
-        rows = list(self.entry_stoploss_bindings)
-        if symbol is not None:
-            rows = [item for item in rows if item.get("symbol") == symbol]
-        if enabled is not None:
-            rows = [item for item in rows if bool(item.get("enabled")) == bool(enabled)]
-        return rows
-
-    def list_stoploss_bindings(self, symbol=None, enabled=None):
-        rows = list(self.stoploss_bindings)
-        if symbol is not None:
-            rows = [item for item in rows if item.get("symbol") == symbol]
-        if enabled is not None:
-            rows = [item for item in rows if bool(item.get("enabled")) == bool(enabled)]
         return rows
 
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
@@ -235,14 +217,6 @@ def test_management_overview_unions_holdings_and_configured_symbols():
     tpsl_repository.events.extend(
         [
             {
-                "event_id": "evt_stop_1",
-                "event_type": "stoploss_hit",
-                "kind": "stoploss",
-                "symbol": "600000",
-                "batch_id": "sl_batch_1",
-                "created_at": "2026-03-13T09:00:00+00:00",
-            },
-            {
                 "event_id": "evt_tp_1",
                 "event_type": "takeprofit_hit",
                 "kind": "takeprofit",
@@ -254,38 +228,6 @@ def test_management_overview_unions_holdings_and_configured_symbols():
     )
 
     order_repository = InMemoryOrderManagementRepository()
-    order_repository.entry_stoploss_bindings.extend(
-        [
-            {
-                "entry_id": "lot_1",
-                "symbol": "600000",
-                "stop_price": 9.2,
-                "enabled": True,
-            },
-            {
-                "entry_id": "lot_2",
-                "symbol": "000001",
-                "stop_price": 8.8,
-                "enabled": False,
-            },
-        ]
-    )
-    order_repository.stoploss_bindings.extend(
-        [
-            {
-                "buy_lot_id": "lot_1",
-                "symbol": "600000",
-                "stop_price": 9.2,
-                "enabled": True,
-            },
-            {
-                "buy_lot_id": "lot_2",
-                "symbol": "000001",
-                "stop_price": 8.8,
-                "enabled": False,
-            },
-        ]
-    )
 
     service = TpslManagementService(
         tpsl_repository=tpsl_repository,
@@ -315,12 +257,11 @@ def test_management_overview_unions_holdings_and_configured_symbols():
         {"level": 2, "price": 10.8, "manual_enabled": True},
         {"level": 3, "price": 11.5, "manual_enabled": False},
     ]
-    assert rows_by_symbol["600000"]["active_stoploss_entry_count"] == 1
     assert rows_by_symbol["600000"]["open_entry_count"] == 0
-    assert rows_by_symbol["600000"]["last_trigger"]["kind"] == "stoploss"
+    assert rows_by_symbol["600000"]["last_trigger"] is None
     assert rows_by_symbol["000001"]["position_quantity"] == 0
     assert rows_by_symbol["000001"]["takeprofit_configured"] is True
-    assert rows_by_symbol["000001"]["has_active_stoploss"] is False
+    assert rows_by_symbol["000001"]["last_trigger"]["kind"] == "takeprofit"
 
 
 def test_management_overview_prefers_symbol_snapshot_market_value():
@@ -349,7 +290,7 @@ def test_management_overview_prefers_symbol_snapshot_market_value():
     assert rows[0]["position_amount"] == 123456.0
 
 
-def test_management_overview_prefers_v2_entry_bindings_without_legacy_stoploss_rows():
+def test_management_overview_counts_open_entries():
     order_repository = InMemoryOrderManagementRepository()
     order_repository.position_entries.append(
         {
@@ -363,22 +304,6 @@ def test_management_overview_prefers_v2_entry_bindings_without_legacy_stoploss_r
             "original_quantity": 300,
             "remaining_quantity": 200,
             "status": "OPEN",
-        }
-    )
-    order_repository.entry_stoploss_bindings.append(
-        {
-            "entry_id": "entry_v2_1",
-            "symbol": "600000",
-            "stop_price": 9.2,
-            "enabled": True,
-        }
-    )
-    order_repository.stoploss_bindings.append(
-        {
-            "buy_lot_id": "legacy_lot_1",
-            "symbol": "600000",
-            "stop_price": 8.8,
-            "enabled": True,
         }
     )
 
@@ -408,8 +333,6 @@ def test_management_overview_prefers_v2_entry_bindings_without_legacy_stoploss_r
             "position_amount": -2000.0,
             "takeprofit_configured": False,
             "takeprofit_tiers": [],
-            "has_active_stoploss": True,
-            "active_stoploss_entry_count": 1,
             "open_entry_count": 1,
             "last_trigger": None,
         }
@@ -452,10 +375,10 @@ def test_management_overview_uses_latest_event_query_instead_of_full_scan():
         [
             {
                 "event_id": "evt_hist_only",
-                "event_type": "stoploss_hit",
-                "kind": "stoploss",
+                "event_type": "takeprofit_hit",
+                "kind": "takeprofit",
                 "symbol": "300001",
-                "batch_id": "sl_batch_hist",
+                "batch_id": "tp_batch_hist",
                 "created_at": "2026-03-13T11:00:00+00:00",
             },
             {
@@ -522,15 +445,15 @@ def test_management_history_ignores_blank_optional_filters():
     assert [item["event_id"] for item in rows] == ["evt_tp_1"]
 
 
-def test_management_history_attaches_order_chain_for_symbol_stoploss_batch():
+def test_management_history_attaches_order_chain_for_takeprofit_batch():
     tpsl_repository = InMemoryTpslRepository()
     tpsl_repository.events.append(
         {
-            "event_id": "evt_symbol_stop_1",
-            "event_type": "symbol_full_stoploss_hit",
-            "kind": "stoploss",
+            "event_id": "evt_tp_1",
+            "event_type": "takeprofit_hit",
+            "kind": "takeprofit",
             "symbol": "600000",
-            "batch_id": "symbol_sl_batch_1",
+            "batch_id": "tp_batch_1",
             "buy_lot_ids": ["lot_open_1", "lot_open_2"],
             "created_at": "2026-03-13T10:01:00+00:00",
         }
@@ -539,28 +462,28 @@ def test_management_history_attaches_order_chain_for_symbol_stoploss_batch():
     order_repository = InMemoryOrderManagementRepository()
     order_repository.order_requests.append(
         {
-            "request_id": "req_symbol_stop_1",
+            "request_id": "req_tp_1",
             "symbol": "600000",
-            "scope_type": "symbol_stoploss_batch",
-            "scope_ref_id": "symbol_sl_batch_1",
+            "scope_type": "takeprofit_batch",
+            "scope_ref_id": "tp_batch_1",
             "state": "ACCEPTED",
             "created_at": "2026-03-13T10:01:01+00:00",
         }
     )
     order_repository.orders.append(
         {
-            "internal_order_id": "ord_symbol_stop_1",
-            "request_id": "req_symbol_stop_1",
+            "internal_order_id": "ord_tp_1",
+            "request_id": "req_tp_1",
             "symbol": "600000",
             "state": "FILLED",
-            "broker_order_id": "BRK-SL-1",
+            "broker_order_id": "BRK-TP-1",
             "submitted_at": "2026-03-13T10:01:02+00:00",
         }
     )
     order_repository.order_events.append(
         {
-            "event_id": "oe_symbol_stop_1",
-            "internal_order_id": "ord_symbol_stop_1",
+            "event_id": "oe_tp_1",
+            "internal_order_id": "ord_tp_1",
             "event_type": "trade_reported",
             "state": "FILLED",
             "created_at": "2026-03-13T10:01:05+00:00",
@@ -568,11 +491,11 @@ def test_management_history_attaches_order_chain_for_symbol_stoploss_batch():
     )
     order_repository.trade_facts.append(
         {
-            "trade_fact_id": "trade_symbol_stop_1",
-            "internal_order_id": "ord_symbol_stop_1",
+            "trade_fact_id": "trade_tp_1",
+            "internal_order_id": "ord_tp_1",
             "symbol": "600000",
             "quantity": 500,
-            "price": 9.1,
+            "price": 10.8,
             "trade_time": 1710000000,
         }
     )
@@ -586,11 +509,11 @@ def test_management_history_attaches_order_chain_for_symbol_stoploss_batch():
 
     rows = service.list_history(symbol="600000", limit=10)
 
-    assert rows[0]["event_id"] == "evt_symbol_stop_1"
-    assert rows[0]["order_requests"][0]["request_id"] == "req_symbol_stop_1"
-    assert rows[0]["orders"][0]["internal_order_id"] == "ord_symbol_stop_1"
-    assert rows[0]["order_events"][0]["event_id"] == "oe_symbol_stop_1"
-    assert rows[0]["trades"][0]["trade_fact_id"] == "trade_symbol_stop_1"
+    assert rows[0]["event_id"] == "evt_tp_1"
+    assert rows[0]["order_requests"][0]["request_id"] == "req_tp_1"
+    assert rows[0]["orders"][0]["internal_order_id"] == "ord_tp_1"
+    assert rows[0]["order_events"][0]["event_id"] == "oe_tp_1"
+    assert rows[0]["trades"][0]["trade_fact_id"] == "trade_tp_1"
 
 
 def test_management_detail_assembles_entries_and_order_timeline():
@@ -609,19 +532,6 @@ def test_management_detail_assembles_entries_and_order_timeline():
     }
     tpsl_repository.events.extend(
         [
-            {
-                "event_id": "evt_stop_1",
-                "event_type": "stoploss_hit",
-                "kind": "stoploss",
-                "symbol": "600000",
-                "batch_id": "sl_batch_1",
-                "buy_lot_ids": ["lot_open_1"],
-                "buy_lot_details": [
-                    {"buy_lot_id": "lot_open_1", "stop_price": 9.2, "quantity": 200}
-                ],
-                "trigger_price": 9.1,
-                "created_at": "2026-03-13T10:01:00+00:00",
-            },
             {
                 "event_id": "evt_tp_1",
                 "event_type": "takeprofit_hit",
@@ -694,36 +604,8 @@ def test_management_detail_assembles_entries_and_order_timeline():
             },
         ]
     )
-    order_repository.entry_stoploss_bindings.append(
-        {
-            "binding_id": "bind_1",
-            "entry_id": "lot_open_1",
-            "symbol": "600000",
-            "stop_price": 9.2,
-            "enabled": True,
-            "state": "active",
-        }
-    )
-    order_repository.stoploss_bindings.append(
-        {
-            "binding_id": "bind_1",
-            "buy_lot_id": "lot_open_1",
-            "symbol": "600000",
-            "stop_price": 9.2,
-            "enabled": True,
-            "state": "active",
-        }
-    )
     order_repository.order_requests.extend(
         [
-            {
-                "request_id": "req_stop_1",
-                "symbol": "600000",
-                "scope_type": "stoploss_batch",
-                "scope_ref_id": "sl_batch_1",
-                "state": "ACCEPTED",
-                "created_at": "2026-03-13T10:01:01+00:00",
-            },
             {
                 "request_id": "req_tp_1",
                 "symbol": "600000",
@@ -737,14 +619,6 @@ def test_management_detail_assembles_entries_and_order_timeline():
     order_repository.orders.extend(
         [
             {
-                "internal_order_id": "ord_stop_1",
-                "request_id": "req_stop_1",
-                "symbol": "600000",
-                "state": "FILLED",
-                "broker_order_id": "BRK-1",
-                "submitted_at": "2026-03-13T10:01:02+00:00",
-            },
-            {
                 "internal_order_id": "ord_tp_1",
                 "request_id": "req_tp_1",
                 "symbol": "600000",
@@ -753,34 +627,6 @@ def test_management_detail_assembles_entries_and_order_timeline():
                 "submitted_at": None,
             },
         ]
-    )
-    order_repository.order_events.extend(
-        [
-            {
-                "event_id": "oe_stop_1",
-                "internal_order_id": "ord_stop_1",
-                "event_type": "accepted",
-                "state": "ACCEPTED",
-                "created_at": "2026-03-13T10:01:01+00:00",
-            },
-            {
-                "event_id": "oe_stop_2",
-                "internal_order_id": "ord_stop_1",
-                "event_type": "trade_reported",
-                "state": "FILLED",
-                "created_at": "2026-03-13T10:01:05+00:00",
-            },
-        ]
-    )
-    order_repository.trade_facts.append(
-        {
-            "trade_fact_id": "trade_stop_1",
-            "internal_order_id": "ord_stop_1",
-            "symbol": "600000",
-            "quantity": 200,
-            "price": 9.1,
-            "trade_time": 1710000000,
-        }
     )
 
     service = TpslManagementService(
@@ -808,16 +654,13 @@ def test_management_detail_assembles_entries_and_order_timeline():
     assert len(detail["entries"]) == 1
     assert detail["entries"][0]["entry_id"] == "lot_open_1"
     assert "buy_lots" not in detail
-    assert detail["entries"][0]["stoploss"]["stop_price"] == 9.2
     assert len(detail["entry_slices"]) == 0
     assert detail["reconciliation"]["state"] == "aligned"
-    assert detail["history"][0]["kind"] == "stoploss"
+    assert detail["history"][0]["kind"] == "takeprofit"
     assert detail["history"][0]["entry_ids"] == ["lot_open_1"]
     assert "buy_lot_ids" not in detail["history"][0]
-    assert detail["history"][0]["order_requests"][0]["request_id"] == "req_stop_1"
-    assert detail["history"][0]["orders"][0]["internal_order_id"] == "ord_stop_1"
-    assert detail["history"][0]["trades"][0]["trade_fact_id"] == "trade_stop_1"
-    assert detail["history"][1]["kind"] == "takeprofit"
+    assert detail["history"][0]["order_requests"][0]["request_id"] == "req_tp_1"
+    assert detail["history"][0]["orders"][0]["internal_order_id"] == "ord_tp_1"
 
 
 def test_management_detail_prefers_symbol_snapshot_market_value():
@@ -877,21 +720,20 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     tpsl_repository.events.append(
         {
             "_id": ObjectId(),
-            "event_id": "evt_stop_1",
-            "event_type": "stoploss_hit",
-            "kind": "stoploss",
+            "event_id": "evt_tp_1",
+            "event_type": "takeprofit_hit",
+            "kind": "takeprofit",
             "symbol": "600000",
-            "batch_id": "sl_batch_1",
+            "batch_id": "tp_batch_1",
             "buy_lot_ids": ["lot_open_1"],
             "buy_lot_details": [
                 {
                     "_id": ObjectId(),
                     "buy_lot_id": "lot_open_1",
-                    "stop_price": 9.2,
                     "quantity": 200,
                 }
             ],
-            "trigger_price": 9.1,
+            "trigger_price": 10.8,
             "created_at": "2026-03-13T10:01:00+00:00",
         }
     )
@@ -928,35 +770,13 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
             "status": "partial",
         }
     )
-    order_repository.entry_stoploss_bindings.append(
-        {
-            "_id": ObjectId(),
-            "binding_id": "bind_1",
-            "entry_id": "lot_open_1",
-            "symbol": "600000",
-            "stop_price": 9.2,
-            "enabled": True,
-            "state": "active",
-        }
-    )
-    order_repository.stoploss_bindings.append(
-        {
-            "_id": ObjectId(),
-            "binding_id": "bind_1",
-            "buy_lot_id": "lot_open_1",
-            "symbol": "600000",
-            "stop_price": 9.2,
-            "enabled": True,
-            "state": "active",
-        }
-    )
     order_repository.order_requests.append(
         {
             "_id": ObjectId(),
-            "request_id": "req_stop_1",
+            "request_id": "req_tp_1",
             "symbol": "600000",
-            "scope_type": "stoploss_batch",
-            "scope_ref_id": "sl_batch_1",
+            "scope_type": "takeprofit_batch",
+            "scope_ref_id": "tp_batch_1",
             "state": "ACCEPTED",
             "created_at": "2026-03-13T10:01:01+00:00",
         }
@@ -964,8 +784,8 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     order_repository.orders.append(
         {
             "_id": ObjectId(),
-            "internal_order_id": "ord_stop_1",
-            "request_id": "req_stop_1",
+            "internal_order_id": "ord_tp_1",
+            "request_id": "req_tp_1",
             "symbol": "600000",
             "state": "FILLED",
             "broker_order_id": "BRK-1",
@@ -975,8 +795,8 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     order_repository.order_events.append(
         {
             "_id": ObjectId(),
-            "event_id": "oe_stop_1",
-            "internal_order_id": "ord_stop_1",
+            "event_id": "oe_tp_1",
+            "internal_order_id": "ord_tp_1",
             "event_type": "accepted",
             "state": "ACCEPTED",
             "created_at": "2026-03-13T10:01:03+00:00",
@@ -985,11 +805,11 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     order_repository.trade_facts.append(
         {
             "_id": ObjectId(),
-            "trade_fact_id": "trade_stop_1",
-            "internal_order_id": "ord_stop_1",
+            "trade_fact_id": "trade_tp_1",
+            "internal_order_id": "ord_tp_1",
             "symbol": "600000",
             "quantity": 200,
-            "price": 9.1,
+            "price": 10.8,
             "trade_time": 1710000000,
         }
     )
@@ -1014,5 +834,4 @@ def test_management_detail_is_json_serializable_with_mongo_object_ids():
     payload = json.loads(json.dumps(detail))
 
     assert payload["entries"][0]["entry_id"] == "lot_open_1"
-    assert payload["entries"][0]["stoploss"]["stop_price"] == 9.2
-    assert payload["history"][0]["order_requests"][0]["request_id"] == "req_stop_1"
+    assert payload["history"][0]["order_requests"][0]["request_id"] == "req_tp_1"

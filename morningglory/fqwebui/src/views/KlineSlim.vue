@@ -1405,110 +1405,6 @@ export default {
   font-size 12px
   background rgba(15, 23, 42, 0.32)
 
-.subject-panel-stoploss-list
-  display flex
-  flex-direction column
-  gap 10px
-
-.subject-panel-stoploss-row
-  display flex
-  flex-direction column
-  gap 8px
-  padding 10px 12px
-  border 1px solid rgba(127, 127, 122, 0.16)
-  border-radius 14px
-  background rgba(15, 23, 42, 0.44)
-
-.subject-panel-stoploss-head
-  display flex
-  align-items flex-start
-  justify-content space-between
-  gap 10px
-  min-width 0
-
-.subject-panel-stoploss-title-wrap
-  display flex
-  align-items center
-  flex-wrap wrap
-  gap 8px
-  min-width 0
-
-.subject-panel-stoploss-title
-  font-size 13px
-  font-weight 600
-  color #f8fafc
-  white-space nowrap
-
-.subject-panel-stoploss-id
-  display inline-flex
-  align-items center
-  min-height 22px
-  padding 0 8px
-  border-radius 999px
-  border 1px solid rgba(127, 127, 122, 0.18)
-  background rgba(30, 41, 59, 0.42)
-  color #94a3b8
-  font-size 11px
-
-.subject-panel-stoploss-meta
-  display flex
-  flex-direction column
-  gap 4px
-  font-size 12px
-  line-height 1.5
-  color #94a3b8
-  overflow-wrap anywhere
-
-.subject-panel-stoploss-meta-line
-  display flex
-  flex-wrap wrap
-  align-items baseline
-  gap 6px
-  min-width 0
-  color #cbd5e1
-  overflow-wrap anywhere
-
-.subject-panel-stoploss-meta-item
-  display inline-flex
-  align-items baseline
-  gap 2px
-  min-width 0
-  padding 2px 0
-
-.subject-panel-stoploss-meta-item--accent
-  padding 2px 6px
-  border-radius 8px
-  background rgba(30, 41, 59, 0.52)
-
-.subject-panel-stoploss-meta-label
-  color #94a3b8
-  white-space nowrap
-
-.subject-panel-stoploss-meta-value
-  color #e2e8f0
-  font-weight 600
-  min-width 0
-  overflow-wrap anywhere
-
-.subject-panel-stoploss-meta-item--accent .subject-panel-stoploss-meta-value
-  color #f8fafc
-
-.subject-panel-stoploss-meta-separator
-  color rgba(148, 163, 184, 0.62)
-  white-space nowrap
-
-.subject-panel-stoploss-main
-  display flex
-  flex-direction column
-  gap 6px
-  min-width 0
-
-.subject-panel-stoploss-editor
-  display grid
-  grid-template-columns minmax(0, 1fr) auto auto
-  gap 8px
-  align-items center
-
 .subject-panel-slice-popover
   display flex
   flex-direction column
@@ -1549,9 +1445,6 @@ export default {
 
 .subject-panel-slice-popover__row
   color #1f2937
-
-.subject-panel-stoploss-editor :deep(.el-input-number)
-  width 100%
 
 .kline-slim-chanlun-panel
   right 12px
@@ -2110,13 +2003,6 @@ export default {
 
   .guardian-tier-row__level small
     text-align right
-
-  .subject-panel-stoploss-editor
-    grid-template-columns minmax(0, 1fr) auto
-
-  .subject-panel-stoploss-editor :deep(.el-button)
-    grid-column 1 / -1
-    justify-self end
 
   .chanlun-panel-actions
     justify-content flex-end

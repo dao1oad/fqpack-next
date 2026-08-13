@@ -22,10 +22,6 @@ class SubjectManagementWriteService:
         if not category:
             raise ValueError("category is required")
 
-        stop_loss_price = _require_positive_float(
-            payload.get("stop_loss_price"),
-            "stop_loss_price",
-        )
         initial_lot_amount = _require_non_negative_int(
             payload.get("initial_lot_amount"),
             "initial_lot_amount",
@@ -57,7 +53,6 @@ class SubjectManagementWriteService:
             "categories": list(provenance.get("categories") or []),
             "memberships": list(provenance.get("memberships") or []),
             "workspace_order_hint": provenance.get("workspace_order_hint"),
-            "stop_loss_price": stop_loss_price,
             "initial_lot_amount": initial_lot_amount,
             "lot_amount": lot_amount,
             "forever": forever,
@@ -74,7 +69,6 @@ class SubjectManagementWriteService:
             "symbol": normalized_symbol,
             "name": document["name"],
             "category": category,
-            "stop_loss_price": stop_loss_price,
             "initial_lot_amount": initial_lot_amount,
             "lot_amount": lot_amount,
             "forever": forever,
@@ -120,16 +114,6 @@ def _require_symbol(value):
     if not normalized:
         raise ValueError("symbol is required")
     return normalized
-
-
-def _require_positive_float(value, field_name):
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be numeric") from error
-    if number <= 0:
-        raise ValueError(f"{field_name} must be greater than 0")
-    return number
 
 
 def _require_non_negative_int(value, field_name):

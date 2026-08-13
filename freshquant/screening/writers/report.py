@@ -31,17 +31,18 @@ class ReportOutput:
 
         data = []
         for r in results:
-            data.append({
-                "代码": r.code,
-                "名称": r.name,
-                "分类": r.category or "-",
-                "周期": r.period,
-                "时间": r.fire_time.strftime("%Y-%m-%d %H:%M"),
-                "价格": r.price,
-                "止损": r.stop_loss_price or "-",
-                "信号": r.signal_type,
-                "标签": ",".join(r.tags) if r.tags else "-",
-            })
+            data.append(
+                {
+                    "代码": r.code,
+                    "名称": r.name,
+                    "分类": r.category or "-",
+                    "周期": r.period,
+                    "时间": r.fire_time.strftime("%Y-%m-%d %H:%M"),
+                    "价格": r.price,
+                    "信号": r.signal_type,
+                    "标签": ",".join(r.tags) if r.tags else "-",
+                }
+            )
 
         df = pd.DataFrame(data)
         df.sort_values(["时间"], ascending=[False], inplace=True)
@@ -72,19 +73,20 @@ class ReportOutput:
         data = []
         codes = []
         for r in results:
-            data.append({
-                "code": r.code,
-                "name": r.name,
-                "symbol": r.symbol,
-                "category": r.category or "-",
-                "period": r.period,
-                "fire_time": r.fire_time.strftime("%Y-%m-%d %H:%M"),
-                "price": r.price,
-                "stop_loss_price": r.stop_loss_price or "-",
-                "signal_type": r.signal_type,
-                "tags": ",".join(r.tags) if r.tags else "-",
-                "position": r.position,
-            })
+            data.append(
+                {
+                    "code": r.code,
+                    "name": r.name,
+                    "symbol": r.symbol,
+                    "category": r.category or "-",
+                    "period": r.period,
+                    "fire_time": r.fire_time.strftime("%Y-%m-%d %H:%M"),
+                    "price": r.price,
+                    "signal_type": r.signal_type,
+                    "tags": ",".join(r.tags) if r.tags else "-",
+                    "position": r.position,
+                }
+            )
             codes.append(r.code)
 
         df = pd.DataFrame(data)
@@ -93,28 +95,33 @@ class ReportOutput:
 
         # 生成带样式的 HTML
         styled_df = (
-            df.style
-            .set_caption(title)
-            .set_table_styles([
-                {"selector": "caption", "props": [("text-align", "left")]},
-                {"selector": "th", "props": [
-                    ("background-color", "#f0f0f0"),
-                    ("text-align", "left"),
-                    ("padding", "2px")
-                ]},
-                {"selector": "td", "props": [
-                    ("text-align", "left"),
-                    ("padding", "2px")
-                ]}
-            ])
+            df.style.set_caption(title)
+            .set_table_styles(
+                [
+                    {"selector": "caption", "props": [("text-align", "left")]},
+                    {
+                        "selector": "th",
+                        "props": [
+                            ("background-color", "#f0f0f0"),
+                            ("text-align", "left"),
+                            ("padding", "2px"),
+                        ],
+                    },
+                    {
+                        "selector": "td",
+                        "props": [("text-align", "left"), ("padding", "2px")],
+                    },
+                ]
+            )
             .highlight_null(color="lightgrey")
-            .set_properties(subset=["code"], **{
-                "color": "darkblue",
-                "font-weight": "bold"
-            })
+            .set_properties(
+                subset=["code"], **{"color": "darkblue", "font-weight": "bold"}
+            )
         )
 
-        filename = filename or f"{title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        filename = (
+            filename or f"{title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        )
         filepath = os.path.join(output_dir, filename)
 
         # 生成带复制按钮的 HTML

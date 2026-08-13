@@ -45,3 +45,6 @@ freshquant.txt
 # Local build artifacts (fullcalc)
 morningglory/fqcopilot/python/fullcalc.pyd
 morningglory/fqcopilot/xmake_f_*.txt
+
+# 评审产物不入库（备份在 D:\fqpack\review-reports\）
+.review-reports/

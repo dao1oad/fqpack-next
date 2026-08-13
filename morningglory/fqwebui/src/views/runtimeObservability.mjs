@@ -58,7 +58,6 @@ const STATUS_SEVERITY = {
 const TRACE_KIND_LABELS = {
   guardian_signal: 'Guardian 信号',
   takeprofit: '止盈链路',
-  stoploss: '止损链路',
   external_reported: '外部上报',
   external_inferred: '外部推断',
   manual_api_order: '手动下单',
@@ -160,9 +159,7 @@ const REPORT_TYPE_LABELS = {
 }
 const TPSL_KIND_LABELS = {
   takeprofit: '止盈',
-  stoploss: '止损',
   takeprofit_batch: '止盈',
-  stoploss_batch: '止损',
 }
 const BEIJING_TIMEZONE = 'Asia/Shanghai'
 const BEIJING_OFFSET_SUFFIX = '+08:00'
@@ -1583,7 +1580,7 @@ export const buildComponentEventEmptyState = (options = {}) => {
   if (component === 'tpsl_worker') {
     return {
       title: 'tpsl_worker 当前没有真实触发 Event',
-      detail: '未命中止盈止损价、空价格和盘后空跑评估默认不会显示；如需查看原始评估日志，请打开 Raw Browser。',
+      detail: '未命中止盈价、空价格和盘后空跑评估默认不会显示；如需查看原始评估日志，请打开 Raw Browser。',
     }
   }
   return {

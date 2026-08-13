@@ -33,21 +33,6 @@ static bool _validate_lengths(const std::vector<float> &h,
     return true;
 }
 
-static float _compute_stop_loss(const std::vector<int> &bi,
-                                const std::vector<float> &low,
-                                const std::vector<float> &high,
-                                bool is_buy) {
-    for (int i = static_cast<int>(bi.size()) - 1; i >= 0; --i) {
-        if (is_buy && bi[i] == -1) {
-            return i < static_cast<int>(low.size()) ? low[i] : 0.0f;
-        }
-        if (!is_buy && bi[i] == 1) {
-            return i < static_cast<int>(high.size()) ? high[i] : 0.0f;
-        }
-    }
-    return 0.0f;
-}
-
 static bool _is_valid_model_id(int model) {
     return model >= 10000 && model <= 10017;
 }
@@ -183,7 +168,6 @@ FullCalcResult full_calc(const std::vector<float> &high,
         s.index = length - 1;
         s.signal = entry;
         s.close = c.back();
-        s.stop_loss = _compute_stop_loss(bi, l, h, entry > 0);
         signals.push_back(s);
     }
 

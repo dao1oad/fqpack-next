@@ -141,7 +141,6 @@ def save_a_stock_pre_pools(
     code,
     category="",
     dt=pendulum.now(),
-    stop_loss_price=None,
     expire_at=pendulum.now().add(days=89),
     remark=None,
     **extra_fields,
@@ -170,7 +169,6 @@ def save_a_stock_pre_pools(
         extra.update(extra_fields)
 
         set_fields = {
-            "stop_loss_price": stop_loss_price,
             "datetime": dt,
             "expire_at": expire_at,
             "extra": extra,
@@ -194,7 +192,6 @@ def save_a_stock_pools(
     code,
     category="自选股",
     dt=pendulum.now(),
-    stop_loss_price=None,
     expire_at=pendulum.now().add(days=10),
     **extra_fields,
 ):
@@ -246,7 +243,6 @@ def save_a_stock_pools(
                 "name": instrument["name"],
                 "expire_at": expire_at,
                 "datetime": dt,
-                "stop_loss_price": stop_loss_price,
                 "extra": extra,
                 "sources": sources,
                 "categories": categories,
@@ -263,10 +259,6 @@ def save_a_stock_pools(
                 "memberships": memberships,
             }
         }
-
-        # 只有当 stop_loss_price 为空时才更新
-        if not existing_doc.get("stop_loss_price"):
-            update_ops["$set"]["stop_loss_price"] = stop_loss_price
 
         DBfreshquant.stock_pools.update_one(
             {"code": code, "category": category}, update_ops

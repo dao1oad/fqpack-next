@@ -15,11 +15,10 @@ python -m freshquant.rear.api_server --port 5000
 - `/api/stock_order`
 - `/api/order-management/orders`
 - `/api/order-management/orders/<internal_order_id>`
-- `/api/order-management/entries/<entry_id>`
-- `/api/order-management/stats`
-- `/api/order-management/stoploss/bind`
+  - `/api/order-management/entries/<entry_id>`
+  - `/api/order-management/stats`
 
-当前已删除 `/api/order-management/buy-lots/<buy_lot_id>`。
+当前已删除 `/api/order-management/buy-lots/<buy_lot_id>` 与止损绑定接口 `/api/order-management/stoploss/bind`（止损功能随 Issue #603 整体下线）。
 
 ### `position-management`
 
@@ -122,14 +121,11 @@ python -m freshquant.rear.api_server --port 5000
 
 ## 当前接口语义
 
-- `/api/order-management/stoploss/bind`
-  - 当前只接受 `entry_id`
 - `/api/subject-management/<symbol>`
   - 当前返回 `entries`
   - 不再返回 `buy_lots`
 - `/api/tpsl/management/<symbol>`
   - 当前返回 `entries / entry_slices / reconciliation / history`
-  - `entries` 内嵌 `stoploss`
 - `/api/position-management/dashboard`
   - 当前返回 `state / rule_matrix / config / recent_decisions / symbol_position_limits`
   - 全局阈值编辑和最近决策都依赖该接口
@@ -201,7 +197,7 @@ python -m freshquant.rear.api_server --port 5000
   - 文件缺失 / 非 GBK 编码失败无论是否 `allow_empty` 均阻断（500，`code=1`）
   - 复用相同的 TDX `.blk` 读取/解码链路，从当前 TDX home 的 `T0002/blocknew/待买.blk` 读取「待买」分组（经 `blocknew.cfg` 按显示名解析，如 `DM.blk`），解码为 6 位标的代码，排除完整持仓后覆盖刷新 `freshquant.must_pool`
   - 覆盖同步契约与 stock 相同（文件阻断、完整持仓排除、先批量 upsert 后删除旧成员）
-  - 已有记录保留 `stop_loss_price / initial_lot_amount / lot_amount` 交易参数；新代码自动解析统一系统默认参数（`lot_amount` 走 `get_trade_amount(code)`，`initial_lot_amount` 默认等于 `lot_amount`；`stop_loss_price` 使用系统默认止损配置 `params.guardian.value.stock.stop_loss_default`，未配置时以 `None` 导入——通达信「待买」分组不承载止损配置，不再因缺省止损阻断同步）
+  - 已有记录保留 `initial_lot_amount / lot_amount` 交易参数；新代码资金参数由 `import_pool` 兜底解析（`lot_amount` 走 `get_trade_amount(code)`，`initial_lot_amount` 默认等于 `lot_amount`，不再因缺省资金参数阻断同步）
   - 查询参数 `days` 控制 membership 有效期，默认 `30`
   - 返回 `source_count / synced_count / removed_count / holding_excluded_count / invalid_count / failed_count` 及对应代码列表；只写 `must_pool`，不写 `stock_pools`，不触发交易动作
 - `/api/stock_fills`

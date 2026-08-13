@@ -16,9 +16,6 @@ class _OrderManagementRepository:
     def list_buy_lots(self, symbol=None, buy_lot_ids=None):
         return []
 
-    def list_stoploss_bindings(self, symbol=None, enabled=None):
-        return []
-
 
 class _TpslRepository:
     def find_takeprofit_profile(self, symbol):

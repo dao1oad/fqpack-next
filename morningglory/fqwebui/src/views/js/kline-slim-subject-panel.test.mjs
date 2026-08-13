@@ -9,10 +9,10 @@ import {
   restoreKlineSlimPositionLimitDefault,
 } from './kline-slim-subject-panel.mjs'
 
-test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and stoploss data together', () => {
+test('normalizeKlineSlimSubjectPanelDetail keeps must-pool and position limit data together', () => {
   const detail = normalizeKlineSlimSubjectPanelDetail({
     subject: { symbol: '600000', name: '浦发银行' },
-    must_pool: { category: '银行', stop_loss_price: 9.2, lot_amount: 50000 },
+    must_pool: { category: '银行', lot_amount: 50000 },
     position_limit_summary: {
       available: true,
       default_limit: 800000,
@@ -41,7 +41,6 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
           { entry_slice_id: 'slice_1', slice_seq: 1, guardian_price: 9.8, remaining_quantity: 80 },
           { entry_slice_id: 'slice_2', slice_seq: 2, guardian_price: 9.6, remaining_quantity: 120 },
         ],
-        stoploss: { stop_price: 9.2, enabled: true },
       },
     ],
     runtime_summary: {
@@ -56,7 +55,6 @@ test('normalizeKlineSlimSubjectPanelDetail keeps must-pool, position limit and s
   assert.equal(detail.positionLimit.using_override, true)
   assert.equal(detail.positionLimit.available, true)
   assert.equal(detail.runtimeSummary.avg_price, 10.023)
-  assert.equal(detail.entries[0].stoploss.enabled, true)
   assert.equal(detail.entries[0].entryDisplayLabel, '第 1 笔持仓入口')
   assert.equal(detail.entries[0].entryIdLabel, 'ID 尾号 316d2a')
   assert.deepEqual(detail.entries[0].entrySummaryDisplay, {
@@ -208,22 +206,16 @@ test('createKlineSlimSubjectPanelActions routes subject and position-limit write
       calls.push(['saveSymbolPositionLimit', symbol, payload.limit ?? null])
       return { symbol, ...payload }
     },
-    async bindStoploss(payload) {
-      calls.push(['bindStoploss', payload.entry_id, payload.stop_price, payload.enabled])
-      return payload
-    },
   })
 
   await actions.loadSubjectDetail('600000')
   await actions.saveMustPool('600000', { category: '银行' })
   await actions.savePositionLimit('600000', { limit: 500000 })
-  await actions.saveStoploss('entry-1', { stop_price: 9.2, enabled: true })
 
   assert.deepEqual(calls, [
     ['getDetail', '600000'],
     ['saveMustPool', '600000', '银行'],
     ['saveSymbolPositionLimit', '600000', 500000],
-    ['bindStoploss', 'entry-1', 9.2, true],
   ])
 })
 

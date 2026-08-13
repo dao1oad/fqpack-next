@@ -37,12 +37,6 @@ def test_load_active_tpsl_codes_only_returns_held_and_configured_symbols(monkeyp
         "DBOrderManagement",
         FakeDb(
             {
-                "om_stoploss_bindings": FakeCollection(
-                    [
-                        {"symbol": "sz000001", "enabled": True},
-                        {"symbol": "sh600000", "enabled": True},
-                    ]
-                ),
                 "om_takeprofit_profiles": FakeCollection(
                     [
                         {"symbol": "000002.SZ"},
@@ -53,7 +47,7 @@ def test_load_active_tpsl_codes_only_returns_held_and_configured_symbols(monkeyp
         ),
     )
 
-    assert pools.load_active_tpsl_codes() == ["sz000001", "sz000002"]
+    assert pools.load_active_tpsl_codes() == ["sz000002"]
 
 
 def test_load_active_tpsl_codes_raises_when_position_volume_is_invalid(monkeypatch):
@@ -75,7 +69,6 @@ def test_load_active_tpsl_codes_raises_when_position_volume_is_invalid(monkeypat
         "DBOrderManagement",
         FakeDb(
             {
-                "om_stoploss_bindings": FakeCollection([]),
                 "om_takeprofit_profiles": FakeCollection([]),
             }
         ),

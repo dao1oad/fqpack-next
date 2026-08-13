@@ -211,7 +211,6 @@ def test_import_pool_persists_provenance_for_new_doc(monkeypatch):
     must_pool.import_pool(
         code="000001",
         category="CLXS_10008",
-        stop_loss_price=9.2,
         initial_lot_amount=80000,
         lot_amount=50000,
         forever=True,
@@ -245,14 +244,13 @@ def test_import_pool_persists_provenance_for_new_doc(monkeypatch):
     assert collection.inserted["workspace_order_hint"] == 7
 
 
-def test_import_pool_accepts_none_stop_loss_price(monkeypatch):
+def test_import_pool_accepts_missing_trade_params(monkeypatch):
     collection = FakeMustPoolCollection()
     must_pool = _import_must_pool_with_stubs(monkeypatch, collection=collection)
 
     must_pool.import_pool(
         code="000001",
         category="待买",
-        stop_loss_price=None,
         initial_lot_amount=None,
         lot_amount=None,
         forever=True,
@@ -266,7 +264,6 @@ def test_import_pool_accepts_none_stop_loss_price(monkeypatch):
     assert collection.inserted is not None
     assert collection.inserted["code"] == "000001"
     assert collection.inserted["category"] == "待买"
-    assert collection.inserted["stop_loss_price"] is None
     assert collection.inserted["initial_lot_amount"] == 50000
     assert collection.inserted["lot_amount"] == 50000
 
@@ -280,7 +277,6 @@ def test_import_pool_skips_unknown_instrument(monkeypatch):
     ok = must_pool.import_pool(
         code="000001",
         category="待买",
-        stop_loss_price=None,
         initial_lot_amount=None,
         lot_amount=None,
         forever=True,

@@ -403,7 +403,7 @@ test('KlineSlim lets the body flow below a wrapping toolbar instead of relying o
   )
 })
 
-test('KlineSlim replaces the entry stoploss section with Guardian total-limit controls', () => {
+test('KlineSlim replaces the entry editor section with Guardian total-limit controls', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
@@ -435,7 +435,6 @@ test('KlineSlim settings panel exposes only the Position Management limit from t
   assert.equal(viewSource.includes('v-model.trim="subjectPanelState.mustPoolDraft.category"'), false)
   assert.equal(viewSource.includes('右侧直接改 must_pool.category'), false)
   assert.equal(viewSource.includes('当前分类'), false)
-  assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.stop_loss_price"'), false)
   assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.initial_lot_amount"'), false)
   assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.lot_amount"'), false)
   assert.equal(viewSource.includes('v-model="subjectPanelState.positionLimitDraft.limit"'), true)
@@ -454,7 +453,7 @@ test('KlineSlim settings panel exposes only the Position Management limit from t
   assert.equal(viewSource.includes('class="subject-panel-base-row"'), false)
 })
 
-test('KlineSlim settings panel shows the total limit source without old stoploss summary copy', () => {
+test('KlineSlim settings panel shows the total limit source without old summary copy', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 
@@ -473,7 +472,6 @@ test('KlineSlim settings panel removes the base config section entirely', () => 
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
 
   assert.equal(viewSource.includes('<span class="price-panel-section-title">基础配置</span>'), false)
-  assert.equal(viewSource.includes('v-model="subjectPanelState.mustPoolDraft.stop_loss_price"'), false)
   assert.equal(viewSource.includes('v-model="subjectPanelState.positionLimitDraft.limit"'), true)
   assert.equal(viewSource.includes('class="subject-panel-base-row"'), false)
   assert.equal(viewSource.includes('subject-panel-header-summary'), false)
@@ -486,7 +484,7 @@ test('KlineSlim settings panel removes the old base grid styles', () => {
   assert.equal(viewSource.includes('.subject-panel-field\n'), false)
 })
 
-test('KlineSlim settings panel removes entry stoploss rows and uses the wider Guardian table', () => {
+test('KlineSlim settings panel removes entry editor rows and uses the wider Guardian table', () => {
   const viewSource = fs.readFileSync(new URL('./KlineSlim.vue', import.meta.url), 'utf8').replace(/\r/g, '')
   const scriptSource = fs.readFileSync(new URL('./js/kline-slim.js', import.meta.url), 'utf8')
 

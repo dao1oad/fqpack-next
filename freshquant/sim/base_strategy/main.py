@@ -239,50 +239,6 @@ class BaseStrategy(ABC):
             return True
         return False
 
-    def set_volume_long_stop_loss_price(self, code, volume_long_stop_loss_price):
-        """设置持仓止损价"""
-        pos = self.acc.get_position(code)
-        if pos and pos.volume_long > 0:
-            # 在持仓对象的extra字段中存储止损价
-            pos.extra['volume_long_stop_loss_price'] = volume_long_stop_loss_price
-            print(f"设置 {code} 止损价 {volume_long_stop_loss_price:.2f}")
-            self.acc.update_position(pos)
-
-    def set_volume_short_stop_loss_price(self, code, volume_short_stop_loss_price):
-        """设置持仓止损价"""
-        pos = self.acc.get_position(code)
-        if pos and pos.volume_short > 0:
-            # 在持仓对象的extra字段中存储止损价
-            pos.extra['volume_short_stop_loss_price'] = volume_short_stop_loss_price
-            print(f"设置 {code} 止损价 {volume_short_stop_loss_price:.2f}")
-            self.acc.update_position(pos)
-
-    def get_volume_long_stop_loss_price(self, code):
-        """获取持仓止损价"""
-        pos = self.acc.get_position(code)
-        if pos and pos.volume_long > 0:
-            return pos.extra.get('volume_long_stop_loss_price', None)
-        return None
-
-    def get_volume_short_stop_loss_price(self, code):
-        """获取持仓止损价"""
-        pos = self.acc.get_position(code)
-        if pos and pos.volume_short > 0:
-            return pos.extra.get('volume_short_stop_loss_price', None)
-        return None
-
-    def remove_volume_long_stop_loss_price(self, code):
-        """移除止损价（卖出后清理）"""
-        pos = self.acc.get_position(code)
-        if pos and pos.volume_long > 0:
-            del pos.extra['volume_long_stop_loss_price']
-
-    def remove_volume_short_stop_loss_price(self, code):
-        """移除止损价（卖出后清理）"""
-        pos = self.acc.get_position(code)
-        if pos and pos.volume_short > 0:
-            del pos.extra['volume_short_stop_loss_price']
-
     def get_position(self, code):
         """获取持仓信息"""
         return self.acc.get_position(code)
@@ -459,7 +415,6 @@ class BaseStrategy(ABC):
         all_trade_dates = get_trade_dates_between(start_date, end_date)
         trading_day_date = datetime.strptime(start_date, '%Y-%m-%d').date()
         trade_dates = [date for date in all_trade_dates if date != trading_day_date]
-
 
         for trade_date in trade_dates:
             codes = self.input_data_model.load_stock_pool_codes(trade_date)

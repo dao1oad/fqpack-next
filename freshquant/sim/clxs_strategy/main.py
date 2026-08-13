@@ -16,7 +16,6 @@ import traceback
 from typing import Dict
 
 import pandas as pd
-from fqchan04 import fq_recognise_bi
 from fqcopilot import fq_clxs
 
 from freshquant.quantaxis.qamarket.qaposition import QA_Position
@@ -170,23 +169,13 @@ class ClxsStrategy(BaseStrategy):
 
         atr_period = self.input_param_model.get_param('var_atr_period', 20)
         atr_multiplier = self.input_param_model.get_param('var_atr_multiplier', 2.0)
-        profit_loss_ratio = self.input_param_model.get_param(
-            'var_profit_loss_ratio', 1.0
+
+        take_profit_price = cost_price + atr_multiplier * self.calculate_atr(
+            hist_data, period=atr_period
         )
 
-        stop_loss_price = self.get_volume_long_stop_loss_price(pos.code)
-        if not stop_loss_price:
-            stop_loss_price = cost_price - atr_multiplier * self.calculate_atr(
-                hist_data, period=atr_period
-            )
-
-        take_profit_price = (
-            cost_price + (cost_price - stop_loss_price) * profit_loss_ratio
-        )
-
-        if today_close < stop_loss_price:
-            return True
-        elif today_close > take_profit_price:
+        # 卖出条件：收盘价高于止盈价（止损功能已随 Issue #603 下线）
+        if today_close > take_profit_price:
             return True
 
         return False
@@ -202,50 +191,7 @@ class ClxsStrategy(BaseStrategy):
         dt: 成交时间
         market_data: 市场数据字典，格式为 {'1d': DataFrame, ...}
         """
-        try:
-            if '1d' not in market_data:
-                return
-
-            hist_data = market_data['1d']
-            current_idx = len(hist_data) - 1
-
-            if current_idx < 0:
-                return
-
-            highs = hist_data.high.to_list()
-            lows = hist_data.low.to_list()
-            closes = hist_data.close.to_list()
-            length = len(highs)
-
-            bi = fq_recognise_bi(length, highs, lows, closes)
-
-            stop_loss_price = None
-            for x in range(len(bi) - 1, -1, -1):
-                if bi[x] == -1:
-                    stop_loss_price = lows[x]
-                    break
-
-            atr_period = self.input_param_model.get_param('var_atr_period', 20)
-            atr_multiplier = self.input_param_model.get_param('var_atr_multiplier', 2.0)
-
-            atr = self.calculate_atr(hist_data, period=atr_period)
-            stop_loss_2 = price - atr_multiplier * atr
-
-            if stop_loss_price is not None:
-                final_stop_loss = min(stop_loss_price, stop_loss_2)
-            else:
-                final_stop_loss = stop_loss_2
-
-            print(f"成交回调 - 代码: {code}, 成交价: {price:.2f}, 成交量: {volume}")
-            print(f"笔低点止损价: {stop_loss_price:.2f}")
-            print(f"ATR止损价: {stop_loss_2:.2f} (ATR: {atr:.2f})")
-            print(f"最终止损价: {final_stop_loss:.2f}")
-
-            self.set_volume_long_stop_loss_price(code, final_stop_loss)
-
-        except Exception as e:
-            print(f"设置止损价时发生错误: {e}")
-            traceback.print_exc()
+        print(f"成交回调 - 代码: {code}, 成交价: {price:.2f}, 成交量: {volume}")
 
 
 def main():
@@ -259,7 +205,6 @@ def main():
         var_trend_opt=1,
         var_atr_period=20,
         var_atr_multiplier=2.0,
-        var_profit_loss_ratio=1.0,
     )
 
     strategy = ClxsStrategy(

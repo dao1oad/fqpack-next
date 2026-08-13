@@ -88,7 +88,6 @@ python -m freshquant.cli stock screening --model clxs
   - `SELL_SHORT`
 - 单一函数通常同时给出：
   - 触发价
-  - 止损价
   - 标签或中枢数量
 
 ## 当前排查

@@ -574,8 +574,6 @@ def test_clickhouse_store_list_events_hides_non_triggered_tpsl_info_noise(
     assert "node IN ('tick_match', 'profile_load')" in queries[0]
     assert 'payload_json LIKE \'%"kind": "takeprofit"%\'' in queries[0]
     assert "payload_json LIKE '%\"triggered\": false%'" in queries[0]
-    assert 'payload_json LIKE \'%"kind": "stoploss"%\'' in queries[0]
-    assert "payload_json LIKE '%\"triggered_bindings\": 0%'" in queries[0]
     assert 'lowerUTF8(payload_json) LIKE \'%"kind": "base_buyline"%\'' in queries[0]
     assert (
         'lowerUTF8(payload_json) LIKE \'%"skip_reason": "no_armed_buy_line"%\''
@@ -1265,13 +1263,6 @@ def test_clickhouse_store_list_traces_accepts_trace_kind_filter(monkeypatch):
     assert "lowerUTF8(source) IN ('takeprofit', 'tpsl_takeprofit')" in queries[0]
     assert (
         'lowerUTF8(payload_json) LIKE \'%"scope_type": "takeprofit_batch"%\''
-        in queries[0]
-    )
-    assert (
-        "lowerUTF8(source) IN ('stoploss', 'tpsl_stoploss', " "'tpsl_symbol_stoploss')"
-    ) in queries[0]
-    assert (
-        'lowerUTF8(payload_json) LIKE \'%"scope_type": "symbol_stoploss_batch"%\''
         in queries[0]
     )
     assert "lowerUTF8(source) IN ('api', 'web-order', 'manual_import')" in queries[0]
