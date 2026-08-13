@@ -11,6 +11,7 @@ from freshquant.order_management.ids import (
     new_position_entry_id,
 )
 from freshquant.order_management.time_helpers import beijing_date_time_from_epoch
+from freshquant.trading.board_lot import quantity_for_amount
 
 
 def build_position_entry_from_trade_fact(
@@ -173,9 +174,11 @@ def _arrange_entry_remaining(
         # 不再生成任何超过上限的切片。
         quantity = remaining_quantity
     elif current_amount > lot_amount:
-        quantity = int(lot_amount / guardian_price / 100) * 100
+        quantity = quantity_for_amount(
+            lot_amount, guardian_price, code=str(entry.get("symbol") or "")
+        )
         if quantity == 0:
-            # 整手（100 股）金额已超过 lot_amount：网格不再有意义的细分粒度，
+            # 整手金额已超过 lot_amount：网格不再有意义的细分粒度，
             # 剩余量全部并入最后一格（保证 Σslice == entry 守恒并终止）。
             quantity = remaining_quantity
         quantity = min(quantity, remaining_quantity)
@@ -280,7 +283,9 @@ def _arrange_remaining(
     if price_cap is not None and next_price > price_cap:
         quantity = remaining_quantity
     elif current_amount > lot_amount:
-        quantity = int(lot_amount / guardian_price / 100) * 100
+        quantity = quantity_for_amount(
+            lot_amount, guardian_price, code=str(buy_lot.get("symbol") or "")
+        )
         if quantity == 0:
             quantity = remaining_quantity
         quantity = min(quantity, remaining_quantity)

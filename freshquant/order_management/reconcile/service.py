@@ -202,7 +202,10 @@ class ExternalOrderReconcileService:
                     "observed_count": int(gap.get("observed_count") or 1) + 1,
                     **gap_price_fields,
                 }
-                if _is_board_lot_delta(observed_updates["quantity_delta"]):
+                if _is_board_lot_delta(
+                    observed_updates["quantity_delta"],
+                    code=observed_updates.get("symbol"),
+                ):
                     observed_updates.update(
                         {
                             "state": "OPEN",
@@ -520,7 +523,7 @@ class ExternalOrderReconcileService:
             "source_ref_type": "reconciliation_gap",
             "source_ref_id": gap["gap_id"],
         }
-        if quantity <= 0 or quantity % 100 != 0:
+        if not _is_board_lot_delta(quantity, code=gap.get("symbol")):
             resolution["resolution_type"] = "board_lot_rejected"
             self.repository.insert_reconciliation_resolution(resolution)
             return self.repository.update_reconciliation_gap(
@@ -656,7 +659,7 @@ class ExternalOrderReconcileService:
                 reason_code="tpsl_takeprofit_return_lost",
                 payload={"evidence": tp_evidence},
             )
-        if remaining <= 0 or not _is_board_lot_delta(remaining):
+        if remaining <= 0 or not _is_board_lot_delta(remaining, code=gap.get("symbol")):
             resolution = {
                 "resolution_id": resolution_id,
                 "gap_id": gap["gap_id"],
@@ -1832,9 +1835,14 @@ def _arrange_entry_remaining(
         return
 
     if remaining_amount > lot_amount:
-        quantity = int(lot_amount / current_price / 100) * 100
+        # 根⑤：整手规则统一走 trading.board_lot。
+        from freshquant.trading.board_lot import quantity_for_amount, resolve_board_lot
+
+        quantity = quantity_for_amount(
+            lot_amount, current_price, code=str(entry.get("symbol") or "")
+        )
         if quantity == 0:
-            quantity = 100
+            quantity = resolve_board_lot(code=str(entry.get("symbol") or ""))
         quantity = min(quantity, remaining_quantity)
     else:
         quantity = remaining_quantity
@@ -2081,8 +2089,12 @@ def _resolve_entry_status(remaining_quantity, original_quantity):
     return "PARTIALLY_EXITED"
 
 
-def _is_board_lot_delta(quantity):
-    return int(quantity or 0) > 0 and int(quantity or 0) % 100 == 0
+def _is_board_lot_delta(quantity, *, code=""):
+    # 根⑤：整手规则统一走 trading.board_lot。
+
+    from freshquant.trading.board_lot import is_board_lot_quantity
+
+    return is_board_lot_quantity(quantity, code=code)
 
 
 def _after_holdings_reconciled(symbol, *, repository):

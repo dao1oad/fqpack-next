@@ -183,7 +183,9 @@ class BaseStrategy(ABC):
                 return False
             quantity = self.calculate_buy_quantity(price, available_cash)
 
-        if quantity >= 100:
+        from freshquant.trading.board_lot import resolve_board_lot
+
+        if quantity >= resolve_board_lot(code=str(getattr(self, "code", "") or "")):
             orderId = ulid.new().str
             od = self.acc.send_order(
                 code=code,
@@ -272,16 +274,20 @@ class BaseStrategy(ABC):
         返回:
         quantity: 买入数量（股）
         """
-        # 计算买入数量
-        quantity = math.floor(self.lot_size / current_price / 100) * 100
-        if quantity < 100:
-            quantity = 100
+        # 根⑤：整手规则统一走 trading.board_lot。
+        from freshquant.trading.board_lot import quantity_for_amount, resolve_board_lot
+
+        code = str(getattr(self, "code", "") or "")
+        lot = resolve_board_lot(code=code)
+        quantity = quantity_for_amount(self.lot_size, current_price, code=code)
+        if quantity < lot:
+            quantity = lot
 
         # 确保不超过可用资金
-        max_quantity = math.floor(available_cash / current_price / 100) * 100
+        max_quantity = quantity_for_amount(available_cash, current_price, code=code)
         quantity = min(quantity, max_quantity)
 
-        return quantity if quantity >= 100 else 0
+        return quantity if quantity >= lot else 0
 
     # 技术指标计算方法
     def calculate_atr(self, hist_data: pd.DataFrame, period=20):

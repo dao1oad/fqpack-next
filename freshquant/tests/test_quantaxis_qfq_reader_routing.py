@@ -133,13 +133,13 @@ TEMPORARY_FILL_ONE_ALLOWLIST = {
     ("freshquant/data/adj_intraday.py", 122): (
         "transitional legacy helper with no runtime callsite"
     ),
-    ("freshquant/data/astock/holding.py", 262): (
+    ("freshquant/data/astock/holding.py", 269): (
         "trade amount_adjust default, not a QFQ factor fallback"
     ),
-    ("freshquant/data/astock/holding.py", 282): (
+    ("freshquant/data/astock/holding.py", 289): (
         "trade amount_adjust default, not a QFQ factor fallback"
     ),
-    ("freshquant/data/astock/holding.py", 440): (
+    ("freshquant/data/astock/holding.py", 447): (
         "trade amount_adjust default, not a QFQ factor fallback"
     ),
     ("freshquant/data/etf_adj.py", 95): (

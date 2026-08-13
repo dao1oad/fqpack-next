@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from freshquant.trading.board_lot import floor_to_board_lot as _floor_lot
 from freshquant.util.code import normalize_to_base_code
 
 
@@ -47,16 +48,16 @@ class PositionVolumeReader:
         return {"volume": 0, "can_use_volume": 0}
 
 
-def floor_to_board_lot(quantity):
+def floor_to_board_lot(quantity, *, code=""):
     value = max(int(quantity or 0), 0)
-    return value - (value % 100)
+    return _floor_lot(value, code=code)
 
 
-def resolve_sell_submission_quantity(*, requested_quantity, can_use_volume):
+def resolve_sell_submission_quantity(*, requested_quantity, can_use_volume, code=""):
     raw_quantity = max(int(requested_quantity or 0), 0)
     sell_cap = max(int(can_use_volume or 0), 0)
     quantity_cap = min(raw_quantity, sell_cap)
-    submit_quantity = floor_to_board_lot(quantity_cap)
+    submit_quantity = floor_to_board_lot(quantity_cap, code=code)
 
     if raw_quantity <= 0:
         return {
@@ -76,7 +77,7 @@ def resolve_sell_submission_quantity(*, requested_quantity, can_use_volume):
             "quantity_cap": quantity_cap,
             "quantity": 0,
         }
-    if submit_quantity < 100:
+    if submit_quantity <= 0:
         return {
             "status": "blocked",
             "blocked_reason": "board_lot",

@@ -10,6 +10,7 @@ from freshquant.strategy.guardian_ladder import (
     DEFAULT_BUY_LINE_ARMED,
     _coerce_buy_line_armed,
 )
+from freshquant.trading.board_lot import quantity_for_amount, resolve_board_lot
 from freshquant.util.code import normalize_to_base_code
 
 BUY_LEVELS = ("BUY-1", "BUY-2", "BUY-3")
@@ -130,10 +131,10 @@ def _coerce_caps(value: Any) -> list[int]:
         return []
 
 
-def _amount_to_quantity(amount: float, price: float) -> int:
-    if amount <= 0 or price <= 0:
-        return 0
-    return int(amount / price / 100) * 100
+def _amount_to_quantity(amount: float, price: float, *, code: str = "") -> int:
+    """金额→整手数量（整手规则统一走 trading.board_lot，根⑤）。"""
+
+    return quantity_for_amount(amount, price, code=code)
 
 
 def validate_tp_buy_config(
@@ -467,8 +468,12 @@ class GuardianBuyGridService:
                 "skip_reason": "position_capacity_unavailable",
                 "stage": "PRE_BUY-1",
             }
-        base_quantity = _amount_to_quantity(initial_amount, source_price)
-        capacity_quantity = _amount_to_quantity(capacity["remaining"], source_price)
+        base_quantity = _amount_to_quantity(
+            initial_amount, source_price, code=normalized
+        )
+        capacity_quantity = _amount_to_quantity(
+            capacity["remaining"], source_price, code=normalized
+        )
         context = {
             "stage": "PRE_BUY-1",
             "effective_stage_cap": float(global_limit),
@@ -591,14 +596,16 @@ class GuardianBuyGridService:
                 "t_value": t_value,
                 "buy_amount_exponent": buy_amount_exponent,
             }
-        quantity = _amount_to_quantity(buy_amount, source_price)
+        quantity = _amount_to_quantity(buy_amount, source_price, code=normalized)
         context = {
             "stage": corridor["stage"],
             "effective_stage_cap": effective_cap,
             "current_market_value": capacity["market_value"],
             "remaining_amount": capacity["remaining"],
             "capacity_ratio": capacity_ratio,
-            "base_quantity": _amount_to_quantity(base_amount, source_price),
+            "base_quantity": _amount_to_quantity(
+                base_amount, source_price, code=normalized
+            ),
             "capacity_quantity": quantity,
             "buy_amount": round(buy_amount, 2),
             "min_buy_amount": min_buy_amount,
@@ -607,7 +614,7 @@ class GuardianBuyGridService:
             "t_value": t_value,
             "buy_amount_exponent": buy_amount_exponent,
         }
-        if quantity < 100:
+        if quantity < resolve_board_lot(code=normalized):
             context["skip_reason"] = "below_board_lot"
         return {
             **base,
@@ -715,7 +722,7 @@ class GuardianBuyGridService:
                 "ledger_occupancy": capacity["ledger_occupancy"],
                 "pending_buy_amount": capacity["pending_buy_amount"],
             }
-        quantity = _amount_to_quantity(buy_amount, source_price)
+        quantity = _amount_to_quantity(buy_amount, source_price, code=normalized)
         context = {
             "stage": hit_stage,
             "effective_stage_cap": float(caps[hit_index]),
@@ -730,7 +737,7 @@ class GuardianBuyGridService:
             "pending_buy_amount": capacity["pending_buy_amount"],
             "buy_line_armed": list(buy_line_armed),
         }
-        if quantity < 100:
+        if quantity < resolve_board_lot(code=normalized):
             context["skip_reason"] = "below_board_lot"
         return {
             **base,
@@ -875,8 +882,10 @@ class GuardianBuyGridService:
             return 0, {"skip_reason": "position_capacity_unavailable", "stage": stage}
         effective_cap = global_limit if cap is None else min(float(cap), global_limit)
         remaining = max(effective_cap - current_value, 0.0)
-        base_quantity = _amount_to_quantity(base_amount, price)
-        capacity_quantity = _amount_to_quantity(remaining * capacity_ratio, price)
+        base_quantity = _amount_to_quantity(base_amount, price, code=code)
+        capacity_quantity = _amount_to_quantity(
+            remaining * capacity_ratio, price, code=code
+        )
         context = {
             "stage": stage,
             "effective_stage_cap": effective_cap,

@@ -394,7 +394,10 @@ def _rebuild_position_entries(
         broker_order_key = broker_order.get("broker_order_key")
         accepted_buy_fills = []
         for execution_fill in fills_by_broker_order_key.get(broker_order_key) or []:
-            if not _is_board_lot_quantity(execution_fill.get("quantity")):
+            if not _is_board_lot_quantity(
+                execution_fill.get("quantity"),
+                code=execution_fill.get("symbol"),
+            ):
                 ingest_rejection_documents.append(
                     _build_ingest_rejection_from_execution_fill(execution_fill)
                 )
@@ -425,7 +428,10 @@ def _rebuild_position_entries(
     for execution_fill in execution_fills:
         if execution_fill.get("side") != "sell":
             continue
-        if not _is_board_lot_quantity(execution_fill.get("quantity")):
+        if not _is_board_lot_quantity(
+            execution_fill.get("quantity"),
+            code=execution_fill.get("symbol"),
+        ):
             ingest_rejection_documents.append(
                 _build_ingest_rejection_from_execution_fill(execution_fill)
             )
@@ -978,9 +984,12 @@ def _resolve_rebuild_timestamp(now_ts):
     return int(datetime.now(tz=timezone.utc).timestamp())
 
 
-def _is_board_lot_quantity(quantity):
-    normalized = _coerce_int(quantity) or 0
-    return normalized > 0 and normalized % 100 == 0
+def _is_board_lot_quantity(quantity, *, code=""):
+    # 根⑤：整手规则统一走 trading.board_lot。
+
+    from freshquant.trading.board_lot import is_board_lot_quantity
+
+    return is_board_lot_quantity(quantity, code=code)
 
 
 def _build_entry_broker_order(*, broker_order, fills):
@@ -1511,7 +1520,7 @@ def _reconcile_positions_against_xt_positions(
             "source_ref_id": gap_id,
         }
 
-        if not _is_board_lot_quantity(quantity_delta):
+        if not _is_board_lot_quantity(quantity_delta, code=gap.get("symbol")):
             gap["state"] = "REJECTED"
             gap["resolution_id"] = resolution_id
             gap["resolution_type"] = "board_lot_rejected"

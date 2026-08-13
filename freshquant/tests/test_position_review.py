@@ -1844,7 +1844,7 @@ def test_guardian_new_open_uses_initial_amount_without_grid_multiplier():
     assert review["expected"]["quantity"] == 4800
     assert review["expected"]["path"] == "new_open"
     assert review["expected"]["formula"] == (
-        "floor(initial_amount / source_price / 100) * 100"
+        "quantity_for_amount(initial_amount, source_price)"
     )
     assert "multiplier" not in review["expected"]
     assert review["verdict"] == "PASS"

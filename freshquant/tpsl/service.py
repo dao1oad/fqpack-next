@@ -269,6 +269,7 @@ class TpslService:
             sell_quantity = _resolve_sell_submission_quantity(
                 requested_quantity=quantity_result["quantity"],
                 can_use_volume=sell_cap,
+                code=base_symbol,
             )
             if sell_quantity["status"] == "blocked":
                 self._emit_runtime(

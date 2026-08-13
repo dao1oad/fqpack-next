@@ -479,7 +479,6 @@ class StrategyGuardian(metaclass=SingletonType):
                 price=price,
                 remark=remark,
                 decision=decision,
-                set_new_open_cooldown=False,
                 quantity_reason_code="quantity_invalid",
                 submit_branch="holding_add",
             )
@@ -494,57 +493,10 @@ class StrategyGuardian(metaclass=SingletonType):
             raise
 
     def _handle_new_open_buy(self, *, signal, code, name, price, remark):
-        current_node = "cooldown_check"
+        current_node = "quantity_check"
         try:
-            cooldown_key = "fq:xtrade:last_new_order_time"
-            last_new_order_time = redis_db.get(cooldown_key)
-            cooldown_context = {
-                "cooldown": {
-                    "key": cooldown_key,
-                    "active": last_new_order_time is not None,
-                    "last_value": last_new_order_time,
-                    "cooldown_minutes": 15,
-                }
-            }
-            if last_new_order_time is not None:
-                self._emit_runtime(
-                    signal,
-                    "cooldown_check",
-                    action="buy",
-                    status="skipped",
-                    reason_code="new_open_cooldown_active",
-                    decision_branch="new_open_cooldown",
-                    decision_expr="last_new_order_time is None",
-                    decision_context=cooldown_context,
-                    decision_outcome={"outcome": "skip"},
-                )
-                self._emit_finish(
-                    signal,
-                    action="buy",
-                    status="skipped",
-                    reason_code="new_open_cooldown_active",
-                    outcome="skip",
-                    decision_branch="new_open_cooldown",
-                    decision_expr="last_new_order_time is None",
-                    decision_context=cooldown_context,
-                )
-                logger.info(
-                    f"上次新开仓下单时间未超过15分钟，不再自动买入：{last_new_order_time}"
-                )
-                return
-
-            self._emit_runtime(
-                signal,
-                "cooldown_check",
-                action="buy",
-                status="success",
-                decision_branch="new_open_cooldown",
-                decision_expr="last_new_order_time is None",
-                decision_context=cooldown_context,
-                decision_outcome={"outcome": "pass"},
-            )
-
-            current_node = "quantity_check"
+            # D2（Issue #604，步骤 7）：15 分钟全局首开冷却已删除，
+            # 只保留单标的 buy:<code> 冷却。
             decision = get_guardian_buy_grid_service().build_new_open_decision(
                 code, price
             )
@@ -564,7 +516,6 @@ class StrategyGuardian(metaclass=SingletonType):
                         "base_quantity": decision.get("base_quantity"),
                         "capacity_quantity": decision.get("capacity_quantity"),
                         "capacity_ratio": decision.get("capacity_ratio"),
-                        "set_new_open_cooldown": True,
                     }
                 }
                 self._emit_runtime(
@@ -602,7 +553,6 @@ class StrategyGuardian(metaclass=SingletonType):
                 price=price,
                 remark=remark,
                 decision=decision,
-                set_new_open_cooldown=True,
                 quantity_reason_code="new_open_quantity_insufficient",
                 submit_branch="new_open",
             )
@@ -624,7 +574,6 @@ class StrategyGuardian(metaclass=SingletonType):
         price,
         remark,
         decision,
-        set_new_open_cooldown,
         quantity_reason_code,
         submit_branch,
     ):
@@ -645,7 +594,6 @@ class StrategyGuardian(metaclass=SingletonType):
                     "base_quantity": decision.get("base_quantity"),
                     "capacity_quantity": decision.get("capacity_quantity"),
                     "capacity_ratio": decision.get("capacity_ratio"),
-                    "set_new_open_cooldown": set_new_open_cooldown,
                 }
             }
             if quantity <= 0:
@@ -832,12 +780,6 @@ class StrategyGuardian(metaclass=SingletonType):
                 return
 
             redis_db.set(f"buy:{code}", "1", timedelta(minutes=15))
-            if set_new_open_cooldown:
-                redis_db.set(
-                    "fq:xtrade:last_new_order_time",
-                    pendulum.now().format("YYYY-MM-DD HH:mm:ss"),
-                    timedelta(minutes=15),
-                )
         except Exception as exc:
             if not is_exception_emitted(exc):
                 self._emit_unexpected_exception(
@@ -1157,6 +1099,7 @@ class StrategyGuardian(metaclass=SingletonType):
             sell_quantity = resolve_sell_submission_quantity(
                 requested_quantity=quantity,
                 can_use_volume=_get_position_reader().get_can_use_volume(code),
+                code=code,
             )
             sellable_context = {
                 "quantity": {
@@ -1179,7 +1122,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     status="skipped",
                     reason_code=reason_code,
                     decision_branch="sell_submit_quantity",
-                    decision_expr="submit_quantity >= 100 and submit_quantity <= can_use_volume",
+                    decision_expr="submit_quantity meets board lot and <= can_use_volume",
                     decision_context=sellable_context,
                     decision_outcome={"outcome": "skip"},
                 )
@@ -1190,7 +1133,7 @@ class StrategyGuardian(metaclass=SingletonType):
                     reason_code=reason_code,
                     outcome="skip",
                     decision_branch="sell_submit_quantity",
-                    decision_expr="submit_quantity >= 100 and submit_quantity <= can_use_volume",
+                    decision_expr="submit_quantity meets board lot and <= can_use_volume",
                     decision_context=sellable_context,
                 )
                 if sell_quantity["blocked_reason"] == "can_use_volume":
@@ -1213,7 +1156,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 action="sell",
                 status="success",
                 decision_branch="sell_submit_quantity",
-                decision_expr="submit_quantity >= 100 and submit_quantity <= can_use_volume",
+                decision_expr="submit_quantity meets board lot and <= can_use_volume",
                 decision_context=quantity_context,
                 decision_outcome={"outcome": "pass"},
             )
