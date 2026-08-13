@@ -520,7 +520,7 @@ print(repo.list_open_entry_slices(symbol='300760'))
 - 再确认 `holding.py` / `entry_adapter` 当前已经优先返回 v2 entry / slice，而不是回退 legacy `stock_fills` 或 `buy_lots`
 - 若记录仍缺 `date/time`，优先查对应 `trade_time` 是否存在，再查该 symbol 是否还停留在旧账本
 
-## 券商有持仓但没有“按持仓入口止损”
+## 券商有持仓但没有“聚合买入列表”入口
 
 现象：
 
@@ -1242,11 +1242,9 @@ Invoke-RestMethod 'http://127.0.0.1:15000/api/clx-daily-selection/history/signal
 - #549 双账本引入的买入线短路曾导致：买入线评估返回 `skipped` 时本 tick 直接终止，
   TP/SL 评估永远不执行（生产实证 2026-08-11，恩华药业 002262 TP1 不触发，
   当日 worker 事件 `base_buyline` 10688 条、`takeprofit` 0 条）。
-- 已修复：tick 处理顺序为「买入线评估（仅 `ready` 提交买单并终止本 tick）→ 止盈评估 →
-  止损评估」；买入线 `skipped` 不阻断双集合标的（同时命中 TP/SL universe）的后续评估，
+- 已修复：tick 处理顺序为「买入线评估（仅 `ready` 提交买单并终止本 tick）→ 止盈评估」；
+  买入线 `skipped` 不阻断双集合标的（同时命中止盈 universe）的后续评估，
   buy-line-only 标的本 tick 终止。
-- 同类边界（暂不改，价格区间不相交、风险低）：`evaluate_takeprofit` 返回非 ready
-  （无可用数量/blocked）时本 tick 同样短路 stoploss。
 
 处理：
 

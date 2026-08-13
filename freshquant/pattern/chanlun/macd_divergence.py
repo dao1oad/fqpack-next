@@ -84,40 +84,40 @@ def locate_macd_divergence(
             # 看涨背驰信号 (正值)
             if signal_value > 0:
                 # 寻找止损价格：往前找最近的笔底
-                stop_loss_price = None
+                stop_lose_price = None
                 for j in range(i, -1, -1):
                     if bi_list[j] == -1:
-                        stop_loss_price = low_list[j]
+                        stop_lose_price = low_list[j]
                         break
 
                 # 如果没有找到止损价格，使用当前价格下方5%
-                if stop_loss_price is None:
-                    stop_loss_price = close_list[i] * 0.95
+                if stop_lose_price is None:
+                    stop_lose_price = close_list[i] * 0.95
 
                 bullish_divergence['idx'].append(i)
                 bullish_divergence['datetime'].append(datetime_list[i])
                 bullish_divergence['price'].append(close_list[i])
-                bullish_divergence['stop_lose_price'].append(stop_loss_price)
+                bullish_divergence['stop_lose_price'].append(stop_lose_price)
                 bullish_divergence['zhongshu_count'].append(zhongshu_count)
                 bullish_divergence['tag'].append('')
 
             # 看跌背驰信号 (负值)
             elif signal_value < 0:
                 # 寻找止损价格：往前找最近的笔顶
-                stop_loss_price = None
+                stop_lose_price = None
                 for j in range(i, -1, -1):
                     if bi_list[j] == 1:
-                        stop_loss_price = high_list[j]
+                        stop_lose_price = high_list[j]
                         break
 
                 # 如果没有找到止损价格，使用当前价格上方5%
-                if stop_loss_price is None:
-                    stop_loss_price = close_list[i] * 1.05
+                if stop_lose_price is None:
+                    stop_lose_price = close_list[i] * 1.05
 
                 bearish_divergence['idx'].append(i)
                 bearish_divergence['datetime'].append(datetime_list[i])
                 bearish_divergence['price'].append(close_list[i])
-                bearish_divergence['stop_lose_price'].append(stop_loss_price)
+                bearish_divergence['stop_lose_price'].append(stop_lose_price)
                 bearish_divergence['zhongshu_count'].append(zhongshu_count)
                 bearish_divergence['tag'].append('')
 

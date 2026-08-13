@@ -148,7 +148,7 @@ class ChanlunLaHuiStrategy(ScreenStrategy):
                         hqdata.close.to_list(),
                         hqdata.low.to_list(),
                         hqdata.high.to_list(),
-                    )
+                    ),
                 )
 
                 hqdata['bi'] = chanlun.bi_signal_list
@@ -165,17 +165,12 @@ class ChanlunLaHuiStrategy(ScreenStrategy):
                         hqdata.low.to_list(),
                         hqdata.bi.to_list(),
                         hqdata.duan.to_list(),
-                    )
+                    ),
                 )
 
-                signals = self._find_signals(
-                    lahui, entanglement_list, hqdata, count
-                )
+                signals = self._find_signals(lahui, entanglement_list, hqdata, count)
 
                 for sig in signals:
-                    # 计算止损价格
-                    stop_loss_price = self._calc_stop_loss(hqdata, sig['la_hui_idx'])
-
                     results.append(
                         self._make_result(
                             code=code,
@@ -184,7 +179,6 @@ class ChanlunLaHuiStrategy(ScreenStrategy):
                             period=period,
                             fire_time=sig['dt'],
                             price=sig['price'],
-                            stop_loss_price=stop_loss_price,
                             signal_type=f"拉回中枢_{imp}",
                             tags=[imp],
                             remark=f"大阳线 {sig['rise']:.2%}",
@@ -238,36 +232,17 @@ class ChanlunLaHuiStrategy(ScreenStrategy):
                 # 大阳线
                 rise = close_list[x] / open_list[x]
                 if rise >= self.min_rise:
-                    signals.append({
-                        'la_hui_idx': i,
-                        'dt': hqdata['datetime'].iloc[x],
-                        'price': close_list[x],
-                        'rise': rise,
-                    })
+                    signals.append(
+                        {
+                            'la_hui_idx': i,
+                            'dt': hqdata['datetime'].iloc[x],
+                            'price': close_list[x],
+                            'rise': rise,
+                        }
+                    )
                     break
 
         return signals
-
-    def _calc_stop_loss(self, hqdata, la_hui_idx: int) -> float | None:
-        """计算止损价格
-
-        从拉回点往前找最近一个笔底（最低点）
-
-        Args:
-            hqdata: 行情数据
-            la_hui_idx: 拉回点索引
-
-        Returns:
-            止损价格
-        """
-        low_list = hqdata.low.to_list()
-        bi_list = hqdata.bi.to_list()
-
-        for x in range(la_hui_idx, -1, -1):
-            if bi_list[x] == -1:  # 笔底
-                return low_list[x]
-
-        return None
 
     def _save_json(self, results: list[ScreenResult]):
         """保存为 JSON 文件
@@ -286,17 +261,20 @@ class ChanlunLaHuiStrategy(ScreenStrategy):
             dt = r.fire_time.strftime("%Y-%m-%d")
             if dt not in data_dict:
                 data_dict[dt] = []
-            data_dict[dt].append({
-                'symbol': r.symbol,
-                'name': r.name,
-                'period': r.period,
-                'dt': r.fire_time.strftime("%Y-%m-%d %H:%M"),
-                'la_hui': r.tags[0] if r.tags else "",
-            })
+            data_dict[dt].append(
+                {
+                    'symbol': r.symbol,
+                    'name': r.name,
+                    'period': r.period,
+                    'dt': r.fire_time.strftime("%Y-%m-%d %H:%M"),
+                    'la_hui': r.tags[0] if r.tags else "",
+                }
+            )
 
         # 按日期保存
-        import os
         import json
+        import os
+
         for dt, records in data_dict.items():
             dt_dir = os.path.join(output_dir, dt)
             os.makedirs(dt_dir, exist_ok=True)

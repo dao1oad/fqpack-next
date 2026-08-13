@@ -218,14 +218,6 @@ class OrderManagementRepository:
         return self.database["om_reconciliation_resolutions"]
 
     @property
-    def stoploss_bindings(self):
-        return self.database["om_stoploss_bindings"]
-
-    @property
-    def entry_stoploss_bindings(self):
-        return self.database["om_entry_stoploss_bindings"]
-
-    @property
     def credit_subjects(self):
         return self.database["om_credit_subjects"]
 
@@ -1004,44 +996,6 @@ class OrderManagementRepository:
             {"$set": updates},
         )
         return self.reconciliation_gaps.find_one({"gap_id": gap_id})
-
-    def find_stoploss_binding(self, buy_lot_id):
-        return self.stoploss_bindings.find_one({"buy_lot_id": buy_lot_id})
-
-    def find_entry_stoploss_binding(self, entry_id):
-        return self.entry_stoploss_bindings.find_one({"entry_id": entry_id})
-
-    def upsert_stoploss_binding(self, document):
-        self.stoploss_bindings.replace_one(
-            {"buy_lot_id": document["buy_lot_id"]},
-            document,
-            upsert=True,
-        )
-        return self.find_stoploss_binding(document["buy_lot_id"])
-
-    def upsert_entry_stoploss_binding(self, document):
-        self.entry_stoploss_bindings.replace_one(
-            {"entry_id": document["entry_id"]},
-            document,
-            upsert=True,
-        )
-        return self.find_entry_stoploss_binding(document["entry_id"])
-
-    def list_stoploss_bindings(self, symbol=None, enabled=None):
-        query = {}
-        if symbol is not None:
-            query["symbol"] = symbol
-        if enabled is not None:
-            query["enabled"] = bool(enabled)
-        return list(self.stoploss_bindings.find(query))
-
-    def list_entry_stoploss_bindings(self, symbol=None, enabled=None):
-        query = {}
-        if symbol is not None:
-            query["symbol"] = symbol
-        if enabled is not None:
-            query["enabled"] = bool(enabled)
-        return list(self.entry_stoploss_bindings.find(query))
 
     def list_exit_allocations(self, *, entry_ids=None):
         query = {}

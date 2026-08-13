@@ -182,7 +182,7 @@ test('PositionManagement view keeps the final two-column workbench and removes r
   assert.match(source, /当前仓位状态/)
   assert.match(source, /标的总览/)
   assert.match(source, /选中标的工作区/)
-  assert.match(source, /聚合买入列表 \/ 按持仓入口止损/)
+  assert.match(source, /聚合买入列表/)
   assert.match(source, /切片明细（\{\{\s*selectedSubjectSliceRows\.length\s*\}\}）/)
   assert.match(source, /label="持仓账本"/)
   assert.match(source, /label="相关订单"/)

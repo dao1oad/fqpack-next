@@ -163,7 +163,6 @@ def test_resolve_buy_position_type():
 def test_is_takeprofit_request_by_source_and_scope():
     assert is_takeprofit_request({"source": "tpsl_takeprofit"}) is True
     assert is_takeprofit_request({"scope_type": "takeprofit_batch"}) is True
-    assert is_takeprofit_request({"scope_type": "stoploss_batch"}) is False
     assert is_takeprofit_request({"source": "guardian"}) is False
     assert is_takeprofit_request(None) is False
 

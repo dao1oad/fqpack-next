@@ -232,7 +232,6 @@ function buildPositionManagementSubjectOverview(symbols) {
       category: index % 2 === 0 ? '银行' : '科技',
       must_pool: {
         category: index % 2 === 0 ? '银行' : '科技',
-        stop_loss_price: 9.1 - index * 0.02,
         initial_lot_amount: 90000 - index * 1000,
         lot_amount: 60000 - index * 500,
       },
@@ -244,10 +243,6 @@ function buildPositionManagementSubjectOverview(symbols) {
       },
       takeprofit: {
         tiers: [],
-      },
-      stoploss: {
-        active_count: index % 4 === 0 ? 2 : 1,
-        open_entry_count: index % 3 === 0 ? 3 : 2,
       },
       runtime: {
         position_quantity: 1200 - index * 30,
@@ -281,10 +276,6 @@ function buildPositionManagementSubjectDetail(row, index) {
       remaining_quantity: Math.max(baseQuantity - 20, 20),
       latest_price: 10.3 - index * 0.04 - entryIndex * 0.02,
       remaining_market_value: (Math.max(baseQuantity - 20, 20)) * (10.3 - index * 0.04 - entryIndex * 0.02),
-      stoploss: {
-        stop_price: 9.2 - index * 0.03 - entryIndex * 0.01,
-        enabled: entryIndex % 2 === 0,
-      },
       aggregation_members: [
         {
           order_id: `${row.symbol}-buy-a-${entryIndex + 1}`,
@@ -676,7 +667,6 @@ function buildStockModelRows(count) {
     model: index % 2 === 0 ? 'S0008' : 'S0009',
     source: index % 2 === 0 ? 'stock_pools' : 'must_pools',
     close: 12 + index * 0.1,
-    stop_loss_price: 11 + index * 0.08,
   }))
 }
 
@@ -752,8 +742,6 @@ test('position-management dense workbench keeps two-column panels, descending so
     '止盈价格层级',
     'Guardian 层级触发',
     '止盈层级触发',
-    '单笔止损触发',
-    '全仓止损价',
     '单标的仓位上限',
     '保存',
   ]))
@@ -762,12 +750,10 @@ test('position-management dense workbench keeps two-column panels, descending so
     '止损价',
     '首笔金额',
     '常规金额',
-    '活跃止损',
     '首笔买入金额',
     '默认买入金额',
     '持仓股数',
     '持仓市值',
-    '活跃单笔止损',
     'Open Entry',
     '门禁',
     '最近TPLS触发',

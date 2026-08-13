@@ -33,7 +33,6 @@ const SIGNAL_TYPE_LABELS = Object.freeze({
   buy_zs_huila: '回拉买点',
   macd_bullish_divergence: 'MACD 底背离',
   sell_takeprofit: '止盈卖点',
-  sell_stoploss: '止损卖点',
   manual: '人工/外部',
   unknown: '证据缺失',
 })

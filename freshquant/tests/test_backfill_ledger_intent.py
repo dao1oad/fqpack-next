@@ -138,17 +138,12 @@ def test_dry_run_derives_plan_without_writes(monkeypatch):
                 "action": "buy",
                 "strategy_context": {"guardian_buy_grid": {"path": "holding_add"}},
             },
-            {
-                "request_id": "req_stoploss",
-                "action": "sell",
-                "scope_type": "symbol_stoploss_batch",
-            },
             {"request_id": "req_cancel", "action": "cancel"},
         ]
     )
     response = _run(monkeypatch, database, "--dry-run")
     assert response.exit_code == 0, response.output
-    assert "requests=5" in response.output
+    assert "requests=4" in response.output
     assert database["om_order_requests"].docs[0].get("ledger_intent") is None
 
 
@@ -177,11 +172,6 @@ def test_execute_backfills_intents_from_legacy_contexts(monkeypatch):
                 "strategy_context": {"guardian_buy_grid": {"path": "holding_add"}},
             },
             {
-                "request_id": "req_stoploss",
-                "action": "sell",
-                "scope_type": "symbol_stoploss_batch",
-            },
-            {
                 "request_id": "req_manual_sell",
                 "action": "sell",
                 "source": "web",
@@ -201,7 +191,6 @@ def test_execute_backfills_intents_from_legacy_contexts(monkeypatch):
     assert by_id["req_guardian"]["ledger_intent"] == "t"
     assert by_id["req_base_line"]["ledger_intent"] == "base"
     assert by_id["req_holding_add"]["ledger_intent"] == "t"
-    assert by_id["req_stoploss"]["ledger_intent"] == "-"
     assert by_id["req_manual_sell"]["ledger_intent"] == "-"
     assert by_id["req_existing"]["ledger_intent"] == "t"
     assert "backfill verify" in response.output
@@ -533,7 +522,7 @@ def test_dry_run_conflicts_on_empty_buy_path_with_strategy_source(monkeypatch):
 
 
 def test_dry_run_conflicts_on_unresolved_strategy_sell(monkeypatch):
-    """#571：strategy 卖单无 TP/stoploss/guardian_sell_sources 证据 → 冲突停止。"""
+    """#571：strategy 卖单无 TP/guardian_sell_sources 证据 → 冲突停止。"""
 
     database = _build_db(
         requests=[

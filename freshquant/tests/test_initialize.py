@@ -505,8 +505,6 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
             "om_external_candidates",
             "om_reconciliation_gaps",
             "om_reconciliation_resolutions",
-            "om_stoploss_bindings",
-            "om_entry_stoploss_bindings",
             "om_ingest_rejections",
         ],
         "compat": {

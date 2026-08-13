@@ -48,7 +48,6 @@
               </template>
             </template>
           </el-table-column>
-          <el-table-column prop="stop_loss_price" label="止损价格"> </el-table-column>
           <el-table-column prop="lot_amount" label="单次买入金额"> </el-table-column>
           <el-table-column prop="created_at" label="时间"> </el-table-column>
         </el-table>

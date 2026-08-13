@@ -151,7 +151,7 @@ export default {
       }
       return parsed.toFixed(3)
     },
-    formatStopLossRate (price, stopLosePrice) {
+    formatStopLoseRate (price, stopLosePrice) {
       const firePrice = Number(price)
       const stopPrice = Number(stopLosePrice)
       if (!Number.isFinite(firePrice) || !Number.isFinite(stopPrice) || firePrice === 0) {
@@ -160,7 +160,7 @@ export default {
       return `${(((stopPrice - firePrice) / firePrice) * 100).toFixed(3)}%`
     },
     formatPriceSummary (price, stopLosePrice) {
-      return `${this.formatPrice(price)}/${this.formatPrice(stopLosePrice)}/${this.formatStopLossRate(price, stopLosePrice)}`
+      return `${this.formatPrice(price)}/${this.formatPrice(stopLosePrice)}/${this.formatStopLoseRate(price, stopLosePrice)}`
     }
   }
 }

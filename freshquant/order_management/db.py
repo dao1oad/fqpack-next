@@ -24,7 +24,6 @@ ORDER_LEDGER_V2_COLLECTIONS = (
     "om_position_entries",
     "om_entry_slices",
     "om_exit_allocations",
-    "om_entry_stoploss_bindings",
     "om_takeprofit_profiles",
     "om_takeprofit_states",
     "om_exit_trigger_events",
@@ -48,8 +47,6 @@ ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS = (
     "om_external_candidates",
     "om_reconciliation_gaps",
     "om_reconciliation_resolutions",
-    "om_stoploss_bindings",
-    "om_entry_stoploss_bindings",
     "om_ingest_rejections",
 )
 
@@ -61,7 +58,6 @@ ORDER_LEDGER_LEGACY_COLLECTIONS = (
     "om_lot_slices",
     "om_sell_allocations",
     "om_external_candidates",
-    "om_stoploss_bindings",
 )
 
 

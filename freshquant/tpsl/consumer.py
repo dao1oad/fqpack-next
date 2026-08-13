@@ -78,7 +78,7 @@ class TpslTickConsumer:
             if _is_before_continuous_auction(event, now_provider=self.now_provider):
                 return None
             active_codes = self.refresh_universe()
-            # #549 双集合：买入线 universe 与 TP/SL universe 隔离，
+            # #549 双集合：买入线 universe 与止盈 universe 隔离，
             # 任一集合命中即可进入对应评估。
             if (
                 event.code not in active_codes
@@ -87,7 +87,7 @@ class TpslTickConsumer:
                 return None
             # #549：买入线评估插入点在 TP 评估之前。买入线不是本 tick 的终态——
             # 仅返回 ready 才提交买单并终止本 tick；skipped 时双集合标的
-            # （同时命中 TP/SL universe active_codes）继续评估止盈、止损，
+            # （同时命中止盈 universe active_codes）继续评估止盈，
             # buy-line-only 标的本 tick 终止（保持双集合隔离）。
             if event.code in self.active_buy_line_codes:
                 buy_line_batch = self.service.evaluate_base_buyline(
@@ -117,18 +117,6 @@ class TpslTickConsumer:
                     return takeprofit_batch
                 return self.service.submit_takeprofit_batch(takeprofit_batch)
 
-            stoploss_batch = self.service.evaluate_stoploss(
-                symbol=symbol,
-                code=event.code,
-                bid1=event.bid1,
-                ask1=event.ask1,
-                last_price=event.last_price,
-                tick_time=event.tick_time,
-            )
-            if stoploss_batch:
-                if stoploss_batch.get("status") != "ready":
-                    return stoploss_batch
-                return self.service.submit_stoploss_batch(stoploss_batch)
             return None
         except Exception as exc:
             if not is_exception_emitted(exc):

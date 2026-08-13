@@ -2,12 +2,13 @@
 
 from flask import Blueprint, jsonify, request
 
+from freshquant.order_management.entry_adapter import get_entry_view
 from freshquant.order_management.ledger_resolver import (
     LEDGER_BASE,
     LEDGER_UNSPECIFIED,
 )
 from freshquant.order_management.read_service import OrderManagementReadService
-from freshquant.order_management.stoploss.service import EntryStoplossService
+from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.order_management.submit.service import OrderSubmitService
 from freshquant.util.code import normalize_to_base_code
 
@@ -16,10 +17,6 @@ order_bp = Blueprint("order", __name__, url_prefix="/api")
 
 def _get_order_submit_service():
     return OrderSubmitService()
-
-
-def _get_stoploss_service():
-    return EntryStoplossService()
 
 
 def _get_order_management_read_service():
@@ -160,29 +157,15 @@ def get_order_management_stats():
 @order_bp.route("/order-management/entries/<entry_id>", methods=["GET"])
 def get_entry_detail(entry_id):
     try:
-        detail = _get_stoploss_service().get_entry_detail(entry_id)
-    except ValueError as error:
-        return jsonify({"error": str(error)}), 404
-    return jsonify(detail)
-
-
-@order_bp.route("/order-management/stoploss/bind", methods=["POST"])
-def bind_entry_stoploss():
-    payload = request.get_json(silent=True) or {}
-    entry_id = payload.get("entry_id")
-    if not entry_id:
-        return jsonify({"error": "entry_id is required"}), 400
-    try:
-        binding = _get_stoploss_service().bind_stoploss(
+        detail = get_entry_view(
             entry_id,
-            stop_price=payload.get("stop_price"),
-            ratio=payload.get("ratio"),
-            enabled=payload.get("enabled", True),
-            updated_by=payload.get("updated_by", "api"),
+            repository=OrderManagementRepository(),
         )
     except ValueError as error:
         return jsonify({"error": str(error)}), 404
-    return jsonify(binding)
+    if detail is None:
+        return jsonify({"error": "entry_id not found"}), 404
+    return jsonify(detail)
 
 
 def _read_filters(*, include_pagination):

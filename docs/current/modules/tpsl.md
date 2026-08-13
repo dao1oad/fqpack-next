@@ -1,18 +1,16 @@
-# 止盈止损
+# 止盈（TPSL）
 
 ## 职责
 
-TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。当前模块已经切到 `position entry` 主语义，并同时支持 symbol 级全仓止损：
+TPSL 在独立 tick 链路上评估止盈条件，并生成退出单。止损触发功能已随 Issue #603 整体下线（路线步骤 2 PR-2a），三条 BUY 抄底线承担补仓职责：
 
-- 止盈仍按 symbol profile 管理
+- 止盈按 symbol profile 管理
 - 止盈命中档位但当前可盈利切片数量为 `0` 时，仍会消耗命中档位并写 `takeprofit_hit`，但不会生成退出单
-- 止损对象改为 open `position_entries`
-- `must_pool.stop_loss_price` 当前承担 symbol 级 `全仓止损价`
 - 历史与详情优先读取 `entry ledger`
 - 止盈卖出提交前会统一按 `xt_positions.can_use_volume` 截断，并按一手向下取整；Guardian 卖出现在复用同一套约束 helper
-- tick listener 在北京时间 `09:30:00` 前不响应 tick 事件，不评估止盈/止损，也不生成退出单或 Runtime Trace
+- tick listener 在北京时间 `09:30:00` 前不响应 tick 事件，不评估止盈/买入线，也不生成退出单或 Runtime Trace
 - TPSL 提交时显式写 `om_order_requests.ledger_intent`：买入线（base_line）
-  与止盈卖出 → `base`；全仓/单笔止损 → `-`；`guardian_sell_sources` 仅作为
+  与止盈卖出 → `base`；`guardian_sell_sources` 仅作为
   止盈分配书签保留，不参与归属判定（#571）。
 
 ## 入口
@@ -35,12 +33,10 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 - Redis tick 队列
 - `xt_positions`
 - `pm_symbol_position_snapshots`
-- `must_pool`
 - `om_takeprofit_profiles`
 - `om_takeprofit_states`
 - `om_position_entries`
 - `om_entry_slices`
-- `om_entry_stoploss_bindings`
 - `om_exit_trigger_events`
 - `om_order_requests / om_orders / om_order_events / om_trade_facts`
 
@@ -53,7 +49,7 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 - 当前持仓数量
 - 单标的实时仓位金额
 - 止盈 profile 摘要
-- entry stoploss 摘要
+- open entry 数量
 - 最近触发事件
 
 ### detail
@@ -73,7 +69,6 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 - 只有执行 `/api/tpsl/takeprofit/<symbol>/rearm` 或显式开启层级后，运行态才会恢复为可触发
 
 当前 detail 已不再返回 `buy_lots`，也不再把 `stock_fills` 兼容视图当成主详情对象。
-每条 `entry` 当前会内嵌自己的 `stoploss` 绑定摘要。
 `reconciliation.state` 当前统一复用 shared canonical 语义，前后端展示统一为：
 
 - `ALIGNED`：券商与账本对齐
@@ -92,39 +87,6 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 
 做过滤；不再接受 `buy_lot_id`。
 
-## 止损语义
-
-当前运行时止损分成两层：
-
-- `全仓止损`
-  - 来源：`must_pool.stop_loss_price`
-  - 条件：`bid1 <= full_stop_price`
-  - 结果：生成 `scope_type=symbol_stoploss_batch`、`strategy_name=FullPositionStoploss`
-  - 卖出该 symbol 下全部可卖 open entry slices，并继续受 `can_use_volume` 与一手约束限制
-- `单笔止损`
-  - 来源：`om_entry_stoploss_bindings`
-  - 条件：entry 级 `stop_price` 命中
-  - 结果：生成 `scope_type=stoploss_batch`、`strategy_name=PerEntryStoplossBatch`
-
-`evaluate_stoploss` 入口当前带有效 tick 门槛（B1 P0 临时护栏，随止损功能下线一并移除）：
-
-- `bid1` 缺失、非数值或 `<= 0` 时，任何止损批次都不评估、不触发
-- 该跳过动作发 `status=skipped`、`reason_code=invalid_tick_bid1` 的
-  `trigger_eval` runtime 事件，不静默
-
-页面上“单笔止损”当前实际是“单 entry 止损”：
-
-- 一条 open entry 对应一条可配置止损对象
-- 同一 broker order 下多笔 fill 聚合成一个 entry 时，TPSL 默认只看到一条止损对象
-- 只有真正形成多个 open entries 时，TPSL 才会出现多行止损
-
-若同一 tick 同时命中 symbol 级全仓止损和 entry 级止损，当前固定是全仓止损优先，只生成一次全仓止损 batch。
-
-止损命中事件当前会显式区分：
-
-- `symbol_full_stoploss_hit`
-- `entry_stoploss_hit`
-
 ## entry ledger / compat
 
 - `entry_ledger`
@@ -138,7 +100,7 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
 TPSL 当前不再保留独立 `/tpsl` 页面入口；相关信息已经分散并入以下正式页面：
 
 - `/position-management`
-  - 作为统一仓位与排障入口，承载 `聚合买入列表 / 按持仓入口止损`、切片明细、相关订单、对账结果与 Resolution
+  - 作为统一仓位与排障入口，承载聚合买入列表、切片明细、相关订单、对账结果与 Resolution
 - `/kline-slim`
   - 承载 symbol 级设置、止盈 profile 与运行态摘要
 
@@ -150,18 +112,12 @@ TPSL 当前不再保留独立 `/tpsl` 页面入口；相关信息已经分散并
 
 ## 排障
 
-### 命中止损但没有退出单
+### 命中止盈但没有退出单
 
-- 查 `om_entry_stoploss_bindings`
+- 查 `om_takeprofit_profiles / om_takeprofit_states`
 - 查 `xt_positions.can_use_volume / volume`
 - 查 `om_exit_trigger_events`
 - 查对应 request / order / trade 链路
-
-### 页面中止损对象数量不对
-
-- 查 `om_position_entries`
-- 查该 symbol 是否被聚合成单一 `broker_execution_group` entry
-- 查 `om_reconciliation_resolutions` 是否新增了 `auto_open_entry`
 
 ### 历史链路缺 request / order / trade
 

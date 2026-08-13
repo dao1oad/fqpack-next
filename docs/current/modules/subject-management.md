@@ -4,13 +4,11 @@
 
 标的管理把单标的的配置、运行态和退出语义收口到一个工作台。当前页面负责：
 
-- `must_pool` 基础配置
-- symbol 级 `全仓止损价`
+- `must_pool` 基础配置（分类、首笔买入金额、默认买入金额）
 - 单标的仓位上限设置
-- `position entry` 级止损绑定
 - Guardian / 止盈 / 仓位门禁 / 对账摘要只读展示
 
-页面不再使用 `buy_lot` 作为主编辑对象。
+页面不再使用 `buy_lot` 作为主编辑对象；止损绑定与全仓/单笔止损编辑已随 Issue #603 整体下线。
 
 ## 入口
 
@@ -24,7 +22,6 @@
   - `/api/subject-management/<symbol>/must-pool`
   - `/api/subject-management/<symbol>/guardian-buy-grid`
   - `/api/position-management/symbol-limits/<symbol>`
-  - `/api/order-management/stoploss/bind`
 
 ## 当前依赖
 
@@ -34,7 +31,6 @@
 - `om_takeprofit_profiles`
 - `om_takeprofit_states`
 - `om_position_entries`
-- `om_entry_stoploss_bindings`
 - `om_reconciliation_gaps / om_reconciliation_resolutions`
 - `xt_positions`
 - `pm_symbol_position_snapshots`
@@ -49,7 +45,6 @@
 - Guardian 配置
 - 止盈 profile / state
 - 当前持仓与运行态
-- entry 级止损摘要
 - 单标的仓位上限摘要
 
 overview 的 `runtime` 当前返回：
@@ -64,7 +59,6 @@ overview 的 `runtime` 当前返回：
 - `last_trigger_time`
 - `last_takeprofit_trigger_level`
 - `last_takeprofit_trigger_time`
-- `last_entry_stoploss_trigger_time`
 
 overview 里的“单标的仓位上限摘要”当前按批量 PM dashboard 结果一次性装载，不再按 symbol 重复调用单标的 limit 读路径。
 
@@ -75,7 +69,7 @@ overview 里的“单标的仓位上限摘要”当前按批量 PM dashboard 结
 - `must_pool`
 - 当前持仓聚合
 
-Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事件只作为这些标的的补充信息，不再把“仅残留配置、但不在持仓且不在 must_pool”的孤儿标的带进页面。
+Guardian 配置、止盈 profile 和最近 TPSL 触发事件只作为这些标的的补充信息，不再把“仅残留配置、但不在持仓且不在 must_pool”的孤儿标的带进页面。
 
 ### detail
 
@@ -95,7 +89,6 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
 
 每条 `entry` 当前会内嵌：
 
-- `stoploss` 绑定摘要
 - `aggregation_members`
 - `aggregation_window`
 - `entry_slices`
@@ -114,9 +107,6 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
   - 显式配置只认原始 `must_pool.manual_category / must_pool.category`
   - 若只有 provenance / memberships 推导出的分类，页面仍显示当前值，但状态保持 `未配置`，来源标成 provenance
   - 原始字段缺失时不再误标成 `must_pool.category`
-- `stop_loss_price`
-  - 只认 `must_pool.stop_loss_price`
-  - 缺失时显示 `未配置`
 - `initial_lot_amount`
   - `must_pool.initial_lot_amount`
   - 否则回退 `must_pool.lot_amount`
@@ -150,15 +140,13 @@ Guardian 配置、止盈 profile、entry 级止损摘要和最近 TPSL 触发事
 
 - overview 展示 `runtime.last_trigger_kind + runtime.last_trigger_level + runtime.last_trigger_time`
 - detail 展示 `runtime_summary.last_trigger_kind + runtime_summary.last_trigger_level + runtime_summary.last_trigger_time`
-- overview / detail 额外分别返回：
+- overview / detail 额外返回：
   - `last_takeprofit_trigger_level + last_takeprofit_trigger_time`
-  - `last_entry_stoploss_trigger_time`
 
 `PositionSubjectOverviewPanel` 主表当前会把 TPSL 与 Guardian 两类触发分开显示：
 
 - `Guardian 层级触发`
 - `止盈层级触发`
-- `单笔止损触发`
 
 不再把 Guardian 命中信息混排进 `Guardian 买入层级` 列。
 Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_hit_signal_time`；对历史 legacy 状态，如果该字段缺失但 `last_hit_level` 仍存在，overview / detail 会先回退使用同一条 state 的 `updated_at` 作为展示时间。
@@ -187,43 +175,8 @@ Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_
   - 优先显示最近命中的 `L1 / L2 / L3`
   - 如果事件里没有 level，再回退显示 `止盈`
 
-单笔止损触发的数据来自 TPSL 最近 entry 级止损退出事件，当前只认：
-
-- `entry_stoploss_hit`
-- `stoploss_hit`
-
-不混入 `symbol_full_stoploss_hit`，避免和全仓止损语义混淆。
-三列触发当前统一按单行显示：`事件标签 + 触发时间`。
+两列触发当前统一按单行显示：`事件标签 + 触发时间`。
 若止盈 state 的 `last_rearm_reason = new_buy_below_lowest_tier`，且 `last_rearmed_at` 晚于最近一次止盈事件，则 overview / detail 都会清空止盈触发字段，表示当前买入周期已经重置，不再继续显示上一个周期的最近止盈触发。
-
-## 止损语义
-
-标的总览里的 `全仓止损价` 当前正式对应 `must_pool.stop_loss_price`：
-
-- 读模型来源是 `base_config_summary.stop_loss_price`
-- TPSL 命中时会生成 symbol 级 `FullPositionStoploss`
-- 卖出该 symbol 下全部可卖 open entry slices
-- 若同一 tick 同时命中全仓止损和单笔止损，当前固定是全仓止损优先
-
-页面上的“单笔止损”当前实际是 `position entry` 级止损：
-
-- 绑定接口只接受 `entry_id`
-- 表格默认展示 open entries
-- 行内摘要当前与 `KlineSlim` 共用同一套 entry 展示口径，显示：
-  - 买入价
-  - 买入数量
-  - 剩余数量与比例
-  - 买入时间
-  - 剩余市值
-
-`SubjectManagement` 读模型当前承载 entry 级切片检查语义；独立路由已下线，但组件和读模型仍保留：
-
-- `PositionSubjectOverviewPanel` 当前在每个 symbol 行内直接展示聚合后的 open entry 列表，并按行编辑 / 保存止损
-- `PositionManagement` 右上工作区当前使用“聚合买入列表 / 按持仓入口止损 -> 切片明细”的主从联动
-- `entry_slices` 当前只展示当前选中 entry 的切片，不再通过悬浮框一次性展开全部切片
-- “剩余市值”优先按有效 `latest_price * remaining_quantity`
-- 若 `latest_price <= 0` 或缺失，则优先用 `xt_positions.market_value / quantity` 推导有效最新价
-- 若仍无有效最新价，再回退 `avg_price * remaining_quantity`
 
 ## 排序
 
@@ -234,11 +187,10 @@ Guardian 最近命中时间当前正式来源是 `guardian_buy_grid_states.last_
 - 可编辑
   - `must_pool` 基础配置
   - 单标的仓位上限 override
-  - entry stoploss
 - 只读
   - Guardian 阶梯价
     - 标的总览概览列当前展示 `B1 / B2 / B3`
-- 止盈 profile / state
+  - 止盈 profile / state
     - 标的总览概览列当前展示 `L1 / L2 / L3`
     - “开/关”当前按 `manual_enabled && armed_levels[level]` 合成真实运行态，只有系统当前仍会触发该层止盈时才显示 `开`
     - 缺失 `takeprofit state` 时，当前统一按未激活处理
@@ -262,13 +214,7 @@ Guardian / 止盈的真实编辑入口仍在 `/kline-slim`。
 
 - 先查 `/api/subject-management/overview`
 - 再查 `/api/subject-management/<symbol>`
-- 再查 `om_position_entries / om_entry_stoploss_bindings`
-
-### 止损保存后未生效
-
-- 查 `/api/order-management/stoploss/bind` 返回
-- 查 `om_entry_stoploss_bindings`
-- 确认目标 `entry_id` 仍处于 open 状态
+- 再查 `om_position_entries`
 
 ### 某只股票显示异常 entry
 

@@ -739,7 +739,6 @@ def test_signal_type_registry_is_stable_and_serializable():
         "buy_zs_huila",
         "macd_bullish_divergence",
         "sell_takeprofit",
-        "sell_stoploss",
         "manual",
         "unknown",
     }
@@ -772,17 +771,16 @@ def test_resolve_signal_type_manual_and_unknown():
 
 
 def test_resolve_signal_type_sell_by_ledger_intent():
-    """#571 #5：chart projection 卖单按 ledger_intent 分流（- → 止损；
+    """#571 #5：chart projection 卖单按 ledger_intent 分流（- → 人工/外部；
     base → 止盈）；Guardian 做T（t）保留既有证据判定。"""
 
-    stoploss = {
-        "source": "stoploss",
-        "scope_type": "symbol_stoploss_batch",
+    manual_sell = {
+        "source": "web-order",
+        "scope_type": "manual",
         "ledger_intent": "-",
     }
     assert (
-        resolve_signal_type(request=stoploss, signal=None, side="sell")
-        == "sell_stoploss"
+        resolve_signal_type(request=manual_sell, signal=None, side="sell") == "manual"
     )
     takeprofit = {
         "source": "tpsl_takeprofit",

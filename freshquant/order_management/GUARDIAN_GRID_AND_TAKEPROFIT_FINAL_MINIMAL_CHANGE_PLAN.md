@@ -595,7 +595,7 @@ morningglory/fqwebui/src/views/js/subject-price-guides.mjs
 12. 提交成功后 L1/L2/L3 分别关闭对应及更低档；
 13. 同 Tick 跨档继续直选最高档；
 14. CREDIT/STOCK 的 `auto` 在连续竞价解析为五档市价，其他时段回退限价；
-15. stoploss、成交回报和对账测试保持通过。
+15. 成交回报和对账测试保持通过。
 
 ### 9.2 Guardian 买入
 

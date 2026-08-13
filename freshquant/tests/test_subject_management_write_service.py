@@ -88,7 +88,6 @@ def test_update_must_pool_rejects_fractional_lot_amounts(monkeypatch, field_name
     service = SubjectManagementWriteService(database=database)
     payload = {
         "category": "银行",
-        "stop_loss_price": 9.2,
         "initial_lot_amount": 80000,
         "lot_amount": 50000,
         "forever": True,
@@ -158,7 +157,6 @@ def test_update_must_pool_forces_forever_true(monkeypatch):
         "600000.SH",
         {
             "category": "银行",
-            "stop_loss_price": 9.2,
             "initial_lot_amount": 80000,
             "lot_amount": 50000,
             "forever": False,
@@ -206,7 +204,6 @@ def test_update_must_pool_keeps_existing_memberships(monkeypatch):
         "600000.SH",
         {
             "category": "银行",
-            "stop_loss_price": 9.2,
             "initial_lot_amount": 80000,
             "lot_amount": 50000,
             "updated_by": "pytest",

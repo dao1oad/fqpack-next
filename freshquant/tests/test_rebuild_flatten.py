@@ -358,7 +358,6 @@ def test_rebuild_cli_flatten_dry_run_reports_anchor_comparison_without_mutation(
                     "remaining_quantity": 2300,
                 }
             ],
-            "om_entry_stoploss_bindings": [{"entry_id": "entry_old"}],
             "om_takeprofit_states": [{"entry_id": "entry_old"}],
         }
     )
@@ -415,7 +414,6 @@ def test_rebuild_cli_flatten_execute_archives_then_purges_then_writes(monkeypatc
                     "avg_price": 23.41255,
                 }
             ],
-            "om_entry_stoploss_bindings": [{"entry_id": "entry_old"}],
             "om_takeprofit_states": [{"entry_id": "entry_old"}],
             "om_position_entries": [{"entry_id": "entry_old"}],
         }
@@ -458,7 +456,6 @@ def test_rebuild_cli_flatten_execute_archives_then_purges_then_writes(monkeypatc
     summary = json.loads(result.output)
     assert summary["execute"] is True
     assert summary["flatten_auxiliary_archive"] == {
-        "om_entry_stoploss_bindings": 1,
         "om_takeprofit_states": 1,
     }
     assert "om_takeprofit_states" in summary["purged_collections"]
@@ -468,7 +465,7 @@ def test_rebuild_cli_flatten_execute_archives_then_purges_then_writes(monkeypatc
     assert database["order_ledger_flatten_auxiliary_archive"].rows
     assert (
         database["order_ledger_flatten_auxiliary_archive"].rows[0]["source_collection"]
-        == "om_entry_stoploss_bindings"
+        == "om_takeprofit_states"
     )
 
 

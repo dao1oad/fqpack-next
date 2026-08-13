@@ -400,45 +400,6 @@ def test_arranged_fill_projection_resolves_trade_time_in_china_timezone(monkeypa
     ]
 
 
-def test_entry_stoploss_binding_adapter_does_not_require_legacy_bindings_when_v2_exists(
-    monkeypatch,
-):
-    _reload_modules(monkeypatch)
-    import freshquant.order_management.entry_adapter as entry_adapter_module
-
-    class Repo:
-        def list_entry_stoploss_bindings(self, symbol=None, enabled=None):
-            return [
-                {
-                    "entry_id": "entry_v2_1",
-                    "symbol": "000001",
-                    "stop_price": 9.2,
-                    "enabled": True,
-                }
-            ]
-
-        def list_stoploss_bindings(self, symbol=None, enabled=None):
-            raise AssertionError(
-                "legacy stoploss bindings should not be consulted when v2 bindings exist"
-            )
-
-    rows = entry_adapter_module.list_entry_stoploss_bindings_compat(
-        symbol="000001",
-        enabled=None,
-        repository=Repo(),
-    )
-
-    assert rows == [
-        {
-            "entry_id": "entry_v2_1",
-            "symbol": "000001",
-            "stop_price": 9.2,
-            "enabled": True,
-            "binding_scope": "position_entry",
-        }
-    ]
-
-
 def test_entry_view_adapter_treats_v2_miss_as_authoritative(monkeypatch):
     _reload_modules(monkeypatch)
     import freshquant.order_management.entry_adapter as entry_adapter_module
@@ -514,81 +475,6 @@ def test_open_entry_slice_adapter_treats_empty_v2_result_as_authoritative(monkey
         )
         == []
     )
-
-
-def test_entry_stoploss_binding_list_treats_empty_v2_result_as_authoritative(
-    monkeypatch,
-):
-    _reload_modules(monkeypatch)
-    import freshquant.order_management.entry_adapter as entry_adapter_module
-
-    class Repo:
-        def list_entry_stoploss_bindings(self, symbol=None, enabled=None):
-            return []
-
-        def list_stoploss_bindings(self, symbol=None, enabled=None):
-            raise AssertionError(
-                "legacy stoploss binding list should not run after empty v2 result"
-            )
-
-    assert (
-        entry_adapter_module.list_entry_stoploss_bindings_compat(
-            symbol="000001",
-            enabled=None,
-            repository=Repo(),
-        )
-        == []
-    )
-
-
-def test_entry_stoploss_binding_lookup_treats_v2_miss_as_authoritative(monkeypatch):
-    _reload_modules(monkeypatch)
-    import freshquant.order_management.entry_adapter as entry_adapter_module
-
-    class Repo:
-        def find_entry_stoploss_binding(self, entry_id):
-            return None
-
-        def find_stoploss_binding(self, buy_lot_id):
-            raise AssertionError(
-                "legacy stoploss binding lookup should not run after v2 miss"
-            )
-
-    assert (
-        entry_adapter_module.get_entry_stoploss_binding(
-            "entry_missing",
-            repository=Repo(),
-        )
-        is None
-    )
-
-
-def test_entry_stoploss_binding_lookup_keeps_legacy_lookup_for_lot_compat_ids(
-    monkeypatch,
-):
-    _reload_modules(monkeypatch)
-    import freshquant.order_management.entry_adapter as entry_adapter_module
-
-    class Repo:
-        def find_entry_stoploss_binding(self, entry_id):
-            return None
-
-        def find_stoploss_binding(self, buy_lot_id):
-            assert buy_lot_id == "lot_1"
-            return {
-                "buy_lot_id": "lot_1",
-                "symbol": "000001",
-                "enabled": True,
-                "stop_price": 9.2,
-            }
-
-    row = entry_adapter_module.get_entry_stoploss_binding(
-        "lot_1",
-        repository=Repo(),
-    )
-
-    assert row["entry_id"] == "lot_1"
-    assert row["binding_scope"] == "legacy_buy_lot"
 
 
 def test_arranged_fill_projection_does_not_fallback_to_legacy_when_v2_api_is_empty(

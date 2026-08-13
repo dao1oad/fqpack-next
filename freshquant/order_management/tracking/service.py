@@ -63,7 +63,7 @@ class OrderTrackingService:
             if ledger_intent is None:
                 raise LedgerIntentMissingError(
                     "ledger_intent is required for buy/sell orders (fail-closed); "
-                    "TPSL/Guardian/manual/stoploss writers must declare base/t/-"
+                    "TPSL/Guardian/manual writers must declare base/t/-"
                 )
             if action == "buy" and ledger_intent not in {LEDGER_BASE, LEDGER_T}:
                 raise InvalidLedgerIntentError(

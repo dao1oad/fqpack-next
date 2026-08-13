@@ -5,7 +5,6 @@ export const isSubjectPanelDetailLoaded = (state = {}) =>
 
 const cloneMustPoolDraft = (draft = {}) => ({
   category: String(draft?.category || '').trim(),
-  stop_loss_price: draft?.stop_loss_price ?? null,
   initial_lot_amount: draft?.initial_lot_amount ?? null,
   lot_amount: draft?.lot_amount ?? null,
 })
@@ -19,19 +18,6 @@ const clonePositionLimitDraft = (draft = {}) => {
   return {
     limit: Number.isFinite(parsed) ? parsed : null,
   }
-}
-
-const cloneStoplossDrafts = (rows = []) => {
-  const drafts = {}
-  for (const row of Array.isArray(rows) ? rows : []) {
-    const entryId = row.entry_id
-    if (!entryId) continue
-    drafts[entryId] = {
-      stop_price: row?.stoploss?.stop_price ?? null,
-      enabled: Boolean(row?.stoploss?.enabled),
-    }
-  }
-  return drafts
 }
 
 export const normalizeKlineSlimSubjectPanelDetail = (detail = {}) => {
@@ -65,15 +51,12 @@ export const buildInitialKlineSlimSubjectPanelState = () => ({
   subjectPanelDetail: null,
   mustPoolDraft: {
     category: '',
-    stop_loss_price: null,
     initial_lot_amount: null,
     lot_amount: null,
   },
   positionLimitDraft: {
     limit: null,
   },
-  stoplossDrafts: {},
-  savingStoploss: {},
 })
 
 export const restoreKlineSlimPositionLimitDefault = async (
@@ -112,7 +95,6 @@ export const applyKlineSlimSubjectPanelDetailState = (state, detail) => {
   state.lastSubjectSymbol = normalized.symbol
   state.mustPoolDraft = cloneMustPoolDraft(normalized.mustPool)
   state.positionLimitDraft = clonePositionLimitDraft(normalized.positionLimit)
-  state.stoplossDrafts = cloneStoplossDrafts(normalized.entries || [])
   return normalized
 }
 
@@ -126,11 +108,5 @@ export const createKlineSlimSubjectPanelActions = (api) => ({
   },
   async savePositionLimit(symbol, payload) {
     return api.saveSymbolPositionLimit(symbol, payload)
-  },
-  async saveStoploss(entryId, payload = {}) {
-    return api.bindStoploss({
-      entry_id: entryId,
-      ...payload,
-    })
   },
 })

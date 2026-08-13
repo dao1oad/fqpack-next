@@ -220,14 +220,14 @@ def test_tpsl_history_route_reads_filtered_timeline(monkeypatch):
     management_service = FakeTpslManagementService()
     client = _build_client(monkeypatch, service, management_service)
 
-    response = client.get("/api/tpsl/history?symbol=600000&kind=stoploss&limit=10")
+    response = client.get("/api/tpsl/history?symbol=600000&kind=takeprofit&limit=10")
 
     assert response.status_code == 200
-    assert response.get_json()["rows"][0]["kind"] == "stoploss"
+    assert response.get_json()["rows"][0]["kind"] == "takeprofit"
     assert management_service.calls[-1] == (
         "list_history",
         "600000",
-        "stoploss",
+        "takeprofit",
         None,
         None,
         10,

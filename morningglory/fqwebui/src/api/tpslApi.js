@@ -52,16 +52,6 @@ export const tpslApi = {
       },
     })
   },
-  bindStoploss (payload) {
-    return http({
-      url: '/api/order-management/stoploss/bind',
-      method: 'post',
-      data: {
-        ...payload,
-        updated_by: 'web',
-      },
-    })
-  },
   listHistory ({ symbol, kind, entry_id, batch_id, limit = 20 } = {}) {
     return http({
       url: '/api/tpsl/history',

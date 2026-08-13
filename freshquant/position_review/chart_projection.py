@@ -65,11 +65,6 @@ SIGNAL_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
         "label": "止盈卖点",
         "marker_symbol": "path://M0,18 L10,0 L-10,0 Z",
     },
-    "sell_stoploss": {
-        "family": "stoploss",
-        "label": "止损卖点",
-        "marker_symbol": "rect",
-    },
     "manual": {
         "family": "manual",
         "label": "人工/外部",
@@ -89,7 +84,6 @@ _BUY_SIGNAL_KEYWORDS = (
 )
 _SELL_SIGNAL_KEYWORDS = (
     ("sell_takeprofit", ("止盈", "takeprofit", "take_profit", "回拉中枢")),
-    ("sell_stoploss", ("止损", "stoploss", "stop_loss")),
 )
 
 
@@ -234,11 +228,11 @@ def resolve_signal_type(
         return "buy_v_reverse"
 
     if normalized_side == "sell":
-        # #571：按 ledger_intent 分流（- → 止损；base → 止盈）；
+        # #571：按 ledger_intent 分流（- → 人工/外部；base → 止盈）；
         # Guardian 做T卖出（t）保留既有证据判定语义。
         ledger_intent = normalize_ledger_intent((request or {}).get("ledger_intent"))
         if ledger_intent == "-":
-            return "sell_stoploss"
+            return "manual"
         if ledger_intent == "base":
             return "sell_takeprofit"
         if sell_sources:
@@ -249,8 +243,6 @@ def resolve_signal_type(
             )
             if source_name:
                 lowered = str(source_name).lower()
-                if "stop" in lowered or "损" in lowered:
-                    return "sell_stoploss"
                 if "profit" in lowered or "盈" in lowered:
                     return "sell_takeprofit"
         for signal_type, keywords in _SELL_SIGNAL_KEYWORDS:

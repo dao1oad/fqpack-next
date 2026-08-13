@@ -4,24 +4,23 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
 class ScreenResult:
     """选股结果数据类"""
-    code: str                          # 股票代码
-    name: str                          # 股票名称
-    symbol: str                        # 完整代码（如 sh600000）
-    period: str                        # 周期（30m/60m/1d 等）
-    fire_time: datetime                # 触发时间
-    price: float                       # 触发价格
-    stop_loss_price: Optional[float]   # 止损价格
-    signal_type: str                   # 信号类型
+
+    code: str  # 股票代码
+    name: str  # 股票名称
+    symbol: str  # 完整代码（如 sh600000）
+    period: str  # 周期（30m/60m/1d 等）
+    fire_time: datetime  # 触发时间
+    price: float  # 触发价格
+    signal_type: str  # 信号类型
     tags: list[str] = field(default_factory=list)  # 标签
-    position: str = "BUY_LONG"         # 方向（BUY_LONG/SELL_SHORT）
-    remark: str = ""                   # 备注
-    category: str = ""                 # 分类（来自预选池）
+    position: str = "BUY_LONG"  # 方向（BUY_LONG/SELL_SHORT）
+    remark: str = ""  # 备注
+    category: str = ""  # 分类（来自预选池）
 
 
 class ScreenStrategy(ABC):
@@ -56,7 +55,6 @@ class ScreenStrategy(ABC):
         period: str,
         fire_time: datetime,
         price: float,
-        stop_loss_price: Optional[float],
         signal_type: str,
         tags: list[str] | None = None,
         position: str = "BUY_LONG",
@@ -71,7 +69,6 @@ class ScreenStrategy(ABC):
             period=period,
             fire_time=fire_time,
             price=price,
-            stop_loss_price=stop_loss_price,
             signal_type=signal_type,
             tags=tags or [],
             position=position,

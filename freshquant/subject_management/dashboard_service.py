@@ -7,7 +7,6 @@ from datetime import datetime
 from bson import ObjectId
 
 from freshquant.order_management.entry_adapter import (
-    list_entry_stoploss_bindings_compat,
     list_open_entry_slices_compat,
     list_open_entry_views,
     position_type_of,
@@ -75,8 +74,6 @@ class SubjectManagementDashboardService:
         takeprofit_states = self._takeprofit_state_map(
             symbols, takeprofit_profiles=takeprofit_profiles
         )
-        stoploss_summary = self._stoploss_summary_map()
-
         position_limit_summary_map = self._load_overview_position_limit_summary_map()
 
         takeprofit_events = self._latest_trigger_map(
@@ -85,22 +82,7 @@ class SubjectManagementDashboardService:
             event_types={"takeprofit_hit"},
             clear_after_takeprofit_rearm=True,
         )
-        entry_stoploss_events = self._latest_trigger_map(
-            symbols,
-            event_types={"entry_stoploss_hit", "stoploss_hit"},
-        )
-        stoploss_events = self._latest_trigger_map(
-            symbols,
-            event_types={
-                "entry_stoploss_hit",
-                "stoploss_hit",
-                "symbol_full_stoploss_hit",
-            },
-        )
-        latest_events = _merge_latest_event_maps(
-            takeprofit_events,
-            fallback_map=stoploss_events,
-        )
+        latest_events = takeprofit_events
         rows = []
         for symbol in symbols:
             must_pool = must_pool_rows.get(symbol)
@@ -115,16 +97,7 @@ class SubjectManagementDashboardService:
             )
             position = positions.get(symbol) or {}
             symbol_position = dict(self.symbol_position_loader(symbol) or {})
-            stoploss = stoploss_summary.get(
-                symbol,
-                {
-                    "active_count": 0,
-                    "active_stoploss_entry_count": 0,
-                    "open_entry_count": 0,
-                },
-            )
             takeprofit_event = takeprofit_events.get(symbol) or {}
-            entry_stoploss_event = entry_stoploss_events.get(symbol) or {}
             latest_event = latest_events.get(symbol) or {}
             position_limit_summary = position_limit_summary_map.get(symbol)
             if position_limit_summary is None:
@@ -153,7 +126,6 @@ class SubjectManagementDashboardService:
                         "tiers": list(takeprofit.get("tiers") or []),
                         "state": dict(takeprofit_state or {"armed_levels": {}}),
                     },
-                    "stoploss": stoploss,
                     "runtime": {
                         "position_quantity": int(position.get("quantity") or 0),
                         "position_type_quantity": position_type_quantity_rows.get(
@@ -174,9 +146,6 @@ class SubjectManagementDashboardService:
                             takeprofit_event.get("level")
                         ),
                         "last_takeprofit_trigger_time": takeprofit_event.get(
-                            "created_at"
-                        ),
-                        "last_entry_stoploss_trigger_time": entry_stoploss_event.get(
                             "created_at"
                         ),
                     },
@@ -232,24 +201,13 @@ class SubjectManagementDashboardService:
             ),
         }
 
-        stoploss_bindings = {
-            item.get("entry_id"): dict(item)
-            for item in list_entry_stoploss_bindings_compat(
-                symbol=normalized_symbol,
-                enabled=None,
-                repository=self.order_repository,
-            )
-            if item.get("entry_id")
-        }
         entries = []
         for item in list_open_entry_views(
             normalized_symbol, repository=self.order_repository
         ):
             if int(item.get("remaining_quantity") or 0) <= 0:
                 continue
-            row = dict(item)
-            row["stoploss"] = stoploss_bindings.get(item.get("entry_id"))
-            entries.append(row)
+            entries.append(dict(item))
         entries.sort(
             key=lambda item: (
                 int(item.get("trade_time") or 0),
@@ -294,27 +252,7 @@ class SubjectManagementDashboardService:
             ).get(normalized_symbol)
             or {}
         )
-        entry_stoploss_event = (
-            self._latest_trigger_map(
-                {normalized_symbol},
-                event_types={"entry_stoploss_hit", "stoploss_hit"},
-            ).get(normalized_symbol)
-            or {}
-        )
-        latest_event = (
-            _merge_latest_event_maps(
-                {normalized_symbol: takeprofit_event},
-                fallback_map=self._latest_trigger_map(
-                    {normalized_symbol},
-                    event_types={
-                        "entry_stoploss_hit",
-                        "stoploss_hit",
-                        "symbol_full_stoploss_hit",
-                    },
-                ),
-            ).get(normalized_symbol)
-            or {}
-        )
+        latest_event = takeprofit_event
         pm_summary = dict(self.pm_summary_loader() or {})
         position_limit_summary = self._load_position_limit_summary(normalized_symbol)
         base_config_summary = self._build_base_config_summary(
@@ -354,9 +292,6 @@ class SubjectManagementDashboardService:
                         takeprofit_event.get("level")
                     ),
                     "last_takeprofit_trigger_time": takeprofit_event.get("created_at"),
-                    "last_entry_stoploss_trigger_time": entry_stoploss_event.get(
-                        "created_at"
-                    ),
                     "market_value_source": symbol_position.get("market_value_source"),
                 },
                 "position_management_summary": pm_summary,
@@ -421,7 +356,6 @@ class SubjectManagementDashboardService:
             category_source = "must_pool.provenance"
         else:
             category_source = "unconfigured"
-        stop_loss_price = _safe_float_or_none(must_pool.get("stop_loss_price"))
         configured_initial_lot_amount = _safe_int_or_none(
             must_pool.get("initial_lot_amount")
         )
@@ -457,16 +391,6 @@ class SubjectManagementDashboardService:
                 configured_source="must_pool.category",
                 effective_value=effective_category,
                 effective_source=category_source,
-            ),
-            "stop_loss_price": _build_base_config_item(
-                configured_value=stop_loss_price,
-                configured_source="must_pool.stop_loss_price",
-                effective_value=stop_loss_price,
-                effective_source=(
-                    "must_pool.stop_loss_price"
-                    if stop_loss_price is not None
-                    else "unconfigured"
-                ),
             ),
             "initial_lot_amount": _build_base_config_item(
                 configured_value=configured_initial_lot_amount,
@@ -641,46 +565,6 @@ class SubjectManagementDashboardService:
             item for item in entries if int(item.get("remaining_quantity") or 0) > 0
         ]
 
-    def _stoploss_summary_map(self):
-        rows = {}
-        open_entry_counts = {}
-        for item in list_open_entry_views(repository=self.order_repository):
-            symbol = _normalize_symbol(item.get("symbol"))
-            if not symbol or int(item.get("remaining_quantity") or 0) <= 0:
-                continue
-            open_entry_counts[symbol] = open_entry_counts.get(symbol, 0) + 1
-
-        for item in list_entry_stoploss_bindings_compat(
-            enabled=None,
-            repository=self.order_repository,
-        ):
-            symbol = _normalize_symbol(item.get("symbol"))
-            if not symbol:
-                continue
-            current = rows.setdefault(
-                symbol,
-                {
-                    "active_count": 0,
-                    "active_stoploss_entry_count": 0,
-                    "open_entry_count": 0,
-                },
-            )
-            if bool(item.get("enabled")):
-                current["active_count"] += 1
-                current["active_stoploss_entry_count"] += 1
-
-        symbols = set(rows) | set(open_entry_counts)
-        result = {}
-        for symbol in symbols:
-            current = dict(rows.get(symbol) or {})
-            current["active_count"] = int(current.get("active_count") or 0)
-            current["active_stoploss_entry_count"] = int(
-                current.get("active_stoploss_entry_count") or 0
-            )
-            current["open_entry_count"] = int(open_entry_counts.get(symbol) or 0)
-            result[symbol] = current
-        return result
-
     def _latest_trigger_map(
         self,
         symbols,
@@ -806,7 +690,6 @@ class SubjectManagementDashboardService:
             "categories": list(provenance.get("categories") or []),
             "memberships": list(provenance.get("memberships") or []),
             "workspace_order_hint": provenance.get("workspace_order_hint"),
-            "stop_loss_price": _safe_float_or_none(raw.get("stop_loss_price")),
             "initial_lot_amount": _safe_int_or_none(raw.get("initial_lot_amount")),
             "lot_amount": _safe_int_or_none(raw.get("lot_amount")),
             "forever": bool(raw.get("forever")),
@@ -969,34 +852,6 @@ def _parse_iso_datetime(value):
         return None
 
 
-def _merge_latest_event_maps(primary_map, fallback_map=None):
-    merged = {}
-    all_symbols = set(primary_map or {}) | set(fallback_map or {})
-    for symbol in all_symbols:
-        primary = dict((primary_map or {}).get(symbol) or {})
-        fallback = dict((fallback_map or {}).get(symbol) or {})
-        merged[symbol] = _pick_latest_event(primary, fallback)
-    return merged
-
-
-def _pick_latest_event(*events):
-    candidates = [dict(item) for item in events if item]
-    if not candidates:
-        return {}
-    candidates.sort(
-        key=lambda item: _event_sort_timestamp(item.get("created_at")),
-        reverse=True,
-    )
-    return candidates[0]
-
-
-def _event_sort_timestamp(value):
-    parsed = _parse_iso_datetime(value)
-    if parsed is None:
-        return float("-inf")
-    return parsed.timestamp()
-
-
 def _safe_int_or_none(value):
     if value is None:
         return None
@@ -1052,7 +907,6 @@ def _base_config_source_label(source):
         "unconfigured": "未配置",
         "must_pool.category": "must_pool 分类",
         "must_pool.provenance": "must_pool 归因分类",
-        "must_pool.stop_loss_price": "must_pool 止损价",
         "must_pool.initial_lot_amount": "must_pool 首笔金额",
         "must_pool.lot_amount": "must_pool 常规金额",
         "instrument_strategy.lot_amount": "instrument_strategy.lot_amount",

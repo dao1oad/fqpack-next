@@ -38,9 +38,6 @@
       <StatusChip variant="success">
         已加载详情 <strong>{{ loadedDetailCount }}</strong>
       </StatusChip>
-      <StatusChip variant="warning">
-        活跃单笔止损 <strong>{{ activeStoplossCount }}</strong>
-      </StatusChip>
     </div>
 
     <div class="position-subject-table-wrap">
@@ -94,10 +91,6 @@
         <el-table-column label="订单状态" min-width="84">
           <template #default="{ row }">
             <div class="position-subject-status-stack">
-              <span class="position-subject-status-line">
-                <strong class="workbench-code position-subject-status-line__label">SL</strong>
-                <span>{{ formatInteger(row.stoplossActiveCount) }}</span>
-              </span>
               <span class="position-subject-status-line">
                 <strong class="workbench-code position-subject-status-line__label">Open</strong>
                 <span>{{ formatInteger(row.openEntryCount) }}</span>
@@ -162,33 +155,6 @@
             <div class="position-subject-trigger-line">
               <span class="workbench-code position-subject-trigger-line__kind">{{ row.takeprofitTrigger?.kindLabel || '-' }}</span>
               <span class="workbench-code position-subject-trigger-line__time">{{ row.takeprofitTrigger?.timeLabel || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="单笔止损触发" min-width="104" show-overflow-tooltip>
-          <template #default="{ row }">
-            <div class="position-subject-trigger-line">
-              <span class="workbench-code position-subject-trigger-line__kind">{{ row.entryStoplossTrigger?.kindLabel || '-' }}</span>
-              <span class="workbench-code position-subject-trigger-line__time">{{ row.entryStoplossTrigger?.timeLabel || '-' }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="全仓止损价" min-width="88">
-          <template #default="{ row }">
-            <div class="position-subject-input-cell" :title="configNote(row.symbol, 'stop_loss_price')">
-              <el-input-number
-                v-if="workbench.state.mustPoolDrafts[row.symbol]"
-                v-model="workbench.state.mustPoolDrafts[row.symbol].stop_loss_price"
-                :placeholder="mustPoolNumberPlaceholder(row.symbol, 'stop_loss_price', formatPrice)"
-                size="small"
-                :min="0"
-                :step="0.01"
-                :precision="2"
-                controls-position="right"
-              />
-              <span v-else class="position-subject-cell-muted">-</span>
             </div>
           </template>
         </el-table-column>
@@ -281,13 +247,6 @@ const loadingOverview = computed(() => Boolean(workbench.value?.state?.loadingOv
 const pageError = computed(() => workbench.value?.state?.pageError || '')
 const detailMap = computed(() => workbench.value?.state?.detailMap || {})
 
-const formatPrice = (value) => {
-  if (value === null || value === undefined || value === '') return '-'
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return '-'
-  return Number.isInteger(parsed) ? parsed.toFixed(1) : String(parsed)
-}
-
 const formatInteger = (value) => {
   if (value === null || value === undefined || value === '') return '-'
   const parsed = Number(value)
@@ -324,9 +283,6 @@ const subjectOverviewPage = computed(() => paginateOverviewRows(
 ))
 
 const loadedDetailCount = computed(() => Object.keys(detailMap.value || {}).length)
-const activeStoplossCount = computed(() => (
-  (overviewRows.value || []).filter((row) => Number(row.stoplossActiveCount || 0) > 0).length
-))
 
 const detailConfigMap = computed(() => Object.fromEntries(
   Object.entries(detailMap.value || {}).map(([symbol, detail]) => [
@@ -338,14 +294,6 @@ const detailConfigMap = computed(() => Object.fromEntries(
 const detailForSymbol = (symbol) => detailMap.value?.[symbol] || null
 
 const configNote = (symbol, key) => detailConfigMap.value?.[symbol]?.[key]?.note || ''
-
-const mustPoolNumberPlaceholder = (symbol, key, formatter) => {
-  const draftValue = workbench.value?.state?.mustPoolDrafts?.[symbol]?.[key]
-  if (draftValue !== null && draftValue !== undefined && draftValue !== '') return ''
-  const effectiveValue = detailForSymbol(symbol)?.baseConfigSummary?.[key]?.effective_value
-  const effectiveLabel = formatter(effectiveValue)
-  return effectiveLabel === '-' ? '未配置' : effectiveLabel
-}
 
 const applyCurrentRow = async (symbol) => {
   await nextTick()

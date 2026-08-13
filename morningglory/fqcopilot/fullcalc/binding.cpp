@@ -49,7 +49,6 @@ static py::dict to_dict(const FullCalcResult &r) {
         item["index"] = s.index;
         item["signal"] = s.signal;
         item["close"] = s.close;
-        item["stop_loss"] = s.stop_loss;
         sigs.append(item);
     }
     d["signals"] = sigs;
@@ -70,7 +69,7 @@ static py::dict full_calc_py(const std::vector<float> &high,
 }
 
 PYBIND11_MODULE(fullcalc, m) {
-    m.doc() = "Full calculation (chanlun + CLX signals + stop-loss)";
+    m.doc() = "Full calculation (chanlun + CLX signals)";
     m.def("full_calc", &full_calc_py,
           py::arg("high"),
           py::arg("low"),

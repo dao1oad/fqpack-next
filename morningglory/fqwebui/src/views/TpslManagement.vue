@@ -6,9 +6,9 @@
       <WorkbenchToolbar class="tpsl-toolbar">
         <div class="workbench-toolbar__header">
           <div class="workbench-title-group">
-            <div class="workbench-page-title">股票止盈止损管理</div>
+            <div class="workbench-page-title">股票止盈管理</div>
             <div class="workbench-page-meta">
-              <span>左侧只读展示三层止盈价格，右侧按持仓 entry 维护止损，并同页对照 entry ledger、对账状态与触发后订单成交。</span>
+              <span>左侧只读展示三层止盈价格，右侧按持仓 entry 对照 entry ledger、对账状态与触发后订单成交。</span>
               <template v-if="detail">
                 <span>/</span>
                 <span>当前标的 <span class="workbench-code">{{ detail.symbol }}</span></span>
@@ -37,9 +37,6 @@
           <StatusChip variant="success">
             持仓中 <strong>{{ holdingCount }}</strong>
           </StatusChip>
-          <StatusChip variant="warning">
-            活跃止损 <strong>{{ activeStoplossCount }}</strong>
-          </StatusChip>
           <StatusChip v-if="detail" variant="muted">
             止盈层 <strong>{{ detail.takeprofitTierCount }}</strong>
           </StatusChip>
@@ -63,7 +60,7 @@
           <div class="workbench-panel__header">
             <div class="workbench-title-group">
               <div class="workbench-panel__title">标的列表</div>
-              <p class="workbench-panel__desc">按标的切换只读止盈三层、entry 止损、entry slice ledger、对账状态和统一触发历史。</p>
+              <p class="workbench-panel__desc">按标的切换只读止盈三层、entry slice ledger、对账状态和统一触发历史。</p>
             </div>
             <div class="workbench-panel__meta">
               <span>{{ overviewRows.length }} 个标的</span>
@@ -116,7 +113,7 @@
               </div>
 
               <div class="symbol-card-foot">
-                <span>止损 entry {{ row.active_stoploss_entry_count || 0 }}</span>
+                <span>open entry {{ row.open_entry_count || 0 }}</span>
                 <span>{{ row.last_trigger_label }} · {{ row.last_trigger_time }}</span>
               </div>
             </button>
@@ -152,8 +149,8 @@
           <WorkbenchLedgerPanel v-if="detail" class="tpsl-ledger-panel">
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
-                <div class="workbench-panel__title">按持仓入口止损</div>
-                <p class="workbench-panel__desc">只展示 open entry。每行可单独设置 stop_price 和 enabled。</p>
+                <div class="workbench-panel__title">持仓入口明细</div>
+                <p class="workbench-panel__desc">只展示 open entry。</p>
               </div>
             </div>
 
@@ -174,42 +171,9 @@
                   {{ row.original_quantity }} / {{ row.remaining_quantity }}
                 </template>
               </el-table-column>
-              <el-table-column label="Stop Price" min-width="176">
-                <template #default="{ row }">
-                  <el-input-number
-                    v-model="stoplossDrafts[row.entry_id].stop_price"
-                    :min="0"
-                    :step="0.01"
-                    :precision="2"
-                    controls-position="right"
-                  />
-                </template>
-              </el-table-column>
-              <el-table-column label="Enabled" width="116">
-                <template #default="{ row }">
-                  <el-switch
-                    v-model="stoplossDrafts[row.entry_id].enabled"
-                    inline-prompt
-                    active-text="开"
-                    inactive-text="关"
-                  />
-                </template>
-              </el-table-column>
               <el-table-column label="卖出摘要" min-width="136">
                 <template #default="{ row }">
                   {{ row.sellHistoryLabel }}
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="88">
-                <template #default="{ row }">
-                  <el-button
-                    type="primary"
-                    text
-                    :loading="savingStoploss[row.entry_id]"
-                    @click="handleSaveStoploss(row.entry_id)"
-                  >
-                    保存
-                  </el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -219,7 +183,7 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">Entry Slice Ledger</div>
-                <p class="workbench-panel__desc">展示当前 entry 切片账本，方便和止盈止损批次、实际成交以及剩余数量对照。</p>
+                <p class="workbench-panel__desc">展示当前 entry 切片账本，方便和止盈批次、实际成交以及剩余数量对照。</p>
               </div>
             </div>
 
@@ -262,13 +226,12 @@
             <div class="workbench-panel__header">
               <div class="workbench-title-group">
                 <div class="workbench-panel__title">统一触发历史</div>
-                <p class="workbench-panel__desc">同页查看 takeprofit / stoploss 触发，以及后续 request、order、trade。</p>
+                <p class="workbench-panel__desc">同页查看 takeprofit 触发，以及后续 request、order、trade。</p>
               </div>
               <div class="workbench-panel__actions">
                 <el-select v-model="historyKind" class="history-filter" @change="loadHistory">
                   <el-option label="全部" value="all" />
                   <el-option label="止盈" value="takeprofit" />
-                  <el-option label="止损" value="stoploss" />
                 </el-select>
                 <el-button :loading="loadingHistory" @click="loadHistory">刷新历史</el-button>
               </div>
@@ -279,7 +242,7 @@
               <el-table-column prop="kind" label="类型" width="96" />
               <el-table-column prop="created_at" label="触发时间" min-width="172" />
               <el-table-column prop="batch_id" label="Batch" min-width="128" />
-              <el-table-column prop="triggerLabel" label="层级/止损价" min-width="110" />
+              <el-table-column prop="triggerLabel" label="层级" min-width="110" />
               <el-table-column prop="triggerPriceLabel" label="触发价" width="88" />
               <el-table-column prop="entry_label" label="影响 entry" min-width="120" />
               <el-table-column prop="downstreamLabel" label="后续结果" min-width="160" />
@@ -341,12 +304,10 @@ const actions = createTpslManagementActions(tpslApi)
 const {
   state,
   holdingCount,
-  activeStoplossCount,
   refreshOverview,
   selectSymbol,
   reloadCurrentSymbol,
   handleRearm,
-  handleSaveStoploss,
   loadHistory,
 } = createTpslManagementPageController({
   actions,
@@ -362,8 +323,6 @@ const {
   selectedSymbol,
   detail,
   historyKind,
-  stoplossDrafts,
-  savingStoploss,
 } = toRefs(state)
 
 onMounted(async () => {

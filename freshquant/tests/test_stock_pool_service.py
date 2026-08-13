@@ -276,7 +276,6 @@ def test_add_to_stock_pools_by_code_uses_unified_pre_pool_provenance(monkeypatch
                     "category": "CLXS_10008",
                     "remark": "daily-screening:clxs",
                     "datetime": datetime(2026, 3, 20, 9, 31),
-                    "stop_loss_price": 9.8,
                     "extra": {"screening_run_id": "run-1"},
                     "sources": ["daily-screening", "shouban30"],
                     "categories": ["CLXS_10008", "plate:11"],
@@ -386,7 +385,6 @@ def test_add_to_stock_pools_by_code_allow_direct_writes_clx_monitor_provenance(
     kwargs = captured["kwargs"]
     assert kwargs["code"] == "000001"
     assert kwargs["category"] == "CLX15分钟监控"
-    assert kwargs["stop_loss_price"] is None
     assert kwargs["sources"] == ["clx_signal_workbench"]
     assert kwargs["categories"] == ["CLX15分钟监控"]
     assert kwargs["expire_at"] > kwargs["dt"]
@@ -522,7 +520,7 @@ def test_add_to_must_pool_merges_stock_pool_provenance(monkeypatch):
         ),
     )
 
-    result = stock_service.add_to_must_pool("000001", 9.2, 80000, 50000)
+    result = stock_service.add_to_must_pool("000001", 80000, 50000)
 
     assert result is True
     assert captured["call"]["args"] == ()
@@ -720,7 +718,6 @@ def test_get_stock_model_signal_list_returns_sorted_realtime_screen_docs(monkeyp
                     "period": "15min",
                     "model": "CLX10001",
                     "close": 10.1,
-                    "stop_loss_price": 9.8,
                     "source": "XTData_Realtime",
                 },
                 {
@@ -732,7 +729,6 @@ def test_get_stock_model_signal_list_returns_sorted_realtime_screen_docs(monkeyp
                     "period": "30min",
                     "model": "CLX10012",
                     "close": 20.2,
-                    "stop_loss_price": 19.6,
                     "source": "XTData_Realtime",
                 },
             ]
@@ -751,7 +747,6 @@ def test_get_stock_model_signal_list_returns_sorted_realtime_screen_docs(monkeyp
             "period": "30min",
             "model": "CLX10012",
             "close": 20.2,
-            "stop_loss_price": 19.6,
             "source": "XTData_Realtime",
         }
     ]
@@ -778,7 +773,6 @@ def test_get_stock_model_signal_list_supports_second_page(monkeypatch):
                     "period": "15min",
                     "model": "CLX10001",
                     "close": 10.1,
-                    "stop_loss_price": 9.8,
                     "source": "XTData_Realtime",
                 },
                 {
@@ -790,7 +784,6 @@ def test_get_stock_model_signal_list_supports_second_page(monkeypatch):
                     "period": "30min",
                     "model": "CLX10012",
                     "close": 20.2,
-                    "stop_loss_price": 19.6,
                     "source": "XTData_Realtime",
                 },
             ]
@@ -809,7 +802,6 @@ def test_get_stock_model_signal_list_supports_second_page(monkeypatch):
             "period": "15min",
             "model": "CLX10001",
             "close": 10.1,
-            "stop_loss_price": 9.8,
             "source": "XTData_Realtime",
         }
     ]

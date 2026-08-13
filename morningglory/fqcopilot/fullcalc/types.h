@@ -18,7 +18,6 @@ struct ClxSignalOut {
     int model = 0;
     int index = -1;
     float close = 0.0f;
-    float stop_loss = 0.0f; // 0 表示缺失
     int signal = 0;         // >0 买点，<0 卖点
 };
 

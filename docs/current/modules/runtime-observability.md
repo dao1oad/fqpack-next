@@ -94,7 +94,7 @@ Runtime Observability 当前采用“双存储”：
 
 Trace 类型当前由 ClickHouse 查询层按组件与语义字段共同推导：
 
-- TPSL 链路优先读取 `source / strategy_name / payload_json.kind / payload_json.scope_type`，`takeprofit_batch` 显示为止盈，`stoploss_batch / symbol_stoploss_batch` 显示为止损
+- TPSL 链路优先读取 `source / strategy_name / payload_json.kind / payload_json.scope_type`，`takeprofit_batch` 显示为止盈
 - `manual_api_order` 只匹配 `order_submit` 且 `source` 属于 `api / web-order / manual_import` 的链路，不再把 TPSL 退出单兜底显示成手动下单
 
 ## ClickHouse 表
@@ -206,7 +206,7 @@ Trace 类型当前由 ClickHouse 查询层按组件与语义字段共同推导�
 - 写入 ClickHouse 与查询返回阶段都会优先复用现有 instrument lookup 补全 `symbol_name`
 - 名称最终仍缺失时，前端兜底显示 `symbol / 未知名称`
 - `tpsl_worker` 的组件 Event 视图、Trace 列表与 `/api/runtime/events` 当前默认隐藏：
-  - 未命中止盈/止损价、空价格和盘后空跑评估（`info` 无 trace 归属）；
+  - 未命中止盈价、空价格和盘后空跑评估（`info` 无 trace 归属）；
   - 未武装固定买入线评估（`base_buyline` + `skip_reason=no_armed_buy_line`，
     盘前/隔夜每标的例行评估的安全跳过噪音，带独立 trace 也会隐藏）；
   需要完整原始记录时改看 Raw Browser

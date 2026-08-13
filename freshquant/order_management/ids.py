@@ -57,7 +57,3 @@ def new_allocation_id() -> str:
 
 def new_candidate_id() -> str:
     return _new_id("candidate")
-
-
-def new_stoploss_binding_id() -> str:
-    return _new_id("stoploss")

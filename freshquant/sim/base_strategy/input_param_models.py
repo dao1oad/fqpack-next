@@ -27,9 +27,9 @@ class InputParamModel:
 
     示例:
         class MyStrategyParams(InputParamModel):
-            def __init__(self, stop_loss_ratio=0.05, take_profit_ratio=0.1):
+            def __init__(self, atr_period=20, take_profit_ratio=0.1):
                 super().__init__()
-                self.set_param('stop_loss_ratio', stop_loss_ratio, float, (0, 1))
+                self.set_param('atr_period', atr_period, int, (1, 100))
                 self.set_param('take_profit_ratio', take_profit_ratio, float, (0, 1))
     """
 

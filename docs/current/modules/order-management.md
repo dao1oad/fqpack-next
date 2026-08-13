@@ -22,7 +22,6 @@
   - `/api/order-management/orders/<internal_order_id>`
   - `/api/order-management/entries/<entry_id>`
   - `/api/order-management/stats`
-  - `/api/order-management/stoploss/bind`
 - CLI
   - `python -m freshquant.cli om-order submit ...`
   - `python -m freshquant.cli om-order cancel ...`
@@ -37,7 +36,7 @@
   - `freshquant.order_management.ingest.xt_reports.OrderManagementXtIngestService`
   - `freshquant.order_management.reconcile.service.ExternalOrderReconcileService`
 
-当前已经删除 `/api/order-management/buy-lots/<buy_lot_id>`；止损绑定接口只接受 `entry_id`。
+当前已经删除 `/api/order-management/buy-lots/<buy_lot_id>` 与止损绑定接口 `/api/order-management/stoploss/bind`（止损功能随 Issue #603 整体下线）。
 
 ## 当前账本边界
 
@@ -62,7 +61,7 @@
 - `om_order_requests`
   - 内部下单意图
   - `ledger_intent` 必填（buy/sell）：`base` / `t` / `mixed` / `-`，缺失
-    fail-closed 拒单；TPSL（买入线/止盈→`base`、止损→`-`）、Guardian
+    fail-closed 拒单；TPSL（买入线/止盈→`base`）、Guardian
     （`new_open`→`base`、`holding_add`→`t`、做T卖出→`t`）、手动/网页
     （买→`base`、卖→`-`）全写入方在提交时显式声明
 - `om_orders`
@@ -99,8 +98,6 @@
   - 券商仓位与账本持仓解释之间的差额
 - `om_reconciliation_resolutions`
   - 差额的自动收敛结果
-- `om_entry_stoploss_bindings`
-  - entry 级止损绑定
 - `om_ingest_rejections`
   - 进入 XT ingest 但不允许进入主账本的拒绝记录
 
@@ -110,7 +107,6 @@
 - `om_lot_slices`
 - `om_sell_allocations`
 - `om_external_candidates`
-- `om_stoploss_bindings`
 - `freshquant.stock_fills`
 - `freshquant.stock_fills_compat`
 
@@ -176,7 +172,7 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 
 - 买：`ledger_intent`（`base` / `t`）；broker-only 手动买入显式 `base`
 - 卖：`ledger_intent`（`base` / `t` / `-` / `mixed`）；分摊卖单（分配证据
-  跨 base/t）订单级返回 `mixed`，禁止单值；stoploss 声明 `-`
+  跨 base/t）订单级返回 `mixed`，禁止单值
 - 存量缺失 `ledger_intent` 的请求行显式标记 `ledger_intent_missing`，不做
   隐式推断（回填工具：
   `script/maintenance/backfill_ledger_intent.py`）
@@ -461,8 +457,8 @@ py -3.12 -m uv run script/maintenance/rebuild_order_ledger_v2.py --execute --bac
 flatten 模式执行时的归档/清理边界：
 
 - 归档：先写 `position_review_evidence_archive` / `om_execution_history_archive`
-  （沿用既有 history backfill），并把 `om_entry_stoploss_bindings` /
-  `om_takeprofit_states` 快照进 `order_ledger_flatten_auxiliary_archive`；
+  （沿用既有 history backfill），并把 `om_takeprofit_states`
+  快照进 `order_ledger_flatten_auxiliary_archive`；
 - 清理：在 `ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS` 基础上追加 purge
   `om_takeprofit_states`；
 - 执行破坏性 flatten 仍要求显式 `--backup-db` 且不允许 `--account-id`；
@@ -494,7 +490,7 @@ flatten 模式执行时的归档/清理边界：
 - `om_position_entries / om_entry_slices / om_exit_allocations`
 - `om_buy_lots / om_lot_slices / om_sell_allocations`
 - `om_external_candidates / om_reconciliation_gaps / om_reconciliation_resolutions`
-- `om_stoploss_bindings / om_entry_stoploss_bindings / om_ingest_rejections`
+- `om_ingest_rejections`
 
 `om_execution_history_archive / position_review_evidence_archive` 不在重建 purge
 边界内。正式 `rebuild_order_ledger_v2.py --execute` 会在数据库备份和 purge
@@ -504,7 +500,7 @@ flatten 模式执行时的归档/清理边界：
 重建后的运行期读侧：
 
 - `holding.py` / `/api/stock_fills` 把 OM 主链返回的空列表视为 authoritative，不再因此掉回 compat/raw legacy
-- `entry_adapter` 在存在 v2 entry / binding 时不再混读 legacy `buy_lot / stoploss_binding`
+- `entry_adapter` 在存在 v2 entry 时不再混读 legacy `buy_lot`
 - `SubjectManagement`、`TPSL` 现在可以在没有 legacy `buy_lots` 的情况下直接读取 v2 `position_entries`
 - 当前 rebuild 生成的 buy-side `position_entries` 已切到 `buy_cluster / broker_execution_cluster` 语义
 
@@ -525,8 +521,6 @@ flatten 模式执行时的归档/清理边界：
   - canonical broker-only 订单总是持久化 deterministic `ord_broker_*` `internal_order_id`；
     `broker_order_id / broker_order_key` 回退只服务于历史 rebuild/legacy 记录
   - 详情中成交、券商订单聚合和运行态说明都来自 V2 账本
-- `/api/order-management/stoploss/bind`
-  - 当前只绑定 `entry_id`
 - `/api/stock_fills`
   - 名称仍保留给旧页面/脚本
   - 底层优先读 `om_position_entries + om_entry_slices`
@@ -563,10 +557,6 @@ flatten 模式执行时的归档/清理边界：
 - `INFERRED_CONFIRMED`
 - `MATCHED`
 - `OPEN`
-- `subject-management` 读模型 / 组件语义
-  - 止损对象已经是 `entry`
-- `/kline-slim`
-  - 标的设置中的止损对象也是 `entry`，并与 `subject-management` 读模型共享同一套 entry 摘要字段
 - `/position-management`
   - 当前承载 symbol 级统一排障工作区
   - `单标的仓位上限覆盖` 列表不再承担独立对账展示

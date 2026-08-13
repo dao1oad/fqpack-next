@@ -4,10 +4,10 @@
 将选股结果保存到 MongoDB 的 stock_signals、stock_pools、stock_pre_pools 表
 """
 
-from loguru import logger
 from typing import Optional
 
 import pendulum
+from loguru import logger
 
 from freshquant.screening.base.strategy import ScreenResult
 from freshquant.signal.a_stock_common import (
@@ -36,7 +36,7 @@ class DatabaseOutput:
                 remark=result.remark or result.signal_type,
                 fire_time=result.fire_time,
                 price=result.price,
-                stop_lose_price=result.stop_loss_price,
+                stop_lose_price=None,
                 position=result.position,
                 tags=result.tags,
                 strategy=strategy,
@@ -65,7 +65,6 @@ class DatabaseOutput:
                 code=result.code,
                 category=category,
                 dt=result.fire_time,
-                stop_loss_price=result.stop_loss_price,
                 expire_at=expire_at,
             )
         except Exception as e:
@@ -94,7 +93,6 @@ class DatabaseOutput:
                 code=result.code,
                 category=category,
                 dt=result.fire_time,
-                stop_loss_price=result.stop_loss_price,
                 expire_at=expire_at,
                 **extra_fields,
             )

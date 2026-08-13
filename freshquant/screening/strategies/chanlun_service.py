@@ -424,7 +424,6 @@ class ChanlunServiceStrategy(ScreenStrategy):
             signals = resp.get(signal_type, {})
             dates = signals.get("datetime", [])
             data = signals.get("price", [])
-            stop_loss_prices = signals.get("stop_lose_price", [])
             tags = signals.get("tag", [])
 
             remark = signal_info["name"]
@@ -436,9 +435,6 @@ class ChanlunServiceStrategy(ScreenStrategy):
                     localized_fire_time = fq_util_datetime_localize(fire_time)
 
                     price = data[i] if i < len(data) else 0
-                    stop_loss_price = (
-                        stop_loss_prices[i] if i < len(stop_loss_prices) else None
-                    )
                     tag_list = tags[i].split(",") if i < len(tags) and tags[i] else []
 
                     results.append(
@@ -449,7 +445,6 @@ class ChanlunServiceStrategy(ScreenStrategy):
                             period=period,
                             fire_time=localized_fire_time,
                             price=price,
-                            stop_loss_price=stop_loss_price,
                             signal_type=signal_type,
                             tags=tag_list,
                             position=position,
@@ -505,7 +500,6 @@ class ChanlunServiceStrategy(ScreenStrategy):
             "period": result.period,
             "fire_time": result.fire_time,
             "price": result.price,
-            "stop_loss_price": result.stop_loss_price,
             "signal_type": result.signal_type,
             "position": result.position,
             "remark": result.remark,
