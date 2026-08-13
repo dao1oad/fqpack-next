@@ -107,6 +107,7 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
                 "remark": args[3],
                 "position": kwargs["position"],
                 "tags": kwargs["tags"],
+                "fills": kwargs.get("fills"),
             }
         )
 
@@ -123,6 +124,12 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
     )
     monkeypatch.setattr(
         monitor, "get_stock_holding_codes", lambda: ["000001"], raising=False
+    )
+    monkeypatch.setattr(
+        monitor,
+        "get_arranged_stock_fill_list",
+        lambda _code: [{"date": "20260101", "time": "09:31:00", "price": 10.0}],
+        raising=False,
     )
     monkeypatch.setattr(
         monitor, "queryMustPoolCodes", lambda: ["600000"], raising=False
@@ -151,6 +158,7 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
             "remark": "V反上涨",
             "position": "BUY_LONG",
             "tags": ["existing"],
+            "fills": [{"date": "20260101", "time": "09:31:00", "price": 10.0}],
         },
         {
             "symbol": "sz000001",
@@ -159,6 +167,7 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
             "remark": "V反下跌",
             "position": "SELL_SHORT",
             "tags": [],
+            "fills": [{"date": "20260101", "time": "09:31:00", "price": 10.0}],
         },
         {
             "symbol": "sh600000",
@@ -167,6 +176,7 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
             "remark": "V反上涨",
             "position": "BUY_LONG",
             "tags": ["existing", tag],
+            "fills": None,
         },
         {
             "symbol": "sh600000",
@@ -175,6 +185,7 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
             "remark": "看涨背驰",
             "position": "BUY_LONG",
             "tags": [tag],
+            "fills": None,
         },
     ]
 

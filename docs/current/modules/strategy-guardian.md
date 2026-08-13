@@ -146,6 +146,16 @@ Guardian buy grid 当前区分两类语义：
 - 缺失或非法 `max_position_amounts` 时跳过本次 Grid 买入（`grid_position_cap_unconfigured` / `grid_position_config_invalid`）
 - 当前阶段开关 `buy_enabled[N]` 关闭时不买入，也不改变价格阶段映射（`grid_stage_disabled`）
 - 实时仓位或全局单标的上限读不到时跳过（`position_capacity_unavailable`）
+- 容量读取失败语义（路线步骤 3，根②）：账本占用、在途买单金额、TPSL 止盈价、
+  仓位快照任一读不到即跳过买入并落 runtime event，不再静默按 0/空列表放行：
+  - 账本占用读失败 → `ledger_occupancy_unavailable`（`guardian_buy_grid.load_ledger_occupancy`）
+  - 在途买单读失败 → `pending_buy_amount_unavailable`（`guardian_buy_grid.load_pending_buy_amount`）
+  - TPSL profile 读失败 → `takeprofit_prices_unavailable`（回补走廊跳过）
+  - 仓位快照读失败 → `position_capacity_read_failed`（与「确认 MV 缺失」区分）
+- 做T 买入链成交参照读失败（execution fills / OM entries / `xt_positions.avg_price`
+  三级兜底任一读异常）→ 跳过买入并落 `fill_reference_unavailable`
+  （`broker_position_reference_unavailable` 为 broker 级读失败细分码），
+  与「确认无历史成交」区分
 - 阶段剩余容量（按 `capacity_ratio` 折算后）不足一手时不买入（`grid_position_capacity_exhausted`）
 - `guardian_buy_grid_states` 保留字段与 `last_hit_*` 审计记录；`reset_after_sell_trade` 或价格配置更新仍会把 `buy_active` 重置为全激活，仅作审计信息
 - `guardian_buy_grid_states.buy_line_armed` 与 `om_takeprofit_states.armed_levels` 由 `guardian_ladder` 阶梯状态机统一读写（字段级原子 `$set`）
@@ -204,6 +214,22 @@ Guardian 会把关键判断路径写入 `guardian_strategy` runtime event，不�
 （每项含 `entry_id / entry_slice_id / guardian_price / threshold_price /
 signal_price_normalized / eligible / eligible_quantity`），供 Position Review
 与 `guardian.sell simulate` 共用同一份逐切片语义。
+
+## 中枢隔离检查（signal_structure_check，A8 接线）
+
+- 1min 持仓补仓线在信号生成时从 OM 读模型加载真实 arranged fills
+  （`get_arranged_stock_fill_list`）注入 `stock_signals` 触发链：
+  - 读不到（账本读异常）→ 信号不进交易链，`guardian_event.signal_gate`
+    发 `reason_code=structure_context_unavailable`，不产生下单
+  - 确认无历史成交（fills 为空）→ 放行（`no_fill_history`）
+  - 有成交 → 按最近成交时间/价格与 payload `zsdata` 做分离中枢判断，
+    语义与 `_evaluate_signal_structure` 原三条件一致
+- 5min must_pool 首开线不加载 fills（首开无历史成交语义）
+- 信号计算链失败语义（根②）：fqcopilot/fq_clxs 读不到或失败 → 对应 model
+  不产生信号并落 `signal_calc_unavailable`；bi 列表读不到 → 本 bar 不产生
+  Guardian 信号并落 `bi_list_unavailable`（合法全零 bi 列表不阻断）
+- bar 时间非法（`_bar_time<=0`）的 bar 直接丢弃并计数，每个统计周期
+  落 `guardian_event.signal_gate` `reason_code=invalid_bar_time_dropped`
 
 #549 阶梯/双账本运行时事件载荷（复用既有节点，不新增页面结构）：
 - `tpsl_worker.trigger_eval`：TP 命中/跳过携带 `ledger_filter`（base/t 切片数与

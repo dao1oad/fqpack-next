@@ -5,7 +5,10 @@ from time import sleep
 import click
 from loguru import logger
 
-from freshquant.data.astock.holding import get_stock_holding_codes
+from freshquant.data.astock.holding import (
+    get_arranged_stock_fill_list,
+    get_stock_holding_codes,
+)
 from freshquant.market_data.xtdata.pools import (
     LINE_1M_T,
     LINE_5M_NEW_OPEN,
@@ -33,6 +36,7 @@ MUST_POOL_5M_NEW_OPEN_SIGNAL_TYPES = {
     "buy_v_reverse",
     "macd_bullish_divergence",
 }
+_invalid_bar_time_counter = {"count": 0, "last_emitted": 0}
 
 
 def _log_pool_change(old_codes, new_codes):
@@ -145,6 +149,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
 
             bar_ts = int(data.get("_bar_time") or 0)
             if bar_ts <= 0:
+                _invalid_bar_time_counter["count"] += 1
                 return
             fire_time = datetime.fromtimestamp(bar_ts, tz=TZ)
             period_front = to_frontend_period(period_backend)
@@ -169,6 +174,27 @@ def monitor_stock_zh_a_min_event_driven() -> None:
             if not signals:
                 return
 
+            # A8：1min 持仓补仓线必须接入真实 arranged fills。
+            # 读不到 → 显式跳过 + structure_context_unavailable；
+            # 确认无历史成交（None/[]）→ 放行（fills=[]，no_fill_history）。
+            fills = None
+            if period_backend == "1min":
+                try:
+                    fills = get_arranged_stock_fill_list(base_code) or []
+                except Exception:
+                    logger.error(
+                        "[Event] arranged fills unavailable for %s: %s",
+                        base_code,
+                        traceback.format_exc(),
+                    )
+                    _emit_guardian_signal_gate_event(
+                        base_code=base_code,
+                        period_front=period_front,
+                        reason_code="structure_context_unavailable",
+                        payload={"line": LINE_1M_T},
+                    )
+                    return
+
             for s in signals:
                 tags = list(s.tags or [])
                 if period_backend == "1min":
@@ -191,7 +217,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                     tags=tags,
                     strategy=strategy,
                     zsdata=data.get("zsdata"),
-                    fills=None,
+                    fills=fills if period_backend == "1min" else None,
                 )
         except Exception:
             logger.error(traceback.format_exc())
@@ -227,6 +253,20 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                 f"filtered={st.get('filtered')} dropped={st.get('dropped')} err={st.get('errors')} "
                 f"q={st.get('queue_depth')}/{st.get('queue_size')} max_q={st.get('queue_max_depth')}"
             )
+            invalid_delta = (
+                _invalid_bar_time_counter["count"]
+                - _invalid_bar_time_counter["last_emitted"]
+            )
+            if invalid_delta > 0:
+                _emit_guardian_signal_gate_event(
+                    base_code="",
+                    period_front="",
+                    reason_code="invalid_bar_time_dropped",
+                    payload={"count_delta": invalid_delta},
+                )
+                _invalid_bar_time_counter["last_emitted"] = _invalid_bar_time_counter[
+                    "count"
+                ]
     except KeyboardInterrupt:
         listener.stop()
 
@@ -263,6 +303,34 @@ def _emit_guardian_bootstrap_event(
                 }
             )
         )
+    except Exception:  # pragma: no cover - 观测路径失败不影响主链
+        return False
+
+
+def _emit_guardian_signal_gate_event(
+    *,
+    base_code: str,
+    period_front: str,
+    reason_code: str,
+    payload: dict | None = None,
+) -> bool:
+    """信号门禁拒绝/丢弃的显式运行事件（根②失败语义契约）。"""
+
+    try:
+        from freshquant.runtime_observability.logger import RuntimeEventLogger
+
+        event = {
+            "component": "guardian_event",
+            "node": "signal_gate",
+            "status": "skipped",
+            "reason_code": reason_code,
+            "symbol": base_code,
+            "payload": {
+                "period": period_front,
+                **(payload or {}),
+            },
+        }
+        return bool(RuntimeEventLogger("guardian_event").emit(event))
     except Exception:  # pragma: no cover - 观测路径失败不影响主链
         return False
 

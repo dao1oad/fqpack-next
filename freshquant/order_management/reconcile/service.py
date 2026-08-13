@@ -1303,6 +1303,29 @@ _MONGO_PROBE_TTL_SECONDS = 5.0
 _mongo_probe_cache: dict[tuple[str, int], tuple[float, bool]] = {}
 
 
+def _emit_price_snapshot_degraded_event(
+    symbol,
+    *,
+    reason_code,
+    detail="",
+):
+    """价格快照降级/读失败的显式运行事件（根②：降级不再静默）。"""
+
+    try:
+        _get_runtime_logger().emit(
+            {
+                "component": "order_reconcile",
+                "node": "price_snapshot",
+                "symbol": str(symbol or ""),
+                "status": "error",
+                "reason_code": reason_code,
+                "payload": {"detail": str(detail or "")[:200]},
+            }
+        )
+    except Exception:  # pragma: no cover - 观测路径失败不影响主链
+        return
+
+
 def _resolve_inferred_price_snapshot(symbol, position, *, detected_at):
     detected_at = int(detected_at or 0)
 
@@ -1374,12 +1397,22 @@ def _load_latest_realtime_price_snapshot(symbol, position):
         from fqxtrade.database.mongodb import DBfreshquant
 
         from freshquant.market_data.xtdata.schema import normalize_prefixed_code
-    except Exception:
+    except Exception as exc:
+        _emit_price_snapshot_degraded_event(
+            symbol,
+            reason_code="price_snapshot_source_unavailable",
+            detail=str(exc),
+        )
         return None
 
     try:
         client = getattr(DBfreshquant, "client", None)
         if client is None or not _can_query_mongo(client):
+            _emit_price_snapshot_degraded_event(
+                symbol,
+                reason_code="price_snapshot_mongo_unavailable",
+                detail="client unavailable or probe failed",
+            )
             return None
         raw_code = position.get("stock_code") or position.get("symbol") or symbol
         code = normalize_prefixed_code(raw_code)
@@ -1402,7 +1435,12 @@ def _load_latest_realtime_price_snapshot(symbol, position):
                     source="realtime_bar_close",
                     asof=_coerce_timestamp(document.get("datetime")),
                 )
-    except Exception:
+    except Exception as exc:
+        _emit_price_snapshot_degraded_event(
+            symbol,
+            reason_code="price_snapshot_mongo_unavailable",
+            detail=str(exc),
+        )
         return None
     return None
 
@@ -1417,12 +1455,22 @@ def _load_previous_close_from_realtime(symbol, detected_at):
         from fqxtrade.database.mongodb import DBfreshquant
 
         from freshquant.market_data.xtdata.schema import normalize_prefixed_code
-    except Exception:
+    except Exception as exc:
+        _emit_price_snapshot_degraded_event(
+            symbol,
+            reason_code="price_snapshot_source_unavailable",
+            detail=str(exc),
+        )
         return None
 
     try:
         client = getattr(DBfreshquant, "client", None)
         if client is None or not _can_query_mongo(client):
+            _emit_price_snapshot_degraded_event(
+                symbol,
+                reason_code="price_snapshot_mongo_unavailable",
+                detail="client unavailable or probe failed",
+            )
             return None
         code = normalize_prefixed_code(symbol)
         if not code:
@@ -1445,7 +1493,12 @@ def _load_previous_close_from_realtime(symbol, detected_at):
                     source="previous_close",
                     asof=_coerce_timestamp(document.get("datetime")),
                 )
-    except Exception:
+    except Exception as exc:
+        _emit_price_snapshot_degraded_event(
+            symbol,
+            reason_code="price_snapshot_mongo_unavailable",
+            detail=str(exc),
+        )
         return None
     return None
 

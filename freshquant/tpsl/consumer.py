@@ -85,6 +85,25 @@ class TpslTickConsumer:
                 and event.code not in self.active_buy_line_codes
             ):
                 return None
+            invalid_reason = _invalid_tick_reason(event)
+            if invalid_reason is not None:
+                # 失败语义契约（根②）：有效 tick = 时间合法 + bid1/ask1/last 均 >0；
+                # 不满足不进交易链（止损路径已随 #603 下线，门槛保留给
+                # TP/买入线评估与事件层通用卫生）。门槛置于 universe 匹配之后，
+                # 避免对非关注标的的无效 tick 逐条落事件。
+                self._emit_runtime(
+                    "tick_gate",
+                    symbol=symbol,
+                    status="skipped",
+                    reason_code=invalid_reason,
+                    payload={
+                        "bid1": event.bid1,
+                        "ask1": event.ask1,
+                        "last_price": event.last_price,
+                        "tick_time": event.tick_time,
+                    },
+                )
+                return None
             # #549：买入线评估插入点在 TP 评估之前。买入线不是本 tick 的终态——
             # 仅返回 ready 才提交买单并终止本 tick；skipped 时双集合标的
             # （同时命中止盈 universe active_codes）继续评估止盈，
@@ -130,7 +149,14 @@ class TpslTickConsumer:
             raise
 
     def _emit_runtime(
-        self, node, *, symbol, trace_id=None, status="info", payload=None
+        self,
+        node,
+        *,
+        symbol,
+        trace_id=None,
+        status="info",
+        reason_code="",
+        payload=None,
     ):
         event = {
             "component": "tpsl_worker",
@@ -138,6 +164,7 @@ class TpslTickConsumer:
             "trace_id": trace_id,
             "symbol": symbol,
             "status": status,
+            "reason_code": reason_code,
             "payload": dict(payload or {}),
         }
         try:
@@ -159,6 +186,25 @@ def _coerce_tick_event(raw):
 def _is_before_continuous_auction(event, *, now_provider) -> bool:
     event_time = _resolve_event_time(event, now_provider=now_provider)
     return event_time.time() < _CONTINUOUS_AUCTION_START
+
+
+def _invalid_tick_reason(event) -> str | None:
+    """返回无效 tick 的 reason_code；有效 tick 返回 None。"""
+
+    if _coerce_timestamp(getattr(event, "tick_time", None)) is None:
+        return "invalid_tick_time"
+    for field_name, value in (
+        ("bid1", event.bid1),
+        ("ask1", event.ask1),
+        ("last_price", event.last_price),
+    ):
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return "invalid_tick_quote"
+        if not (numeric > 0):
+            return "invalid_tick_quote"
+    return None
 
 
 def _resolve_event_time(event, *, now_provider) -> datetime:

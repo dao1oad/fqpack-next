@@ -278,6 +278,12 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - `SubjectManagement` detail 会把 `om_position_entries` 上的 `aggregation_members / aggregation_window` 与 `om_entry_slices` 一并下发
 - `KlineSlim` 继续只消费 entry 摘要，不展开完整切片表
 - entry 级“剩余市值”优先按 symbol snapshot 最新价乘剩余数量；缺失最新价时才回退到持仓均价
+- 平账推断价格快照降级告警（路线步骤 3，根②）：realtime/前收盘快照读取因
+  Mongo 不可达（client 缺失或探针失败）或查询异常而不可用时，回退均价前
+  会落 `order_reconcile.price_snapshot` 的
+  `reason_code=price_snapshot_mongo_unavailable` /
+  `price_snapshot_source_unavailable` 事件；确认无匹配文档属合法回退链，
+  不产生告警
 - `#582`：订单详情读侧按 `om_broker_orders.internal_order_id` 索引反查
   （`find_broker_order_by_internal_order_id`，非 unique partial 索引
   `ix_om_broker_orders_internal_order_id`），不再把 internal_order_id 当

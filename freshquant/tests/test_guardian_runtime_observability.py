@@ -762,9 +762,11 @@ def test_guardian_scope_exception_emits_error_at_scope_node(monkeypatch):
     assert runtime_logger.events[-1] == error_event
 
 
-def test_guardian_holding_buy_unexpected_exception_emits_error_at_timing_check(
+def test_guardian_holding_buy_fill_reference_unavailable_skips_at_timing_check(
     monkeypatch,
 ):
+    """根②：成交参照读失败 → 跳过买入 + fill_reference_unavailable（不抛出）。"""
+
     runtime_logger = FakeRuntimeLogger()
     guardian = StrategyGuardian()
     guardian.runtime_logger = runtime_logger
@@ -796,18 +798,19 @@ def test_guardian_holding_buy_unexpected_exception_emits_error_at_timing_check(
         ),
     )
 
-    with pytest.raises(ValueError, match="boom"):
-        guardian.on_signal(signal)
+    guardian.on_signal(signal)
 
-    error_event = next(
+    skip_events = [
         event
         for event in runtime_logger.events
-        if event["node"] == "timing_check" and event["status"] == "error"
-    )
-    assert error_event["reason_code"] == "unexpected_exception"
-    assert error_event["payload"]["error_type"] == "ValueError"
-    assert "boom" in error_event["payload"]["error_message"]
-    assert runtime_logger.events[-1] == error_event
+        if event["node"] == "timing_check"
+        and event["status"] == "skipped"
+        and event["reason_code"] == "fill_reference_unavailable"
+    ]
+    assert len(skip_events) == 1
+    assert skip_events[0]["decision_context"]["fill_reference"]["available"] is False
+    assert runtime_logger.events[-1]["node"] == "finish"
+    assert runtime_logger.events[-1]["reason_code"] == "fill_reference_unavailable"
 
 
 def test_guardian_new_open_buy_unexpected_exception_emits_error_at_quantity_check(
