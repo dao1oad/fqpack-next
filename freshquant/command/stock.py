@@ -765,6 +765,24 @@ def stock_fill_rebuild_command(code: str, all_symbols: bool):
 
 
 @stock_fill_command_group.command(name="compare")
-@click.option("--code", type=str, required=True)
-def stock_fill_compare_command(code: str):
-    fill.compare_fill_compat(code)
+@click.option("--code", type=str)
+@click.option("--all", "all_symbols", is_flag=True, default=False)
+@click.option("--archive-dir", type=str, default=None)
+def stock_fill_compare_command(code: str, all_symbols: bool, archive_dir: str):
+    """对比 V2 账本投影与 stock_fills_compat 镜像。
+
+    单标的：freshquant stock fill compare --code 000001；
+    全量观察期：freshquant stock fill compare --all
+    （档案落 D:/fqpack/runtime/formal-deploy/fill-compare-YYYYMMDD.json）。
+    """
+
+    if bool(code) == bool(all_symbols):
+        raise click.UsageError("必须且只能提供 --code 或 --all 其中之一")
+    if all_symbols:
+        document = fill.compare_fill_compat_all(archive_dir=archive_dir)
+        if not document.get("zero_diff"):
+            raise click.ClickException(
+                f"fill compare mismatch: {document.get('mismatch_count')} symbols"
+            )
+    else:
+        fill.compare_fill_compat(code)

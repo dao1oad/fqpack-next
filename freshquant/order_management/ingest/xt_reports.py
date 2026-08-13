@@ -38,15 +38,10 @@ from freshquant.order_management.entry_aggregation import (
 )
 from freshquant.order_management.guardian.allocation_policy import (
     SellAllocationPlanExhaustedError,
-    allocate_sell_to_entry_slices,
     allocate_sell_to_entry_slices_with_budget,
-    allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
-    arrange_buy_lot,
     arrange_entry,
-    build_buy_lot_from_trade_fact,
-    build_position_entry_from_trade_fact,
 )
 from freshquant.order_management.guardian.sell_semantics import (
     extract_guardian_sell_source_plan,
@@ -54,7 +49,6 @@ from freshquant.order_management.guardian.sell_semantics import (
 from freshquant.order_management.ledger_resolver import (
     LEDGER_BASE,
     LedgerIntentConflictError,
-    LedgerIntentMissingError,
     normalize_ledger_intent,
     resolve_buy_position_type,
 )
@@ -166,14 +160,6 @@ class OrderManagementXtIngestService:
                             symbol=symbol,
                             entry_ids=[position_entry["entry_id"]],
                         )
-                if trade_fact["side"] == "buy" and hasattr(
-                    self.repository, "find_buy_lot_by_origin_trade_fact_id"
-                ):
-                    buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
-                        trade_fact["trade_fact_id"]
-                    )
-                if hasattr(self.repository, "list_open_slices"):
-                    lot_slices = self.repository.list_open_slices(symbol)
                 projections = _build_entry_projections(
                     symbol, repository=self.repository
                 )
@@ -198,22 +184,10 @@ class OrderManagementXtIngestService:
                         reason_code="non_board_lot_quantity",
                     )
                 else:
-                    if hasattr(self.repository, "find_buy_lot_by_origin_trade_fact_id"):
-                        buy_lot = self.repository.find_buy_lot_by_origin_trade_fact_id(
-                            trade_fact["trade_fact_id"]
-                        )
-                    if buy_lot is None and hasattr(self.repository, "insert_buy_lot"):
-                        buy_lot = build_buy_lot_from_trade_fact(trade_fact)
-                        self.repository.insert_buy_lot(buy_lot)
-                        lot_slices = arrange_buy_lot(
-                            buy_lot,
-                            lot_amount=lot_amount,
-                            grid_interval=grid_interval_lookup(symbol, trade_fact),
-                        )
-                        self.repository.replace_lot_slices_for_lot(
-                            buy_lot["buy_lot_id"],
-                            lot_slices,
-                        )
+                    # 根①写侧收敛（路线步骤 5）：ingest 单写 V2 主账本，
+                    # 不再双写 legacy 三账本（om_buy_lots/om_lot_slices/
+                    # om_sell_allocations）。legacy 镜像删除批次 = 6b
+                    # （Issue #605），触发条件 = 观察期连续 5 个交易日零差异。
                     v2_buy_entry_path = hasattr(
                         self.repository, "replace_position_entry"
                     ) and hasattr(self.repository, "replace_entry_slices_for_entry")
@@ -248,10 +222,6 @@ class OrderManagementXtIngestService:
                             ),
                             "tpsl_rearm": "base",
                         }
-                if not holdings_changed and hasattr(
-                    self.repository, "list_open_slices"
-                ):
-                    lot_slices = self.repository.list_open_slices(symbol)
             elif trade_fact["side"] == "sell":
                 if not _is_board_lot_quantity(trade_fact.get("quantity")):
                     _record_ingest_rejection(
@@ -398,45 +368,9 @@ class OrderManagementXtIngestService:
                                         "kind": "external_sell",
                                         "level": None,
                                     }
-                        if hasattr(self.repository, "list_buy_lots") and hasattr(
-                            self.repository, "list_open_slices"
-                        ):
-                            buy_lots = self.repository.list_buy_lots(symbol)
-                            open_slices = self.repository.list_open_slices(symbol)
-                            should_attempt_legacy_allocation = (
-                                bool(buy_lots and open_slices) or not exit_allocations
-                            ) and not v2_allocation_degraded
-                            if should_attempt_legacy_allocation:
-                                try:
-                                    sell_allocations = allocate_sell_to_slices(
-                                        buy_lots=buy_lots,
-                                        open_slices=open_slices,
-                                        sell_trade_fact=trade_fact,
-                                    )
-                                except ValueError as exc:
-                                    if (
-                                        exit_allocations
-                                        and str(exc)
-                                        == "sell quantity exceeds open guardian slices"
-                                    ):
-                                        logger.info(
-                                            "skip legacy sell allocation after authoritative V2 exit allocation: symbol={} internal_order_id={} broker_trade_id={}",
-                                            symbol,
-                                            trade_fact.get("internal_order_id"),
-                                            trade_fact.get("broker_trade_id"),
-                                        )
-                                    else:
-                                        raise
-                                else:
-                                    for item in buy_lots:
-                                        self.repository.replace_buy_lot(item)
-                                    self.repository.replace_open_slices(open_slices)
-                                    self.repository.insert_sell_allocations(
-                                        sell_allocations
-                                    )
-                                    holdings_changed = holdings_changed or bool(
-                                        sell_allocations
-                                    )
+                        # 根①写侧收敛（路线步骤 5）：卖出分配单写 V2
+                        # om_exit_allocations；legacy om_sell_allocations
+                        # 不再由 ingest 维护（删除批次 = 6b）。
                     if holdings_changed:
                         self._reset_guardian_buy_grid_after_sell(symbol)
 

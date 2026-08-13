@@ -165,6 +165,34 @@ class StockFillsCompatibilityService:
             == compat_position["amount_adjusted"],
         }
 
+    def compare_symbols(self, symbols=None):
+        """全量/分批对比（步骤 5 观察期工具）。
+
+        symbols 为 None 时使用当前全量同步范围（与 sync_symbols 同源）。
+        """
+
+        normalized_symbols = _collect_sync_symbols(
+            symbols,
+            repository=self.repository,
+            database=self.database,
+        )
+        rows = []
+        for symbol in normalized_symbols:
+            result = self.compare_symbol(symbol)
+            result["compared"] = True
+            rows.append(result)
+        mismatches = [
+            row
+            for row in rows
+            if not (row["quantity_consistent"] and row["amount_adjusted_consistent"])
+        ]
+        return {
+            "symbols_compared": len(rows),
+            "mismatch_count": len(mismatches),
+            "zero_diff": len(mismatches) == 0,
+            "mismatches": mismatches,
+        }
+
 
 def _get_stock_fills_compat_collection(database):
     target = DBfreshquant if database is None else database
@@ -299,6 +327,18 @@ def _collect_sync_symbols(symbols, *, repository, database):
             )
             if normalized_symbol:
                 normalized_symbols.add(normalized_symbol)
+        # 观察期对比范围并入 legacy-only 持仓标的（只读），避免
+        # 冻结快照内的持仓被全量对比遗漏（步骤 5 Devin 口径建议）。
+        if hasattr(repository, "list_buy_lots"):
+            try:
+                for item in repository.list_buy_lots() or []:
+                    normalized_symbol = _normalize_optional_symbol(
+                        item.get("symbol") or item.get("stock_code") or item.get("code")
+                    )
+                    if normalized_symbol:
+                        normalized_symbols.add(normalized_symbol)
+            except Exception:  # pragma: no cover - legacy 读取失败不影响对比主链
+                pass
 
     for row in list_compat_stock_fill_rows(database=database):
         normalized_symbol = _normalize_optional_symbol(

@@ -270,9 +270,8 @@ def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
 
     assert len(repository.trade_facts) == 1
     assert repository.trade_facts[0]["source"] == "manual_import"
-    assert len(repository.buy_lots) == 1
-    assert repository.buy_lots[0]["arrange_mode"] == "runtime_grid"
-    assert repository.buy_lots[0]["name"] == "平安银行"
+    # 根①写侧收敛（步骤 5）：manual 导入单写 V2，legacy 不再写入。
+    assert repository.buy_lots == []
     assert len(repository.position_entries) == 1
     assert repository.position_entries[0]["entry_type"] == "manual_import"
     assert repository.position_entries[0]["original_quantity"] == 900
@@ -280,7 +279,8 @@ def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
     assert result["position_entry"]["original_quantity"] == 900
     assert len(result["entry_slices"]) == 4
     assert len(result["projections"]["open_buy_fills"]) == 1
-    assert len(result["projections"]["arranged_fills"]) == len(repository.lot_slices)
+    assert repository.lot_slices == []
+    assert len(result["projections"]["arranged_fills"]) == 4
     assert fake_db.stock_fills.rows == []
     assert len(fake_db.stock_fills_compat.rows) == 1
 
@@ -429,12 +429,7 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
         ],
     )
 
-    runtime_lot = [
-        item for item in repository.buy_lots if item["arrange_mode"] == "runtime_grid"
-    ][0]
-    manual_locked_lots = [
-        item for item in repository.buy_lots if item["arrange_mode"] == "manual_locked"
-    ]
+    # 根①写侧收敛（步骤 5）：manual reset 单写 V2，legacy 不再写入。
     runtime_entry = [
         item
         for item in repository.position_entries
@@ -446,16 +441,12 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
         if item["entry_type"] == "manual_locked"
     ]
 
-    assert runtime_lot["remaining_quantity"] == 0
-    assert runtime_lot["status"] == "closed"
     assert runtime_entry["remaining_quantity"] == 0
     assert runtime_entry["status"] == "CLOSED"
     assert result["inserted_count"] == 2
-    assert len(manual_locked_lots) == 2
+    assert repository.buy_lots == []
     assert len(manual_locked_entries) == 2
-    assert all(item["source"] == "reset" for item in manual_locked_lots)
     assert all(item["source"] == "reset" for item in manual_locked_entries)
-    assert all(item["amount_adjust"] == 1.1 for item in manual_locked_lots)
     assert fake_db.stock_fills.rows == []
     assert len(fake_db.stock_fills_compat.rows) == 2
 

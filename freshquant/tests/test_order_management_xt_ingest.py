@@ -1071,13 +1071,20 @@ def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
 
-    arranged_fills = build_arranged_fills_view(repository.list_open_slices("000001"))
+    # 根①写侧收敛（步骤 5）：ingest 单写 V2；legacy 不再写入。
+    open_entry_slices = sorted(
+        repository.list_open_entry_slices(symbol="000001"),
+        key=lambda item: -float(item["guardian_price"]),
+    )
 
-    assert len(result["sell_allocations"]) == 2
+    assert result["sell_allocations"] == []
     assert len(result["exit_allocations"]) == 2
     assert repository.position_entries[0]["remaining_quantity"] == 400
     assert repository.position_entries[0]["status"] == "PARTIALLY_EXITED"
-    assert [(item["price"], item["quantity"]) for item in arranged_fills] == [
+    assert [
+        (item["guardian_price"], item["remaining_quantity"])
+        for item in open_entry_slices
+    ] == [
         (10.93, 200),
         (10.61, 200),
     ]
@@ -1394,10 +1401,10 @@ def test_repeated_callback_does_not_duplicate_trade_fact_or_projection():
     )
 
     assert len(repository.trade_facts) == 1
-    assert len(repository.buy_lots) == 1
+    # 根①写侧收敛（步骤 5）：legacy buy_lot/lot_slice 不再由 ingest 写入。
+    assert repository.buy_lots == []
     assert len(repository.position_entries) == 1
     assert len(repository.list_open_entry_slices(symbol="000001")) == 4
-    assert len(repository.list_open_slices("000001")) == 4
 
 
 def test_non_board_lot_trade_report_is_rejected_from_entry_ledger():
@@ -1690,12 +1697,22 @@ def test_repeated_sell_callback_does_not_duplicate_sell_allocations(monkeypatch)
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
     )
 
-    arranged_fills = build_arranged_fills_view(repository.list_open_slices("000001"))
+    # 根①写侧收敛（步骤 5）：重复卖出回调在 V2 层幂等，legacy 不再写入。
+    open_entry_slices = sorted(
+        repository.list_open_entry_slices(symbol="000001"),
+        key=lambda item: -float(item["guardian_price"]),
+    )
 
-    assert len(first["sell_allocations"]) == 2
+    assert first["sell_allocations"] == []
     assert second["sell_allocations"] == []
-    assert len(repository.sell_allocations) == 2
-    assert [(item["price"], item["quantity"]) for item in arranged_fills] == [
+    assert repository.sell_allocations == []
+    assert len(first["exit_allocations"]) == 2
+    assert second["exit_allocations"] == []
+    assert len(repository.exit_allocations) == 2
+    assert [
+        (item["guardian_price"], item["remaining_quantity"])
+        for item in open_entry_slices
+    ] == [
         (10.93, 200),
         (10.61, 200),
     ]

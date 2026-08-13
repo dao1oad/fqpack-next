@@ -21,6 +21,13 @@ def _install_stock_cli_stubs(monkeypatch):
     fill.list_fill = lambda *args, **kwargs: None
     fill.remove_fill = lambda *args, **kwargs: None
     fill.import_fill = lambda *args, **kwargs: None
+    fill.compare_fill_compat = lambda code: None
+    fill.compare_fill_compat_all = lambda archive_dir=None: {
+        "zero_diff": True,
+        "symbols_compared": 0,
+        "mismatch_count": 0,
+        "mismatches": [],
+    }
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.pre_pool", pre_pool)
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.pool", pool)
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.must_pool", must_pool)
@@ -123,3 +130,54 @@ def test_stock_fill_compare_command_routes_to_fill_module(monkeypatch):
 
     assert result.exit_code == 0
     assert captured == ["000001"]
+
+
+def test_stock_fill_compare_all_routes_to_fill_module(monkeypatch):
+    stock_command_module = _load_stock_command_module(monkeypatch)
+    captured = []
+
+    monkeypatch.setattr(
+        stock_command_module.fill,
+        "compare_fill_compat_all",
+        lambda archive_dir=None: captured.append(archive_dir)
+        or {
+            "zero_diff": True,
+            "symbols_compared": 3,
+            "mismatch_count": 0,
+            "mismatches": [],
+        },
+        raising=False,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        stock_command_module.stock_fill_command_group,
+        ["compare", "--all"],
+    )
+
+    assert result.exit_code == 0
+    assert captured == [None]
+
+
+def test_stock_fill_compare_all_nonzero_on_mismatch(monkeypatch):
+    stock_command_module = _load_stock_command_module(monkeypatch)
+
+    monkeypatch.setattr(
+        stock_command_module.fill,
+        "compare_fill_compat_all",
+        lambda archive_dir=None: {
+            "zero_diff": False,
+            "symbols_compared": 3,
+            "mismatch_count": 1,
+            "mismatches": [{"symbol": "000001"}],
+        },
+        raising=False,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        stock_command_module.stock_fill_command_group,
+        ["compare", "--all"],
+    )
+
+    assert result.exit_code != 0
