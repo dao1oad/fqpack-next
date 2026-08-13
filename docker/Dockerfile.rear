@@ -26,6 +26,7 @@ COPY sunflower/xtquant ./sunflower/xtquant
 COPY sunflower/pytdx ./sunflower/pytdx
 COPY sunflower/backtrader ./sunflower/backtrader
 COPY sunflower/QUANTAXIS ./sunflower/QUANTAXIS
+COPY vendor/wheels/interval-1.0.0-py3-none-any.whl ./vendor/wheels/interval-1.0.0-py3-none-any.whl
 
 RUN --mount=type=cache,target=/root/.cache/pip python -m pip install uv
 RUN --mount=type=cache,target=/root/.cache/uv python -m uv sync --frozen --no-install-project

@@ -114,6 +114,7 @@ python_version = "3.12"
 explicit_package_bases = true
 
 [tool.uv.sources]
+interval = { path = "vendor/wheels/interval-1.0.0-py3-none-any.whl" }
 fqchan01 = { path = "morningglory/fqchan01/python" }
 fqchan02 = { path = "morningglory/fqchan02/python" }
 fqchan03 = { path = "morningglory/fqchan03/python" }

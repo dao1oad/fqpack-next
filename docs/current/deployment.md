@@ -21,6 +21,8 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 
 - 这条命令只用于显式全量重建；日常 selective deploy 统一优先走 `script/fq_apply_deploy_plan.ps1`
 - Docker 构建默认启用 BuildKit 本地缓存；未显式设置时，`script/docker_parallel_compose.ps1` 会把 `FQ_DOCKER_BUILD_CACHE_ROOT` 设为仓库下的 `.artifacts/docker-build-cache`
+- `fq_apiserver` 冷重建（Issue #608）：`interval==1.0.0` 仅有非 PEP 625 的 `.tar.bz2` sdist，uv 0.12 拒绝解析；修复为 vendor 自建 wheel（`vendor/wheels/interval-1.0.0-py3-none-any.whl`）+ `[tool.uv.sources] interval = { path = ... }`，`docker/Dockerfile.rear` 在第一次 `uv sync` 前显式 `COPY` 该 wheel。
+- `uv.lock` 的制品 URL 已把镜像站存在且可下载的条目指到 `pypi.tuna.tsinghua.edu.cn`（逐条 HEAD 校验）；仅镜像缺失的 `pyconvert-0.6.3.tar.gz` 保留 `files.pythonhosted.org` 原址。`uv.lock` 受 quantaxis/pyconvert 上游解析冲突限制无法整体 `uv lock` 重生成，本次为锁定文件的定向改写（入口走 #608 PR）。默认索引保持 pypi（`uv run` 等非冻结解析依赖它，清华镜像缺 `pyconvert 0.6.3`），镜像只承载锁定制品下载。
 - `fq_webui` Docker 构建在 `pnpm install` 前复制 `pnpm-workspace.yaml`；其中的 `allowBuilds` 只允许 `core-js`、`esbuild`、`vue-demi` 执行安装期 build scripts，避免 pnpm 11 非交互构建被 `ERR_PNPM_IGNORED_BUILDS` 阻断。
 - `fq_webui` 依赖下载首选 `registry.npmmirror.com`；npm 全局安装或 `pnpm install` 下载失败时自动回退 `registry.npmjs.org` 重试（`docker/Dockerfile.web`）。lockfile v9 不绑定 registry 域名，切换 registry 不破坏依赖锁定。构建缓存位于 `FQ_DOCKER_BUILD_CACHE_ROOT`（默认 `.artifacts/docker-build-cache`），`pnpm store` 复用 `--mount=type=cache` 的 BuildKit 缓存层。
 - Runtime Observability 的 ClickHouse 默认通过 `FQ_RUNTIME_CLICKHOUSE_USER/FQ_RUNTIME_CLICKHOUSE_PASSWORD` 创建并使用专用查询用户；不要再让 API / indexer 走无凭证 `default`
