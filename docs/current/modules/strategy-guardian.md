@@ -46,6 +46,18 @@ fail-closed。先解析归属后聚类，禁止跨账本聚合，聚合成员携
   - 止盈卖出成交 → 关 TP-1..TP-N + **全开买入线**（重激活后不当场评估，下一 tick）；
   - 零成交终态（撤单/废单/部分撤单未成交部分）→ 重开对应档位，按 `broker_order_id`/`intent_id`/`internal_order_id` 幂等；
   - 事件冲突：tick 路径下一 tick 重试；XT ingest 路径当前事件内有限重试并记录告警。
+- 幂等/并发契约（路线步骤 4，根④）：
+  - `stock_signals` 建立唯一索引 `uq_stock_signals_signal_key`
+    `(symbol, code, period, fire_time, position)`；建索引前自动清理历史重复
+    （`$sort _id` 后分组，保留每组 `_id` 最小的一条，`allowDiskUse`）；
+    建索引遇并发新重复时清重复后有限重试（3 次），最终失败仅告警放行；
+    并发 upsert 的 DuplicateKeyError 按已存在处理，同一条信号只触发一次 `on_signal`
+  - `guardian_ladder_events` 增加 `created_at_dt` 字段与 TTL 索引
+    `ttl_guardian_ladder_events`（7 天过期，无界增长防护）；阶梯事件键来自
+    当前 XT trade report/终态回调与当次 intent_id（非历史全量重扫），
+    7 天窗口覆盖业务重试上界
+  - `on_takeprofit_trigger` 的 `last_triggered_price` 并入主条件更新同一次
+    `$set`（不再二次 update，消除竞态窗口）
 - rearm 门控：仅 base 买入事件（首开 + buy 线触发 + 手动加仓）全开止盈档；**T 买入不触发状态机**。
 - 配置校验：`TP1 > BUY-1`（及 BUY/TP 线序单调、caps 递增）倒挂 → fail-closed + 告警。
 - 状态存储：`guardian_buy_grid_states.buy_line_armed`（缺省 `[true,true,true]`）+ `om_takeprofit_states.armed_levels`；`guardian_buy_grid_state` GET/POST/reset 暴露并保留该两字段，reset 语义 = 回缺省态（安全方向：最坏多买一次，受 R/冷却/min_buy_amount 约束）。

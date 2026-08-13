@@ -79,8 +79,75 @@ class FakeStockPoolCollection:
 class FakeSignalCollection:
     def __init__(self) -> None:
         self.docs: list[dict] = []
+        self.created_indexes: list[tuple] = []
+        self.raise_duplicate_once = False
+
+    def index_information(self) -> dict:
+        return {item[2]: {} for item in self.created_indexes}
+
+    def create_index(self, fields, unique=False, name=None):
+        self.created_indexes.append((list(fields), unique, name))
+        return name
+
+    def aggregate(self, pipeline, allowDiskUse=False):
+        # 仅实现 _dedupe_stock_signals 使用的 $sort/$group/$match 语义
+        from collections import defaultdict
+
+        sorted_docs = sorted(self.docs, key=lambda d: str(d.get("_id") or ""))
+        groups = defaultdict(list)
+        for doc in sorted_docs:
+            key = tuple(
+                doc.get(field)
+                for field in ("symbol", "code", "period", "fire_time", "position")
+            )
+            groups[key].append(doc)
+        rows = []
+        for key, group_docs in groups.items():
+            if len(group_docs) <= 1:
+                continue
+            rows.append(
+                {
+                    "_id": dict(
+                        zip(("symbol", "code", "period", "fire_time", "position"), key)
+                    ),
+                    "first_id": group_docs[0]["_id"],
+                    "count": len(group_docs),
+                }
+            )
+        return rows
+
+    def delete_many(self, query):
+        deleted = 0
+        kept = []
+        for doc in self.docs:
+            matched = True
+            for key, value in query.items():
+                if isinstance(value, dict) and "$ne" in value:
+                    if doc.get(key) == value["$ne"]:
+                        matched = False
+                        break
+                elif doc.get(key) != value:
+                    matched = False
+                    break
+            if matched:
+                deleted += 1
+            else:
+                kept.append(doc)
+        self.docs = kept
+        return SimpleNamespace(deleted_count=deleted)
+
+    def find_one(self, query: dict):
+        for doc in self.docs:
+            if all(doc.get(key) == value for key, value in query.items()):
+                return doc
+        return None
 
     def find_one_and_update(self, query: dict, update: dict, upsert: bool = False):
+        if self.raise_duplicate_once:
+            self.raise_duplicate_once = False
+            import pymongo
+
+            raise pymongo.errors.DuplicateKeyError("duplicate")
         for doc in self.docs:
             if all(doc.get(key) == value for key, value in query.items()):
                 previous = dict(doc)
@@ -88,6 +155,7 @@ class FakeSignalCollection:
                 return previous
         if upsert:
             self.docs.append({**query, **update.get("$set", {})})
+            return None
         return None
 
 
@@ -183,6 +251,104 @@ def test_save_a_stock_signal_reuses_upsert_for_duplicate_bar(monkeypatch):
     assert len(fake_db.stock_signals.docs) == 1
     assert len(calls) == 1
     assert calls[0]["tags"] == ["must_pool_5m_new_open"]
+
+
+def test_save_a_stock_signal_creates_unique_index_once(monkeypatch):
+    """A9：首次保存创建唯一索引 (symbol, code, period, fire_time, position)。"""
+
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    a_stock_common.save_a_stock_signal(
+        "sz000001",
+        "000001",
+        "5m",
+        "V反上涨",
+        datetime.now(),
+        10.0,
+        9.0,
+        "BUY_LONG",
+        tags=[],
+        strategy=SimpleNamespace(on_signal=lambda s: None),
+    )
+
+    assert fake_db.stock_signals.created_indexes == [
+        (
+            [
+                ("symbol", 1),
+                ("code", 1),
+                ("period", 1),
+                ("fire_time", 1),
+                ("position", 1),
+            ],
+            True,
+            "uq_stock_signals_signal_key",
+        )
+    ]
+
+
+def test_save_a_stock_signal_duplicate_key_skips_on_signal(monkeypatch):
+    """A9：并发窗口 DuplicateKeyError → 按已存在处理，不重复触发 on_signal。"""
+
+    fake_db = FakeDB()
+    fire_time = datetime.now()
+    filter_doc = {
+        "symbol": "sz000001",
+        "code": "000001",
+        "period": "5m",
+        "fire_time": fire_time,
+        "position": "BUY_LONG",
+        "price": 10.0,
+    }
+    fake_db.stock_signals.docs.append(dict(filter_doc))
+    fake_db.stock_signals.raise_duplicate_once = True
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+    calls = []
+    strategy = SimpleNamespace(on_signal=lambda signal: calls.append(signal))
+
+    a_stock_common.save_a_stock_signal(
+        "sz000001",
+        "000001",
+        "5m",
+        "V反上涨",
+        fire_time,
+        10.0,
+        9.0,
+        "BUY_LONG",
+        tags=[],
+        strategy=strategy,
+    )
+
+    assert len(fake_db.stock_signals.docs) == 1
+    assert calls == []
+
+
+def test_dedupe_stock_signals_keeps_smallest_id_per_group(monkeypatch):
+    """A9：历史重复清理保留每组 _id 最小的一条。"""
+
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+    fire_time = datetime.now()
+    base = {
+        "symbol": "sz000001",
+        "code": "000001",
+        "period": "5m",
+        "fire_time": fire_time,
+        "position": "BUY_LONG",
+    }
+    fake_db.stock_signals.docs = [
+        {**base, "_id": "b", "remark": "later"},
+        {**base, "_id": "a", "remark": "first"},
+        {**base, "_id": "c", "remark": "latest"},
+        {**base, "period": "1m", "_id": "d", "remark": "other-period"},
+    ]
+
+    a_stock_common._dedupe_stock_signals(fake_db.stock_signals)
+
+    ids = sorted(doc["_id"] for doc in fake_db.stock_signals.docs)
+    assert ids == ["a", "d"]
+    kept = next(doc for doc in fake_db.stock_signals.docs if doc["_id"] == "a")
+    assert kept["remark"] == "first"
 
 
 def test_save_a_stock_pre_pools_keeps_rows_isolated_by_remark(monkeypatch):
