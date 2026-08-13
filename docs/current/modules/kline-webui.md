@@ -55,6 +55,11 @@
   - hover 一次性展示全部信息（订单摘要、信号完整详情、全部条件阈值、成交、持仓影响、数据质量），conditions 懒加载并缓存；点击 marker 固定订单并进入 `/position-review` 右侧证据面板
   - 不再在 K 线下方绘制策略应有量 / 实际成交量 / 连续持仓三轨附图；旧 `/timeline` 接口已移除
 
+PositionReview 读模型（E2，步骤 9）：`positionReview.mjs` 与
+`positionReviewRefactor.mjs` 已合一为 `src/views/positionReview.mjs`
+（数据归一/KPI/格式 与 组合/标的图表构建 合并为单模块，原 refactor
+模块删除；等价性由两个既有测试文件在同一模块上验证）。
+
 ## 当前页面结构
 
 - 工具栏首位提供 `← 返回运维` 按钮，跳转到 `/ops-console`（包含全局导航栏），保证图表页可随时回到导航入口

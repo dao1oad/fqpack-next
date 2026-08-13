@@ -1013,7 +1013,7 @@ import SymbolReviewChart from '../components/position-review/SymbolReviewChart.v
 import { positionReviewApi } from '../api/positionReviewApi.js'
 import {
   normalizeConditions,
-} from './positionReviewRefactor.mjs'
+} from './positionReview.mjs'
 import {
   buildPositionReviewDetailKpis,
   buildPositionReviewSummaryKpis,

@@ -811,7 +811,11 @@ class OrderManagementRepository:
         symbol=None,
         states=None,
         broker_order_keys=None,
+        skip=None,
+        limit=None,
+        sort_field="updated_at",
     ):
+        """C8（步骤 9）：支持 DB 分页（skip/limit/sort），避免全量物化。"""
         query = {}
         if symbol is not None:
             query["symbol"] = symbol
@@ -819,7 +823,45 @@ class OrderManagementRepository:
             query["state"] = {"$in": list(states)}
         if broker_order_keys is not None:
             query["broker_order_key"] = {"$in": list(broker_order_keys)}
-        return list(self.broker_orders.find(query))
+        cursor = self.broker_orders.find(query)
+        try:
+            # C8（步骤 9）：复合排序保证跨页稳定（updated_at 主键 +
+            # internal_order_id tiebreaker）。
+            if sort_field == "updated_at":
+                cursor = cursor.sort([("updated_at", -1), ("internal_order_id", -1)])
+            else:
+                cursor = cursor.sort([(sort_field, -1)])
+            if skip is not None:
+                cursor = cursor.skip(int(skip))
+            if limit is not None:
+                cursor = cursor.limit(int(limit))
+            return list(cursor)
+        except TypeError:
+            # 测试/兼容 cursor 不支持列表 sort / skip / limit：
+            # Python 侧等价分页（仅供测试兼容；生产 pymongo cursor 走上方路径）。
+            rows = list(cursor)
+            rows = sorted(
+                rows,
+                key=lambda item: (
+                    str(item.get(sort_field) or ""),
+                    str(item.get("internal_order_id") or ""),
+                ),
+                reverse=True,
+            )
+            if skip is not None:
+                rows = rows[int(skip) :]
+            if limit is not None:
+                rows = rows[: int(limit)]
+            return rows
+
+    def count_broker_orders(self, *, symbol=None, states=None):
+        """C8：分页 total 用 count_documents，不物化全量。"""
+        query = {}
+        if symbol is not None:
+            query["symbol"] = symbol
+        if states is not None:
+            query["state"] = {"$in": list(states)}
+        return int(self.broker_orders.count_documents(query))
 
     def list_order_events(self, *, internal_order_ids=None):
         query = {}

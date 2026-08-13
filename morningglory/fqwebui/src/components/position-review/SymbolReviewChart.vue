@@ -6,7 +6,7 @@ import {
   buildSymbolCostChartOption,
   normalizeSymbolChart,
   positionReviewRefactorFormatters,
-} from '../../views/positionReviewRefactor.mjs'
+} from '../../views/positionReview.mjs'
 import PositionReviewChart from './PositionReviewChart.vue'
 
 const props = defineProps({

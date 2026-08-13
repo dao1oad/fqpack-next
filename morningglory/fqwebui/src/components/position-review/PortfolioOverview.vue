@@ -7,7 +7,7 @@ import {
   normalizePortfolioContributions,
   normalizePortfolioSummary,
   positionReviewRefactorFormatters,
-} from '../../views/positionReviewRefactor.mjs'
+} from '../../views/positionReview.mjs'
 import PositionReviewChart from './PositionReviewChart.vue'
 
 const emit = defineEmits(['drill-symbol'])

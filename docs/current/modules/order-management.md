@@ -315,6 +315,15 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   `broker_order_key` 直查，也不再全表扫描兜底；broker_order_id 兜底与
   `om_orders` 回退保留
 
+步骤 9 清理减负（根⑨）：
+- 订单列表分页：无 Python 侧过滤时走 DB 分页（`list_broker_orders` skip/limit/
+  sort + `count_broker_orders`），不再全量物化后切片；带过滤查询保留原语义。
+- 订单详情：移除冗余 `fills` 字段，前端统一消费 `trades`（同一份成交列表）。
+- reconcile 三个死函数删除（`_find_pending_candidate` /
+  `_build_inferred_trade_report` / `_select_preferred_price_snapshot`）。
+- guardian_buy_grid `_resolve_capped_quantity` 死函数删除。
+- subject overview 位置上限批量装载缺失时显式告警（E4，避免静默 N+1）。
+
 ### 账本守恒守门
 
 - `freshquant.order_management.ledger_invariants`（#582 PR4）提供三条只读守恒

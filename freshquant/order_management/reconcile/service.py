@@ -1082,17 +1082,6 @@ def _coerce_epoch_seconds(value):
     return int(parsed.timestamp())
 
 
-def _find_pending_candidate(candidates, symbol, side, quantity_delta):
-    for item in candidates:
-        if (
-            item["symbol"] == symbol
-            and item["side"] == side
-            and int(item["quantity_delta"]) == int(quantity_delta)
-        ):
-            return item
-    return None
-
-
 def _index_pending_gaps_by_symbol_side(candidates):
     indexed = {}
     for item in list(candidates or []):
@@ -1295,34 +1284,6 @@ def _pending_until_for_observation(
     return int(detected_at) + remaining_observations * int(confirm_interval_seconds)
 
 
-def _build_inferred_trade_report(candidate, internal_order_id):
-    trade_time = int(candidate["pending_until"])
-    date_value, time_value = beijing_date_time_from_epoch(trade_time)
-    return {
-        "internal_order_id": internal_order_id,
-        "broker_order_id": None,
-        "broker_trade_id": f"inferred::{candidate['candidate_id']}",
-        "symbol": candidate["symbol"],
-        "side": candidate["side"],
-        "quantity": candidate["quantity_delta"],
-        "price": candidate.get("price_estimate") or 0.0,
-        "trade_time": trade_time,
-        "date": date_value,
-        "time": time_value,
-        "source": "external_inferred",
-        "provisional": True,
-    }
-
-
-_PRICE_SOURCE_PRIORITY = {
-    "position_last_price": 10,
-    "position_market_value": 20,
-    "realtime_bar_close": 30,
-    "previous_close": 40,
-    "position_avg_price": 50,
-    "position_open_price": 60,
-    "missing": 999,
-}
 _MONGO_PROBE_TTL_SECONDS = 5.0
 _mongo_probe_cache: dict[tuple[str, int], tuple[float, bool]] = {}
 
@@ -1525,38 +1486,6 @@ def _load_previous_close_from_realtime(symbol, detected_at):
         )
         return None
     return None
-
-
-def _select_preferred_price_snapshot(current, observed):
-    observed_snapshot = _normalize_price_snapshot(observed)
-    current_snapshot = _normalize_price_snapshot(current)
-    if observed_snapshot is None:
-        return current_snapshot or {
-            "price_estimate": 0.0,
-            "price_source": "missing",
-            "price_asof": None,
-        }
-    if current_snapshot is None:
-        return observed_snapshot
-
-    current_priority = _PRICE_SOURCE_PRIORITY.get(
-        current_snapshot.get("price_source") or "missing",
-        999,
-    )
-    observed_priority = _PRICE_SOURCE_PRIORITY.get(
-        observed_snapshot.get("price_source") or "missing",
-        999,
-    )
-    if observed_priority < current_priority:
-        return observed_snapshot
-    if observed_priority > current_priority:
-        return current_snapshot
-
-    current_asof = int(current_snapshot.get("price_asof") or 0)
-    observed_asof = int(observed_snapshot.get("price_asof") or 0)
-    if observed_asof >= current_asof:
-        return observed_snapshot
-    return current_snapshot
 
 
 def _normalize_price_snapshot(payload):

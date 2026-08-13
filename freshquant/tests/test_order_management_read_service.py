@@ -154,6 +154,9 @@ class InMemoryOrderManagementRepository:
         symbol=None,
         states=None,
         broker_order_keys=None,
+        skip=None,
+        limit=None,
+        sort_field="updated_at",
     ):
         self.list_broker_orders_calls += 1
         rows = list(self.broker_orders)
@@ -171,7 +174,29 @@ class InMemoryOrderManagementRepository:
             rows = [
                 item for item in rows if item.get("broker_order_key") in allowed_keys
             ]
+        rows = sorted(
+            rows,
+            key=lambda item: str(item.get(sort_field) or ""),
+            reverse=True,
+        )
+        if skip is not None:
+            rows = rows[int(skip) :]
+        if limit is not None:
+            rows = rows[: int(limit)]
         return rows
+
+    def count_broker_orders(self, *, symbol=None, states=None):
+        rows = list(self.broker_orders)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if states is not None:
+            allowed_states = {str(item).strip().upper() for item in states}
+            rows = [
+                item
+                for item in rows
+                if str(item.get("state") or "").strip().upper() in allowed_states
+            ]
+        return len(rows)
 
     def list_order_events(self, *, internal_order_ids=None):
         rows = list(self.order_events)
@@ -499,7 +524,7 @@ def test_get_order_detail_assembles_request_events_and_trades():
         "trade_reported",
     ]
     assert detail["broker_order"]["broker_order_key"] == "ord_fill_1"
-    assert detail["fills"][0]["execution_fill_id"] == "fill_1"
+    assert detail["trades"][0]["execution_fill_id"] == "fill_1"
     assert detail["trades"][0]["execution_fill_id"] == "fill_1"
     assert detail["identifiers"] == {
         "trace_id": "trc_fill_1",
@@ -519,7 +544,7 @@ def test_get_order_detail_uses_broker_order_key_to_load_execution_fills():
     detail = service.get_order_detail("ord_fill_1")
 
     assert detail["broker_order"]["broker_order_key"] == "border_fill_1"
-    assert [item["execution_fill_id"] for item in detail["fills"]] == ["fill_1"]
+    assert [item["execution_fill_id"] for item in detail["trades"]] == ["fill_1"]
 
 
 def test_get_order_detail_resolves_broker_order_by_internal_id_without_full_scan():
@@ -639,7 +664,7 @@ def test_read_service_removes_mongo_ids_from_list_and_detail_payloads():
     assert "_id" not in detail_payload["order"]
     assert "_id" not in detail_payload["request"]
     assert "_id" not in detail_payload["events"][0]
-    assert "_id" not in detail_payload["fills"][0]
+    assert "_id" not in detail_payload["trades"][0]
     assert len(detail_payload["exit_allocations"]) == 1
     assert "_id" not in detail_payload["exit_allocations"][0]
 
