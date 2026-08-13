@@ -327,6 +327,18 @@ def _collect_sync_symbols(symbols, *, repository, database):
             )
             if normalized_symbol:
                 normalized_symbols.add(normalized_symbol)
+        # 观察期对比范围并入 legacy-only 持仓标的（只读），避免
+        # 冻结快照内的持仓被全量对比遗漏（步骤 5 Devin 口径建议）。
+        if hasattr(repository, "list_buy_lots"):
+            try:
+                for item in repository.list_buy_lots() or []:
+                    normalized_symbol = _normalize_optional_symbol(
+                        item.get("symbol") or item.get("stock_code") or item.get("code")
+                    )
+                    if normalized_symbol:
+                        normalized_symbols.add(normalized_symbol)
+            except Exception:  # pragma: no cover - legacy 读取失败不影响对比主链
+                pass
 
     for row in list_compat_stock_fill_rows(database=database):
         normalized_symbol = _normalize_optional_symbol(

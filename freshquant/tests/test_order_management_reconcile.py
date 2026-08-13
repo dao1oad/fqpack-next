@@ -1787,6 +1787,57 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     assert len(repository.reconciliation_resolutions) == 2
 
 
+def test_frozen_legacy_remaining_not_counted_after_v2_full_exit(monkeypatch):
+    """根①写侧收敛（步骤 5）：V2 全清仓后，冻结的 legacy 残留不得回灌
+    内部持仓（不得产生虚假 sell gap / auto-close）。"""
+
+    from freshquant.order_management.guardian.arranger import (
+        arrange_buy_lot,
+        arrange_entry,
+        build_buy_lot_from_trade_fact,
+        build_position_entry_from_trade_fact,
+    )
+
+    repository, service = _build_service(monkeypatch)
+    seed_trade_fact = {
+        "trade_fact_id": "trade_frozen_seed_buy_1",
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 900,
+        "price": 10.0,
+        "trade_time": 1_000,
+        "date": 20240102,
+        "time": "09:31:00",
+    }
+    # V2 entry 已全部清仓
+    entry = build_position_entry_from_trade_fact(seed_trade_fact)
+    entry["remaining_quantity"] = 0
+    entry["status"] = "CLOSED"
+    repository.replace_position_entry(entry)
+    repository.replace_entry_slices_for_entry(
+        entry["entry_id"],
+        [
+            dict(item, remaining_quantity=0, status="CLOSED")
+            for item in arrange_entry(entry, lot_amount=3000, grid_interval=1.03)
+        ],
+    )
+    # legacy 冻结快照残留（ingest 停写后不再递减）
+    buy_lot = build_buy_lot_from_trade_fact(seed_trade_fact)
+    repository.insert_buy_lot(buy_lot)
+    repository.replace_lot_slices_for_lot(
+        buy_lot["buy_lot_id"],
+        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+    )
+
+    detected = service.detect_external_candidates(
+        positions=[{"stock_code": "000001.SZ", "volume": 0, "avg_price": 0.0}],
+        detected_at=1_000,
+    )
+
+    assert detected == []
+    assert repository.reconciliation_gaps == []
+
+
 def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_close(
     monkeypatch,
 ):

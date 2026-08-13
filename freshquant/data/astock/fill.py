@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -226,6 +227,13 @@ def compare_fill_compat_all(archive_dir: Optional[str] = None):
     """
 
     result = _get_stock_fills_compat_service().compare_symbols()
+    document = {
+        "asof": datetime.now().isoformat(timespec="seconds"),
+        "mode": "full",
+        **result,
+    }
+    # 先打印对比结果，再落观察期档案：落盘失败不得吞掉对比结论。
+    print(json.dumps(document, ensure_ascii=False, default=str))
     archive_root = Path(
         str(
             archive_dir
@@ -233,17 +241,18 @@ def compare_fill_compat_all(archive_dir: Optional[str] = None):
             or "D:/fqpack/runtime/formal-deploy"
         ).strip()
     )
-    archive_root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d")
     archive_path = archive_root / f"fill-compare-{stamp}.json"
-    document = {
-        "asof": datetime.now().isoformat(timespec="seconds"),
-        "mode": "full",
-        **result,
-    }
-    archive_path.write_text(
-        json.dumps(document, ensure_ascii=False, default=str, indent=2),
-        encoding="utf-8",
-    )
-    print(json.dumps(document, ensure_ascii=False, default=str))
+    try:
+        archive_root.mkdir(parents=True, exist_ok=True)
+        archive_path.write_text(
+            json.dumps(document, ensure_ascii=False, default=str, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "fill compare archive write failed: %s (%s)",
+            archive_path,
+            exc,
+        )
     return document

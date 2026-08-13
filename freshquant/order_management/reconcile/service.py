@@ -692,10 +692,13 @@ class ExternalOrderReconcileService:
         if remaining > 0:
             # #571 D2：空候选兜底 —— 无 V2 open slice、也无 legacy 候选时，
             # 不再抛错中断整轮 reconcile；落带审计标记的 resolution。
-            has_legacy_candidates = bool(
-                self.repository.list_buy_lots(gap["symbol"])
-            ) and bool(self.repository.list_open_slices(gap["symbol"]))
-            if has_legacy_candidates:
+            if _symbol_known_to_v2(self.repository, gap["symbol"]):
+                # 根①写侧收敛（步骤 5）：V2 覆盖标的的剩余分配不走 legacy
+                # 兜底（legacy 三账本已冻结），改走审计 fallback 路径。
+                empty_candidate_fallback = True
+            elif bool(self.repository.list_buy_lots(gap["symbol"])) and bool(
+                self.repository.list_open_slices(gap["symbol"])
+            ):
                 legacy_allocations = _allocate_gap_to_legacy_buy_lots(
                     repository=self.repository,
                     symbol=gap["symbol"],
@@ -769,23 +772,41 @@ def _build_positions_by_symbol(positions):
 
 def _build_internal_remaining_by_symbol(repository):
     result = {}
-    symbols_with_open_v2_entries = set()
+    v2_known_symbols = set()
     position_entries = []
     if hasattr(repository, "list_position_entries"):
         position_entries = list(repository.list_position_entries() or [])
+        v2_known_symbols = {item.get("symbol") for item in position_entries}
     for item in position_entries:
         remaining_quantity = int(item.get("remaining_quantity", 0) or 0)
         if remaining_quantity <= 0:
             continue
         symbol = item["symbol"]
-        symbols_with_open_v2_entries.add(symbol)
         result[symbol] = result.get(symbol, 0) + remaining_quantity
     for item in repository.list_buy_lots():
         symbol = item["symbol"]
-        if symbol in symbols_with_open_v2_entries:
+        if symbol in v2_known_symbols:
+            # 根①写侧收敛（步骤 5）：V2 曾存在该标的（含已清仓）时，
+            # legacy 冻结残留不再计入内部持仓，避免清仓标的回灌冻结快照
+            # 产生虚假 sell gap。
             continue
         result[symbol] = result.get(symbol, 0) + int(item.get("remaining_quantity", 0))
     return result
+
+
+def _symbol_known_to_v2(repository, symbol):
+    """该标的是否曾被 V2 position_entries 覆盖（含已清仓）。
+
+    根①写侧收敛（步骤 5）：V2 覆盖过的标的不得再走 legacy 兜底分配，
+    避免改写冻结快照（与 internal remaining 同口径）。
+    """
+
+    if not hasattr(repository, "list_position_entries"):
+        return False
+    for item in repository.list_position_entries() or []:
+        if item.get("symbol") == symbol:
+            return True
+    return False
 
 
 def _detect_sell_gap_blast(

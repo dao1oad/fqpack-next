@@ -287,9 +287,15 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - 根①写侧收敛（路线步骤 5）：XT ingest 单写 V2 主账本
   `om_position_entries / om_entry_slices / om_exit_allocations`，
   不再双写 legacy `om_buy_lots / om_lot_slices / om_sell_allocations`；
-  legacy 三账本自本步起冻结为停写前快照（仅 reconcile 的 legacy 兜底
-  分配链在迁移期保留），删除批次 = 步骤 6b（Issue #605），触发条件 =
-  观察期连续 5 个交易日 V2 投影 vs `stock_fills_compat` 零差异
+  manual 写服务（手工导入买入/卖出、reset_symbol_lots）同步收敛为
+  单写 V2；legacy 三账本自本步起冻结为停写前快照（仅 reconcile 的
+  legacy 兜底分配链在迁移期保留，且仅对 V2 从未覆盖过的 legacy-only
+  标的生效）；删除批次 = 步骤 6b（Issue #605），触发条件 = 观察期
+  连续 5 个交易日 V2 投影 vs `stock_fills_compat` 零差异
+- 对账 internal remaining 口径（步骤 5）：仓库支持 V2 entries 时，
+  V2 曾覆盖过的标的（含已清仓）一律以 V2 为准，冻结的 legacy 残留
+  不再计入，避免清仓标的产生虚假 sell gap；仅 V2 从未覆盖的
+  legacy-only 标的继续以 legacy 为准
 
 当前读侧检查语义：
 

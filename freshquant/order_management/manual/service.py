@@ -11,12 +11,9 @@ from freshquant.order_management.entry_adapter import (
 )
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_entry_slices,
-    allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
-    arrange_buy_lot,
     arrange_entry,
-    build_buy_lot_from_trade_fact,
     build_position_entry_from_trade_fact,
 )
 from freshquant.order_management.ids import new_entry_slice_id, new_trade_fact_id
@@ -103,17 +100,7 @@ class OrderManagementManualWriteService:
         exit_allocations = []
         if created:
             if side == "buy":
-                buy_lot = build_buy_lot_from_trade_fact(trade_fact)
-                self.repository.insert_buy_lot(buy_lot)
-                lot_slices = arrange_buy_lot(
-                    buy_lot,
-                    lot_amount=lot_amount,
-                    grid_interval=grid_interval,
-                )
-                self.repository.replace_lot_slices_for_lot(
-                    buy_lot["buy_lot_id"],
-                    lot_slices,
-                )
+                # 根①写侧收敛（步骤 5）：manual 导入单写 V2，legacy 三账本冻结。
                 if hasattr(self.repository, "replace_position_entry") and hasattr(
                     self.repository, "replace_entry_slices_for_entry"
                 ):
@@ -166,17 +153,7 @@ class OrderManagementManualWriteService:
                                 ],
                             )
                         self.repository.insert_exit_allocations(exit_allocations)
-                buy_lots = self.repository.list_buy_lots(symbol)
-                open_slices = self.repository.list_open_slices(symbol)
-                sell_allocations = allocate_sell_to_slices(
-                    buy_lots=buy_lots,
-                    open_slices=open_slices,
-                    sell_trade_fact=trade_fact,
-                )
-                for item in buy_lots:
-                    self.repository.replace_buy_lot(item)
-                self.repository.replace_open_slices(open_slices)
-                self.repository.insert_sell_allocations(sell_allocations)
+                # 根①写侧收敛（步骤 5）：manual 卖出单写 V2 exit_allocations。
 
         mark_stock_holdings_projection_updated()
         _sync_stock_fills_compat(symbol, repository=self.repository)
@@ -195,15 +172,7 @@ class OrderManagementManualWriteService:
         symbol = normalize_to_base_code(code)
         deleted_count = 0
 
-        for item in self.repository.list_buy_lots(symbol):
-            if item.get("remaining_quantity", 0) <= 0:
-                continue
-            item["remaining_quantity"] = 0
-            item["status"] = "closed"
-            item["closed_reason"] = "manual_reset"
-            self.repository.replace_buy_lot(item)
-            deleted_count += 1
-
+        # 根①写侧收敛（步骤 5）：reset 只清 V2 主账本；legacy 三账本冻结。
         if hasattr(self.repository, "list_position_entries") and hasattr(
             self.repository, "replace_position_entry"
         ):
@@ -214,15 +183,7 @@ class OrderManagementManualWriteService:
                 item["status"] = "CLOSED"
                 item["closed_reason"] = "manual_reset"
                 self.repository.replace_position_entry(item)
-
-        existing_open_slices = self.repository.list_open_slices(symbol)
-        if existing_open_slices:
-            for item in existing_open_slices:
-                item["remaining_quantity"] = 0
-                item["remaining_amount"] = 0.0
-                item["status"] = "closed"
-                item["closed_reason"] = "manual_reset"
-            self.repository.replace_open_slices(existing_open_slices)
+                deleted_count += 1
 
         if hasattr(self.repository, "list_open_entry_slices") and hasattr(
             self.repository, "replace_entry_slices_for_entry"
@@ -254,55 +215,7 @@ class OrderManagementManualWriteService:
         inserted_count = 0
         for item in grid_items:
             _ensure_board_lot_quantity(item["quantity"])
-            buy_lot = build_buy_lot_from_trade_fact(
-                {
-                    "trade_fact_id": None,
-                    "symbol": symbol,
-                    "side": "buy",
-                    "price": float(item["price"]),
-                    "quantity": int(item["quantity"]),
-                    "amount": float(
-                        item.get(
-                            "amount",
-                            float(item["price"]) * int(item["quantity"]),
-                        )
-                    ),
-                    "date": int(item["date"]),
-                    "time": item.get("time", "09:31:00"),
-                    "trade_time": None,
-                    "source": source,
-                    "name": name,
-                    "stock_code": stock_code,
-                    "amount_adjust": float(item.get("amount_adjust", 1.0)),
-                    "arrange_mode": "manual_locked",
-                }
-            )
-            self.repository.insert_buy_lot(buy_lot)
-            self.repository.replace_lot_slices_for_lot(
-                buy_lot["buy_lot_id"],
-                [
-                    {
-                        "lot_slice_id": f"{buy_lot['buy_lot_id']}:slice:0",
-                        "buy_lot_id": buy_lot["buy_lot_id"],
-                        "slice_seq": 0,
-                        "guardian_price": float(item["price"]),
-                        "original_quantity": int(item["quantity"]),
-                        "remaining_quantity": int(item["quantity"]),
-                        "remaining_amount": float(
-                            item.get(
-                                "amount",
-                                float(item["price"]) * int(item["quantity"]),
-                            )
-                        ),
-                        "sort_key": float(item["price"]),
-                        "date": int(item["date"]),
-                        "time": item.get("time", "09:31:00"),
-                        "symbol": symbol,
-                        "status": "open",
-                        "source": source,
-                    }
-                ],
-            )
+            # 根①写侧收敛（步骤 5）：manual reset 单写 V2 entry/slices。
             if hasattr(self.repository, "replace_position_entry") and hasattr(
                 self.repository, "replace_entry_slices_for_entry"
             ):
