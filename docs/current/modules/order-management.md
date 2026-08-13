@@ -360,6 +360,11 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 
 - `grid_interval` 解析失败时回退 `1.03`
 - `lot_amount` 解析失败时回退 `50000`
+- 运行期解析入口 `_resolve_external_arrangement_runtime` 当前通过显式注入的
+  `lot_resolver` / `grid_interval_resolver` 参数取得解析器；生产默认使用未兜底的
+  原始解析（失败即落 `DEGRADED` + `arrange_runtime_errors` 证据），测试通过
+  `ExternalOrderReconcileService(lot_amount_resolver=..., grid_interval_resolver=...)`
+  注入确定性实现。生产逻辑不再探测模块级函数是否被 monkeypatch 替换。
 
 自动平账对 buy-side `gap` 当前采用“冻结首次价格、持续记录最新观测”的双快照语义：
 

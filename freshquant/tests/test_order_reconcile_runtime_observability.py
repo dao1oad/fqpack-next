@@ -635,18 +635,6 @@ def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
         lambda _symbol, repository=None: None,
         raising=False,
     )
-    monkeypatch.setattr(
-        reconcile_service_module,
-        "_safe_resolve_lot_amount",
-        lambda _symbol: 3000,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        reconcile_service_module,
-        "_safe_grid_interval_lookup",
-        lambda _symbol, _trade_fact: 1.03,
-        raising=False,
-    )
     repository = InMemoryRepository()
     runtime_logger = FakeRuntimeLogger()
     service = ExternalOrderReconcileService(
@@ -655,6 +643,8 @@ def test_confirm_expired_candidates_emits_reconciliation_event(monkeypatch):
         runtime_logger=runtime_logger,
         external_confirm_interval_seconds=15,
         external_confirm_observations=3,
+        lot_amount_resolver=lambda _symbol: 3000,
+        grid_interval_resolver=lambda _symbol, _trade_fact: 1.03,
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],

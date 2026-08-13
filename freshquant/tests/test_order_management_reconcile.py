@@ -453,6 +453,8 @@ def _build_service(
     marks=None,
     mark_label="updated",
     runtime_events=None,
+    lot_resolver=None,
+    grid_resolver=None,
 ):
     if monkeypatch is not None:
         _stub_ingest_side_effects(
@@ -460,6 +462,10 @@ def _build_service(
             marks=marks,
             mark_label=mark_label,
         )
+        # 336/378 行 ingest 路径直接调用 _safe_resolve_lot_amount /
+        # _safe_grid_interval_lookup，仍以 monkeypatch 屏蔽真实解析；
+        # auto-open 编排路径（_resolve_external_arrangement_runtime）改由
+        # 构造参数显式注入，生产逻辑不再探测模块级函数身份。
         monkeypatch.setattr(
             reconcile_service_module,
             "_safe_resolve_lot_amount",
@@ -483,6 +489,14 @@ def _build_service(
             SimpleNamespace(emit=lambda event: runtime_events.append(dict(event)))
             if runtime_events is not None
             else None
+        ),
+        lot_amount_resolver=(
+            lot_resolver if lot_resolver is not None else (lambda _symbol: 50000)
+        ),
+        grid_interval_resolver=(
+            grid_resolver
+            if grid_resolver is not None
+            else (lambda _symbol, _trade_fact: 1.03)
         ),
     )
     return repository, service
@@ -855,7 +869,7 @@ def test_reconcile_matches_external_trade_report_to_existing_candidate(monkeypat
         repository.reconciliation_resolutions[0]["resolution_type"]
         == "matched_execution_fill"
     )
-    assert len(repository.buy_lots) == 1
+    assert len(repository.position_entries) == 1
     assert repository.orders[0]["source_type"] == "broker_only"
     assert repository.orders[0]["internal_order_id"].startswith("ord_broker_")
     assert repository.broker_orders[0]["execution_fence"] is True
@@ -1112,6 +1126,8 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     assert outcome.result["trade_fact"]["broker_trade_id"] == "T90011"
     assert len(repository.trade_facts) == 1
     assert len(repository.execution_fills) == 1
+    # 内部匹配 ingest 链当前写 legacy 三账本（V2 position_entries 尚未在此链
+    # 写入）；随步骤 5 写侧收敛后迁移，步骤 6b 拆表时随 legacy 断言删除。
     assert repository.buy_lots[0]["remaining_quantity"] == 700
     assert (
         sum(
@@ -1119,6 +1135,8 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
         )
         == 700
     )
+    # 该路径当前只写 legacy sell_allocations（V2 exit_allocations 尚未在此链
+    # 写入）；随步骤 5 写侧收敛后迁移，步骤 6b 拆表时随 legacy 断言删除。
     assert len(repository.sell_allocations) == 1
 
 
@@ -1251,6 +1269,8 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
     assert len(repository.entry_slices) > 0
     assert repository.orders == []
     assert repository.trade_facts == []
+    # auto_open 只写 V2：position_entries 已断言；此处保留"不写 legacy 镜像"
+    # 的过渡契约（legacy 双写在步骤 5 停写、步骤 6b 拆表，此断言随表删除）。
     assert repository.buy_lots == []
 
 
@@ -1747,6 +1767,8 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
         item for item in repository.trade_facts if item["side"] == "sell"
     ]
     assert [item["quantity"] for item in sell_trade_facts] == [200]
+    # auto-close 分配链当前写 legacy sell_allocations（V2 exit_allocations
+    # 尚未在此链写入）；随步骤 5 写侧收敛后迁移，步骤 6b 拆表时删除。
     assert len(repository.sell_allocations) > 0
     assert len(repository.reconciliation_resolutions) == 2
 
@@ -2066,18 +2088,6 @@ def test_guardian_sell_source_lookup_queries_recent_window_and_limit(monkeypatch
 
     if monkeypatch is not None:
         _stub_ingest_side_effects(monkeypatch)
-        monkeypatch.setattr(
-            reconcile_service_module,
-            "_safe_resolve_lot_amount",
-            lambda _symbol: 50000,
-            raising=False,
-        )
-        monkeypatch.setattr(
-            reconcile_service_module,
-            "_safe_grid_interval_lookup",
-            lambda _symbol, _trade_fact: 1.03,
-            raising=False,
-        )
     repository = RecordingRepository()
     service = ExternalOrderReconcileService(
         repository=repository,
@@ -2151,15 +2161,11 @@ def test_pending_gap_is_dismissed_when_position_delta_resolves(monkeypatch):
 def test_confirm_expired_candidates_falls_back_to_default_grid_interval_when_resolution_fails(
     monkeypatch,
 ):
-    original_safe_grid_interval_lookup = (
-        reconcile_service_module._safe_grid_interval_lookup
-    )
-    repository, service = _build_service(monkeypatch)
-    monkeypatch.setattr(
-        reconcile_service_module,
-        "_safe_grid_interval_lookup",
-        original_safe_grid_interval_lookup,
-        raising=False,
+    repository, service = _build_service(
+        monkeypatch,
+        grid_resolver=lambda symbol, trade_fact: (
+            reconcile_service_module._default_grid_interval_lookup(symbol, trade_fact)
+        ),
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
@@ -2200,13 +2206,9 @@ def test_confirm_expired_candidates_falls_back_to_default_grid_interval_when_res
 def test_confirm_expired_candidates_falls_back_to_default_lot_amount_when_resolution_fails(
     monkeypatch,
 ):
-    original_safe_resolve_lot_amount = reconcile_service_module._safe_resolve_lot_amount
-    repository, service = _build_service(monkeypatch)
-    monkeypatch.setattr(
-        reconcile_service_module,
-        "_safe_resolve_lot_amount",
-        original_safe_resolve_lot_amount,
-        raising=False,
+    repository, service = _build_service(
+        monkeypatch,
+        lot_resolver=lambda symbol: xt_reports_module._resolve_lot_amount(symbol),
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
@@ -2653,5 +2655,7 @@ def test_confirm_close_gap_empty_candidates_falls_back_without_crash(monkeypatch
     assert len(confirmed) == 1
     assert confirmed[0]["state"] == "AUTO_CLOSED"
     assert confirmed[0]["resolution_type"] == "auto_close_allocation"
+    # 该链当前不写 legacy sell_allocations（与 V2 exit_allocations 双写口径
+    # 一致）；随步骤 6b 拆表时删除此断言。
     assert repository.sell_allocations == []
     assert repository.exit_allocations == []
