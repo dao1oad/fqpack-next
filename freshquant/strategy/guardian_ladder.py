@@ -12,7 +12,8 @@ LadderState 统一管理 3 条买入线（``guardian_buy_grid_states.buy_line_ar
 - 写回采用字段级原子 ``$set`` + ``find_one_and_update``/条件更新，不做
   read→整份写回（防 tpsl tick worker 与 XT ingest 双进程 lost update）；
   联动字段在同一集合内同一次 ``$set`` 写入；跨集合联动按事件顺序执行，
-  冲突时调用方按 tick 路径下一 tick 重试 / ingest 路径事件内有限重试。
+  冲突时事件键已 claim：调用方以新事件键（提交侧新 intent_id / ingest 侧
+  terminal 键有限重试）推进，同事件键不重复处理（A5 注释与实现一致）。
 """
 
 from __future__ import annotations
@@ -231,7 +232,8 @@ class GuardianLadderState:
         """买入线触发（提交买单时）：关 BUY-0..N + 全开止盈档。
 
         条件更新：仅当触发档当前 armed（或文档缺失＝缺省全 armed）时关闭；
-        已被其他进程关闭时返回 False，调用方下一 tick 重试。
+        已被其他进程关闭时返回 False（事件键已 claim，同键不重复处理；
+        调用方以新 intent_id 作为新事件键重试）。
         """
 
         normalized_code = normalize_to_base_code(code)
@@ -353,7 +355,8 @@ class GuardianLadderState:
                 },
             )
             return True
-        # 档位已被其他进程关闭 → 冲突：本轮放弃，调用方下一 tick 重试。
+        # 档位已被其他进程关闭 → 冲突：事件键已 claim，本轮放弃；
+        # 调用方以新事件键（新 intent_id）推进，同键不重复处理（A5 口径）。
         return False
 
     def _ensure_buy_grid_state_document(self, code) -> None:

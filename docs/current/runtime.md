@@ -23,7 +23,9 @@
   `market_value + payload.price * payload.quantity <= effective_limit`。
 - TPSL 止盈订单统一提交 `price_mode=auto`；STOCK 与 CREDIT 在连续竞价时复用
   五档市价解析，其他时段使用限价。
-- 止盈订单成功提交后才关闭本档及更低档；没有可提交数量时保留档位。
+- 止盈订单提交时只关闭**本档**（`on_takeprofit_trigger` 条件更新）；止盈成交时
+  关闭**本档及更低档**（`on_takeprofit_fill`）；没有可提交数量时保留档位
+  （A7 以代码为真值口径）。
 - TPSL tick 处理顺序为「买入线评估（仅 `ready` 提交买单并终止本 tick）→ 止盈评估」；
   买入线 `skipped` 不阻断双集合标的（同时命中止盈 universe）的后续
   评估，buy-line-only 标的本 tick 终止（#549 双集合隔离）。

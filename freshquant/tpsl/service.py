@@ -582,7 +582,8 @@ class TpslService:
             event_key=intent_id,
         )
         if not triggered:
-            # 已被其他进程/事件处理：本轮放弃（下一 tick 重试）。
+            # 已被其他进程/事件处理：事件键已 claim，本轮放弃；
+            # 下一 tick 以新 intent_id 作为新事件键重试（A5 口径）。
             return {
                 "status": "blocked",
                 "symbol": symbol,

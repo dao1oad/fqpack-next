@@ -45,7 +45,9 @@ fail-closed。先解析归属后聚类，禁止跨账本聚合，聚合成员携
   - 买入线触发（提交买单时）→ 关 BUY-N 及以上 + **全开止盈档**；
   - 止盈卖出成交 → 关 TP-1..TP-N + **全开买入线**（重激活后不当场评估，下一 tick）；
   - 零成交终态（撤单/废单/部分撤单未成交部分）→ 重开对应档位，按 `broker_order_id`/`intent_id`/`internal_order_id` 幂等；
-  - 事件冲突：tick 路径下一 tick 重试；XT ingest 路径当前事件内有限重试并记录告警。
+  - 事件冲突：事件键已 claim，同键不重复处理；tick 路径下一 tick 以新
+    `intent_id` 作为新事件键重试；XT ingest 路径当前事件内以 terminal 键
+    有限重试并记录告警（A5 口径）。
 - 幂等/并发契约（路线步骤 4，根④）：
   - `stock_signals` 建立唯一索引 `uq_stock_signals_signal_key`
     `(symbol, code, period, fire_time, position)`；建索引前自动清理历史重复
@@ -131,7 +133,9 @@ Guardian 持仓加仓数量（`build_holding_add_decision`）按价格四段走�
   - 可卖判定：`normalized_signal_price >= threshold_price`；信号价先按 `0.01` 最小价位规范化（`Decimal` + `ROUND_HALF_UP`），阈值保留 `0.0001` 精度，不再依赖二进制 float 的 `>` 处理 `21.580000000000002 > 21.58` 边界
   - 返回值含 `raw_quantity / eligible_slices / threshold_evidence`，逐 slice 证据写入 `price_threshold_check` / `quantity_check` 的 Trace
 - `_handle_sell` 只有至少一个 slice 达到独立阈值（`raw_quantity > 0`）才进入后续流程；随后统一按 `xt_positions.can_use_volume` 截断并按一手向下取整；只有 `sellable_volume_check` 通过后才继续冷却判断和下单提交
-- mount 过滤：可卖金额（Σ 可卖 T slice 剩余 × 当前价）< `get_trade_amount`（mount，默认 50000）→ 本次不卖，可卖 slices 保留，不消耗 `sell:<code>` 冷却
+- mount 过滤：可卖金额（Σ 可卖 T slice 剩余 × 当前信号价）<
+  `get_trade_amount`（mount，默认 50000）→ 本次不卖，可卖 slices 保留，
+  不消耗 `sell:<code>` 冷却（A1 以代码为真值：金额按当前价而非买入成本价）
 - `_handle_sell` 提交卖单时写入 `guardian_sell_sources` **version=2** 来源计划：`slices[]`（精确执行合同，每 slice 一行，携带 `entry_slice_id / guardian_price / threshold_price`）+ `entries[]`（按 entry 聚合唯一行）；来源计划只包含达到独立阈值的 slice，`sum(slices.quantity) == sum(entries.quantity) == submit_quantity`
 - 历史 v1 请求（只有 `entries[]`，无 `entry_slice_id`）由 Order Management 按 entry 级剩余预算兼容处理
 

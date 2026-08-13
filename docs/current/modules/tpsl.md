@@ -5,7 +5,10 @@
 TPSL 在独立 tick 链路上评估止盈条件，并生成退出单。止损触发功能已随 Issue #603 整体下线（路线步骤 2 PR-2a），三条 BUY 抄底线承担补仓职责：
 
 - 止盈按 symbol profile 管理
-- 止盈命中档位但当前可盈利切片数量为 `0` 时，仍会消耗命中档位并写 `takeprofit_hit`，但不会生成退出单
+- 止盈命中档位但当前可盈利切片数量为 `0` 时，**不消耗命中档位**（档位保留，
+  `trigger_consumed=False`，与 runtime.md 一致；B4/S1 口径裁定），只写
+  Runtime Trace `trigger_eval`（skipped，`no_submittable_quantity`），
+  不写 `takeprofit_hit`、不生成退出单
 - 历史与详情优先读取 `entry ledger`
 - 止盈卖出提交前会统一按 `xt_positions.can_use_volume` 截断，并按一手向下取整；Guardian 卖出现在复用同一套约束 helper
 - tick listener 在北京时间 `09:30:00` 前不响应 tick 事件，不评估止盈/买入线，也不生成退出单或 Runtime Trace
@@ -15,6 +18,12 @@ TPSL 在独立 tick 链路上评估止盈条件，并生成退出单。止损触
 - TPSL 提交时显式写 `om_order_requests.ledger_intent`：买入线（base_line）
   与止盈卖出 → `base`；`guardian_sell_sources` 仅作为
   止盈分配书签保留，不参与归属判定（#571）。
+
+止盈档关闭时机（A7 以代码为真值，步骤 8）：止盈**提交**时只关闭本档
+（`on_takeprofit_trigger`）；止盈**成交**时关闭本档及更低档
+（`on_takeprofit_fill`）；命中但无可提交数量时档位保留（B4/S1 口径，
+`trigger_consumed=False`）。交易参数单一真值见
+`docs/current/reference/trading-parameters.md`（由测试引用断言）。
 
 买入线提交侧容量复核（路线步骤 3，根②，fail-closed 三分）：
 - 决策缺少 `effective_stage_cap` → 阻断，`blocked_reason=base_buy_cap_missing`

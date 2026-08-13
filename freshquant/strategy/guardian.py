@@ -51,6 +51,8 @@ from freshquant.util.datetime_helper import fq_util_datetime_localize
 
 order_alert = signal("order_alert")
 MUST_POOL_5M_NEW_OPEN_TAG = "must_pool_5m_new_open"
+BUY_COOLDOWN_TIMEDELTA = timedelta(minutes=15)
+SELL_COOLDOWN_TIMEDELTA = timedelta(minutes=15)
 
 
 class StrategyGuardian(metaclass=SingletonType):
@@ -640,7 +642,9 @@ class StrategyGuardian(metaclass=SingletonType):
                 "cooldown": {
                     "key": cooldown_key,
                     "active": cooldown_active,
-                    "cooldown_minutes": 15,
+                    "cooldown_minutes": int(
+                        BUY_COOLDOWN_TIMEDELTA.total_seconds() // 60
+                    ),
                 }
             }
             if cooldown_active:
@@ -779,7 +783,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 )
                 return
 
-            redis_db.set(f"buy:{code}", "1", timedelta(minutes=15))
+            redis_db.set(f"buy:{code}", "1", BUY_COOLDOWN_TIMEDELTA)
         except Exception as exc:
             if not is_exception_emitted(exc):
                 self._emit_unexpected_exception(
@@ -986,10 +990,11 @@ class StrategyGuardian(metaclass=SingletonType):
 
             # mount 过滤（#549）：可卖金额 < mount → 本次不卖，可卖 slices
             # 保留，不消耗 sell:<code> 冷却。
+            # A1（步骤 8）：可卖金额按当前信号价计算（Σ 可卖 T slice 剩余 ×
+            # 当前价），不再按买入成本价低估。
             mount_amount = int(get_trade_amount(code) or 0)
             sellable_amount = sum(
-                int(item.get("eligible_quantity") or 0)
-                * float(item.get("guardian_price_normalized") or 0.0)
+                int(item.get("eligible_quantity") or 0) * float(price)
                 for item in sell_evaluation["eligible_slices"]
             )
             if mount_amount > 0 and sellable_amount < mount_amount:
@@ -1168,7 +1173,9 @@ class StrategyGuardian(metaclass=SingletonType):
                 "cooldown": {
                     "key": cooldown_key,
                     "active": cooldown_active,
-                    "cooldown_minutes": 15,
+                    "cooldown_minutes": int(
+                        SELL_COOLDOWN_TIMEDELTA.total_seconds() // 60
+                    ),
                 }
             }
             if cooldown_active:
@@ -1277,7 +1284,7 @@ class StrategyGuardian(metaclass=SingletonType):
                 )
                 return
 
-            redis_db.set(f"sell:{code}", "1", timedelta(minutes=15))
+            redis_db.set(f"sell:{code}", "1", SELL_COOLDOWN_TIMEDELTA)
             queue_payload = (submit_result or {}).get("queue_payload") or {}
             if queue_payload.get("position_management_force_profit_reduce"):
                 logger.info(
