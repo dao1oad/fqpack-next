@@ -29,6 +29,11 @@
 ## 当前订单相关语义
 
 - 止损绑定、全仓止损价与单笔止损编辑已随 Issue #603 整体下线
+- 旧页面写接口已随 Issue #606 整体下线：`/api/plan_grid_trade`、`/api/stock_fills/reset`、
+  `/api/create_stock_position`、`/api/update_stock_position`、`/api/update_stock_position_status`、
+  `/api/create_position`、`/api/update_position`、`/api/update_position_status` 均不再提供；
+  `/kline-big` 与 `/multi-period` 页面保留，但不再包含“网格”工具入口；`FuturePositionList` 持仓列表改为只读，
+  持仓创建/编辑/状态变更界面已移除；`/api/stock_fills` 查询与 `/api/stock_hold_position` 只读接口保持不变
 - 标的设置浮层详情返回 `entries`，不再依赖 `buy_lots`
 - 标的设置浮层当前固定合并三组卡片：
   - `止盈价格`

@@ -135,8 +135,6 @@
     <!--持仓区域-->
     <el-divider content-position="center">持仓列表</el-divider>
     <FuturePositionList
-      :futureSymbolList="futureSymbolList"
-      :futureSymbolMap="futureSymbolMap"
       :marginLevelCompany="marginLevelCompany"
       :globalFutureSymbol="globalFutureSymbol"
     ></FuturePositionList>

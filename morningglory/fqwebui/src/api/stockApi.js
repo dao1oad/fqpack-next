@@ -86,16 +86,6 @@ export const stockApi = {
       params: { page, size }
     })
   },
-  // 持仓操作
-  // 新增一个持仓
-  createPosition (data) {
-    const url = '/api/create_stock_position'
-    return http({
-      url,
-      method: 'post',
-      data
-    })
-  },
   // 查询单个持仓
   getPosition (symbol, period, status) {
     const url = `/api/get_stock_position?symbol=${symbol}&period=${period}&status=${status}`
@@ -115,23 +105,6 @@ export const stockApi = {
   getHoldingPositionList () {
     return http({
       url: '/api/get_stock_position_list',
-      method: 'get'
-    })
-  },
-  // 更新持仓
-  updatePosition (data) {
-    const url = '/api/update_stock_position'
-    return http({
-      url,
-      method: 'post',
-      data
-    })
-  },
-  // 更新持仓状态
-  updatePositionStatus (id, status) {
-    const url = `/api/update_stock_position_status?id=${id}&status=${status}`
-    return http({
-      url,
       method: 'get'
     })
   },
@@ -189,25 +162,11 @@ export const stockApi = {
       }
     })
   },
-  planGridTrade (data) {
-    return http({
-      url: '/api/plan_grid_trade',
-      method: 'get',
-      params: data
-    })
-  },
   query_stock_fills (symbol) {
     return http({
       url: '/api/stock_fills',
       method: 'get',
       params: { symbol }
-    })
-  },
-  resetStockFills (data) {
-    return http({
-      url: '/api/stock_fills/reset',
-      method: 'post',
-      data
     })
   },
   get_stock_hold_position(code) {

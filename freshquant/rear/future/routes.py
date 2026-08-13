@@ -1,12 +1,14 @@
-from flask import Blueprint, Response, request
-import freshquant.rear.future.cn_future as cn_future
-from func_timeout import func_timeout
-from freshquant.signal.BusinessService import BusinessService
-from freshquant.util.encoder import FqJsonEncoder
 import json
 
+from flask import Blueprint, Response, request
+from func_timeout import func_timeout
+
+import freshquant.rear.future.cn_future as cn_future
+from freshquant.signal.BusinessService import BusinessService
+from freshquant.util.encoder import FqJsonEncoder
 
 future_bp = Blueprint('future', __name__, url_prefix='/api')
+
 
 # 获取期货的持仓数据
 @future_bp.route("/queryFuturePositions")
@@ -83,37 +85,6 @@ def get_change_list():
     return Response(
         json.dumps(changeListResult, cls=FqJsonEncoder), mimetype="application/json"
     )
-
-
-# 新增持仓信息
-@future_bp.route("/create_position", methods=["POST"])
-def create_position():
-    position = request.json
-    inserted_id = func_timeout(30, BusinessService().createPosition, args=(position,))
-    res = {"id": str(inserted_id)}
-    return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
-
-
-# 更新持仓信息
-@future_bp.route("/update_position", methods=["POST"])
-def update_position():
-    position = request.json
-    func_timeout(30, BusinessService().updatePosition, args=(position,))
-    res = {"code": "ok"}
-    return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
-
-
-# 更新持仓状态
-@future_bp.route("/update_position_status")
-def update_position_status():
-    id = request.args.get("id")
-    status = request.args.get("status")
-    close_price = request.args.get("close_price")
-    func_timeout(
-        30, BusinessService().updatePositionStatus, args=(id, status, close_price)
-    )
-    res = {"code": "ok"}
-    return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
 
 
 # 查询持仓列表

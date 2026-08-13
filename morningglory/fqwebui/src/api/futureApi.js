@@ -106,16 +106,6 @@ export const futureApi = {
       method: 'get'
     })
   },
-  // 持仓操作
-  // 新增一个持仓
-  createPosition (data) {
-    const url = '/api/create_position'
-    return http({
-      url,
-      method: 'post',
-      data
-    })
-  },
   // 查询单个持仓
   getPosition (symbol, period, status, direction) {
     const url = `/api/get_position?symbol=${symbol}&period=${period}&status=${status}&direction=${direction}`
@@ -127,31 +117,6 @@ export const futureApi = {
   // 查询持仓列表
   getPositionList (status, page, size, endDate) {
     const url = `/api/get_position_list?status=${status}&page=${page}&size=${size}&endDate=${endDate}`
-    return http({
-      url,
-      method: 'get'
-    })
-  },
-  // 更新持仓
-  updatePosition (data) {
-    const url = '/api/update_position'
-    return http({
-      url,
-      method: 'post',
-      data
-    })
-  },
-  // 更新持仓状态
-  // updatePositionStatus (id, status) {
-  //     let url = `/api/update_position_status?id=${id}&status=${status}`
-  //     return axios({
-  //         url: url,
-  //         method: 'get'
-  //     })
-  // },
-  // 更新自动录入的持仓列表
-  updatePositionStatus (id, status, close_price) {
-    const url = `/api/update_position_status?id=${id}&status=${status}&close_price=${close_price}`
     return http({
       url,
       method: 'get'
