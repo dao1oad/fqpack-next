@@ -95,7 +95,9 @@ def create_stock_order():
             amount = float(amount)
         except (TypeError, ValueError):
             return jsonify({"error": "amount must be positive"}), 400
-        quantity = int(amount / price / 100) * 100
+        from freshquant.trading.board_lot import quantity_for_amount
+
+        quantity = quantity_for_amount(amount, price, code=symbol)
     else:
         try:
             quantity = int(quantity)

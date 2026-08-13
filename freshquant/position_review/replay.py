@@ -12,6 +12,7 @@ from freshquant.order_management.guardian.slice_evaluation import (
     evaluate_guardian_sell_slices,
 )
 from freshquant.order_management.ledger_resolver import is_takeprofit_request
+from freshquant.trading.board_lot import quantity_for_amount
 
 _BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 VERDICTS = (
@@ -478,11 +479,13 @@ def _review_guardian_buy(*, request, context, expected, reason_codes):
         if initial_amount is None or source_price is None:
             reason_codes.append("buy_snapshot_incomplete")
             return "INSUFFICIENT_EVIDENCE"
-        expected_quantity = floor(initial_amount / source_price / 100) * 100
+        expected_quantity = quantity_for_amount(
+            initial_amount, source_price, code=str(context.get("symbol") or "")
+        )
         expected.update(
             {
                 "quantity": int(expected_quantity),
-                "formula": "floor(initial_amount / source_price / 100) * 100",
+                "formula": "quantity_for_amount(initial_amount, source_price)",
                 "initial_amount": initial_amount,
                 "source_price": source_price,
                 "grid_level": context.get("grid_level"),
@@ -495,13 +498,15 @@ def _review_guardian_buy(*, request, context, expected, reason_codes):
         if base_amount is None or multiplier is None or source_price is None:
             reason_codes.append("buy_snapshot_incomplete")
             return "INSUFFICIENT_EVIDENCE"
-        expected_quantity = floor((base_amount * multiplier) / source_price / 100) * 100
+        expected_quantity = quantity_for_amount(
+            base_amount * multiplier,
+            source_price,
+            code=str(context.get("symbol") or ""),
+        )
         expected.update(
             {
                 "quantity": int(expected_quantity),
-                "formula": (
-                    "floor(base_amount * multiplier / source_price / 100) * 100"
-                ),
+                "formula": "quantity_for_amount(base_amount * multiplier, source_price)",
                 "base_amount": base_amount,
                 "multiplier": multiplier,
                 "source_price": source_price,
@@ -669,8 +674,11 @@ def _review_guardian_sell(
         else None
     )
     if can_use_volume is not None:
-        expected_quantity = (
-            floor(min(raw_expected_quantity, can_use_volume) / 100) * 100
+        from freshquant.order_management.sell_constraints import floor_to_board_lot
+
+        expected_quantity = floor_to_board_lot(
+            min(raw_expected_quantity, can_use_volume),
+            code=str(context.get("symbol") or ""),
         )
     elif raw_expected_quantity > 0:
         snapshot_raw = _int(context.get("requested_quantity"))

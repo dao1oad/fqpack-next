@@ -54,7 +54,7 @@ class OrderManagementManualWriteService:
         side = _normalize_side(op)
         symbol = normalize_to_base_code(code)
         normalized_quantity = int(quantity)
-        _ensure_board_lot_quantity(normalized_quantity)
+        _ensure_board_lot_quantity(normalized_quantity, code=symbol)
         traded_at = _normalize_datetime(dt)
         instrument = instrument or {}
         lot_amount = lot_amount or _resolve_lot_amount(symbol)
@@ -214,7 +214,7 @@ class OrderManagementManualWriteService:
 
         inserted_count = 0
         for item in grid_items:
-            _ensure_board_lot_quantity(item["quantity"])
+            _ensure_board_lot_quantity(item["quantity"], code=symbol)
             # 根①写侧收敛（步骤 5）：manual reset 单写 V2 entry/slices。
             if hasattr(self.repository, "replace_position_entry") and hasattr(
                 self.repository, "replace_entry_slices_for_entry"
@@ -324,11 +324,14 @@ def _build_manual_trade_id(*, source, symbol, side, traded_at, quantity, price):
     )
 
 
-def _ensure_board_lot_quantity(quantity):
-    normalized = int(quantity)
-    if normalized <= 0 or normalized % 100 != 0:
-        raise ValueError("quantity must be a positive board-lot multiple of 100")
-    return normalized
+def _ensure_board_lot_quantity(quantity, *, code=""):
+    # 根⑤：整手规则统一走 trading.board_lot。
+
+    from freshquant.trading.board_lot import is_board_lot_quantity
+
+    if not is_board_lot_quantity(quantity, code=code):
+        raise ValueError("quantity must be a positive board-lot multiple")
+    return int(quantity)
 
 
 def _build_manual_import_entry(trade_fact, *, position_type=POSITION_TYPE_BASE):

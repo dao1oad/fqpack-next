@@ -286,7 +286,6 @@ def test_guardian_zero_quantity_uses_grid_skip_reason_and_cap_context(
         price=signal["price"],
         remark=signal["remark"],
         decision=decision,
-        set_new_open_cooldown=False,
         quantity_reason_code="quantity_invalid",
         submit_branch="holding_add",
     )
@@ -358,7 +357,6 @@ def test_guardian_successful_buy_carries_cap_decision_strategy_context(
         price=signal["price"],
         remark=signal["remark"],
         decision=decision,
-        set_new_open_cooldown=False,
         quantity_reason_code="quantity_invalid",
         submit_branch="holding_add",
     )
@@ -525,7 +523,10 @@ def test_guardian_holding_buy_execution_fill_threshold_rule(
     assert finish_event["reason_code"] == "price_threshold_not_met"
 
 
-def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch):
+def test_guardian_new_open_buy_without_global_cooldown_proceeds(monkeypatch):
+    """D2（Issue #604，步骤 7）：15 分钟全局首开冷却已删除，
+    首开只保留单标的 buy:<code> 冷却（在 submit 侧检查）。"""
+
     runtime_logger = FakeRuntimeLogger()
     guardian = StrategyGuardian()
     guardian.runtime_logger = runtime_logger
@@ -533,8 +534,6 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
     signal["tags"] = [guardian_module.MUST_POOL_5M_NEW_OPEN_TAG]
 
     fake_redis = FakeRedis()
-    fake_redis.data["fq:xtrade:last_new_order_time"] = "2026-03-09 10:00:00"
-
     monkeypatch.setattr(
         "freshquant.strategy.guardian.get_guardian_buy_grid_service",
         lambda: FakeGuardianBuyGridService(),
@@ -558,40 +557,28 @@ def test_guardian_new_open_buy_cooldown_emits_structured_skip_finish(monkeypatch
     )
     monkeypatch.setattr(
         "freshquant.strategy.guardian.submit_guardian_order",
-        lambda *args, **kwargs: None,
+        lambda *args, **kwargs: {"request_id": "req_d2_1"},
     )
 
     guardian.on_signal(signal)
 
-    scope_event = next(
-        event
-        for event in runtime_logger.events
-        if event["node"] == "holding_scope_resolve"
-    )
-    cooldown_event = next(
+    cooldown_events = [
         event for event in runtime_logger.events if event["node"] == "cooldown_check"
+    ]
+    # 只保留单标的 buy:<code> 冷却（submit 侧检查），全局键不再出现
+    assert len(cooldown_events) >= 1
+    assert all(
+        event["decision_context"]["cooldown"]["key"].startswith("buy:")
+        for event in cooldown_events
     )
-    finish_event = next(
-        event for event in runtime_logger.events if event["node"] == "finish"
+    assert any(event["node"] == "quantity_check" for event in runtime_logger.events)
+    assert any(event["node"] == "submit_intent" for event in runtime_logger.events)
+    assert not any(
+        ("fq:xtrade:" + "last_" + "new_order_time") in event.get("payload", {})
+        or ("fq:xtrade:" + "last_" + "new_order_time")
+        in str(event.get("decision_context", {}))
+        for event in runtime_logger.events
     )
-
-    assert scope_event["decision_branch"] == "must_pool_5m_new_open_buy"
-    assert (
-        scope_event["decision_context"]["scope"]["has_must_pool_5m_new_open_tag"]
-        is True
-    )
-    assert cooldown_event["signal_summary"]["code"] == signal["code"]
-    assert (
-        cooldown_event["decision_context"]["cooldown"]["key"]
-        == "fq:xtrade:last_new_order_time"
-    )
-    assert cooldown_event["decision_context"]["cooldown"]["active"] is True
-    assert cooldown_event["decision_outcome"]["outcome"] == "skip"
-    assert cooldown_event["reason_code"] == "new_open_cooldown_active"
-
-    assert finish_event["decision_outcome"]["outcome"] == "skip"
-    assert finish_event["reason_code"] == "new_open_cooldown_active"
-    assert finish_event["status"] == "skipped"
 
 
 @pytest.mark.parametrize(

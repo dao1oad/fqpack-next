@@ -185,7 +185,14 @@ Guardian buy grid 当前区分两类语义：
   - `base_buy:<code>`（买入线，与 T 侧隔离）
   - `buy:<code>`
   - `sell:<code>`
-  - `fq:xtrade:last_new_order_time`
+
+15 分钟全局首开冷却已随 Issue #604 删除（路线步骤 7，D2）；
+新开仓只受单标的 `buy:<code>` 冷却约束。
+
+整手规则（路线步骤 7，根⑤/S3）：交易参数调用点统一走
+`freshquant.trading.board_lot` helper——科创板（688/689）按上交所规则
+买入 ≥200 股、1 股递增；其余 A 股 100 股整手。卖出侧对 <200 股科创板
+余量按保守 0 处理（与 A 股不足一手余量行为对称；当前 OM 账本无科创板持仓）。
 
 Guardian 对旧信号有 30 分钟时间窗限制；信号太旧会直接跳过。
 
@@ -296,7 +303,9 @@ python -m freshquant.signal.astock.job.monitor_stock_zh_a_min --mode event
 ### 新开仓长期不生效
 
 - 检查 `queryMustPoolCodes` 60 秒 TTL 到期后的 enabled 池结果
-- 检查 `fq:xtrade:last_new_order_time` 是否还在冷却窗口
+- 检查单标的 `buy:<code>` 是否还在冷却窗口
+- 检查该成员是否已过期/被 disabled（`must_pool` 的 `expire_at` / `memberships.expire_at`
+  与 `disabled` 字段，步骤 7 D1/S4：非 active 成员不可 5m 首开）
 - 检查 buy grid 计算出的 `quantity` 是否为 0
 
 ### 卖出后继续沿用旧层级

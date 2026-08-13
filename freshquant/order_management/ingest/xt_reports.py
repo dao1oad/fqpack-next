@@ -177,7 +177,9 @@ class OrderManagementXtIngestService:
                 }
 
             if trade_fact["side"] == "buy":
-                if not _is_board_lot_quantity(trade_fact.get("quantity")):
+                if not _is_board_lot_quantity(
+                    trade_fact.get("quantity"), code=trade_fact.get("symbol")
+                ):
                     _record_ingest_rejection(
                         self.repository,
                         trade_fact=trade_fact,
@@ -223,7 +225,9 @@ class OrderManagementXtIngestService:
                             "tpsl_rearm": "base",
                         }
             elif trade_fact["side"] == "sell":
-                if not _is_board_lot_quantity(trade_fact.get("quantity")):
+                if not _is_board_lot_quantity(
+                    trade_fact.get("quantity"), code=trade_fact.get("symbol")
+                ):
                     _record_ingest_rejection(
                         self.repository,
                         trade_fact=trade_fact,
@@ -843,12 +847,12 @@ def _resolve_lot_amount(symbol):
     return get_trade_amount(stock_code)
 
 
-def _is_board_lot_quantity(quantity):
-    try:
-        normalized = int(quantity or 0)
-    except (TypeError, ValueError):
-        return False
-    return normalized > 0 and normalized % 100 == 0
+def _is_board_lot_quantity(quantity, *, code=""):
+    # 根⑤：整手规则统一走 trading.board_lot。
+
+    from freshquant.trading.board_lot import is_board_lot_quantity
+
+    return is_board_lot_quantity(quantity, code=code)
 
 
 def _record_ingest_rejection(repository, *, trade_fact, reason_code):

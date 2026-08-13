@@ -985,7 +985,6 @@ const appendGuardianContextItemsByType = (items, context = {}, type = '') => {
   if (normalizedType === 'cooldown') {
     appendHoverItem(items, '冷却键', context?.key)
     appendHoverItem(items, '命中冷却', context?.active, { formatter: formatBooleanLikeLabel })
-    appendHoverItem(items, '上次值', context?.last_value)
     appendHoverItem(items, '冷却分钟', context?.cooldown_minutes)
     return
   }
@@ -994,7 +993,6 @@ const appendGuardianContextItemsByType = (items, context = {}, type = '') => {
     appendHoverItem(items, '路径', context?.path)
     appendHoverItem(items, '网格层级', context?.grid_level)
     appendHoverItem(items, '来源价格', context?.source_price)
-    appendHoverItem(items, '设置开仓冷却', context?.set_new_open_cooldown, { formatter: formatBooleanLikeLabel })
     appendHoverItem(items, '盈利成交数', context?.profitable_fill_count)
     appendHoverItem(items, '成交次数', context?.fill_count)
     return

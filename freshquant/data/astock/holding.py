@@ -193,9 +193,16 @@ def accArrangedStockTrades(acc: List, cur: Dict, lotAmount: int):
     if "买" in cur["op"]:
         if cur["amount"] > lotAmount:
             item = json_util.loads(json_util.dumps(cur))
-            quantity = int(lotAmount / item["price"] / 100) * 100
+            from freshquant.trading.board_lot import (
+                quantity_for_amount,
+                resolve_board_lot,
+            )
+
+            quantity = quantity_for_amount(
+                lotAmount, item["price"], code=str(cur.get("symbol") or "")
+            )
             if quantity == 0:
-                quantity = 100
+                quantity = resolve_board_lot(code=str(cur.get("symbol") or ""))
             if quantity == item["quantity"]:
                 acc = insertStockPosition(acc, item)
             else:
