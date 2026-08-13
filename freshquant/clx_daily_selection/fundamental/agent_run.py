@@ -13,20 +13,60 @@ codex 可执行文件可通过 `--codex-bin` 或环境变量 `FQ_FUNDAMENTAL_COD
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
 DEFAULT_SKILL_ROOT = pathlib.Path(
     r"C:/Users/Administrator/.codex/skills/a-share-fundamental-analysis"
 )
+TEMPLATE_DIR = pathlib.Path(__file__).parent / "prompt_templates"
+DEFAULT_TEMPLATE = TEMPLATE_DIR / "standard_deep_v6.txt"
 
 
 def build_prompt(
     symbol: str, spec: pathlib.Path, skill_root: pathlib.Path, output: pathlib.Path
 ) -> str:
     spec_text = spec.read_text(encoding="utf-8") if spec.is_file() else ""
+    template = DEFAULT_TEMPLATE
+    compact_path = output.parent.parent / "data" / f"compact_{symbol}.json"
+    if template.is_file() and compact_path.is_file():
+        run_dir = output.parent.parent
+        analysis_path = run_dir / "data" / f"analysis_{symbol}.json"
+        as_of = ""
+        match = re.search(r"as-of[:：]\s*([0-9TZ+:.+-]+)", spec_text)
+        if match:
+            as_of = match.group(1).strip()
+        default_as_of = ""
+        match_dir = re.search(r"clx-(\d{4}-\d{2}-\d{2})", str(run_dir))
+        if match_dir:
+            from .compact import latest_report_period
+
+            trade_date = match_dir.group(1)
+            month = int(trade_date[5:7])
+            year = int(trade_date[:4])
+            if month <= 4:
+                default_as_of = f"{year - 1}-12-31T15:00:00+08:00"
+            elif month <= 8:
+                default_as_of = f"{year}-03-31T15:00:00+08:00"
+            elif month <= 10:
+                default_as_of = f"{year}-06-30T15:00:00+08:00"
+            else:
+                default_as_of = f"{year}-09-30T15:00:00+08:00"
+        if not as_of:
+            as_of = default_as_of or "2026-08-12T15:00:00+08:00"
+        return template.read_text(encoding="utf-8").format(
+            symbol=symbol,
+            run_dir=run_dir,
+            compact_path=compact_path,
+            analysis_path=analysis_path,
+            output_path=output,
+            as_of=as_of,
+            skill_root=skill_root,
+        )
     return (
         f"你是 A 股标准单股深析执行器（CLX 基本面评价自动主链）。\n"
         f"请先读取技能说明 {skill_root}/SKILL.md 及其 references 子文档，"
@@ -84,6 +124,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"AGENT_RUN_ERROR spec missing: {spec}", file=sys.stderr)
         return 4
     output.parent.mkdir(parents=True, exist_ok=True)
+    run_dir = output.parent.parent
+    analysis_path = run_dir / "data" / f"analysis_{args.symbol}.json"
     command = [
         codex_bin,
         "exec",
@@ -97,18 +139,37 @@ def run(args: argparse.Namespace) -> int:
         prompt,
     ]
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=str(spec.parent.parent),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=args.timeout,
+            encoding="utf-8",
+            errors="replace",
         )
-    except subprocess.TimeoutExpired:
-        print(
-            f"AGENT_RUN_ERROR timeout after {args.timeout}s: {symbol}", file=sys.stderr
-        )
-        return 5
+        try:
+            stdout, stderr = process.communicate(timeout=args.timeout)
+            result = subprocess.CompletedProcess(
+                command, process.returncode, stdout, stderr
+            )
+        except subprocess.TimeoutExpired:
+            # Windows 下 Popen 超时只杀直接子进程，孙进程会残留并占用
+            # opencodex 代理连接（并发放大因素）；用 taskkill /T 杀整棵进程树。
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+            )
+            print(
+                f"AGENT_RUN_ERROR timeout after {args.timeout}s (tree killed): "
+                f"{symbol}",
+                file=sys.stderr,
+            )
+            return 5
+    except OSError as exc:
+        print(f"AGENT_RUN_ERROR spawn failed: {exc}", file=sys.stderr)
+        return 8
     if result.returncode != 0:
         print(
             f"AGENT_RUN_ERROR exit={result.returncode} symbol={symbol}\n"
@@ -116,6 +177,40 @@ def run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return result.returncode
+    if analysis_path.is_file():
+        # v6 组装：模型只写 analysis json，输出由固定脚本确定性生成并校验。
+        # 无条件（幂等覆盖）执行：即使上次 attempt 已写出产物，也以本次
+        # analysis 为准重建，避免非法/过期产物阻断重试自愈。
+        write_cmd = [
+            sys.executable,
+            str(pathlib.Path(__file__).parent / "write_output.py"),
+            "--run-dir",
+            str(run_dir),
+            "--symbol",
+            symbol,
+            "--analysis",
+            str(analysis_path.relative_to(run_dir)),
+            "--out",
+            str(output.relative_to(run_dir)),
+        ]
+        try:
+            wresult = subprocess.run(
+                write_cmd,
+                cwd=str(run_dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"AGENT_RUN_ERROR write_output timeout: {symbol}", file=sys.stderr)
+            return 7
+        if wresult.returncode != 0:
+            print(
+                f"AGENT_RUN_ERROR write_output exit={wresult.returncode} symbol={symbol}\n"
+                f"{wresult.stdout[-2000:]}\n{wresult.stderr[-2000:]}",
+                file=sys.stderr,
+            )
+            return wresult.returncode
     if not output.is_file():
         print(f"AGENT_RUN_ERROR output missing after agent: {output}", file=sys.stderr)
         return 6

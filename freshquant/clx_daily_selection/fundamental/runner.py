@@ -15,13 +15,22 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import os
 import pathlib
 import shutil
+import sys
 import urllib.request
 from typing import Any
 
+from .compact import (
+    build_compact,
+    latest_report_period,
+    merge_compact_metrics,
+    write_compact,
+)
 from .contracts import (
     ANALYSIS_DIR_NAME,
+    DEEP_TIER_LIMIT,
     INPUT_JSON_NAME,
     INPUT_SCHEMA_VERSION,
     LATEST_SCHEMA_VERSION,
@@ -35,6 +44,7 @@ from .contracts import (
     TIER_SNAPSHOT,
     VALIDATION_JSON_NAME,
 )
+from .data_fetch import fetch_business, fetch_financials, write_symbol_files
 from .deep_analysis import (
     load_analysis_docs,
     merge_deep_docs,
@@ -44,6 +54,7 @@ from .deep_analysis import (
 )
 from .evidence import EvidenceCache, clean_text, normalize_symbol
 from .history import apply_consecutive_counts
+from .local_quotes import build_local_quotes_payload, write_quotes_file
 from .quick_rank import (
     compute_quick_rank,
     ranking_payload,
@@ -269,6 +280,166 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_data(args: argparse.Namespace) -> None:
+    """多源数据包：本机行情 + 财务/业务（akshare/baostock）+ compact 预聚合。
+
+    prepare 之后、rank 之前调用。产出 run_dir/data/：
+      quotes_local_<date>.json        本机行情（全部 pure-buy）
+      financials_<symbol>.json        财务摘要/指标/季频（多源降级）
+      business_<symbol>.json          公司概况/主营构成/业绩预告
+      compact_<symbol>.json           深析单文件（30 指标×6 期 + 增速 + 主营）
+      data_report.json                每只成功/失败/来源
+
+    单只失败不阻塞：compact 用可用部分生成，快排回退 THS 指标，深析由 agent
+    按 evidence_gap 纪律处理。
+    """
+    run_dir = default_run_dir(args.run_dir)
+    input_path = run_dir / INPUT_JSON_NAME
+    if not input_path.is_file():
+        raise SystemExit(f"missing input: {input_path} (run prepare first)")
+    input_payload = json.loads(input_path.read_text(encoding="utf-8"))
+    packages = input_payload.get("packages") or []
+    trade_date = input_payload["tradeDate"]
+    as_of = f"{trade_date}T15:00:00+08:00"
+    latest_period = latest_report_period(trade_date)
+    symbols = [clean_text(p.get("symbol")) for p in packages]
+    symbols = [s for s in symbols if s]
+    report: dict[str, Any] = {
+        "schemaVersion": "clx-fundamental-data.v1",
+        "runDir": run_dir.name,
+        "tradeDate": trade_date,
+        "latestPeriod": latest_period,
+        "generatedAt": utc_now(),
+        "symbols": {},
+    }
+
+    quotes = build_local_quotes_payload(symbols, trade_date)
+    for symbol in symbols:
+        q = quotes.get(symbol)
+        if q is None:
+            report["symbols"].setdefault(symbol, {})["quote"] = "missing"
+    write_quotes_file(run_dir, quotes, trade_date)
+
+    def fetch_one(symbol: str) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        financials = fetch_financials(symbol)
+        business = fetch_business(symbol)
+        return symbol, financials, business
+
+    data_dir = run_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    pending = [s for s in symbols if not (data_dir / f"compact_{s}.json").is_file()]
+    for s in symbols:
+        if s not in pending:
+            report["symbols"][s] = {"status": "skipped", "compact": True}
+
+    # akshare 的 py_mini_racer（新浪财务指标）非线程安全，并发会触发
+    # mini_racer.dll 崩溃，且第三方库会残留非 daemon 线程导致进程挂起；
+    # 网络抓取整体放入子进程（顺序执行），子进程退出即清理线程，主进程
+    # 不受影响（避免 os._exit 影响 pytest/CI 调用方）。
+    partial = run_dir / "data" / "data_report_partial.json"
+    if pending:
+        import multiprocessing
+
+        ctx = multiprocessing.get_context("spawn")
+        proc = ctx.Process(
+            target=_data_fetch_worker,
+            args=(str(run_dir), pending, latest_period, str(partial)),
+        )
+        proc.start()
+        proc.join(3600)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(15)
+            if proc.is_alive():
+                proc.kill()
+            raise SystemExit(
+                f"data fetch worker timed out after 3600s; partial report: {partial}"
+            )
+        if proc.exitcode != 0:
+            raise SystemExit(
+                f"data fetch worker failed with exit={proc.exitcode}; " f"see {partial}"
+            )
+    if partial.is_file():
+        partial_payload = json.loads(partial.read_text(encoding="utf-8"))
+        report["symbols"].update(partial_payload.get("symbols") or {})
+        report["fetchErrors"] = partial_payload.get("fetchErrors", 0)
+
+    (run_dir / "data_report.json").write_text(
+        json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    compact_ok = sum(1 for v in report["symbols"].values() if v.get("compact"))
+    print(
+        json.dumps(
+            {
+                "data_ok": True,
+                "trade_date": trade_date,
+                "latest_period": latest_period,
+                "symbols": len(symbols),
+                "compact_ok": compact_ok,
+                "compact_missing": len(symbols) - compact_ok,
+                "quote_ok": sum(1 for s in symbols if quotes.get(s)),
+                "data_dir": str(run_dir / "data"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def _data_fetch_worker(
+    run_dir_str: str,
+    pending: list[str],
+    latest_period: str,
+    partial_path: str,
+) -> None:
+    """子进程：串行抓取财务/业务数据并写文件；退出即清理第三方残留线程。"""
+    run_dir = pathlib.Path(run_dir_str)
+    symbols_payload: dict[str, Any] = {
+        "generatedAt": utc_now(),
+        "symbols": {},
+        "fetchErrors": 0,
+    }
+    for symbol in pending:
+        try:
+            financials = fetch_financials(symbol, latest_period=latest_period)
+            business = fetch_business(symbol, latest_period=latest_period)
+        except Exception as exc:  # noqa: BLE001
+            symbols_payload["symbols"][symbol] = {"error": f"fetch: {exc}"}
+            symbols_payload["fetchErrors"] += 1
+            continue
+        write_symbol_files(run_dir, symbol, financials, business)
+        quotes_path = run_dir / "data"
+        quotes_files = list(quotes_path.glob("quotes_local_*.json"))
+        quotes: dict[str, Any] = {}
+        if quotes_files:
+            quotes = (
+                json.loads(quotes_files[0].read_text(encoding="utf-8")).get(symbol)
+                or {}
+            )
+        compact = build_compact(
+            symbol,
+            quotes,
+            financials,
+            business,
+            latest_period=latest_period,
+        )
+        write_compact(run_dir, symbol, compact)
+        symbols_payload["symbols"][symbol] = {
+            "financials": sorted(financials.keys()),
+            "business": sorted(business.keys()),
+            "compact": True,
+            "quote": bool(quotes),
+        }
+        if len(symbols_payload["symbols"]) % 10 == 0:
+            print(f"  data progress: {len(symbols_payload['symbols'])}", flush=True)
+    pathlib.Path(partial_path).write_text(
+        json.dumps(symbols_payload, ensure_ascii=False, sort_keys=True, indent=2),
+        encoding="utf-8",
+    )
+    sys.exit(0)
+
+
 def cmd_rank(args: argparse.Namespace) -> None:
     run_dir = default_run_dir(args.run_dir)
     input_path = run_dir / INPUT_JSON_NAME
@@ -276,6 +447,19 @@ def cmd_rank(args: argparse.Namespace) -> None:
         raise SystemExit(f"missing input: {input_path} (run prepare first)")
     input_payload = json.loads(input_path.read_text(encoding="utf-8"))
     packages = input_payload.get("packages") or []
+    # 快排指标源优先使用 compact 多源数据（覆盖 THS 缓存；缺失回退）
+    data_dir = run_dir / "data"
+    compact_used = 0
+    for package in packages:
+        symbol = clean_text(package.get("symbol"))
+        compact_path = data_dir / f"compact_{symbol}.json"
+        if compact_path.is_file():
+            try:
+                compact = json.loads(compact_path.read_text(encoding="utf-8"))
+                package["metrics"] = merge_compact_metrics(package, compact)
+                compact_used += 1
+            except (json.JSONDecodeError, OSError):
+                pass
     trade_date = input_payload["tradeDate"]
     batch_id = input_payload.get("batchId") or ""
     content_hash = input_payload.get("contentHash") or ""
@@ -317,6 +501,7 @@ def cmd_rank(args: argparse.Namespace) -> None:
                 "deep_missing": len(deep) - merged_count,
                 "specs": len(spec_paths),
                 "validation_passed": validation["passed"],
+                "compact_metrics_used": compact_used,
             },
             ensure_ascii=False,
             indent=2,
@@ -622,7 +807,7 @@ def parse_args() -> argparse.Namespace:
     r.add_argument("--run-dir", type=pathlib.Path, required=True)
     r.add_argument("--analysis-dir", type=pathlib.Path, default=None)
     r.add_argument("--run-id", default="")
-    r.add_argument("--deep-limit", type=int, default=100)
+    r.add_argument("--deep-limit", type=int, default=DEEP_TIER_LIMIT)
     r.set_defaults(func=cmd_rank)
 
     d = sub.add_parser("deep-run", help="run top-100 deep analysis via repo adapter")
@@ -633,6 +818,13 @@ def parse_args() -> argparse.Namespace:
     d.add_argument("--agent-command", default=None)
     d.add_argument("--dry-run", action="store_true")
     d.set_defaults(func=cmd_deep_run)
+
+    data = sub.add_parser(
+        "data", help="multi-source data pack: local quotes + financials + compact"
+    )
+    data.add_argument("--run-dir", type=pathlib.Path, required=True)
+    data.add_argument("--workers", type=int, default=6)
+    data.set_defaults(func=cmd_data)
 
     s = sub.add_parser("stats", help="aggregate stats and quality gates")
     s.add_argument("--run-dir", type=pathlib.Path, required=True)
