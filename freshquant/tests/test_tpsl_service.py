@@ -550,8 +550,10 @@ def test_evaluate_stoploss_skips_on_invalid_bid1_tick():
 
     assert service.evaluate_stoploss(symbol="000001", bid1=None) is None
     assert service.evaluate_stoploss(symbol="000001", bid1=0.0) is None
+    assert service.evaluate_stoploss(symbol="000001", bid1=-0.01) is None
+    assert service.evaluate_stoploss(symbol="000001", bid1="not-a-number") is None
 
-    assert len(events) == 2
+    assert len(events) == 4
     assert all(event["reason_code"] == "invalid_tick_bid1" for event in events)
     assert all(event["status"] == "skipped" for event in events)
     assert all(event["node"] == "trigger_eval" for event in events)
