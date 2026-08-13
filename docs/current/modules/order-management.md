@@ -28,6 +28,9 @@
   - `python -m freshquant.cli stock.fill rebuild --code <symbol>`
   - `python -m freshquant.cli stock.fill rebuild --all`
   - `python -m freshquant.cli stock.fill compare --code <symbol>`
+  - `python -m freshquant.cli stock.fill compare --all`（步骤 5 观察期全量对比；
+    档案落 `D:/fqpack/runtime/formal-deploy/fill-compare-YYYYMMDD.json`，
+    可用 `FQ_FILL_COMPARE_ARCHIVE_DIR` 覆盖；任一差异非零退出）
   - `python -m freshquant.cli guardian.sell simulate --code <symbol> --signal-price <price>`
 - 核心服务
   - `freshquant.order_management.submit.service.OrderSubmitService`
@@ -111,6 +114,17 @@
 - `freshquant.stock_fills_compat`
 
 这些集合仍存在于迁移期，但不再定义运行期真值。`stock_fills_compat` 当前只作为 legacy mirror / adapter 输出，镜像口径已经切到 open `position_entries`。
+
+观察期协议（路线步骤 5，§2.5）：
+- 对照物 = V2 账本投影 vs `stock_fills_compat` 镜像（ingest 停写 legacy
+  三账本后，compat 投影继续由 holdings 变化镜像路径维护至 6a 完成；
+  legacy 三账本以停写前最后快照为基线存档）。
+- 执行工具 = `freshquant stock fill compare --all`；输出落
+  `D:/fqpack/runtime/formal-deploy` 观察期档案；任一差异 → 中止 6a 开工、
+  保留镜像、修复后观察期重新计时。
+- 观察期内禁止执行 destructive rebuild（`freshquant stock fill rebuild`
+  为 CLI 手动命令，Issue #605 + 部署负责人双重约束，并向 100/116 操作人公告）。
+- 出口 = 连续 ≥5 个交易日零差异 → 记录观察期档案 → 才允许 6a 开工。
 
 ## 当前数据流
 
@@ -270,8 +284,12 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 - sell fill 的 entry/slice read-modify-write 在
   `OrderManagementXtIngestService` 内按 symbol 串行锁保护，配合
   `om_execution_fills.execution_identity` 幂等，避免并发 fill 互相覆盖
-- legacy `buy_lot / lot_slice / sell_allocation` 仍同步写入，供迁移期兼容链使用
-- 若 sell fill 已成功写入 V2 `om_position_entries / om_entry_slices / om_exit_allocations`，但 legacy `buy_lot / lot_slice` 镜像缺失或数量落后，trade callback 当前会跳过 legacy sell allocation，并依赖后续 `stock_fills_compat` 镜像刷新，不再把整笔成交回报记为失败
+- 根①写侧收敛（路线步骤 5）：XT ingest 单写 V2 主账本
+  `om_position_entries / om_entry_slices / om_exit_allocations`，
+  不再双写 legacy `om_buy_lots / om_lot_slices / om_sell_allocations`；
+  legacy 三账本自本步起冻结为停写前快照（仅 reconcile 的 legacy 兜底
+  分配链在迁移期保留），删除批次 = 步骤 6b（Issue #605），触发条件 =
+  观察期连续 5 个交易日 V2 投影 vs `stock_fills_compat` 零差异
 
 当前读侧检查语义：
 

@@ -1,4 +1,7 @@
 import json
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from bson import ObjectId
@@ -212,3 +215,35 @@ def compare_fill_compat(code: str):
     result = _get_stock_fills_compat_service().compare_symbol(code)
     print(json.dumps(result, ensure_ascii=False, default=str))
     return result
+
+
+def compare_fill_compat_all(archive_dir: Optional[str] = None):
+    """全量对比 V2 账本投影与 stock_fills_compat 镜像（步骤 5 观察期档案）。
+
+    输出落到观察期档案目录（默认 D:/fqpack/runtime/formal-deploy，
+    可用环境变量 FQ_FILL_COMPARE_ARCHIVE_DIR 覆盖），文件名按日期戳；
+    任一差异时返回非零退出码（由 CLI 转换）。
+    """
+
+    result = _get_stock_fills_compat_service().compare_symbols()
+    archive_root = Path(
+        str(
+            archive_dir
+            or os.environ.get("FQ_FILL_COMPARE_ARCHIVE_DIR")
+            or "D:/fqpack/runtime/formal-deploy"
+        ).strip()
+    )
+    archive_root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d")
+    archive_path = archive_root / f"fill-compare-{stamp}.json"
+    document = {
+        "asof": datetime.now().isoformat(timespec="seconds"),
+        "mode": "full",
+        **result,
+    }
+    archive_path.write_text(
+        json.dumps(document, ensure_ascii=False, default=str, indent=2),
+        encoding="utf-8",
+    )
+    print(json.dumps(document, ensure_ascii=False, default=str))
+    return document

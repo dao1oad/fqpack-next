@@ -165,6 +165,34 @@ class StockFillsCompatibilityService:
             == compat_position["amount_adjusted"],
         }
 
+    def compare_symbols(self, symbols=None):
+        """全量/分批对比（步骤 5 观察期工具）。
+
+        symbols 为 None 时使用当前全量同步范围（与 sync_symbols 同源）。
+        """
+
+        normalized_symbols = _collect_sync_symbols(
+            symbols,
+            repository=self.repository,
+            database=self.database,
+        )
+        rows = []
+        for symbol in normalized_symbols:
+            result = self.compare_symbol(symbol)
+            result["compared"] = True
+            rows.append(result)
+        mismatches = [
+            row
+            for row in rows
+            if not (row["quantity_consistent"] and row["amount_adjusted_consistent"])
+        ]
+        return {
+            "symbols_compared": len(rows),
+            "mismatch_count": len(mismatches),
+            "zero_diff": len(mismatches) == 0,
+            "mismatches": mismatches,
+        }
+
 
 def _get_stock_fills_compat_collection(database):
     target = DBfreshquant if database is None else database

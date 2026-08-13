@@ -1069,22 +1069,27 @@ def test_reconcile_matches_partial_inflight_internal_order_by_correlation_token(
 def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     repository, service = _build_service(monkeypatch)
     tracking_service = OrderTrackingService(repository=repository)
-    buy_lot = build_buy_lot_from_trade_fact(
-        {
-            "trade_fact_id": "trade_known_seed_buy_1",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 900,
-            "price": 10.0,
-            "trade_time": 1_000,
-            "date": 20240102,
-            "time": "09:31:00",
-        }
+    # 根①写侧收敛（步骤 5）：种子改走 V2 position entry + entry slices。
+    from freshquant.order_management.guardian.arranger import (
+        arrange_entry,
+        build_position_entry_from_trade_fact,
     )
-    repository.insert_buy_lot(buy_lot)
-    repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=50_000, grid_interval=1.03),
+
+    seed_trade_fact = {
+        "trade_fact_id": "trade_known_seed_buy_1",
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 900,
+        "price": 10.0,
+        "trade_time": 1_000,
+        "date": 20240102,
+        "time": "09:31:00",
+    }
+    entry = build_position_entry_from_trade_fact(seed_trade_fact)
+    repository.replace_position_entry(entry)
+    repository.replace_entry_slices_for_entry(
+        entry["entry_id"],
+        arrange_entry(entry, lot_amount=50_000, grid_interval=1.03),
     )
     tracking_service.submit_order(
         {
@@ -1126,18 +1131,19 @@ def test_reconcile_trade_report_ingests_known_internal_sell_order(monkeypatch):
     assert outcome.result["trade_fact"]["broker_trade_id"] == "T90011"
     assert len(repository.trade_facts) == 1
     assert len(repository.execution_fills) == 1
-    # 内部匹配 ingest 链当前写 legacy 三账本（V2 position_entries 尚未在此链
-    # 写入）；随步骤 5 写侧收敛后迁移，步骤 6b 拆表时随 legacy 断言删除。
-    assert repository.buy_lots[0]["remaining_quantity"] == 700
+    # 根①写侧收敛（步骤 5）：内部匹配卖出单写 V2 exit_allocations；
+    # legacy 三账本不再由 ingest 维护。
+    assert repository.buy_lots == []
+    assert repository.sell_allocations == []
+    assert len(repository.exit_allocations) == 1
+    assert repository.position_entries[0]["remaining_quantity"] == 700
     assert (
         sum(
-            item["remaining_quantity"] for item in repository.list_open_slices("000001")
+            item["remaining_quantity"]
+            for item in repository.list_open_entry_slices(symbol="000001")
         )
         == 700
     )
-    # 该路径当前只写 legacy sell_allocations（V2 exit_allocations 尚未在此链
-    # 写入）；随步骤 5 写侧收敛后迁移，步骤 6b 拆表时随 legacy 断言删除。
-    assert len(repository.sell_allocations) == 1
 
 
 def test_reconcile_trade_report_uses_correlation_token_with_duplicate_broker_id(
@@ -1709,22 +1715,27 @@ def test_sell_side_non_board_lot_gap_is_rejected_without_reducing_holdings(monke
 
 def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
     repository, service = _build_service(monkeypatch)
-    buy_lot = build_buy_lot_from_trade_fact(
-        {
-            "trade_fact_id": "trade_seed_buy_1",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 900,
-            "price": 10.0,
-            "trade_time": 1_000,
-            "date": 20240102,
-            "time": "09:31:00",
-        }
+    # 根①写侧收敛（步骤 5）：种子改走 V2 position entry + entry slices。
+    from freshquant.order_management.guardian.arranger import (
+        arrange_entry,
+        build_position_entry_from_trade_fact,
     )
-    repository.insert_buy_lot(buy_lot)
-    repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+
+    seed_trade_fact = {
+        "trade_fact_id": "trade_seed_buy_1",
+        "symbol": "000001",
+        "side": "buy",
+        "quantity": 900,
+        "price": 10.0,
+        "trade_time": 1_000,
+        "date": 20240102,
+        "time": "09:31:00",
+    }
+    entry = build_position_entry_from_trade_fact(seed_trade_fact)
+    repository.replace_position_entry(entry)
+    repository.replace_entry_slices_for_entry(
+        entry["entry_id"],
+        arrange_entry(entry, lot_amount=3000, grid_interval=1.03),
     )
     gap = service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
@@ -1767,9 +1778,12 @@ def test_partial_trade_shrinks_pending_gap_before_auto_close(monkeypatch):
         item for item in repository.trade_facts if item["side"] == "sell"
     ]
     assert [item["quantity"] for item in sell_trade_facts] == [200]
-    # auto-close 分配链当前写 legacy sell_allocations（V2 exit_allocations
-    # 尚未在此链写入）；随步骤 5 写侧收敛后迁移，步骤 6b 拆表时删除。
-    assert len(repository.sell_allocations) > 0
+    # 根①写侧收敛（步骤 5）：auto-close 分配走 V2（ingest 的卖出先写
+    # exit_allocations 把 entry 剩余从 900 缩到 700，gap 缩到 300，
+    # auto-close 再经 entry slices 分配）；legacy 不再写入。
+    assert repository.sell_allocations == []
+    assert len(repository.exit_allocations) > 0
+    assert repository.position_entries[0]["remaining_quantity"] == 400
     assert len(repository.reconciliation_resolutions) == 2
 
 
