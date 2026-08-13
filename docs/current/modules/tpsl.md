@@ -106,6 +106,12 @@ TPSL 在独立 tick 链路上评估止盈和止损条件，并生成退出单。
   - 条件：entry 级 `stop_price` 命中
   - 结果：生成 `scope_type=stoploss_batch`、`strategy_name=PerEntryStoplossBatch`
 
+`evaluate_stoploss` 入口当前带有效 tick 门槛（B1 P0 临时护栏，随止损功能下线一并移除）：
+
+- `bid1` 缺失、非数值或 `<= 0` 时，任何止损批次都不评估、不触发
+- 该跳过动作发 `status=skipped`、`reason_code=invalid_tick_bid1` 的
+  `trigger_eval` runtime 事件，不静默
+
 页面上“单笔止损”当前实际是“单 entry 止损”：
 
 - 一条 open entry 对应一条可配置止损对象

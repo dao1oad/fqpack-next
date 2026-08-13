@@ -448,6 +448,19 @@ class TpslService:
         current_node = "trigger_eval"
         trace_id_value = None
         try:
+            bid1_value = _safe_float_or_none(bid1)
+            if bid1_value is None or bid1_value <= 0:
+                # 根② 有效 tick 门槛（B1 P0 临时护栏）：bid1 缺失/为 0 时任何
+                # 止损批次都不得触发，防止提交 0 价止损卖单。止损功能随
+                # Issue #603（路线步骤 2 PR-2a）整体下线，本护栏随其删除。
+                self._emit_runtime(
+                    "trigger_eval",
+                    symbol=base_symbol,
+                    status="skipped",
+                    reason_code="invalid_tick_bid1",
+                    payload={"bid1": bid1},
+                )
+                return None
             full_stop_price = _safe_float_or_none(
                 self.symbol_stoploss_price_loader(base_symbol)
             )
