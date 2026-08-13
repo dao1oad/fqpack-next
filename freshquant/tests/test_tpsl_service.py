@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from freshquant.tpsl.service import TpslService, _CooldownLockClient, _PositionReader
@@ -510,6 +512,49 @@ def test_evaluate_stoploss_prefers_symbol_full_stoploss_over_entry_stoploss():
     assert batch["price"] == 9.6
     assert batch["entry_quantities"] == {"entry_1": 300, "entry_2": 300}
     assert batch["triggered_bindings"] == []
+
+
+def test_evaluate_stoploss_skips_on_invalid_bid1_tick():
+    """B1 P0 护栏：bid1 缺失/为 0 时任何止损批次都不得触发（根② 有效 tick 门槛）。"""
+
+    events = []
+    repo = InMemoryTpslRepository()
+    order_repo = FakeOrderManagementRepository(
+        open_entry_slices=[
+            {
+                "entry_id": "entry_1",
+                "entry_slice_id": "slice_1",
+                "guardian_price": 9.1,
+                "remaining_quantity": 300,
+                "slice_seq": 1,
+                "sort_key": 9.1,
+                "symbol": "000001",
+            },
+        ],
+        entry_stoploss_bindings=[
+            {
+                "entry_id": "entry_1",
+                "symbol": "000001",
+                "stop_price": 8.8,
+                "enabled": True,
+            }
+        ],
+    )
+    service = TpslService(
+        takeprofit_service=TakeprofitService(repository=repo),
+        order_repository=order_repo,
+        position_reader=FixedPositionReader(500),
+        symbol_stoploss_price_loader=lambda _symbol: 9.4,
+        runtime_logger=SimpleNamespace(emit=lambda event: events.append(dict(event))),
+    )
+
+    assert service.evaluate_stoploss(symbol="000001", bid1=None) is None
+    assert service.evaluate_stoploss(symbol="000001", bid1=0.0) is None
+
+    assert len(events) == 2
+    assert all(event["reason_code"] == "invalid_tick_bid1" for event in events)
+    assert all(event["status"] == "skipped" for event in events)
+    assert all(event["node"] == "trigger_eval" for event in events)
 
 
 class FakeCollection:
