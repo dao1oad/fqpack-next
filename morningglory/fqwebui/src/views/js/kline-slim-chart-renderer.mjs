@@ -16,7 +16,7 @@ import {
   getPriceGuideLegendName
 } from './subject-price-guides.mjs'
 import { parseTimestampMs } from '../../tool/beijingTime.mjs'
-import { buildFullMarkerTooltip } from '../positionReviewRefactor.mjs'
+import { buildFullMarkerTooltip } from '../positionReview.mjs'
 import {
   aggregateClxMarkersByBar,
   anchorClxMarkersToBars,

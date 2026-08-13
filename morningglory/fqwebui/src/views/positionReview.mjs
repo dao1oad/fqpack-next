@@ -1034,3 +1034,990 @@ export const resolvePositionReviewSelectedSymbol = ({
   if (fromRoute) return fromRoute
   return toText(toArray(rows)[0]?.symbol)
 }
+
+
+// Read-model helpers for the position-review refactor.
+// Pure functions: portfolio normalization, equity/contribution projections,
+// symbol review chart option building and condition normalization.
+
+const prtoText = (value) => String(value ?? '').trim()
+
+const prtoArray = (value) => (Array.isArray(value) ? value : [])
+
+const prtoFiniteNumber = (value) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+const prtoInteger = (value, fallback = 0) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? Math.trunc(numeric) : fallback
+}
+
+const prround2 = (value) => {
+  const numeric = prtoFiniteNumber(value)
+  return numeric === null ? null : Math.round(numeric * 100) / 100
+}
+
+const prVERDICT_ORDER = Object.freeze([
+  'PASS',
+  'FAIL',
+  'INSUFFICIENT_EVIDENCE',
+  'NOT_APPLICABLE',
+])
+
+const prSIGNAL_TYPE_LABELS = Object.freeze({
+  buy_v_reverse: '反转买点',
+  buy_zs_huila: '回拉买点',
+  macd_bullish_divergence: 'MACD 底背离',
+  sell_takeprofit: '止盈卖点',
+  manual: '人工/外部',
+  unknown: '证据缺失',
+})
+
+export const positionReviewChartColors = Object.freeze({
+  buy: '#ef4444',
+  sell: '#22c55e',
+  cost: '#f59e0b',
+  equity: '#2563eb',
+  estimated: '#f59e0b',
+  up: '#ef232a',
+  down: '#14b143',
+  grid: 'rgba(15,23,42,0.08)',
+  text: '#606266',
+})
+
+export const normalizePortfolioSummary = (payload = {}) => {
+  const kpisRaw = payload.kpis || {}
+  const dataQuality = payload.data_quality || {}
+  const verdictCounts = payload.verdict_counts || {}
+  const signalTypeCounts = payload.signal_type_counts || {}
+  const kpis = [
+    { key: 'totalAsset', label: '总资产', value: prround2(kpisRaw.total_asset), kind: 'amount' },
+    { key: 'netValue', label: '账户净资产', value: prround2(kpisRaw.net_value), kind: 'amount' },
+    { key: 'marketValue', label: '持仓市值', value: prround2(kpisRaw.market_value), kind: 'amount' },
+    { key: 'remainingCost', label: '持仓成本', value: prround2(kpisRaw.remaining_cost), kind: 'amount' },
+    { key: 'floatingPnl', label: '浮动盈亏', value: prround2(kpisRaw.floating_pnl), kind: 'signedAmount' },
+    { key: 'realizedPnl', label: '已实现盈亏', value: prround2(kpisRaw.realized_pnl), kind: 'signedAmount' },
+    { key: 'positionRatio', label: '持仓比例', value: kpisRaw.position_ratio, kind: 'ratio' },
+    { key: 'cash', label: '现金', value: prround2(kpisRaw.cash), kind: 'amount' },
+  ]
+  return {
+    kpis,
+    monthly: prtoArray(payload.monthly_turnover).map((item) => ({
+      month: prtoText(item.month),
+      buy: prround2(item.buy),
+      sell: prround2(item.sell),
+    })),
+    verdictDistribution: prVERDICT_ORDER.map((verdict) => ({
+      name: verdict,
+      value: prtoInteger(verdictCounts[verdict]),
+    })),
+    signalTypeDistribution: Object.entries(signalTypeCounts).map(([type, value]) => ({
+      type,
+      label: prSIGNAL_TYPE_LABELS[type] || type,
+      value: prtoInteger(value),
+    })),
+    reviewable: prtoInteger(payload.reviewable),
+    passRate: prtoFiniteNumber(payload.pass_rate),
+    equityBasis: prtoText(dataQuality.equity_basis),
+    costBasis: prtoText(dataQuality.cost_basis),
+    warnings: prtoArray(dataQuality.warnings),
+  }
+}
+
+const prnetValueOf = (point) => (
+  prtoFiniteNumber(point?.net_value)
+  ?? prtoFiniteNumber(point?.estimated_equity)
+  ?? prtoFiniteNumber(point?.total_equity)
+)
+
+const prformatPeriodTick = (label, period) => {
+  const text = prtoText(label)
+  if (!text) return ''
+  if (period === 'month') return text
+  if (period === 'week') return text.slice(5)
+  return text.slice(5)
+}
+
+const prtradeSideText = (side) => (side === 'sell' ? '卖出' : '买入')
+
+export const buildPortfolioTradeTooltip = (point = {}) => {
+  const trades = prtoArray(point.trades)
+  if (!trades.length) return '<div class="prt-muted">该周期内没有交易</div>'
+  const rows = trades.map((trade) => {
+    const amount = trade.amount == null
+      ? '—'
+      : Number(trade.amount).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+    return `<div class="prt-row">
+      <span class="prt-label">${prescapeTooltipHtml(trade.time || '—')}</span>
+      <span class="prt-value">
+        <span class="prt-side prt-side-${trade.side === 'sell' ? 'sell' : 'buy'}">${prtradeSideText(trade.side)}</span>
+        ${prescapeTooltipHtml(trade.symbol)} ${prescapeTooltipHtml(trade.name || '')}
+        · ${prtooltipValue(trade.quantity)} 股
+        · ${prtooltipValue(trade.price)} 元
+        · ${amount} 元
+      </span>
+    </div>`
+  }).join('')
+  const header = `<div class="prt-header">
+    <span class="prt-side prt-side-buy">交易</span>
+    <span class="prt-id">${trades.length} 笔成交</span>
+  </div>`
+  return `<div class="prt">${header}${rows}</div>`
+}
+
+export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
+  const series = prtoArray(payload.series)
+  if (!series.length) {
+    return null
+  }
+  const period = prtoText(payload.period) || 'day'
+  const equityMode = mode === 'asset' ? 'asset' : 'net'
+  const labels = series.map((item) => prformatPeriodTick(item.period_label || item.time, period))
+  const primarySeries = []
+  if (equityMode === 'asset') {
+    primarySeries.push({
+      name: '总资产',
+      type: 'line',
+      showSymbol: false,
+      smooth: false,
+      lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
+      data: series.map((item) => item.total_equity),
+    })
+  } else {
+    primarySeries.push({
+      name: '账户净资产',
+      type: 'line',
+      showSymbol: false,
+      smooth: false,
+      lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
+      data: series.map((item) => (
+        prtoFiniteNumber(item.net_value) ?? prtoFiniteNumber(item.estimated_equity)
+      )),
+    })
+  }
+  const tradeSeriesData = equityMode === 'net'
+    ? series
+        .map((point, index) => {
+          const trades = prtoArray(point.trades)
+          if (!trades.length) return null
+          return {
+            value: [index, prnetValueOf(point)],
+            point,
+            trades,
+            count: trades.length,
+          }
+        })
+        .filter(Boolean)
+    : []
+  const tradeSeries = tradeSeriesData.length
+    ? [{
+        id: 'position-review-portfolio-trades',
+        name: '交易点',
+        type: 'scatter',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        symbol: 'circle',
+        symbolSize: (value, params) => 5 + Math.min(7, (params?.data?.count || 1) * 1.6),
+        animation: false,
+        z: 10,
+        itemStyle: { color: '#fbbf24', borderColor: '#111827', borderWidth: 1 },
+        tooltip: {
+          show: true,
+          className: 'prt-tooltip',
+          confine: true,
+          extraCssText: 'max-width:520px;max-height:320px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          formatter: (params) => buildPortfolioTradeTooltip(params?.data?.point || {}),
+        },
+        data: tradeSeriesData,
+      }]
+    : []
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (value) => (value == null ? '—' : Number(value).toLocaleString('zh-CN')),
+    },
+    legend: {
+      top: 4,
+      textStyle: { color: positionReviewChartColors.text },
+      data: [
+        ...(primarySeries.length ? [primarySeries[0].name] : []),
+        ...(tradeSeries.length ? ['交易点'] : []),
+      ],
+    },
+    grid: { left: 70, right: 24, top: 44, bottom: 30 },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLabel: { color: '#6b7280' },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      min: 'dataMin',
+      max: 'dataMax',
+      splitNumber: 6,
+      axisLabel: {
+        color: '#6b7280',
+        formatter: (value) => `${(Number(value) / 10000).toFixed(2)}万`,
+      },
+      splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
+    },
+    series: [...primarySeries, ...tradeSeries],
+  }
+}
+
+export const normalizePortfolioContributions = (payload = {}) => prtoArray(payload.top).map((row) => ({
+  symbol: prtoText(row.symbol),
+  name: prtoText(row.name),
+  isHolding: Boolean(row.is_holding),
+  realizedPnl: prround2(row.realized_pnl),
+  floatingPnl: prround2(row.floating_pnl),
+  totalPnl: prround2(row.total_pnl),
+  marketValue: prround2(row.market_value),
+  quantity: prtoInteger(row.quantity),
+  costBasisSource: prtoText(row.cost_basis_source),
+  verdictCounts: row.verdict_counts || {},
+}))
+
+const prparseBarTimeMs = (text) => {
+  const value = prtoText(text)
+  if (!value) return NaN
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(value)) {
+    return Date.parse(value)
+  }
+  const normalized = value.replace(' ', 'T').replace(/\//g, '-')
+  const withTimezone = normalized.length === 10
+    ? `${normalized}T00:00:00+08:00`
+    : `${normalized}+08:00`
+  return Date.parse(withTimezone)
+}
+
+const prresolveBarIndex = (targetMs, bars) => {
+  if (!Number.isFinite(targetMs) || !bars.length) return null
+  let best = -1
+  bars.forEach((bar, index) => {
+    if (bar.startMs <= targetMs) {
+      best = index
+    }
+  })
+  return best >= 0 ? best : null
+}
+
+export const normalizeSymbolChart = (payload = {}) => {
+  const events = prtoArray(payload.order_events)
+  const costSeries = prtoArray(payload.cost_basis_series)
+  const positionSeries = prtoArray(payload.position_series)
+  const holdingCycles = prtoArray(payload.holding_cycles)
+  const registry = payload.signal_type_registry || {}
+  return {
+    symbol: payload.symbol || {},
+    events,
+    holdingCycles,
+    costBasis: payload.cost_basis || {},
+    positionSeries,
+    costSeries,
+    registry,
+    hasEvents: Boolean(events.length),
+  }
+}
+
+const prbuildBarSlots = (kline) => {
+  const dates = prtoArray(kline?.date)
+  return dates.map((date) => ({ label: prtoText(date), startMs: prparseBarTimeMs(date) }))
+}
+
+const prbuildMarkers = (events, bars) => events
+  .map((event) => {
+    const marker = event.marker || {}
+    const execution = event.execution || {}
+    const targetMs = prparseBarTimeMs(marker.bar_time || execution.first_fill_time)
+    const barIndex = prresolveBarIndex(targetMs, bars)
+    const price = prtoFiniteNumber(marker.price)
+    if (barIndex === null || price === null) return null
+    return {
+      event,
+      eventId: prtoText(event.event_id),
+      side: prtoText(event.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+      barIndex,
+      price,
+      symbol: prtoText(marker.symbol) || 'circle',
+      verdict: prtoText((event.review || {}).verdict).toUpperCase() || null,
+    }
+  })
+  .filter(Boolean)
+
+const prbuildSpanSegments = (events, bars) => events
+  .map((event) => {
+    const execution = event.execution || {}
+    const startMs = prparseBarTimeMs(execution.first_fill_time)
+    const endMs = prparseBarTimeMs(execution.last_fill_time)
+    const startIndex = prresolveBarIndex(startMs, bars)
+    const endIndex = prresolveBarIndex(endMs, bars)
+    const price = prtoFiniteNumber((event.marker || {}).price)
+    if (startIndex === null || endIndex === null || startIndex === endIndex || price === null) {
+      return null
+    }
+    return {
+      eventId: prtoText(event.event_id),
+      side: prtoText(event.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+      startIndex,
+      endIndex,
+      price,
+    }
+  })
+  .filter(Boolean)
+
+const prbuildCostPoints = (costSeries, bars) => costSeries
+  .map((point) => {
+    const barIndex = prresolveBarIndex(prparseBarTimeMs(point.time), bars)
+    const value = prtoFiniteNumber(point.average_cost)
+    if (barIndex === null || value === null) return null
+    return { barIndex, value }
+  })
+  .filter(Boolean)
+  .sort((left, right) => left.barIndex - right.barIndex)
+
+const prassignMarkerOffsets = (markers) => {
+  const buckets = new Map()
+  markers.forEach((marker) => {
+    const key = marker.barIndex
+    const bucket = buckets.get(key) || []
+    bucket.push(marker)
+    buckets.set(key, bucket)
+  })
+  const offsets = new Map()
+  buckets.forEach((bucket) => {
+    const spacing = Math.min(0.18, 0.5 / Math.max(1, bucket.length))
+    bucket.forEach((marker, index) => {
+      offsets.set(marker.eventId, (index - (bucket.length - 1) / 2) * spacing)
+    })
+  })
+  return offsets
+}
+
+export const buildSymbolReviewChartOption = ({
+  kline,
+  chart,
+  conditionsResolver = () => null,
+} = {}) => {
+  const bars = prbuildBarSlots(kline)
+  if (!bars.length) return null
+  const normalized = normalizeSymbolChart(chart || {})
+  const events = normalized.events
+  const markers = prbuildMarkers(events, bars)
+  const spans = prbuildSpanSegments(events, bars)
+  const costPoints = prbuildCostPoints(normalized.costSeries, bars)
+  const offsets = prassignMarkerOffsets(markers)
+
+  const markerSeries = markers.length
+    ? [{
+        id: 'position-review-symbol-markers',
+        name: '订单成交',
+        type: 'scatter',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        symbol: (value, params) => params?.data?.symbol || 'circle',
+        symbolSize: 13,
+        animation: false,
+        z: 12,
+        label: {
+          show: true,
+          position: 'top',
+          distance: 2,
+          formatter: (params) => {
+            if (params?.data?.mark) return '!'
+            return params?.data?.sideText || ''
+          },
+          color: '#1f2937',
+          fontSize: 9,
+          fontWeight: 'bold',
+        },
+        data: markers.map((marker) => {
+          const style = prverdictMarkerStyle(marker.verdict)
+          return {
+            value: [marker.barIndex + (offsets.get(marker.eventId) || 0), marker.price],
+            event: marker.event,
+            symbol: marker.symbol,
+            sideText: marker.side === 'buy' ? 'B' : 'S',
+            mark: style.mark,
+            itemStyle: {
+              color: marker.side === 'buy'
+                ? positionReviewChartColors.buy
+                : positionReviewChartColors.sell,
+              borderColor: style.borderColor,
+              borderWidth: style.borderWidth,
+              opacity: style.opacity,
+            },
+          }
+        }),
+        tooltip: {
+          show: true,
+          className: 'prt-tooltip',
+          confine: true,
+          extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          formatter: (params) => {
+            const event = params?.data?.event
+            if (!event) return ''
+            return buildFullMarkerTooltip(event, conditionsResolver(event.event_id))
+          },
+        },
+      }]
+    : []
+
+  const spanSeries = spans.length
+    ? [{
+        id: 'position-review-symbol-fill-spans',
+        name: '成交跨度',
+        type: 'custom',
+        coordinateSystem: 'cartesian2d',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        silent: true,
+        animation: false,
+        z: 8,
+        data: spans,
+        renderItem(params, api) {
+          const item = spans[params.dataIndex]
+          const start = api.coord([item.startIndex, item.price])
+          const end = api.coord([item.endIndex, item.price])
+          if (!start?.every(Number.isFinite) || !end?.every(Number.isFinite)) return null
+          return {
+            type: 'line',
+            shape: { x1: start[0], y1: start[1], x2: end[0], y2: end[1] },
+            style: {
+              stroke: item.side === 'sell'
+                ? positionReviewChartColors.sell
+                : positionReviewChartColors.buy,
+              lineWidth: 1.2,
+              opacity: 0.85,
+            },
+          }
+        },
+      }]
+    : []
+
+  const costSeries = costPoints.length
+    ? [{
+        id: 'position-review-symbol-cost',
+        name: '持仓均价',
+        type: 'line',
+        step: 'end',
+        showSymbol: false,
+        animation: false,
+        z: 6,
+        silent: true,
+        lineStyle: { color: positionReviewChartColors.cost, width: 1.4, opacity: 0.85 },
+        data: costPoints.map((point) => ({ value: [point.barIndex, point.value] })),
+      }]
+    : []
+
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    title: {
+      text: `${prtoText(normalized.symbol.code)} ${prtoText(normalized.symbol.name)}`.trim(),
+      left: 8,
+      top: 6,
+      textStyle: { color: '#1f2937', fontSize: 14, fontWeight: 'normal' },
+    },
+    tooltip: {
+      trigger: 'item',
+      triggerOn: 'mousemove|click',
+      confine: true,
+    },
+    legend: {
+      top: 8,
+      right: 12,
+      textStyle: { color: '#374151' },
+      data: [
+        ...(markerSeries.length ? ['订单成交'] : []),
+        ...(costSeries.length ? ['持仓均价'] : []),
+      ],
+    },
+    grid: { left: 58, right: 20, top: 44, bottom: 58 },
+    xAxis: {
+      type: 'category',
+      data: bars.map((bar) => bar.label),
+      axisLabel: { color: '#6b7280' },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      axisLabel: { color: '#6b7280' },
+      splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
+    },
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0, start: 0, end: 100 },
+      { type: 'slider', xAxisIndex: 0, start: 0, end: 100, bottom: 8, height: 18 },
+    ],
+    series: [
+      {
+        id: 'position-review-symbol-candles',
+        name: 'K线',
+        type: 'candlestick',
+        data: prtoArray(kline?.open).map((_, index) => [
+          prtoFiniteNumber(kline?.open?.[index]),
+          prtoFiniteNumber(kline?.close?.[index]),
+          prtoFiniteNumber(kline?.low?.[index]),
+          prtoFiniteNumber(kline?.high?.[index]),
+        ]),
+        animation: false,
+        itemStyle: {
+          color: positionReviewChartColors.up,
+          color0: positionReviewChartColors.down,
+          borderColor: positionReviewChartColors.up,
+          borderColor0: positionReviewChartColors.down,
+        },
+      },
+      ...spanSeries,
+      ...costSeries,
+      ...markerSeries,
+    ],
+  }
+}
+
+const prresolveCostIndex = (targetMs, points) => {
+  if (!Number.isFinite(targetMs) || !points.length) return null
+  let best = -1
+  points.forEach((point, index) => {
+    if (prparseBarTimeMs(point.time) <= targetMs) {
+      best = index
+    }
+  })
+  return best >= 0 ? best : 0
+}
+
+export const buildSymbolCostChartOption = ({
+  chart,
+  conditionsResolver = () => null,
+} = {}) => {
+  const normalized = normalizeSymbolChart(chart || {})
+  const points = normalized.costSeries
+    .map((point, index) => ({
+      index,
+      time: prtoText(point.time),
+      timeMs: prparseBarTimeMs(point.time),
+      averageCost: prtoFiniteNumber(point.average_cost),
+      quantity: prtoInteger(point.position_quantity),
+      pointType: prtoText(point.point_type),
+      costBasisSource: prtoText(point.cost_basis_source),
+    }))
+    .filter((point) => point.timeMs != null && Number.isFinite(point.timeMs))
+  const events = normalized.events
+  if (!points.length && !events.length) {
+    return null
+  }
+  const times = points.map((point) => point.time)
+
+  const markers = events
+    .map((event) => {
+      const execution = event.execution || {}
+      const marker = event.marker || {}
+      const targetMs = prparseBarTimeMs(
+        marker.bar_time
+        || execution.first_fill_time
+        || event.occurred_at,
+      )
+      const index = prresolveCostIndex(targetMs, points)
+      if (index === null) return null
+      const costValue = points[index]?.averageCost ?? null
+      const price = prtoFiniteNumber(marker.price)
+        ?? prtoFiniteNumber(execution.avg_filled_price)
+        ?? costValue
+      if (price === null) return null
+      return {
+        event,
+        eventId: prtoText(event.event_id),
+        side: prtoText(event.side).toLowerCase() === 'sell' ? 'sell' : 'buy',
+        index,
+        price,
+        symbol: prtoText(marker.symbol) || 'circle',
+        verdict: prtoText((event.review || {}).verdict).toUpperCase() || null,
+        rebuilt: Boolean(event.rebuilt),
+      }
+    })
+    .filter(Boolean)
+  const offsets = prassignMarkerOffsets(markers.map((marker) => ({
+    eventId: marker.eventId,
+    barIndex: marker.index,
+  })))
+
+  const markerSeries = markers.length
+    ? [{
+        id: 'position-review-symbol-cost-markers',
+        name: '订单事件',
+        type: 'scatter',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        symbol: (value, params) => params?.data?.symbol || 'circle',
+        symbolSize: (value, params) => (params?.data?.rebuilt ? 10 : 13),
+        animation: false,
+        z: 12,
+        label: {
+          show: true,
+          position: 'top',
+          distance: 2,
+          formatter: (params) => {
+            if (params?.data?.mark) return '!'
+            if (params?.data?.rebuilt) return '账'
+            return params?.data?.sideText || ''
+          },
+          color: '#1f2937',
+          fontSize: 9,
+          fontWeight: 'bold',
+        },
+        data: markers.map((marker) => {
+          const style = prverdictMarkerStyle(marker.verdict)
+          return {
+            value: [marker.index + (offsets.get(marker.eventId) || 0), marker.price],
+            event: marker.event,
+            symbol: marker.symbol,
+            sideText: marker.side === 'buy' ? 'B' : 'S',
+            mark: style.mark,
+            rebuilt: marker.rebuilt,
+            itemStyle: {
+              color: marker.side === 'buy'
+                ? positionReviewChartColors.buy
+                : positionReviewChartColors.sell,
+              borderColor: style.borderColor,
+              borderWidth: style.borderWidth,
+              opacity: style.opacity,
+            },
+          }
+        }),
+        tooltip: {
+          show: true,
+          className: 'prt-tooltip',
+          confine: true,
+          extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          formatter: (params) => {
+            const event = params?.data?.event
+            if (!event) return ''
+            return buildFullMarkerTooltip(event, conditionsResolver(event.event_id))
+          },
+        },
+      }]
+    : []
+
+  const markAreas = []
+  for (const cycle of normalized.holdingCycles) {
+    const startIndex = cycle.open_time == null
+      ? 0
+      : prresolveCostIndex(prparseBarTimeMs(cycle.open_time), points)
+    const endIndex = cycle.close_time == null
+      ? points.length - 1
+      : prresolveCostIndex(prparseBarTimeMs(cycle.close_time), points)
+    if (startIndex === null || endIndex === null || startIndex > endIndex) {
+      continue
+    }
+    markAreas.push([
+      {
+        coord: [startIndex, 'min'],
+        name: cycle.cycle_id,
+        itemStyle: {
+          color: cycle.status === 'open'
+            ? 'rgba(96,165,250,0.06)'
+            : 'rgba(156,163,175,0.05)',
+        },
+        label: {
+          show: true,
+          position: 'insideTop',
+          color: '#6b7280',
+          fontSize: 9,
+          formatter: `持仓周期 ${startIndex === endIndex ? startIndex + 1 : `${startIndex + 1}–${endIndex + 1}`}`,
+        },
+      },
+      { coord: [endIndex, 'max'] },
+    ])
+  }
+
+  const costLineSeries = points.length
+    ? [{
+        id: 'position-review-symbol-cost-line',
+        name: '持仓成本价',
+        type: 'line',
+        step: 'end',
+        showSymbol: points.length <= 1,
+        animation: false,
+        z: 6,
+        lineStyle: { color: positionReviewChartColors.cost, width: 2 },
+        markArea: markAreas.length ? { silent: true, data: markAreas } : undefined,
+        data: points.map((point) => point.averageCost),
+      }]
+    : []
+
+  const costPointSeries = points.length
+    ? [{
+        id: 'position-review-symbol-cost-points',
+        name: '成本采样点',
+        type: 'scatter',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        symbol: 'circle',
+        symbolSize: 5,
+        animation: false,
+        z: 7,
+        silent: true,
+        itemStyle: { color: positionReviewChartColors.cost, opacity: 0.9 },
+        data: points.map((point, index) => (
+          point.averageCost === null ? null : [index, point.averageCost]
+        )).filter(Boolean),
+      }]
+    : []
+
+  return {
+    backgroundColor: 'transparent',
+    animation: false,
+    title: {
+      text: `${prtoText(normalized.symbol.code)} ${prtoText(normalized.symbol.name)}`.trim(),
+      left: 8,
+      top: 6,
+      textStyle: { color: '#1f2937', fontSize: 14, fontWeight: 'normal' },
+    },
+    tooltip: {
+      trigger: 'item',
+      triggerOn: 'mousemove|click',
+      confine: true,
+    },
+    legend: {
+      top: 8,
+      right: 12,
+      textStyle: { color: '#374151' },
+      data: [
+        ...(costLineSeries.length ? ['持仓成本价'] : []),
+        ...(markerSeries.length ? ['订单事件'] : []),
+      ],
+    },
+    grid: { left: 58, right: 20, top: 44, bottom: 40 },
+    xAxis: {
+      type: 'category',
+      data: times,
+      axisLabel: { color: '#6b7280' },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      axisLabel: { color: '#6b7280', formatter: (value) => Number(value).toFixed(2) },
+      splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
+      name: '成本价',
+      nameTextStyle: { color: '#6b7280' },
+    },
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0, start: 0, end: 100 },
+      { type: 'slider', xAxisIndex: 0, start: 0, end: 100, bottom: 8, height: 18 },
+    ],
+    series: [...costLineSeries, ...costPointSeries, ...markerSeries],
+  }
+}
+
+const prverdictMarkerStyle = (verdict) => {
+  if (verdict === 'FAIL') {
+    return { borderColor: '#111827', borderWidth: 2.5, opacity: 1, mark: true }
+  }
+  if (verdict === 'INSUFFICIENT_EVIDENCE') {
+    return { borderColor: '#9ca3af', borderWidth: 1, opacity: 0.72, mark: false }
+  }
+  if (verdict === 'NOT_APPLICABLE') {
+    return { borderColor: '#9ca3af', borderWidth: 1, opacity: 0.45, mark: false }
+  }
+  return { borderColor: '#111827', borderWidth: 1, opacity: 1, mark: false }
+}
+
+const prescapeTooltipHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
+const prtooltipValue = (value, fallback = '—') => (
+  value === null || value === undefined || value === ''
+    ? fallback
+    : prescapeTooltipHtml(value)
+)
+
+const prtooltipRow = (label, value, fallback = '—') => (
+  `<div class="prt-row"><span class="prt-label">${prescapeTooltipHtml(label)}</span><span class="prt-value">${prtooltipValue(value, fallback)}</span></div>`
+)
+
+const prtooltipSection = (title, body) => (
+  `<div class="prt-section"><div class="prt-section-title">${prescapeTooltipHtml(title)}</div>${body}</div>`
+)
+
+const prconditionStatusLabel = (event) => {
+  const conditions = event.conditions || {}
+  if (conditions.condition_snapshot_status === 'complete') return '条件完整'
+  if (conditions.condition_snapshot_status === 'missing') return '历史阈值证据缺失'
+  if (conditions.condition_snapshot_status === 'partial') return '条件部分缺失'
+  return '条件待加载'
+}
+
+const prbuildConditionsTooltipTable = (payload) => {
+  const normalized = normalizeConditions(payload || {})
+  if (!normalized.conditions.length) {
+    return '<div class="prt-muted">该订单暂无可用条件证据</div>'
+  }
+  const rows = normalized.conditions.map((condition) => {
+    const thresholdCell = condition.thresholdMissing
+      ? '<span class="prt-missing">缺失</span>'
+      : prtooltipValue(condition.thresholdDisplay)
+    const passedCell = condition.passed === null
+      ? '—'
+      : `<span class="prt-${condition.passed ? 'ok' : 'bad'}">${condition.passed ? '是' : '否'}</span>`
+    const sourceLabel = condition.source === 'runtime_event'
+      ? '运行事件'
+      : condition.source === 'request_snapshot'
+        ? '请求快照'
+        : condition.source === 'missing'
+          ? '缺失'
+          : prtooltipValue(condition.source)
+    return `<tr>
+      <td class="prt-key" title="${prescapeTooltipHtml(condition.key)}">${prescapeTooltipHtml(condition.label || condition.key)}</td>
+      <td>${prtooltipValue(condition.actualDisplay)}</td>
+      <td>${prescapeTooltipHtml(condition.operator || '—')}</td>
+      <td>${thresholdCell}</td>
+      <td>${passedCell}</td>
+      <td>${sourceLabel}</td>
+    </tr>`
+  }).join('')
+  return `<div class="prt-table-wrap"><table class="prt-table"><thead><tr>
+    <th>条件</th><th>实际值</th><th>操作符</th><th>阈值</th><th>通过</th><th>来源</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`
+}
+
+export const buildFullMarkerTooltip = (event = {}, conditions = null) => {
+  if (!event || !event.event_id) return ''
+  const side = event.side === 'buy' ? '买入' : event.side === 'sell' ? '卖出' : '订单'
+  const review = event.review || {}
+  const signal = event.signal || {}
+  const execution = event.execution || {}
+  const order = event.order || {}
+  const position = event.position_impact || {}
+  const dataQuality = event.data_quality || {}
+  const positionText = position.position_before == null || position.position_after == null
+    ? '待持仓证据'
+    : `${position.position_before} → ${position.position_after}`
+
+  const header = `<div class="prt-header">
+    <span class="prt-side prt-side-${event.side === 'sell' ? 'sell' : 'buy'}">${side}</span>
+    <span class="prt-id">${prescapeTooltipHtml(event.event_id)}</span>
+    <span class="prt-verdict">${prtooltipValue(review.verdict || '未判定')}</span>
+  </div>`
+
+  const signalBody = signal.id || signal.label
+    ? [
+        prtooltipRow('信号类型', signal.type),
+        prtooltipRow('信号族', signal.family),
+        prtooltipRow('信号名称', signal.label),
+        prtooltipRow('信号时间', signal.time),
+        prtooltipRow('信号价格', signal.price),
+        prtooltipRow('信号数量', signal.quantity),
+        prtooltipRow('信号方向', signal.direction),
+        prtooltipRow('信号来源', signal.source),
+        prtooltipRow('关联方式', signal.association_method),
+        prtooltipRow('trace_id', signal.trace_id),
+        prtooltipRow('intent_id', signal.intent_id),
+        ...(signal.remark ? [prtooltipRow('信号备注', signal.remark)] : []),
+      ].join('')
+    : '<div class="prt-muted">未关联信号（不按时间邻近补配）</div>'
+
+  const conditionsBody = conditions === null
+    ? '<div class="prt-muted">条件证据加载中…</div>'
+    : prbuildConditionsTooltipTable(conditions)
+
+  const executionBody = [
+    prtooltipRow('请求数量', order.request_quantity),
+    prtooltipRow('策略应有量', order.expected_quantity, '证据不足'),
+    prtooltipRow('实际成交量', execution.actual_quantity),
+    prtooltipRow('加权成交均价', execution.avg_filled_price),
+    prtooltipRow('成交笔数', execution.fill_count),
+    prtooltipRow('首笔成交', execution.first_fill_time),
+    prtooltipRow('末笔成交', execution.last_fill_time),
+  ].join('')
+
+  const positionBody = [
+    prtooltipRow('持仓前后', positionText),
+    prtooltipRow('均价前后', `${position.cost_basis_before ?? '—'} → ${position.cost_basis_after ?? '—'}`),
+    prtooltipRow('已实现盈亏影响', position.realized_pnl_impact),
+    prtooltipRow('持仓周期', position.holding_cycle_id),
+    prtooltipRow('成本口径', position.cost_basis_source),
+    prtooltipRow('费用口径', `fees_included: ${position.fees_included ? 'true' : 'false'}`),
+  ].join('')
+
+  const warnings = Array.isArray(dataQuality.warnings)
+    ? dataQuality.warnings.map((warning) => warning?.message || warning?.code || '').filter(Boolean)
+    : []
+  const qualityBody = [
+    prtooltipRow('关联质量', dataQuality.association_quality),
+    prtooltipRow('条件状态', prconditionStatusLabel(event)),
+    prtooltipRow('证据置信度', review.confidence),
+    ...(warnings.length
+      ? [prtooltipRow('数据质量提示', warnings.join('；'))]
+      : []),
+  ].join('')
+
+  return `<div class="prt">
+    ${header}
+    ${prtooltipSection('触发信号', signalBody)}
+    ${prtooltipSection('触发条件与全部阈值', conditionsBody)}
+    ${prtooltipSection('订单与成交', executionBody)}
+    ${prtooltipSection('仓位与成本影响', positionBody)}
+    ${prtooltipSection('数据质量', qualityBody)}
+  </div>`
+}
+
+export const buildMarkerTooltip = (event = {}) => buildFullMarkerTooltip(event, null)
+
+export const normalizeConditions = (payload = {}) => {
+  const conditions = prtoArray(payload.conditions).map((condition) => ({
+    key: prtoText(condition.condition_key),
+    label: prtoText(condition.label),
+    actualValue: condition.actual_value,
+    actualDisplay: prtoText(condition.actual_display),
+    operator: prtoText(condition.operator),
+    thresholdValue: condition.threshold_value,
+    thresholdDisplay: prtoText(condition.threshold_display),
+    unit: prtoText(condition.unit),
+    passed: condition.passed,
+    source: prtoText(condition.source),
+    observedAt: prtoText(condition.observed_at),
+    evidenceId: prtoText(condition.evidence_id),
+    thresholdMissing: condition.threshold_value === null || condition.threshold_value === undefined,
+  }))
+  return {
+    conditions,
+    expression: prtoText(payload.expression),
+    strategyVersion: prtoText(payload.strategy_version),
+    configSnapshotHash: prtoText(payload.config_snapshot_hash),
+    triggerSnapshot: payload.trigger_snapshot || null,
+    evidence: payload.evidence || {},
+    dataQuality: payload.data_quality || {},
+    thresholdMissingCount: prtoInteger(
+      (payload.data_quality || {}).threshold_missing_count,
+      conditions.filter((condition) => condition.thresholdMissing).length,
+    ),
+  }
+}
+
+export const positionReviewRefactorFormatters = Object.freeze({
+  amount: (value) => (value == null ? '—' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })),
+  signedAmount: (value) => {
+    if (value == null) return '—'
+    const numeric = Number(value)
+    const sign = numeric > 0 ? '+' : ''
+    return `${sign}${numeric.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
+  },
+  ratio: (value) => (value == null ? '—' : `${(Number(value) * 100).toFixed(2)}%`),
+})
+
+export const positionReviewRefactorConstants = Object.freeze({
+  VERDICT_ORDER: prVERDICT_ORDER,
+  SIGNAL_TYPE_LABELS: prSIGNAL_TYPE_LABELS,
+})

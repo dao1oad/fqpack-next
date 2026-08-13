@@ -844,61 +844,6 @@ class GuardianBuyGridService:
             return None
         return {level: _coerce_float(config.get(level)) for level in BUY_LEVELS}
 
-    def _resolve_capped_quantity(
-        self,
-        code,
-        price,
-        base_amount,
-        config,
-        capacity_ratio=1.0,
-    ):
-        raw_caps = config.get("max_position_amounts")
-        if raw_caps is None:
-            return 0, {"skip_reason": "grid_position_cap_unconfigured"}
-        caps = list(raw_caps or [])
-        if len(caps) != 3:
-            return 0, {"skip_reason": "grid_position_config_invalid"}
-        p1, p2, p3 = (_coerce_float(config.get(level)) for level in BUY_LEVELS)
-        if (
-            not (p1 > p2 > p3 > 0)
-            or any(cap <= 0 for cap in caps)
-            or not (caps[0] <= caps[1] <= caps[2])
-        ):
-            return 0, {"skip_reason": "grid_position_config_invalid"}
-        if price > p1:
-            index, stage, cap = 0, "PRE-BUY-1", caps[0]
-        elif price > p2:
-            index, stage, cap = 1, "BUY-1_TO_BUY-2", caps[1]
-        elif price > p3:
-            index, stage, cap = 2, "BUY-2_TO_BUY-3", caps[2]
-        else:
-            index, stage, cap = 2, "BUY-3_BELOW", None
-        if not _coerce_buy_enabled(config.get("buy_enabled"), default=[True] * 3)[
-            index
-        ]:
-            return 0, {"skip_reason": "grid_stage_disabled", "stage": stage}
-        current_value, global_limit = self._load_position_capacity(code)
-        if current_value is None or global_limit is None:
-            return 0, {"skip_reason": "position_capacity_unavailable", "stage": stage}
-        effective_cap = global_limit if cap is None else min(float(cap), global_limit)
-        remaining = max(effective_cap - current_value, 0.0)
-        base_quantity = _amount_to_quantity(base_amount, price, code=code)
-        capacity_quantity = _amount_to_quantity(
-            remaining * capacity_ratio, price, code=code
-        )
-        context = {
-            "stage": stage,
-            "effective_stage_cap": effective_cap,
-            "current_market_value": current_value,
-            "remaining_amount": remaining,
-            "capacity_ratio": capacity_ratio,
-            "base_quantity": base_quantity,
-            "capacity_quantity": capacity_quantity,
-        }
-        if capacity_quantity <= 0:
-            context["skip_reason"] = "grid_position_capacity_exhausted"
-        return min(base_quantity, capacity_quantity), context
-
     def _resolve_t_corridor(
         self,
         code,

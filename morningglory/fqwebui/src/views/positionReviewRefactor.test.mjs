@@ -12,7 +12,7 @@ import {
   normalizePortfolioContributions,
   normalizePortfolioSummary,
   normalizeSymbolChart,
-} from './positionReviewRefactor.mjs'
+} from './positionReview.mjs'
 
 const makeKline = () => ({
   symbol: '002262',

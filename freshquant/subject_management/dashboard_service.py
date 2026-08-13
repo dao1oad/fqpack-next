@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from bson import ObjectId
@@ -14,6 +15,8 @@ from freshquant.order_management.entry_adapter import (
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.strategy.guardian_buy_grid import DEFAULT_INITIAL_LOT_AMOUNT
 from freshquant.tpsl.repository import TpslRepository
+
+logger = logging.getLogger(__name__)
 from freshquant.util.code import normalize_to_base_code
 
 DEFAULT_GUARDIAN_LOT_AMOUNT = 50000
@@ -75,6 +78,18 @@ class SubjectManagementDashboardService:
             symbols, takeprofit_profiles=takeprofit_profiles
         )
         position_limit_summary_map = self._load_overview_position_limit_summary_map()
+        missing_limit_symbols = [
+            symbol for symbol in symbols if symbol not in position_limit_summary_map
+        ]
+        if missing_limit_symbols:
+            # E4（步骤 9）：批量装载缺失时逐 symbol 兜底会退化为 N+1，
+            # 显式告警让运行面可见；兜底仅发生在批量 loader 失败/缺标的时。
+            logger.warning(
+                "subject overview position_limit_summary batch load missing %d symbols; "
+                "falling back to per-symbol loader: %s",
+                len(missing_limit_symbols),
+                ",".join(sorted(missing_limit_symbols)[:20]),
+            )
 
         takeprofit_events = self._latest_trigger_map(
             symbols,

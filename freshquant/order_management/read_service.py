@@ -42,6 +42,51 @@ class OrderManagementReadService:
         page=1,
         size=20,
     ):
+        page_value = max(int(page or 1), 1)
+        size_value = max(int(size or 20), 1)
+        start = (page_value - 1) * size_value
+        # C8（步骤 9）：无 Python 侧过滤且按 updated_at 排序时走 DB 分页
+        # （Mongo skip/limit + count_documents），避免全量物化；其他情况
+        # 保留原全量排序+切片语义（与旧行为逐位一致）。
+        simple_query = (
+            not any(
+                [
+                    side,
+                    source,
+                    strategy_name,
+                    account_type,
+                    internal_order_id,
+                    request_id,
+                    broker_order_id,
+                    date_from,
+                    date_to,
+                    missing_broker_only,
+                ]
+            )
+            and _normalize_time_field(time_field) == "updated_at"
+        )
+        if simple_query:
+            normalized_symbol = _normalize_symbol(symbol)
+            states = _normalize_filter_values(state, transform=str.upper)
+            count_broker_orders = getattr(self.repository, "count_broker_orders", None)
+            if callable(count_broker_orders):
+                rows = self._query_rows(
+                    symbol=symbol,
+                    state=state,
+                    time_field=time_field,
+                    skip=start,
+                    limit=size_value,
+                )
+                total = count_broker_orders(
+                    symbol=normalized_symbol or None,
+                    states=states or None,
+                )
+                return {
+                    "rows": list(rows),
+                    "total": total,
+                    "page": page_value,
+                    "size": size_value,
+                }
         rows = self._query_rows(
             symbol=symbol,
             side=side,
@@ -57,12 +102,8 @@ class OrderManagementReadService:
             time_field=time_field,
             missing_broker_only=missing_broker_only,
         )
-        page_value = max(int(page or 1), 1)
-        size_value = max(int(size or 20), 1)
-        start = (page_value - 1) * size_value
-        end = start + size_value
         return {
-            "rows": rows[start:end],
+            "rows": rows[start : start + size_value],
             "total": len(rows),
             "page": page_value,
             "size": size_value,
@@ -120,7 +161,6 @@ class OrderManagementReadService:
             "broker_order": dict(broker_order or {}),
             "request": dict(request or {}),
             "events": [dict(item) for item in events],
-            "fills": [dict(item) for item in fills],
             "trades": [dict(item) for item in fills],
             "exit_allocations": [dict(item) for item in exit_allocations],
             "identifiers": {
@@ -223,6 +263,8 @@ class OrderManagementReadService:
         date_to=None,
         time_field="updated_at",
         missing_broker_only=False,
+        skip=None,
+        limit=None,
     ):
         time_field_value = _normalize_time_field(time_field)
         lower_bound = _parse_filter_datetime(date_from, upper_bound=False)
@@ -243,6 +285,9 @@ class OrderManagementReadService:
             symbol=normalized_symbol,
             states=states or None,
             missing_broker_only=bool(missing_broker_only),
+            skip=skip,
+            limit=limit,
+            sort_field=time_field_value,
         )
         if normalized_request_id is not None:
             orders = [
@@ -367,11 +412,23 @@ class OrderManagementReadService:
         rows.sort(key=_order_sort_key, reverse=True)
         return rows
 
-    def _list_broker_orders(self, *, symbol, states, missing_broker_only):
+    def _list_broker_orders(
+        self,
+        *,
+        symbol,
+        states,
+        missing_broker_only,
+        skip=None,
+        limit=None,
+        sort_field="updated_at",
+    ):
         if hasattr(self.repository, "list_broker_orders"):
             orders = self.repository.list_broker_orders(
                 symbol=symbol,
                 states=states,
+                skip=skip,
+                limit=limit,
+                sort_field=sort_field,
             )
         else:
             orders = self.repository.list_orders(
