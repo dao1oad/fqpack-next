@@ -89,11 +89,52 @@ class FakeSignalCollection:
         self.created_indexes.append((list(fields), unique, name))
         return name
 
-    def aggregate(self, pipeline):
-        return []
+    def aggregate(self, pipeline, allowDiskUse=False):
+        # 仅实现 _dedupe_stock_signals 使用的 $sort/$group/$match 语义
+        from collections import defaultdict
+
+        sorted_docs = sorted(self.docs, key=lambda d: str(d.get("_id") or ""))
+        groups = defaultdict(list)
+        for doc in sorted_docs:
+            key = tuple(
+                doc.get(field)
+                for field in ("symbol", "code", "period", "fire_time", "position")
+            )
+            groups[key].append(doc)
+        rows = []
+        for key, group_docs in groups.items():
+            if len(group_docs) <= 1:
+                continue
+            rows.append(
+                {
+                    "_id": dict(
+                        zip(("symbol", "code", "period", "fire_time", "position"), key)
+                    ),
+                    "first_id": group_docs[0]["_id"],
+                    "count": len(group_docs),
+                }
+            )
+        return rows
 
     def delete_many(self, query):
-        return SimpleNamespace(deleted_count=0)
+        deleted = 0
+        kept = []
+        for doc in self.docs:
+            matched = True
+            for key, value in query.items():
+                if isinstance(value, dict) and "$ne" in value:
+                    if doc.get(key) == value["$ne"]:
+                        matched = False
+                        break
+                elif doc.get(key) != value:
+                    matched = False
+                    break
+            if matched:
+                deleted += 1
+            else:
+                kept.append(doc)
+        self.docs = kept
+        return SimpleNamespace(deleted_count=deleted)
 
     def find_one(self, query: dict):
         for doc in self.docs:
@@ -280,6 +321,34 @@ def test_save_a_stock_signal_duplicate_key_skips_on_signal(monkeypatch):
 
     assert len(fake_db.stock_signals.docs) == 1
     assert calls == []
+
+
+def test_dedupe_stock_signals_keeps_smallest_id_per_group(monkeypatch):
+    """A9：历史重复清理保留每组 _id 最小的一条。"""
+
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+    fire_time = datetime.now()
+    base = {
+        "symbol": "sz000001",
+        "code": "000001",
+        "period": "5m",
+        "fire_time": fire_time,
+        "position": "BUY_LONG",
+    }
+    fake_db.stock_signals.docs = [
+        {**base, "_id": "b", "remark": "later"},
+        {**base, "_id": "a", "remark": "first"},
+        {**base, "_id": "c", "remark": "latest"},
+        {**base, "period": "1m", "_id": "d", "remark": "other-period"},
+    ]
+
+    a_stock_common._dedupe_stock_signals(fake_db.stock_signals)
+
+    ids = sorted(doc["_id"] for doc in fake_db.stock_signals.docs)
+    assert ids == ["a", "d"]
+    kept = next(doc for doc in fake_db.stock_signals.docs if doc["_id"] == "a")
+    assert kept["remark"] == "first"
 
 
 def test_save_a_stock_pre_pools_keeps_rows_isolated_by_remark(monkeypatch):

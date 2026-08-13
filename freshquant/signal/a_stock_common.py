@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import logging
 from datetime import datetime, timedelta
 
 import pendulum
@@ -16,9 +17,13 @@ _stock_signals_index_ready = False
 
 
 def _dedupe_stock_signals(collection):
-    """删除历史重复信号文档（唯一索引建立前，保留每组 _id 最小的一条）。"""
+    """删除历史重复信号文档（唯一索引建立前，保留每组 _id 最小的一条）。
+
+    $sort 保证分组扫描顺序确定（_id 升序），$first 即最小 _id。
+    """
 
     pipeline = [
+        {"$sort": {"_id": 1}},
         {
             "$group": {
                 "_id": {
@@ -34,7 +39,7 @@ def _dedupe_stock_signals(collection):
         },
         {"$match": {"count": {"$gt": 1}}},
     ]
-    for group in collection.aggregate(pipeline):
+    for group in collection.aggregate(pipeline, allowDiskUse=True):
         key = group["_id"]
         query = dict(key)
         query["_id"] = {"$ne": group["first_id"]}
@@ -52,36 +57,42 @@ def ensure_stock_signals_unique_index():
     global _stock_signals_index_ready
     if _stock_signals_index_ready:
         return
-    collection = DBfreshquant["stock_signals"]
-    indexes = collection.index_information()
-    if STOCK_SIGNALS_UNIQUE_INDEX_NAME not in indexes:
-        _dedupe_stock_signals(collection)
-        try:
-            collection.create_index(
-                [
-                    ("symbol", pymongo.ASCENDING),
-                    ("code", pymongo.ASCENDING),
-                    ("period", pymongo.ASCENDING),
-                    ("fire_time", pymongo.ASCENDING),
-                    ("position", pymongo.ASCENDING),
-                ],
-                unique=True,
-                name=STOCK_SIGNALS_UNIQUE_INDEX_NAME,
-            )
-        except pymongo.errors.DuplicateKeyError:
-            # 建索引瞬间又有并发写入产生重复：再清一次后重建。
+    try:
+        collection = DBfreshquant["stock_signals"]
+        indexes = collection.index_information()
+        if STOCK_SIGNALS_UNIQUE_INDEX_NAME not in indexes:
             _dedupe_stock_signals(collection)
-            collection.create_index(
-                [
-                    ("symbol", pymongo.ASCENDING),
-                    ("code", pymongo.ASCENDING),
-                    ("period", pymongo.ASCENDING),
-                    ("fire_time", pymongo.ASCENDING),
-                    ("position", pymongo.ASCENDING),
-                ],
-                unique=True,
-                name=STOCK_SIGNALS_UNIQUE_INDEX_NAME,
-            )
+            index_fields = [
+                ("symbol", pymongo.ASCENDING),
+                ("code", pymongo.ASCENDING),
+                ("period", pymongo.ASCENDING),
+                ("fire_time", pymongo.ASCENDING),
+                ("position", pymongo.ASCENDING),
+            ]
+            for attempt in range(3):
+                try:
+                    collection.create_index(
+                        index_fields,
+                        unique=True,
+                        name=STOCK_SIGNALS_UNIQUE_INDEX_NAME,
+                    )
+                    break
+                except pymongo.errors.DuplicateKeyError:
+                    # 建索引瞬间又有并发写入产生重复：再清一次后重试（有限次）。
+                    _dedupe_stock_signals(collection)
+            else:
+                # 持续并发写入下最终失败：告警并放行（与 S6 契约一致，
+                # 不阻断信号主链；此时并发窗口内仍有 Redis 冷却等兜底）。
+                logging.getLogger(__name__).warning(
+                    "stock_signals unique index creation failed after retries"
+                )
+    except Exception:
+        # 索引元数据/建索引异常（网络瞬断、IndexOptionsConflict 等）：
+        # 告警并放行，不阻断信号主链（与 S6 契约一致）。
+        logging.getLogger(__name__).warning(
+            "stock_signals unique index ensure failed; continuing without index",
+            exc_info=True,
+        )
     _stock_signals_index_ready = True
 
 
