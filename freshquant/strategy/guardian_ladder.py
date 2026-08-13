@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import pymongo
+from loguru import logger
 from pymongo.errors import DuplicateKeyError
 
 from freshquant.db import DBfreshquant
@@ -30,6 +32,8 @@ BUY_LEVELS = ("BUY-1", "BUY-2", "BUY-3")
 DEFAULT_BUY_LINE_ARMED = [True, True, True]
 DEFAULT_BUY_ACTIVE = [False, False, False]
 EVENT_COLLECTION = "guardian_ladder_events"
+EVENT_TTL_INDEX_NAME = "ttl_guardian_ladder_events"
+EVENT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 天
 
 
 def _now_iso() -> str:
@@ -63,6 +67,7 @@ class GuardianLadderState:
         self.buy_grid_database = buy_grid_database or DBfreshquant
         self.tp_database = tp_database or DBOrderManagement
         self.events_database = events_database or DBfreshquant
+        self._events_indexes_ready = False
 
     # ------------------------------------------------------------------
     # collections
@@ -80,6 +85,33 @@ class GuardianLadderState:
     def _events_collection(self):
         return self.events_database[EVENT_COLLECTION]
 
+    def _ensure_events_indexes(self):
+        """S6：事件幂等表 TTL 索引（无界增长防护），幂等创建。"""
+
+        if self._events_indexes_ready:
+            return
+        collection = self._events_collection()
+        create_index = getattr(collection, "create_index", None)
+        if not callable(create_index):
+            self._events_indexes_ready = True
+            return
+        try:
+            indexes = collection.index_information()
+        except Exception:  # pragma: no cover - 索引创建失败不阻断主链
+            return
+        if EVENT_TTL_INDEX_NAME in indexes:
+            self._events_indexes_ready = True
+            return
+        try:
+            create_index(
+                [("created_at_dt", pymongo.ASCENDING)],
+                expireAfterSeconds=EVENT_TTL_SECONDS,
+                name=EVENT_TTL_INDEX_NAME,
+            )
+        except Exception:  # pragma: no cover - 索引创建失败不阻断主链
+            logger.exception("guardian_ladder_events TTL index creation failed")
+        self._events_indexes_ready = True
+
     # ------------------------------------------------------------------
     # event idempotency
     # ------------------------------------------------------------------
@@ -96,6 +128,7 @@ class GuardianLadderState:
         normalized_code = normalize_to_base_code(code)
         event_id = f"{normalized_code}:{event_type}:{normalized_key}"
         try:
+            self._ensure_events_indexes()
             self._events_collection().insert_one(
                 {
                     "_id": event_id,
@@ -103,6 +136,7 @@ class GuardianLadderState:
                     "event_type": event_type,
                     "event_key": normalized_key,
                     "created_at": _now_iso(),
+                    "created_at_dt": datetime.now(timezone.utc),
                 }
             )
         except DuplicateKeyError:
@@ -363,6 +397,19 @@ class GuardianLadderState:
         ):
             return False
         self._ensure_tp_state_document(normalized_code)
+        trigger_updates: dict[str, Any] = {
+            f"armed_levels.{resolved_level}": False,
+            "last_triggered_level": resolved_level,
+            "last_triggered_batch_id": last_triggered_batch_id,
+            "last_triggered_at": _now_iso(),
+            "updated_at": _now_iso(),
+            "updated_by": "guardian_ladder",
+        }
+        if trigger_price is not None:
+            try:
+                trigger_updates["last_triggered_price"] = float(trigger_price)
+            except (TypeError, ValueError):
+                pass
         result = self._tp_state_collection().update_one(
             {
                 "symbol": normalized_code,
@@ -372,27 +419,12 @@ class GuardianLadderState:
                 ],
             },
             {
-                "$set": {
-                    f"armed_levels.{resolved_level}": False,
-                    "last_triggered_level": resolved_level,
-                    "last_triggered_batch_id": last_triggered_batch_id,
-                    "last_triggered_at": _now_iso(),
-                    "updated_at": _now_iso(),
-                    "updated_by": "guardian_ladder",
-                },
+                "$set": trigger_updates,
                 "$inc": {"version": 1},
             },
         )
         if result.matched_count != 1:
             return False
-        if trigger_price is not None:
-            try:
-                self._tp_state_collection().update_one(
-                    {"symbol": normalized_code},
-                    {"$set": {"last_triggered_price": float(trigger_price)}},
-                )
-            except (TypeError, ValueError):
-                pass
         return True
 
     def on_takeprofit_fill(self, *, code, level, event_key) -> bool:

@@ -14,6 +14,10 @@
 - `stock_pools`
 - `must_pool`
 - `stock_signals`
+  - 唯一索引 `uq_stock_signals_signal_key`（`symbol, code, period, fire_time, position`），
+    并发 upsert 靠索引 + DuplicateKey 幂等（路线步骤 4）
+- `guardian_ladder_events`
+  - 阶梯事件幂等表；`created_at_dt` + TTL 索引 `ttl_guardian_ladder_events`（7 天）
 - `realtime_screen_multi_period`
 - `stock_fills`
   - raw legacy fill 集合
