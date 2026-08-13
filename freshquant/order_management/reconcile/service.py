@@ -94,6 +94,8 @@ class ExternalOrderReconcileService:
         external_confirm_interval_seconds=15,
         external_confirm_observations=3,
         runtime_logger=None,
+        lot_amount_resolver=None,
+        grid_interval_resolver=None,
     ):
         self.repository = repository or OrderManagementRepository()
         self.tracking_service = tracking_service or OrderTrackingService(
@@ -111,6 +113,8 @@ class ExternalOrderReconcileService:
         )
         self.runtime_logger = runtime_logger or _get_runtime_logger()
         self._skip_sell_confirmation = False
+        self._lot_amount_resolver = lot_amount_resolver
+        self._grid_interval_resolver = grid_interval_resolver
 
     def detect_external_candidates(self, positions, detected_at):
         self._skip_sell_confirmation = False
@@ -576,6 +580,8 @@ class ExternalOrderReconcileService:
         arrange_runtime = _resolve_external_arrangement_runtime(
             gap["symbol"],
             trade_fact,
+            lot_resolver=self._lot_amount_resolver,
+            grid_interval_resolver=self._grid_interval_resolver,
         )
         if existing_entry is not None:
             entry = build_clustered_position_entry(
@@ -1570,42 +1576,56 @@ def _safe_grid_interval_lookup(symbol, trade_fact):
         return 1.03
 
 
-def _resolve_external_arrangement_runtime(symbol, trade_fact):
+def _resolve_lot_amount_raw(symbol):
+    """未兜底的整手量解析：失败必须上抛，由调用方捕获并落 DEGRADED 证据。"""
+
+    from freshquant.order_management.ingest.xt_reports import _resolve_lot_amount
+
+    return _resolve_lot_amount(symbol)
+
+
+def _resolve_external_arrangement_runtime(
+    symbol,
+    trade_fact,
+    *,
+    lot_resolver=None,
+    grid_interval_resolver=None,
+):
+    """解析 auto-open 编排运行参数。
+
+    生产路径固定使用未兜底的解析器（失败 → DEGRADED + 错误证据）；
+    测试/调用方通过显式注入 ``lot_resolver`` / ``grid_interval_resolver``
+    提供确定性实现，生产逻辑不再探测模块级函数是否被替换。
+    """
+
     lot_amount = None
     grid_interval = None
     errors = []
 
-    if _safe_resolve_lot_amount is not _ORIGINAL_SAFE_RESOLVE_LOT_AMOUNT:
-        lot_amount = _safe_resolve_lot_amount(symbol)
-    else:
-        try:
-            from freshquant.order_management.ingest.xt_reports import (
-                _resolve_lot_amount,
-            )
+    lot_resolver = lot_resolver or _resolve_lot_amount_raw
+    grid_interval_resolver = grid_interval_resolver or _default_grid_interval_lookup
 
-            lot_amount = _resolve_lot_amount(symbol)
-        except Exception as exc:
-            errors.append(
-                _build_arrangement_error(
-                    stage="resolve_lot_amount",
-                    exc=exc,
-                    fallback_value=_DEFAULT_RECONCILE_LOT_AMOUNT,
-                )
+    try:
+        lot_amount = lot_resolver(symbol)
+    except Exception as exc:
+        errors.append(
+            _build_arrangement_error(
+                stage="resolve_lot_amount",
+                exc=exc,
+                fallback_value=_DEFAULT_RECONCILE_LOT_AMOUNT,
             )
+        )
 
-    if _safe_grid_interval_lookup is not _ORIGINAL_SAFE_GRID_INTERVAL_LOOKUP:
-        grid_interval = _safe_grid_interval_lookup(symbol, trade_fact)
-    else:
-        try:
-            grid_interval = _default_grid_interval_lookup(symbol, trade_fact)
-        except Exception as exc:
-            errors.append(
-                _build_arrangement_error(
-                    stage="resolve_grid_interval",
-                    exc=exc,
-                    fallback_value=1.03,
-                )
+    try:
+        grid_interval = grid_interval_resolver(symbol, trade_fact)
+    except Exception as exc:
+        errors.append(
+            _build_arrangement_error(
+                stage="resolve_grid_interval",
+                exc=exc,
+                fallback_value=1.03,
             )
+        )
 
     if errors:
         lot_amount = _DEFAULT_RECONCILE_LOT_AMOUNT
@@ -1705,10 +1725,6 @@ def _mark_entry_arrangement_failure(entry, exc, *, existing_errors=None):
         }
     )
     return entry
-
-
-_ORIGINAL_SAFE_RESOLVE_LOT_AMOUNT = _safe_resolve_lot_amount
-_ORIGINAL_SAFE_GRID_INTERVAL_LOOKUP = _safe_grid_interval_lookup
 
 
 def _arrange_entry_slices(entry, *, lot_amount, grid_interval):
