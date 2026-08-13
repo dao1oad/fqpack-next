@@ -77,11 +77,20 @@ class TpslTickConsumer:
         try:
             if _is_before_continuous_auction(event, now_provider=self.now_provider):
                 return None
+            active_codes = self.refresh_universe()
+            # #549 双集合：买入线 universe 与止盈 universe 隔离，
+            # 任一集合命中即可进入对应评估。
+            if (
+                event.code not in active_codes
+                and event.code not in self.active_buy_line_codes
+            ):
+                return None
             invalid_reason = _invalid_tick_reason(event)
             if invalid_reason is not None:
                 # 失败语义契约（根②）：有效 tick = 时间合法 + bid1/ask1/last 均 >0；
                 # 不满足不进交易链（止损路径已随 #603 下线，门槛保留给
-                # TP/买入线评估与事件层通用卫生）。
+                # TP/买入线评估与事件层通用卫生）。门槛置于 universe 匹配之后，
+                # 避免对非关注标的的无效 tick 逐条落事件。
                 self._emit_runtime(
                     "tick_gate",
                     symbol=symbol,
@@ -94,14 +103,6 @@ class TpslTickConsumer:
                         "tick_time": event.tick_time,
                     },
                 )
-                return None
-            active_codes = self.refresh_universe()
-            # #549 双集合：买入线 universe 与止盈 universe 隔离，
-            # 任一集合命中即可进入对应评估。
-            if (
-                event.code not in active_codes
-                and event.code not in self.active_buy_line_codes
-            ):
                 return None
             # #549：买入线评估插入点在 TP 评估之前。买入线不是本 tick 的终态——
             # 仅返回 ready 才提交买单并终止本 tick；skipped 时双集合标的

@@ -157,6 +157,7 @@ Trace 类型当前由 ClickHouse 查询层按组件与语义字段共同推导�
 | `guardian_buy_grid.load_pending_buy_amount` | `pending_buy_amount_unavailable` | 在途买单读失败，跳过买入 |
 | `guardian_buy_grid.load_takeprofit_prices` | `takeprofit_prices_unavailable` | TPSL 止盈价读失败，回补走廊跳过 |
 | `guardian_buy_grid.load_position_capacity` | `position_capacity_read_failed` | 仓位快照读失败（区别于确认 MV 缺失） |
+| `guardian_strategy.timing_check` / `guardian_strategy.fill_reference` | `fill_reference_unavailable` / `broker_position_reference_unavailable` | 做T 买入链成交参照读不到，跳过买入 |
 | `tpsl_worker.tick_gate` | `invalid_tick_time` / `invalid_tick_quote` | tick 时间非法 / bid1·ask1·last 任一 ≤0，不进交易链 |
 | `tpsl_worker.submit_intent` | `base_buy_cap_missing` / `capacity_recheck_failed` | 买入线提交侧 cap 缺失 / 容量复核读失败，阻断提交 |
 | `guardian_event.signal_gate` | `structure_context_unavailable` / `invalid_bar_time_dropped` | 1min 补仓 arranged fills 读不到跳过信号 / bar 时间非法丢弃计数 |

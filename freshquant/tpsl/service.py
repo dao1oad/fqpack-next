@@ -492,20 +492,10 @@ class TpslService:
                 "blocked_reason": "invalid_decision",
                 "quantity": 0,
             }
-        cooldown_key = f"base_buy:{symbol}"
-        if not self.lock_client.acquire(
-            cooldown_key,
-            ttl_seconds=_BASE_BUY_COOLDOWN_SECONDS,
-        ):
-            return {
-                "status": "cooldown",
-                "symbol": symbol,
-                "blocked_reason": "base_buy_cooldown",
-                "quantity": 0,
-            }
         # 提交侧在途复核：超 cap 放弃（不采用共用冷却键，与独立冷却承诺一致）。
         # 失败语义契约（根②）：cap 缺失/读失败/容量复核异常一律 fail-closed，
-        # 且 reason_code 区分三种形态。
+        # 且 reason_code 区分三种形态；复核先于冷却获取（副作用后置：
+        # 瞬时读失败导致的阻断不消耗 15 分钟冷却）。
         try:
             effective_cap = float(decision.get("effective_stage_cap"))
         except (TypeError, ValueError):
@@ -569,6 +559,17 @@ class TpslService:
                 "status": "blocked",
                 "symbol": symbol,
                 "blocked_reason": "in_flight_capacity_exhausted",
+                "quantity": 0,
+            }
+        cooldown_key = f"base_buy:{symbol}"
+        if not self.lock_client.acquire(
+            cooldown_key,
+            ttl_seconds=_BASE_BUY_COOLDOWN_SECONDS,
+        ):
+            return {
+                "status": "cooldown",
+                "symbol": symbol,
+                "blocked_reason": "base_buy_cooldown",
                 "quantity": 0,
             }
         intent_id = new_intent_id()

@@ -152,6 +152,10 @@ Guardian buy grid 当前区分两类语义：
   - 在途买单读失败 → `pending_buy_amount_unavailable`（`guardian_buy_grid.load_pending_buy_amount`）
   - TPSL profile 读失败 → `takeprofit_prices_unavailable`（回补走廊跳过）
   - 仓位快照读失败 → `position_capacity_read_failed`（与「确认 MV 缺失」区分）
+- 做T 买入链成交参照读失败（execution fills / OM entries / `xt_positions.avg_price`
+  三级兜底任一读异常）→ 跳过买入并落 `fill_reference_unavailable`
+  （`broker_position_reference_unavailable` 为 broker 级读失败细分码），
+  与「确认无历史成交」区分
 - 阶段剩余容量（按 `capacity_ratio` 折算后）不足一手时不买入（`grid_position_capacity_exhausted`）
 - `guardian_buy_grid_states` 保留字段与 `last_hit_*` 审计记录；`reset_after_sell_trade` 或价格配置更新仍会把 `buy_active` 重置为全激活，仅作审计信息
 - `guardian_buy_grid_states.buy_line_armed` 与 `om_takeprofit_states.armed_levels` 由 `guardian_ladder` 阶梯状态机统一读写（字段级原子 `$set`）

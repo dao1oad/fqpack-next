@@ -709,3 +709,61 @@ def test_c7_mongo_unavailable_emits_degradation_event(monkeypatch):
 
     assert result is None
     assert events == [("000001", "price_snapshot_mongo_unavailable")]
+
+
+# ---------------------------------------------------------------- guardian 成交参照读失败
+
+
+def test_holding_buy_fill_reference_unavailable_skips_with_reason(monkeypatch):
+    from freshquant.strategy.guardian import StrategyGuardian
+
+    logger = _FakeLogger()
+    strategy = StrategyGuardian()
+    strategy.runtime_logger = logger
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.get_stock_holding_codes",
+        lambda: ["000001"],
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.queryMustPoolCodes",
+        lambda: [],
+    )
+
+    def _fail_ref(_code):
+        raise RuntimeError("mongo down")
+
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian._resolve_guardian_buy_fill_reference",
+        _fail_ref,
+    )
+    monkeypatch.setattr(
+        "freshquant.strategy.guardian.logger",
+        SimpleNamespace(info=lambda *args, **kwargs: None),
+    )
+
+    import pendulum
+
+    now = pendulum.now()
+    strategy.on_signal(
+        {
+            "symbol": "000001",
+            "code": "000001",
+            "name": "Ping An Bank",
+            "period": "1m",
+            "fire_time": now,
+            "discover_time": now,
+            "price": 9.5,
+            "stop_lose_price": 9.0,
+            "position": "BUY_LONG",
+            "remark": "contract-test",
+            "tags": [],
+            "zsdata": None,
+            "fills": [],
+        }
+    )
+
+    skipped = [
+        e for e in logger.events if e["reason_code"] == "fill_reference_unavailable"
+    ]
+    assert len(skipped) >= 1
+    assert skipped[0]["status"] == "skipped"

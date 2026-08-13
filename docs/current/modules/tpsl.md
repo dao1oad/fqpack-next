@@ -22,6 +22,8 @@ TPSL 在独立 tick 链路上评估止盈条件，并生成退出单。止损触
   （不再吞异常放行提交）
 - 容量组件返回不可用（账本占用/在途/仓位快照读不到）→ 阻断，
   `blocked_reason=position_capacity_unavailable`
+- 复核顺序在冷却获取之前（副作用后置）：因瞬时读失败被阻断的 tick
+  不消耗 15 分钟 `base_buy:<code>` 冷却，下一 tick 可立即重试
 
 ## 入口
 

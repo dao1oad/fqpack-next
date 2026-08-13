@@ -294,7 +294,43 @@ class StrategyGuardian(metaclass=SingletonType):
     ):
         current_node = "timing_check"
         try:
-            fill_reference = _resolve_guardian_buy_fill_reference(code)
+            try:
+                fill_reference = _resolve_guardian_buy_fill_reference(code)
+            except Exception as exc:
+                # 失败语义契约（根②）：成交参照读不到 = 本次不交易 + 显式事件。
+                fill_reference_context = {
+                    "fill_reference": {
+                        "available": False,
+                        "error": str(exc)[:200],
+                    }
+                }
+                self._emit_runtime(
+                    signal,
+                    "timing_check",
+                    action="buy",
+                    status="skipped",
+                    reason_code="fill_reference_unavailable",
+                    decision_branch="fill_reference",
+                    decision_expr="fill_reference is not None",
+                    decision_context=fill_reference_context,
+                    decision_outcome={"outcome": "skip"},
+                )
+                self._emit_finish(
+                    signal,
+                    action="buy",
+                    status="skipped",
+                    reason_code="fill_reference_unavailable",
+                    outcome="skip",
+                    decision_branch="fill_reference",
+                    decision_expr="fill_reference is not None",
+                    decision_context=fill_reference_context,
+                )
+                logger.info(
+                    "{code} {name} 成交参照读不到，跳过下单指令",
+                    code=code,
+                    name=name,
+                )
+                return
             last_fill_dt = None
             last_fill_price = None
             last_fill_source = None
@@ -1830,8 +1866,23 @@ def _get_broker_position_average_cost_reference(code):
             },
             {"avg_price": 1, "volume": 1},
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        # 失败语义契约（根②）：读失败与「确认无持仓」必须区分；
+        # 读失败显式告警并上抛，由调用方按 fill_reference_unavailable 跳过。
+        try:
+            _get_runtime_logger().emit(
+                {
+                    "component": "guardian_strategy",
+                    "node": "fill_reference",
+                    "symbol": code,
+                    "status": "error",
+                    "reason_code": "broker_position_reference_unavailable",
+                    "payload": {"error": str(exc)[:200]},
+                }
+            )
+        except Exception:  # pragma: no cover - 观测路径失败不影响主链
+            pass
+        raise
     if not position:
         return None
     if int(position.get("volume") or 0) <= 0:
