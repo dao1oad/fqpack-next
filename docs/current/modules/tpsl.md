@@ -9,9 +9,19 @@ TPSL 在独立 tick 链路上评估止盈条件，并生成退出单。止损触
 - 历史与详情优先读取 `entry ledger`
 - 止盈卖出提交前会统一按 `xt_positions.can_use_volume` 截断，并按一手向下取整；Guardian 卖出现在复用同一套约束 helper
 - tick listener 在北京时间 `09:30:00` 前不响应 tick 事件，不评估止盈/买入线，也不生成退出单或 Runtime Trace
+- 有效 tick 门槛（路线步骤 3，根②）：tick 时间合法且 `bid1/ask1/last_price`
+  三者均 >0 才进入评估链；否则跳过并落 `tpsl_worker.tick_gate`
+  `reason_code=invalid_tick_time` / `invalid_tick_quote`，不评估止盈/买入线
 - TPSL 提交时显式写 `om_order_requests.ledger_intent`：买入线（base_line）
   与止盈卖出 → `base`；`guardian_sell_sources` 仅作为
   止盈分配书签保留，不参与归属判定（#571）。
+
+买入线提交侧容量复核（路线步骤 3，根②，fail-closed 三分）：
+- 决策缺少 `effective_stage_cap` → 阻断，`blocked_reason=base_buy_cap_missing`
+- 容量复核本身读失败/异常 → 阻断，`blocked_reason=capacity_recheck_failed`
+  （不再吞异常放行提交）
+- 容量组件返回不可用（账本占用/在途/仓位快照读不到）→ 阻断，
+  `blocked_reason=position_capacity_unavailable`
 
 ## 入口
 

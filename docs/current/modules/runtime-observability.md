@@ -146,6 +146,23 @@ Trace 类型当前由 ClickHouse 查询层按组件与语义字段共同推导�
 - 正式恢复入口是 `script/rebuild_runtime_ingest_progress.py`
 - 该脚本会先从 `runtime_events` 读取每个 `raw_file` 已入库的最大 `raw_line`，再反推当前 JSONL 的 byte offset，重建 `runtime_ingest_progress`
 
+## 失败语义契约事件（路线步骤 3，根②）
+
+交易所需数据读不到/无效 = 本次不交易 + 显式 `reason_code` 事件；
+只有「确认不存在」才允许按 0/默认值继续。可被监控断言的 reason_code 清单：
+
+| component / node | reason_code | 语义 |
+| --- | --- | --- |
+| `guardian_buy_grid.load_ledger_occupancy` | `ledger_occupancy_unavailable` | 账本占用读失败，跳过买入 |
+| `guardian_buy_grid.load_pending_buy_amount` | `pending_buy_amount_unavailable` | 在途买单读失败，跳过买入 |
+| `guardian_buy_grid.load_takeprofit_prices` | `takeprofit_prices_unavailable` | TPSL 止盈价读失败，回补走廊跳过 |
+| `guardian_buy_grid.load_position_capacity` | `position_capacity_read_failed` | 仓位快照读失败（区别于确认 MV 缺失） |
+| `tpsl_worker.tick_gate` | `invalid_tick_time` / `invalid_tick_quote` | tick 时间非法 / bid1·ask1·last 任一 ≤0，不进交易链 |
+| `tpsl_worker.submit_intent` | `base_buy_cap_missing` / `capacity_recheck_failed` | 买入线提交侧 cap 缺失 / 容量复核读失败，阻断提交 |
+| `guardian_event.signal_gate` | `structure_context_unavailable` / `invalid_bar_time_dropped` | 1min 补仓 arranged fills 读不到跳过信号 / bar 时间非法丢弃计数 |
+| `guardian_event.clxs_signal` / `guardian_event.bi_list` | `signal_calc_unavailable` / `bi_list_unavailable` | 信号计算引擎失败不产信号 / bi 列表读不到不产信号 |
+| `order_reconcile.price_snapshot` | `price_snapshot_mongo_unavailable` / `price_snapshot_source_unavailable` | 平账价格快照降级前显式告警 |
+
 ## 页面信息架构
 
 页面当前是 summary/detail 模式：

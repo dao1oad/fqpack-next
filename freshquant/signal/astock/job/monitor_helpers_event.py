@@ -8,6 +8,37 @@ from typing import Any
 
 from loguru import logger
 
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        from freshquant.runtime_observability.logger import RuntimeEventLogger
+
+        _runtime_logger = RuntimeEventLogger("guardian_event")
+    return _runtime_logger
+
+
+def _emit_signal_calc_event(*, node, reason_code, symbol="", payload=None):
+    """信号计算链失败/降级的显式运行事件（根②：读不到 = 不交易 + 告警）。"""
+
+    try:
+        return bool(
+            _get_runtime_logger().emit(
+                {
+                    "component": "guardian_event",
+                    "node": node,
+                    "status": "error",
+                    "reason_code": reason_code,
+                    "symbol": symbol,
+                    "payload": dict(payload or {}),
+                }
+            )
+        )
+    except Exception:  # pragma: no cover - 观测路径失败不影响主链
+        return False
+
 
 @dataclass(frozen=True)
 class GuardianSignal:
@@ -53,6 +84,11 @@ def _clxs_last_signal(
         from fqcopilot import fq_clxs  # type: ignore
     except Exception as e:  # pragma: no cover
         logger.warning(f"fqcopilot not available; skip signal calc: {e}")
+        _emit_signal_calc_event(
+            node="clxs_signal",
+            reason_code="signal_calc_unavailable",
+            payload={"model_opt": model_opt, "detail": "fqcopilot_unavailable"},
+        )
         return 0
 
     length = len(close_list)
@@ -74,11 +110,21 @@ def _clxs_last_signal(
         )
     except Exception as e:
         logger.debug(f"fq_clxs failed model_opt={model_opt}: {e}")
+        _emit_signal_calc_event(
+            node="clxs_signal",
+            reason_code="signal_calc_unavailable",
+            payload={"model_opt": model_opt, "detail": str(e)[:200]},
+        )
         return 0
 
     try:
         return int(sigs[-1])
-    except Exception:
+    except Exception as e:
+        _emit_signal_calc_event(
+            node="clxs_signal",
+            reason_code="signal_calc_unavailable",
+            payload={"model_opt": model_opt, "detail": str(e)[:200]},
+        )
         return 0
 
 
@@ -88,27 +134,44 @@ def _ensure_bi_list(
     high_list: list[float],
     low_list: list[float],
     close_list: list[float],
-) -> list[int]:
+) -> list[int] | None:
+    """解析/计算 bi 列表；读不到返回 None（fail-closed），合法全零列表原样返回。"""
+
     bi = data.get("_bi_signal_list")
     if isinstance(bi, list) and len(bi) == len(high_list):
         try:
             return [int(x) for x in bi]
-        except Exception:
-            pass
+        except Exception as e:
+            _emit_signal_calc_event(
+                node="bi_list",
+                reason_code="bi_list_unavailable",
+                payload={"detail": str(e)[:200]},
+            )
+            return None
 
     try:
         from fqchan04 import fq_recognise_bi  # type: ignore
     except Exception as e:  # pragma: no cover
         logger.warning(f"fqchan04 not available; bi_list missing: {e}")
-        return [0] * len(high_list)
+        _emit_signal_calc_event(
+            node="bi_list",
+            reason_code="bi_list_unavailable",
+            payload={"detail": "fqchan04_unavailable"},
+        )
+        return None
 
     try:
         return [
             int(x)
             for x in fq_recognise_bi(len(high_list), high_list, low_list, close_list)
         ]
-    except Exception:
-        return [0] * len(high_list)
+    except Exception as e:
+        _emit_signal_calc_event(
+            node="bi_list",
+            reason_code="bi_list_unavailable",
+            payload={"detail": str(e)[:200]},
+        )
+        return None
 
 
 def calculate_guardian_signals_latest(
@@ -131,7 +194,12 @@ def calculate_guardian_signals_latest(
         high_list = [float(x) for x in (data.get("high") or [])]
         low_list = [float(x) for x in (data.get("low") or [])]
         close_list = [float(x) for x in (data.get("close") or [])]
-    except Exception:
+    except Exception as e:
+        _emit_signal_calc_event(
+            node="signals_latest",
+            reason_code="signal_calc_unavailable",
+            payload={"detail": str(e)[:200]},
+        )
         return []
 
     n = len(close_list)
@@ -147,6 +215,9 @@ def calculate_guardian_signals_latest(
         low_list=low_list,
         close_list=close_list,
     )
+    if bi_list is None:
+        # bi 列表是止损价与信号质量的必需输入；读不到 = 不交易（fail-closed）。
+        return []
 
     out: list[GuardianSignal] = []
 

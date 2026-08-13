@@ -188,6 +188,7 @@ class GuardianBuyGridService:
         now_fn=None,
         position_repository=None,
         order_repository=None,
+        runtime_logger=None,
     ):
         if database is None:
             from freshquant.db import DBfreshquant
@@ -202,6 +203,25 @@ class GuardianBuyGridService:
         self.now_fn = now_fn or _now_iso
         self.position_repository = position_repository
         self.order_repository = order_repository
+        self.runtime_logger = runtime_logger or _get_runtime_logger()
+
+    def _emit_runtime(
+        self, node, *, status="error", reason_code, symbol="", payload=None
+    ):
+        """失败语义契约（根②）：读不到的数据显式告警，事件可被 CI/监控断言。"""
+
+        event = {
+            "component": "guardian_buy_grid",
+            "node": node,
+            "symbol": symbol,
+            "status": status,
+            "reason_code": reason_code,
+            "payload": dict(payload or {}),
+        }
+        try:
+            self.runtime_logger.emit(event)
+        except Exception:
+            return
 
     def _config_collection(self):
         return self.database[self.config_collection_name]
@@ -902,11 +922,10 @@ class GuardianBuyGridService:
         if price > prices[0]:
             if not buy_enabled[0]:
                 return None, "grid_stage_disabled", "TP_TO_BUY-1"
-            upper_candidates = [
-                tp_price
-                for tp_price in self._load_takeprofit_prices(code)
-                if tp_price > price
-            ]
+            tp_prices = self._load_takeprofit_prices(code)
+            if tp_prices is None:
+                return None, "takeprofit_prices_unavailable", "TP_ABOVE"
+            upper_candidates = [tp_price for tp_price in tp_prices if tp_price > price]
             if not upper_candidates:
                 return None, "above_takeprofit_zone", "TP_ABOVE"
             upper = min(upper_candidates)
@@ -950,8 +969,12 @@ class GuardianBuyGridService:
             stage,
         )
 
-    def _load_takeprofit_prices(self, code) -> list[float]:
-        """读取该标的 TPSL profile 的止盈档价格（用于回补走廊上界）。"""
+    def _load_takeprofit_prices(self, code) -> list[float] | None:
+        """读取该标的 TPSL profile 的止盈档价格（用于回补走廊上界）。
+
+        失败语义：读不到（DB 异常）返回 None 并告警（fail-closed，调用方跳过）；
+        profile 确认不存在返回 []（合法空档，非降级）。
+        """
 
         try:
             from freshquant.order_management.db import DBOrderManagement
@@ -959,8 +982,15 @@ class GuardianBuyGridService:
             profile = DBOrderManagement["om_takeprofit_profiles"].find_one(
                 {"symbol": code}
             )
-        except Exception:
-            return []
+        except Exception as exc:
+            self._emit_runtime(
+                "load_takeprofit_prices",
+                status="error",
+                reason_code="takeprofit_prices_unavailable",
+                symbol=code,
+                payload={"error": str(exc)},
+            )
+            return None
         prices = []
         for tier in (profile or {}).get("tiers") or []:
             try:
@@ -971,11 +1001,14 @@ class GuardianBuyGridService:
                 prices.append(tier_price)
         return sorted(prices)
 
-    def _load_ledger_occupancy(self, code, price) -> dict[str, Any]:
+    def _load_ledger_occupancy(self, code, price) -> dict[str, Any] | None:
         """D/C 最简实现（#549 v4.1）：该账本剩余股数 × 当前市场价。
 
         不按成本价聚合、不新增 cost_price 字段；剩余股数随部分卖出/分摊
         自动减少，额度自动释放。
+
+        失败语义：读不到（DB 异常）返回 None 并告警（fail-closed）；
+        确认无 open slices 返回零占用（合法，非降级）。
         """
 
         base_quantity = 0
@@ -993,8 +1026,15 @@ class GuardianBuyGridService:
                 symbol=code,
                 repository=repository,
             )
-        except Exception:
-            open_slices = []
+        except Exception as exc:
+            self._emit_runtime(
+                "load_ledger_occupancy",
+                status="error",
+                reason_code="ledger_occupancy_unavailable",
+                symbol=code,
+                payload={"error": str(exc)},
+            )
+            return None
         for item in open_slices or []:
             remaining = int(item.get("remaining_quantity") or 0)
             if remaining <= 0:
@@ -1010,8 +1050,12 @@ class GuardianBuyGridService:
             "d_plus_c": (base_quantity + t_quantity) * current_price,
         }
 
-    def _load_pending_buy_amount(self, code) -> float:
-        """在途买单金额 = Σ(requested − filled) × price（未完结 buy orders）。"""
+    def _load_pending_buy_amount(self, code) -> float | None:
+        """在途买单金额 = Σ(requested − filled) × price（未完结 buy orders）。
+
+        失败语义：读不到（DB 异常）返回 None 并告警（fail-closed）；
+        确认无在途买单返回 0.0（合法，非降级）。
+        """
 
         try:
             from freshquant.order_management.repository import (
@@ -1027,8 +1071,15 @@ class GuardianBuyGridService:
                 if hasattr(repository, "list_broker_orders")
                 else []
             )
-        except Exception:
-            return 0.0
+        except Exception as exc:
+            self._emit_runtime(
+                "load_pending_buy_amount",
+                status="error",
+                reason_code="pending_buy_amount_unavailable",
+                symbol=code,
+                payload={"error": str(exc)},
+            )
+            return None
         total = 0.0
         for order in orders or []:
             if str(order.get("side") or "").lower() != "buy":
@@ -1038,10 +1089,11 @@ class GuardianBuyGridService:
             if requested is None:
                 continue
             pending_quantity = max(requested - (filled or 0), 0)
-            if pending_quantity <= 0:
-                continue
-            price = _coerce_float(order.get("price") or order.get("avg_filled_price"))
-            total += pending_quantity * price
+            if pending_quantity > 0:
+                price = _coerce_float(
+                    order.get("price") or order.get("avg_filled_price")
+                )
+                total += pending_quantity * price
         return round(total, 2)
 
     def _resolve_remaining_capacity(self, code, price, *, cap) -> dict[str, Any] | None:
@@ -1056,7 +1108,11 @@ class GuardianBuyGridService:
             return None
         market_value = float(market_value or 0.0)
         occupancy = self._load_ledger_occupancy(code, price)
+        if occupancy is None:
+            return None
         pending = self._load_pending_buy_amount(code)
+        if pending is None:
+            return None
         remaining = max(
             float(cap) - max(occupancy["d_plus_c"], market_value) - pending, 0.0
         )
@@ -1092,7 +1148,14 @@ class GuardianBuyGridService:
                 repository=repository
             ).resolve_single_symbol_position_limit(code)
             return current_value, limit
-        except Exception:
+        except Exception as exc:
+            self._emit_runtime(
+                "load_position_capacity",
+                status="error",
+                reason_code="position_capacity_read_failed",
+                symbol=code,
+                payload={"error": str(exc)},
+            )
             return None, None
 
     def _default_state(self, code: str) -> dict[str, Any]:
@@ -1186,6 +1249,16 @@ class GuardianBuyGridService:
 
 
 _guardian_buy_grid_service: GuardianBuyGridService | None = None
+_runtime_logger = None
+
+
+def _get_runtime_logger():
+    global _runtime_logger
+    if _runtime_logger is None:
+        from freshquant.runtime_observability.logger import RuntimeEventLogger
+
+        _runtime_logger = RuntimeEventLogger("guardian_buy_grid")
+    return _runtime_logger
 
 
 def get_guardian_buy_grid_service() -> GuardianBuyGridService:

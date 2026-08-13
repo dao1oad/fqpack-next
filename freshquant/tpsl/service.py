@@ -504,6 +504,31 @@ class TpslService:
                 "quantity": 0,
             }
         # 提交侧在途复核：超 cap 放弃（不采用共用冷却键，与独立冷却承诺一致）。
+        # 失败语义契约（根②）：cap 缺失/读失败/容量复核异常一律 fail-closed，
+        # 且 reason_code 区分三种形态。
+        try:
+            effective_cap = float(decision.get("effective_stage_cap"))
+        except (TypeError, ValueError):
+            effective_cap = 0.0
+        if effective_cap <= 0:
+            self._emit_runtime(
+                "submit_intent",
+                symbol=symbol,
+                trace_id=trace_id,
+                status="skipped",
+                reason_code="base_buy_cap_missing",
+                payload={
+                    "kind": "base_buyline",
+                    "grid_level": grid_level,
+                    "effective_stage_cap": decision.get("effective_stage_cap"),
+                },
+            )
+            return {
+                "status": "blocked",
+                "symbol": symbol,
+                "blocked_reason": "base_buy_cap_missing",
+                "quantity": 0,
+            }
         try:
             from freshquant.strategy.guardian_buy_grid import (
                 get_guardian_buy_grid_service,
@@ -512,11 +537,34 @@ class TpslService:
             capacity = get_guardian_buy_grid_service()._resolve_remaining_capacity(
                 symbol,
                 price,
-                cap=float(decision.get("effective_stage_cap") or 0.0),
+                cap=effective_cap,
             )
-        except Exception:
-            capacity = None
-        if capacity is not None and capacity["remaining"] <= 0:
+        except Exception as exc:
+            self._emit_runtime(
+                "submit_intent",
+                symbol=symbol,
+                trace_id=trace_id,
+                status="error",
+                reason_code="capacity_recheck_failed",
+                payload=build_exception_payload(
+                    exc,
+                    extra={"kind": "base_buyline", "grid_level": grid_level},
+                ),
+            )
+            return {
+                "status": "blocked",
+                "symbol": symbol,
+                "blocked_reason": "capacity_recheck_failed",
+                "quantity": 0,
+            }
+        if capacity is None:
+            return {
+                "status": "blocked",
+                "symbol": symbol,
+                "blocked_reason": "position_capacity_unavailable",
+                "quantity": 0,
+            }
+        if capacity["remaining"] <= 0:
             return {
                 "status": "blocked",
                 "symbol": symbol,
