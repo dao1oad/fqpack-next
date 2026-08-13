@@ -34,12 +34,8 @@ def local_quote(symbol: str, as_of: str, col=None) -> dict[str, Any] | None:
         )
     if not bar:
         return None
-    prev = col.find_one(
-        {"code": symbol, "date": {"$lt": as_of}}, sort=[("date", -1)]
-    )
-    wk_ago = (
-        _dt.date.fromisoformat(as_of) - _dt.timedelta(days=365)
-    ).isoformat()
+    prev = col.find_one({"code": symbol, "date": {"$lt": as_of}}, sort=[("date", -1)])
+    wk_ago = (_dt.date.fromisoformat(as_of) - _dt.timedelta(days=365)).isoformat()
     rows = list(
         col.find(
             {"code": symbol, "date": {"$gte": wk_ago, "$lte": as_of}},
@@ -58,8 +54,11 @@ def local_quote(symbol: str, as_of: str, col=None) -> dict[str, Any] | None:
         "volume": bar.get("vol"),
         "amount": bar.get("amount"),
         "prevClose": prev["close"] if prev else None,
-        "pctChgPct": round((bar["close"] / prev["close"] - 1) * 100, 2)
-        if prev and prev.get("close") else None,
+        "pctChgPct": (
+            round((bar["close"] / prev["close"] - 1) * 100, 2)
+            if prev and prev.get("close")
+            else None
+        ),
         "high52w": max((r["high"] for r in rows), default=None),
         "low52w": min((r["low"] for r in rows), default=None),
         "barCount52w": len(rows),
@@ -68,15 +67,15 @@ def local_quote(symbol: str, as_of: str, col=None) -> dict[str, Any] | None:
 
 def build_local_quotes_payload(
     symbols: list[str], as_of: str
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, dict[str, Any] | None]:
     col = _client()[DB_NAME][COLLECTION]
-    return {
-        symbol: local_quote(symbol, as_of, col=col) for symbol in symbols
-    }
+    return {symbol: local_quote(symbol, as_of, col=col) for symbol in symbols}
 
 
 def write_quotes_file(
-    run_dir: pathlib.Path, payload: dict[str, dict[str, Any]], as_of: str
+    run_dir: pathlib.Path,
+    payload: dict[str, dict[str, Any] | None],
+    as_of: str,
 ) -> pathlib.Path:
     out = run_dir / "data" / f"quotes_local_{as_of}.json"
     out.parent.mkdir(parents=True, exist_ok=True)

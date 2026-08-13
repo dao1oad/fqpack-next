@@ -184,14 +184,21 @@ def run(args: argparse.Namespace) -> int:
         write_cmd = [
             sys.executable,
             str(pathlib.Path(__file__).parent / "write_output.py"),
-            "--run-dir", str(run_dir),
-            "--symbol", symbol,
-            "--analysis", str(analysis_path.relative_to(run_dir)),
-            "--out", str(output.relative_to(run_dir)),
+            "--run-dir",
+            str(run_dir),
+            "--symbol",
+            symbol,
+            "--analysis",
+            str(analysis_path.relative_to(run_dir)),
+            "--out",
+            str(output.relative_to(run_dir)),
         ]
         try:
             wresult = subprocess.run(
-                write_cmd, cwd=str(run_dir), capture_output=True, text=True,
+                write_cmd,
+                cwd=str(run_dir),
+                capture_output=True,
+                text=True,
                 timeout=120,
             )
         except subprocess.TimeoutExpired:

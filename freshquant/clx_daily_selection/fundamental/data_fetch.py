@@ -10,8 +10,8 @@
 
 from __future__ import annotations
 
-import json
 import functools
+import json
 import pathlib
 import time
 from typing import Any, Callable
@@ -30,7 +30,9 @@ def _guard(name: str):
                     "source": name,
                     "error": f"{type(exc).__name__}: {str(exc)[:160]}",
                 }
+
         return wrap
+
     return deco
 
 
@@ -51,12 +53,14 @@ def market_prefix(symbol: str) -> tuple[str, str]:
 @_guard("akshare-abstract")
 def _ak_abstract(symbol: str) -> Any:
     import akshare as ak
+
     return ak.stock_financial_abstract(symbol=symbol).to_dict(orient="records")
 
 
 @_guard("akshare-indicator")
 def _ak_indicator(symbol: str) -> Any:
     import akshare as ak
+
     return ak.stock_financial_analysis_indicator(
         symbol=symbol, start_year="2024"
     ).to_dict(orient="records")
@@ -65,6 +69,7 @@ def _ak_indicator(symbol: str) -> Any:
 @_guard("akshare-zygc")
 def _ak_zygc(symbol: str) -> Any:
     import akshare as ak
+
     prefix, _ = market_prefix(symbol)
     return ak.stock_zygc_em(symbol=prefix + symbol).to_dict(orient="records")
 
@@ -72,6 +77,7 @@ def _ak_zygc(symbol: str) -> Any:
 @_guard("akshare-profile")
 def _ak_profile(symbol: str) -> Any:
     import akshare as ak
+
     return ak.stock_profile_cninfo(symbol=symbol).to_dict(orient="records")
 
 
@@ -79,11 +85,15 @@ def _ak_profile(symbol: str) -> Any:
 def _ak_shares(symbol: str) -> Any:
     """总股本（股），优先接口口径；失败由调用方回退注册资金假设。"""
     import akshare as ak
+
     df = ak.stock_individual_info_em(symbol=symbol)
     record = df[df["item"] == "总股本"]
     if record.empty:
-        return {"__error__": True, "source": "akshare-shares",
-                "error": "总股本 item missing"}
+        return {
+            "__error__": True,
+            "source": "akshare-shares",
+            "error": "总股本 item missing",
+        }
     return {"value": int(float(record.iloc[0]["value"])), "source": "akshare-em"}
 
 
@@ -91,6 +101,7 @@ def _ak_shares(symbol: str) -> Any:
 def _yjkb_all(date: str) -> Any:
     """业绩报表为全市场单期数据，一次拉取供全部标的过滤（避免 76 次重复下载）。"""
     import akshare as ak
+
     return ak.stock_yjkb_em(date=date)
 
 
@@ -104,12 +115,11 @@ def _ak_yjkb(symbol: str, date: str = "20260331") -> Any:
 @_guard("baostock-profit")
 def _bs_profit(symbol: str, year: int = 2025, quarter: int = 4) -> Any:
     import baostock as bs
+
     _, prefix = market_prefix(symbol)
     bs.login()
     try:
-        rs = bs.query_profit_data(
-            code=f"{prefix}.{symbol}", year=year, quarter=quarter
-        )
+        rs = bs.query_profit_data(code=f"{prefix}.{symbol}", year=year, quarter=quarter)
         rows = []
         while rs.error_code == "0" and rs.next():
             rows.append(dict(zip(rs.fields, rs.get_row_data())))
@@ -121,12 +131,11 @@ def _bs_profit(symbol: str, year: int = 2025, quarter: int = 4) -> Any:
 @_guard("baostock-growth")
 def _bs_growth(symbol: str, year: int = 2025, quarter: int = 4) -> Any:
     import baostock as bs
+
     _, prefix = market_prefix(symbol)
     bs.login()
     try:
-        rs = bs.query_growth_data(
-            code=f"{prefix}.{symbol}", year=year, quarter=quarter
-        )
+        rs = bs.query_growth_data(code=f"{prefix}.{symbol}", year=year, quarter=quarter)
         rows = []
         while rs.error_code == "0" and rs.next():
             rows.append(dict(zip(rs.fields, rs.get_row_data())))
@@ -135,9 +144,7 @@ def _bs_growth(symbol: str, year: int = 2025, quarter: int = 4) -> Any:
         bs.logout()
 
 
-def fetch_financials(
-    symbol: str, latest_period: str = "20260331"
-) -> dict[str, Any]:
+def fetch_financials(symbol: str, latest_period: str = "20260331") -> dict[str, Any]:
     year = int(latest_period[:4])
     quarter = {"0331": 1, "0630": 2, "0930": 3, "1231": 4}.get(latest_period[4:], 4)
     out: dict[str, Any] = {}

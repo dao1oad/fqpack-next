@@ -220,8 +220,7 @@ def merge_deep_docs(
             if doc_evidence in ("A", "B", "C", "D"):
                 row["evidence_grade"] = doc_evidence
             row["evidence_ids"] = sorted(
-                set(row.get("evidence_ids") or [])
-                | set(doc.get("evidenceIds") or [])
+                set(row.get("evidence_ids") or []) | set(doc.get("evidenceIds") or [])
             )
             row["evidence_source_sha256"] = str(
                 doc.get("evidenceSourceSha256") or ""

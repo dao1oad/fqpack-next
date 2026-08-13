@@ -28,6 +28,7 @@ SECTION_TITLES = {
     "8_conclusion_verification": "结论与验证节点",
 }
 
+
 def _num(d: dict, key: str, period: str):
     v = (d.get(key) or {}).get(period)
     return v if isinstance(v, (int, float)) else None
@@ -41,8 +42,11 @@ def build_key_metrics(compact: dict) -> dict:
     annual = compact.get("annualPeriod") or "20251231"
     annual_prev = f"{int(annual[:4]) - 1}1231"
     latest_prev = next(
-        (p for p in (compact.get("periods") or [])
-         if p[4:] == latest[4:] and p[:4] != latest[:4]),
+        (
+            p
+            for p in (compact.get("periods") or [])
+            if p[4:] == latest[4:] and p[:4] != latest[:4]
+        ),
         None,
     )
     biz = compact.get("business") or {}
@@ -50,22 +54,24 @@ def build_key_metrics(compact: dict) -> dict:
     shares_source = biz.get("总股本来源")
     if shares is None:
         registered_capital = biz.get("注册资金")
-        try:
-            capital = float(registered_capital)
-            if capital > 0:
-                # 注册资金（万元）→ 股本（股），假设面值 1 元；非 1 元面值
-                # 标的（如 601899 面值 0.1 元）会系统性偏差，以来源标记暴露。
-                shares = int(capital * 10000)
-                shares_source = "registered-capital-assumption(face=1)"
-        except (TypeError, ValueError):
-            shares = None
-            shares_source = None
+        if registered_capital is not None:
+            try:
+                capital = float(registered_capital)
+                if capital > 0:
+                    # 注册资金（万元）→ 股本（股），假设面值 1 元；非 1 元面值
+                    # 标的（如 601899 面值 0.1 元）会系统性偏差，以来源标记暴露。
+                    shares = int(capital * 10000)
+                    shares_source = "registered-capital-assumption(face=1)"
+            except (TypeError, ValueError):
+                shares = None
+                shares_source = None
 
     close = q.get("close")
     mcap = close * shares if close else None
     mcap_yi = round(mcap / 1e8, 2) if mcap else None
     np_annual, np_latest, np_latest_prev = (
-        _num(km, "归母净利润", annual), _num(km, "归母净利润", latest),
+        _num(km, "归母净利润", annual),
+        _num(km, "归母净利润", latest),
         _num(km, "归母净利润", latest_prev) if latest_prev else None,
     )
     ttm_np = (
@@ -74,7 +80,8 @@ def build_key_metrics(compact: dict) -> dict:
         else None
     )
     dnp_annual, dnp_latest, dnp_latest_prev = (
-        _num(km, "扣非净利润", annual), _num(km, "扣非净利润", latest),
+        _num(km, "扣非净利润", annual),
+        _num(km, "扣非净利润", latest),
         _num(km, "扣非净利润", latest_prev) if latest_prev else None,
     )
     ttm_dnp = (
@@ -87,14 +94,17 @@ def build_key_metrics(compact: dict) -> dict:
     goodwill = _num(km, "商誉", latest)
 
     regions = {r["构成"]: r for r in compact.get("zygc_annual_regions") or []}
-    overseas = next((r for k, r in regions.items() if "境" in k or "外" in k or "国外" in k), None)
+    overseas = next(
+        (r for k, r in regions.items() if "境" in k or "外" in k or "国外" in k), None
+    )
     domestic = next((r for k, r in regions.items() if "内" in k or "国内" in k), None)
     overseas_yuan = overseas["收入"] if overseas else None
     domestic_yuan = domestic["收入"] if domestic else None
     total_region = (overseas_yuan or 0) + (domestic_yuan or 0)
 
     rev_annual, rev_latest, rev_latest_prev = (
-        _num(km, "营业总收入", annual), _num(km, "营业总收入", latest),
+        _num(km, "营业总收入", annual),
+        _num(km, "营业总收入", latest),
         _num(km, "营业总收入", latest_prev) if latest_prev else None,
     )
     ocf_annual = _num(km, "经营现金流量净额", annual)
@@ -119,9 +129,11 @@ def build_key_metrics(compact: dict) -> dict:
     if rev_annual and q3 and _num(km, "营业总收入", q3):
         q4_derived = {
             "revenueYuan": yi(rev_annual - _num(km, "营业总收入", q3)),
-            "netProfitYuan": yi(
-                np_annual - _num(km, "归母净利润", q3)
-            ) if np_annual and _num(km, "归母净利润", q3) else None,
+            "netProfitYuan": (
+                yi(np_annual - _num(km, "归母净利润", q3))
+                if np_annual and _num(km, "归母净利润", q3)
+                else None
+            ),
         }
 
     km_out = {
@@ -133,27 +145,39 @@ def build_key_metrics(compact: dict) -> dict:
         "marketCapYiYuan": mcap_yi,
         "high52w": q.get("high52w"),
         "low52w": q.get("low52w"),
-        "distanceFrom52wHighPct": round((close / q["high52w"] - 1) * 100, 2)
-        if close and q.get("high52w") else None,
-        "distanceFrom52wLowPct": round((close / q["low52w"] - 1) * 100, 2)
-        if close and q.get("low52w") else None,
+        "distanceFrom52wHighPct": (
+            round((close / q["high52w"] - 1) * 100, 2)
+            if close and q.get("high52w")
+            else None
+        ),
+        "distanceFrom52wLowPct": (
+            round((close / q["low52w"] - 1) * 100, 2)
+            if close and q.get("low52w")
+            else None
+        ),
         "peTtm": round(mcap / ttm_np, 2) if mcap and ttm_np else None,
-        "peTtmDeductedNonrecurring": round(mcap / ttm_dnp, 2) if mcap and ttm_dnp else None,
-        "pbBasedOnAnnualEquity": round(mcap / equity_annual, 2)
-        if mcap and equity_annual else None,
-        "pbBasedOnLatestEquity": round(mcap / equity_latest, 2)
-        if mcap and equity_latest else None,
-        "epsAnnualYuan": round(np_annual / shares, 4)
-        if np_annual and shares else None,
-        "epsLatestYuan": round(np_latest / shares, 4)
-        if np_latest and shares else None,
-        "bvpsAnnualYuan": round(equity_annual / shares, 2)
-        if equity_annual and shares else None,
-        "bvpsLatestYuan": round(equity_latest / shares, 2)
-        if equity_latest and shares else None,
-        "ttmRevenueYuan": yi(rev_annual + rev_latest - rev_latest_prev)
-        if all(v is not None for v in (rev_annual, rev_latest, rev_latest_prev))
-        else None,
+        "peTtmDeductedNonrecurring": (
+            round(mcap / ttm_dnp, 2) if mcap and ttm_dnp else None
+        ),
+        "pbBasedOnAnnualEquity": (
+            round(mcap / equity_annual, 2) if mcap and equity_annual else None
+        ),
+        "pbBasedOnLatestEquity": (
+            round(mcap / equity_latest, 2) if mcap and equity_latest else None
+        ),
+        "epsAnnualYuan": round(np_annual / shares, 4) if np_annual and shares else None,
+        "epsLatestYuan": round(np_latest / shares, 4) if np_latest and shares else None,
+        "bvpsAnnualYuan": (
+            round(equity_annual / shares, 2) if equity_annual and shares else None
+        ),
+        "bvpsLatestYuan": (
+            round(equity_latest / shares, 2) if equity_latest and shares else None
+        ),
+        "ttmRevenueYuan": (
+            yi(rev_annual + rev_latest - rev_latest_prev)
+            if all(v is not None for v in (rev_annual, rev_latest, rev_latest_prev))
+            else None
+        ),
         "ttmNetProfitYuan": yi(ttm_np) if ttm_np else None,
         "ttmDeductedNetProfitYuan": yi(ttm_dnp) if ttm_dnp else None,
         "revenueAnnualYuan": yi(rev_annual),
@@ -173,18 +197,23 @@ def build_key_metrics(compact: dict) -> dict:
         "roeWeightedAnnualPct": pct("净资产收益率(ROE)", annual),
         "roeWeightedLatestPct": pct("净资产收益率(ROE)", latest),
         "ocfAnnualYuan": yi(ocf_annual),
-        "ocfToNetProfitAnnual": round(ocf_annual / np_annual, 2)
-        if ocf_annual and np_annual else None,
+        "ocfToNetProfitAnnual": (
+            round(ocf_annual / np_annual, 2) if ocf_annual and np_annual else None
+        ),
         "ocfLatestYuan": yi(ocf_latest),
-        "ocfToNetProfitLatest": round(ocf_latest / np_latest, 2)
-        if ocf_latest and np_latest else None,
+        "ocfToNetProfitLatest": (
+            round(ocf_latest / np_latest, 2) if ocf_latest and np_latest else None
+        ),
         "assetLiabilityRatioLatestPct": pct("资产负债率", latest),
         "currentRatioLatest": _num(km, "流动比率", latest),
         "quickRatioLatest": _num(km, "速动比率", latest),
         "cashRatioLatestPct": pct("现金比率", latest),
         "goodwillLatestYuan": yi(goodwill),
-        "goodwillToEquityPct": round(goodwill / equity_latest * 100, 2)
-        if goodwill and equity_latest else None,
+        "goodwillToEquityPct": (
+            round(goodwill / equity_latest * 100, 2)
+            if goodwill and equity_latest
+            else None
+        ),
         "receivableTurnoverDaysAnnualPrev": _num(km, "应收账款周转天数", annual_prev),
         "receivableTurnoverDaysAnnual": _num(km, "应收账款周转天数", annual),
         "receivableTurnoverDaysLatest": _num(km, "应收账款周转天数", latest),
@@ -192,14 +221,23 @@ def build_key_metrics(compact: dict) -> dict:
         "inventoryTurnoverDaysAnnual": _num(km, "存货周转天数", annual),
         "inventoryTurnoverDaysLatest": _num(km, "存货周转天数", latest),
         "overseasRevenueAnnualYuan": yi(overseas_yuan),
-        "overseasShareAnnualPct": round(overseas_yuan / total_region * 100, 2)
-        if overseas_yuan and total_region else None,
+        "overseasShareAnnualPct": (
+            round(overseas_yuan / total_region * 100, 2)
+            if overseas_yuan and total_region
+            else None
+        ),
         "domesticRevenueAnnualYuan": yi(domestic_yuan),
-        "domesticShareAnnualPct": round(domestic_yuan / total_region * 100, 2)
-        if domestic_yuan and total_region else None,
+        "domesticShareAnnualPct": (
+            round(domestic_yuan / total_region * 100, 2)
+            if domestic_yuan and total_region
+            else None
+        ),
         "segmentAnnual": [
-            {"name": r["构成"], "sharePct": round(r["收入比例"] * 100, 2),
-             "gmPct": round(r["毛利率"] * 100, 2)}
+            {
+                "name": r["构成"],
+                "sharePct": round(r["收入比例"] * 100, 2),
+                "gmPct": round(r["毛利率"] * 100, 2),
+            }
             for r in compact.get("zygc_annual_products") or []
         ],
         "q4_derived": q4_derived,
@@ -260,7 +298,10 @@ def main() -> int:
     data_hash = hashlib.sha256(compact_path.read_bytes()).hexdigest()
     doc = assemble_doc(compact, an, args.symbol, data_hash)
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3]))
-    from freshquant.clx_daily_selection.fundamental.validate import validate_analysis_doc
+    from freshquant.clx_daily_selection.fundamental.validate import (
+        validate_analysis_doc,
+    )
+
     ok, errs = validate_analysis_doc(doc)
     if not ok:
         print(

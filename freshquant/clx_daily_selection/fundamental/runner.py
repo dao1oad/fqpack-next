@@ -22,6 +22,12 @@ import sys
 import urllib.request
 from typing import Any
 
+from .compact import (
+    build_compact,
+    latest_report_period,
+    merge_compact_metrics,
+    write_compact,
+)
 from .contracts import (
     ANALYSIS_DIR_NAME,
     DEEP_TIER_LIMIT,
@@ -38,6 +44,7 @@ from .contracts import (
     TIER_SNAPSHOT,
     VALIDATION_JSON_NAME,
 )
+from .data_fetch import fetch_business, fetch_financials, write_symbol_files
 from .deep_analysis import (
     load_analysis_docs,
     merge_deep_docs,
@@ -46,15 +53,8 @@ from .deep_analysis import (
     write_snapshots,
 )
 from .evidence import EvidenceCache, clean_text, normalize_symbol
-from .local_quotes import build_local_quotes_payload, write_quotes_file
-from .data_fetch import fetch_business, fetch_financials, write_symbol_files
-from .compact import (
-    build_compact,
-    latest_report_period,
-    merge_compact_metrics,
-    write_compact,
-)
 from .history import apply_consecutive_counts
+from .local_quotes import build_local_quotes_payload, write_quotes_file
 from .quick_rank import (
     compute_quick_rank,
     ranking_payload,
@@ -327,10 +327,7 @@ def cmd_data(args: argparse.Namespace) -> None:
 
     data_dir = run_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    pending = [
-        s for s in symbols
-        if not (data_dir / f"compact_{s}.json").is_file()
-    ]
+    pending = [s for s in symbols if not (data_dir / f"compact_{s}.json").is_file()]
     for s in symbols:
         if s not in pending:
             report["symbols"][s] = {"status": "skipped", "compact": True}
@@ -360,8 +357,7 @@ def cmd_data(args: argparse.Namespace) -> None:
             )
         if proc.exitcode != 0:
             raise SystemExit(
-                f"data fetch worker failed with exit={proc.exitcode}; "
-                f"see {partial}"
+                f"data fetch worker failed with exit={proc.exitcode}; " f"see {partial}"
             )
     if partial.is_file():
         partial_payload = json.loads(partial.read_text(encoding="utf-8"))
@@ -372,9 +368,7 @@ def cmd_data(args: argparse.Namespace) -> None:
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2),
         encoding="utf-8",
     )
-    compact_ok = sum(
-        1 for v in report["symbols"].values() if v.get("compact")
-    )
+    compact_ok = sum(1 for v in report["symbols"].values() if v.get("compact"))
     print(
         json.dumps(
             {
@@ -401,7 +395,7 @@ def _data_fetch_worker(
 ) -> None:
     """子进程：串行抓取财务/业务数据并写文件；退出即清理第三方残留线程。"""
     run_dir = pathlib.Path(run_dir_str)
-    symbols_payload = {
+    symbols_payload: dict[str, Any] = {
         "generatedAt": utc_now(),
         "symbols": {},
         "fetchErrors": 0,
@@ -416,14 +410,13 @@ def _data_fetch_worker(
             continue
         write_symbol_files(run_dir, symbol, financials, business)
         quotes_path = run_dir / "data"
-        import json as _json
-
         quotes_files = list(quotes_path.glob("quotes_local_*.json"))
-        quotes = {}
+        quotes: dict[str, Any] = {}
         if quotes_files:
-            quotes = _json.loads(quotes_files[0].read_text(encoding="utf-8")).get(
-                symbol
-            ) or {}
+            quotes = (
+                json.loads(quotes_files[0].read_text(encoding="utf-8")).get(symbol)
+                or {}
+            )
         compact = build_compact(
             symbol,
             quotes,

@@ -12,15 +12,36 @@ import pathlib
 from typing import Any
 
 KEY_INDICATORS = [
-    "营业总收入", "归母净利润", "扣非净利润", "营业成本", "净利润",
-    "商誉", "经营现金流量净额", "股东权益合计(净资产)", "基本每股收益",
-    "每股净资产", "每股现金流", "净资产收益率(ROE)", "总资产报酬率(ROA)",
-    "毛利率", "销售净利率", "期间费用率", "资产负债率",
-    "营业总收入增长率", "归属母公司净利润增长率",
-    "经营活动净现金/销售收入", "经营活动净现金/归属母公司的净利润",
-    "流动比率", "速动比率", "现金比率",
-    "应收账款周转天数", "存货周转天数", "总资产周转天数",
-    "每股经营现金流", "每股未分配利润", "每股资本公积金",
+    "营业总收入",
+    "归母净利润",
+    "扣非净利润",
+    "营业成本",
+    "净利润",
+    "商誉",
+    "经营现金流量净额",
+    "股东权益合计(净资产)",
+    "基本每股收益",
+    "每股净资产",
+    "每股现金流",
+    "净资产收益率(ROE)",
+    "总资产报酬率(ROA)",
+    "毛利率",
+    "销售净利率",
+    "期间费用率",
+    "资产负债率",
+    "营业总收入增长率",
+    "归属母公司净利润增长率",
+    "经营活动净现金/销售收入",
+    "经营活动净现金/归属母公司的净利润",
+    "流动比率",
+    "速动比率",
+    "现金比率",
+    "应收账款周转天数",
+    "存货周转天数",
+    "总资产周转天数",
+    "每股经营现金流",
+    "每股未分配利润",
+    "每股资本公积金",
 ]
 PERIOD_ORDER = ["0331", "0630", "0930", "1231"]
 
@@ -64,7 +85,9 @@ def _num(d: dict[str, Any], key: str, period: str) -> Any:
     return v if isinstance(v, (int, float)) else None
 
 
-def _yoy(metrics: dict[str, dict[str, Any]], metric: str, cur: str, prev: str) -> float | None:
+def _yoy(
+    metrics: dict[str, dict[str, Any]], metric: str, cur: str, prev: str
+) -> float | None:
     c, p = _num(metrics, metric, cur), _num(metrics, metric, prev)
     if isinstance(c, (int, float)) and isinstance(p, (int, float)) and p:
         return round(c / p - 1, 4)
@@ -96,20 +119,24 @@ def build_compact(
     growth = {
         "revenue_yoy_latest": _yoy(metrics, "营业总收入", latest_period, latest_prev),
         "np_yoy_latest": _yoy(metrics, "归母净利润", latest_period, latest_prev),
-        "deduct_np_yoy_latest": _yoy(
-            metrics, "扣非净利润", latest_period, latest_prev
+        "deduct_np_yoy_latest": _yoy(metrics, "扣非净利润", latest_period, latest_prev),
+        "revenue_yoy_annual": _yoy(
+            metrics, "营业总收入", annual, f"{int(annual[:4]) - 1}1231"
         ),
-        "revenue_yoy_annual": _yoy(metrics, "营业总收入", annual, f"{int(annual[:4]) - 1}1231"),
-        "np_yoy_annual": _yoy(metrics, "归母净利润", annual, f"{int(annual[:4]) - 1}1231"),
+        "np_yoy_annual": _yoy(
+            metrics, "归母净利润", annual, f"{int(annual[:4]) - 1}1231"
+        ),
         "deduct_np_yoy_annual": _yoy(
             metrics, "扣非净利润", annual, f"{int(annual[:4]) - 1}1231"
         ),
     }
 
     zygc = business.get("zygc") or []
+
     def top(rep_date: str, cat: str, n: int) -> list[dict[str, Any]]:
         rows = [
-            r for r in zygc
+            r
+            for r in zygc
             if str(r.get("报告日期")) == rep_date and str(r.get("分类类型")) == cat
         ]
         rows.sort(key=lambda r: float(r.get("主营收入") or 0), reverse=True)
@@ -194,9 +221,7 @@ def write_compact(
     return out
 
 
-def merge_compact_metrics(
-    package: dict, compact: dict
-) -> dict:
+def merge_compact_metrics(package: dict, compact: dict | None) -> dict:
     """把 compact 指标映射为快排标准指标（覆盖 THS 缓存指标）。
 
     build_quick_metrics 期望的同花顺口径字段名见 quick_rank.py；compact 数据

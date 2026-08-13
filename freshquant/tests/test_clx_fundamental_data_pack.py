@@ -30,16 +30,36 @@ def test_latest_report_period_month_boundaries() -> None:
 
 def test_periods_for_sequences() -> None:
     assert periods_for("20260331") == [
-        "20260331", "20251231", "20250930", "20250630", "20250331", "20241231",
+        "20260331",
+        "20251231",
+        "20250930",
+        "20250630",
+        "20250331",
+        "20241231",
     ]
     assert periods_for("20251231") == [
-        "20251231", "20250930", "20250630", "20250331", "20241231", "20240930",
+        "20251231",
+        "20250930",
+        "20250630",
+        "20250331",
+        "20241231",
+        "20240930",
     ]
     assert periods_for("20260630") == [
-        "20260630", "20260331", "20251231", "20250930", "20250630", "20250331",
+        "20260630",
+        "20260331",
+        "20251231",
+        "20250930",
+        "20250630",
+        "20250331",
     ]
     assert periods_for("20260930") == [
-        "20260930", "20260630", "20260331", "20251231", "20250930", "20250630",
+        "20260930",
+        "20260630",
+        "20260331",
+        "20251231",
+        "20250930",
+        "20250630",
     ]
 
 
@@ -70,24 +90,41 @@ def _minimal_compact() -> dict:
                 "20250331": 82.37e8,
                 "20241231": 367.26e8,
             },
-            {"指标": "归母净利润", "20260331": 23.30e8, "20251231": 81.36e8,
-             "20250331": 26.29e8, "20241231": 116.68e8},
+            {
+                "指标": "归母净利润",
+                "20260331": 23.30e8,
+                "20251231": 81.36e8,
+                "20250331": 26.29e8,
+                "20241231": 116.68e8,
+            },
         ],
         "indicator": [],
     }
     business = {
-        "profile": [
-            {"公司名称": "测试公司", "注册资金": 10000.0, "机构简介": "简介"}
-        ],
+        "profile": [{"公司名称": "测试公司", "注册资金": 10000.0, "机构简介": "简介"}],
         "zygc": [
-            {"报告日期": "2025-12-31", "分类类型": "按地区分类",
-             "主营构成": "境内", "主营收入": 10e8, "收入比例": 0.5, "毛利率": 0.4},
-            {"报告日期": "2025-12-31", "分类类型": "按地区分类",
-             "主营构成": "境外", "主营收入": 10e8, "收入比例": 0.5, "毛利率": 0.4},
+            {
+                "报告日期": "2025-12-31",
+                "分类类型": "按地区分类",
+                "主营构成": "境内",
+                "主营收入": 10e8,
+                "收入比例": 0.5,
+                "毛利率": 0.4,
+            },
+            {
+                "报告日期": "2025-12-31",
+                "分类类型": "按地区分类",
+                "主营构成": "境外",
+                "主营收入": 10e8,
+                "收入比例": 0.5,
+                "毛利率": 0.4,
+            },
         ],
     }
     quotes = {"close": 10.0, "quoteDate": "2026-08-12", "high52w": 12.0, "low52w": 8.0}
-    return build_compact("000001", quotes, financials, business, latest_period="20260331")
+    return build_compact(
+        "000001", quotes, financials, business, latest_period="20260331"
+    )
 
 
 def test_build_compact_shape() -> None:
@@ -134,16 +171,29 @@ def test_write_output_validates_before_writing(tmp_path: pathlib.Path) -> None:
         json.dumps(bad_analysis, ensure_ascii=False), encoding="utf-8"
     )
     sys.path.insert(0, str(tmp_path))
-    with mock.patch(
-        "freshquant.clx_daily_selection.fundamental.validate.validate_analysis_doc",
-        return_value=(False, ["missing sixDimensionScores"]),
-    ), mock.patch.object(
-        sys, "argv", [
-            "write_output", "--run-dir", str(run_dir), "--symbol", "000001",
-            "--analysis", "data/analysis_000001.json", "--out", "out.json",
-        ],
+    with (
+        mock.patch(
+            "freshquant.clx_daily_selection.fundamental.validate.validate_analysis_doc",
+            return_value=(False, ["missing sixDimensionScores"]),
+        ),
+        mock.patch.object(
+            sys,
+            "argv",
+            [
+                "write_output",
+                "--run-dir",
+                str(run_dir),
+                "--symbol",
+                "000001",
+                "--analysis",
+                "data/analysis_000001.json",
+                "--out",
+                "out.json",
+            ],
+        ),
     ):
         from freshquant.clx_daily_selection.fundamental import write_output
+
         code = write_output.main()
     assert code == 1
     assert not (run_dir / "out.json").exists()
@@ -168,10 +218,19 @@ def test_write_output_evidence_from_actual_sources(tmp_path: pathlib.Path) -> No
         json.dumps(analysis, ensure_ascii=False), encoding="utf-8"
     )
     with mock.patch.object(
-        sys, "argv", [
-            "write_output", "--run-dir", str(run_dir), "--symbol", "000001",
-            "--analysis", "data/analysis_000001.json", "--out", "out.json",
-        ]
+        sys,
+        "argv",
+        [
+            "write_output",
+            "--run-dir",
+            str(run_dir),
+            "--symbol",
+            "000001",
+            "--analysis",
+            "data/analysis_000001.json",
+            "--out",
+            "out.json",
+        ],
     ):
         with mock.patch(
             "freshquant.clx_daily_selection.fundamental.validate.validate_analysis_doc",
@@ -190,7 +249,7 @@ def test_write_output_evidence_from_actual_sources(tmp_path: pathlib.Path) -> No
 
 def test_cmd_data_idempotent_skips_existing(tmp_path: pathlib.Path) -> None:
     """已存在 compact 的标的重跑应跳过 fetch（幂等）。"""
-    from types import SimpleNamespace
+    import argparse
     from unittest import mock
 
     from freshquant.clx_daily_selection.fundamental import runner
@@ -213,12 +272,15 @@ def test_cmd_data_idempotent_skips_existing(tmp_path: pathlib.Path) -> None:
         (run_dir / "data" / f"compact_{symbol}.json").write_text(
             json.dumps(compact, ensure_ascii=False), encoding="utf-8"
         )
-    args = SimpleNamespace(run_dir=run_dir, workers=6)
-    with mock.patch.object(
-        runner, "build_local_quotes_payload", return_value={}
-    ) as mock_quotes, mock.patch.object(
-        runner, "fetch_financials", side_effect=AssertionError("should not fetch")
-    ) as mock_fin:
+    args = argparse.Namespace(run_dir=run_dir, workers=6)
+    with (
+        mock.patch.object(
+            runner, "build_local_quotes_payload", return_value={}
+        ) as mock_quotes,
+        mock.patch.object(
+            runner, "fetch_financials", side_effect=AssertionError("should not fetch")
+        ) as mock_fin,
+    ):
         runner.cmd_data(args)
     mock_quotes.assert_called_once()
     mock_fin.assert_not_called()
