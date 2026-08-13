@@ -7,6 +7,10 @@ from loguru import logger
 from freshquant.database.cache import in_memory_cache
 from freshquant.db import DBfreshquant
 
+DEFAULT_TRADE_AMOUNT = 50000
+MIN_BUY_AMOUNT_FLOOR = 10000
+DEFAULT_BUY_AMOUNT_EXPONENT = 3.0
+
 
 def _code_base(instrument_code: Optional[str]) -> Optional[str]:
     if not instrument_code:
@@ -69,7 +73,7 @@ def get_trade_amount(instrument_code: Optional[str] = None) -> int:
         params_path="stock.lot_amount",
     )
     lot_amount = _coerce_int(lot_amount)
-    return lot_amount or 50000
+    return lot_amount or DEFAULT_TRADE_AMOUNT
 
 
 @in_memory_cache.memoize(expiration=900)
@@ -122,8 +126,8 @@ def get_min_buy_amount(instrument_code: Optional[str] = None) -> int:
     )
     parsed = _coerce_int(value)
     if parsed is None:
-        parsed = 10000
-    return max(parsed, 10000)
+        parsed = MIN_BUY_AMOUNT_FLOOR
+    return max(parsed, MIN_BUY_AMOUNT_FLOOR)
 
 
 @in_memory_cache.memoize(expiration=900)
@@ -144,13 +148,13 @@ def get_buy_amount_exponent() -> float:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
-        parsed = 3.0
+        parsed = DEFAULT_BUY_AMOUNT_EXPONENT
     if not math.isfinite(parsed) or parsed < 1.0 or parsed > 5.0:
         logger.warning(
             "params.guardian.stock.buy_amount_exponent 非法（{}），回退 3.0",
             value,
         )
-        return 3.0
+        return DEFAULT_BUY_AMOUNT_EXPONENT
     return parsed
 
 
