@@ -19,7 +19,6 @@ from freshquant.carnation.enum_instrument import InstrumentType
 from freshquant.chanlun_service import get_data_v2
 from freshquant.chanlun_structure_service import get_chanlun_structure
 from freshquant.data.astock.holding import (
-    get_arranged_stock_fill_list,
     get_stock_fills,
     get_stock_hold_position,
     get_stock_positions,
@@ -29,16 +28,12 @@ from freshquant.data.qfq_reader import (
     QFQDataNotReadyError,
     resolve_qfq_read_metadata,
 )
-from freshquant.db import DBfreshquant
-from freshquant.instrument.general import query_instrument_info, query_instrument_type
+from freshquant.instrument.general import query_instrument_type
 from freshquant.position.cn_future import queryArrangedCnFutureFillList
 from freshquant.research.cjsd.main import getCjsdList
 from freshquant.trading.dt import fq_trading_fetch_trade_dates
 from freshquant.trading.trade_date_guard import is_cn_a_trade_date
-from freshquant.util.code import (
-    fq_util_code_append_market_code_suffix,
-    normalize_to_base_code,
-)
+from freshquant.util.code import normalize_to_base_code
 from freshquant.util.encoder import FqJsonEncoder
 from freshquant.util.period import (
     get_redis_cache_key,
@@ -85,14 +80,6 @@ def _get_stock_service():
 
 def _create_business_service():
     return import_module("freshquant.signal.BusinessService").BusinessService()
-
-
-def _get_manual_write_service():
-    from freshquant.order_management.manual.service import (
-        OrderManagementManualWriteService,
-    )
-
-    return OrderManagementManualWriteService()
 
 
 def _get_guardian_buy_grid_service():
@@ -501,86 +488,6 @@ def sync_must_pool_from_tdx():
     return jsonify({"code": "0", "msg": "操作成功", "data": result})
 
 
-# 计算股票网格交易计划
-@stock_bp.route("/plan_grid_trade")
-def plan_grid_trade():
-    try:
-        # 获取股票代码参数
-        code = request.args.get("code")
-
-        if code:
-            # 如果提供了股票代码，通过成交记录计算参数
-            fills = get_arranged_stock_fill_list(code)
-            if not fills:  # 检查list是否为空
-                return jsonify({"error": f"未找到股票 {code} 的成交记录"}), 404
-
-            # 通过成交记录计算网格参数
-            prices = [fill["price"] for fill in fills]
-            ceiling_price = float(request.args.get("ceiling_price", max(prices)))
-            floor_price = float(request.args.get("floor_price", min(prices)))
-
-            # 计算总数量和总金额
-            # 使用get_stock_hold_position函数获取持仓信息
-            position_info = get_stock_hold_position(code)
-            if position_info:
-                quantity = int(position_info["quantity"])
-                amount_adjusted = float(position_info["amount_adjusted"])
-                amount = abs(amount_adjusted)
-            else:
-                # 如果没有找到持仓信息，回退到原来的计算方式
-                quantity = int(sum(fill["quantity"] for fill in fills))
-                amount = float(
-                    sum(fill["amount"] * fill.get("amount_adjust", 1) for fill in fills)
-                )
-            # grid_num可以被参数覆盖
-            grid_num = int(request.args.get("grid_num", str(len(fills))))
-
-        else:
-            # 如果没有提供股票代码，检查必需的直接参数
-            required_params = ["ceiling_price", "floor_price", "amount", "quantity"]
-            for param in required_params:
-                if param not in request.args:
-                    return jsonify({"error": f"缺少必需参数: {param}"}), 400
-            grid_num = int(request.args.get("grid_num", "10"))
-            # 获取直接参数
-            ceiling_price = float(request.args.get("ceiling_price"))
-            floor_price = float(request.args.get("floor_price"))
-            amount = float(request.args.get("amount"))
-            quantity = int(request.args.get("quantity"))
-
-        # 参数验证
-        if ceiling_price <= floor_price:
-            return (
-                jsonify({"error": "ceiling_price must be greater than floor_price"}),
-                400,
-            )
-        if amount <= 0:
-            return jsonify({"error": "amount must be positive"}), 400
-        if quantity <= 0:
-            return jsonify({"error": "quantity must be positive"}), 400
-        if grid_num < 2:
-            return jsonify({"error": "grid_num must be at least 2"}), 400
-
-        # 调用服务计算网格方案
-        result = _get_stock_service().plan_stock_grid_trade(
-            ceiling_price=ceiling_price,
-            floor_price=floor_price,
-            amount=amount,
-            quantity=quantity,
-            grid_num=grid_num,
-        )
-        if code:
-            result["code"] = code  # 添加股票代码到结果中
-        return jsonify(result)
-
-    except ValueError as e:
-        logging.error(f"网格交易计划计算异常: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logging.error(f"网格交易计划计算异常: {str(e)}\n{traceback.format_exc()}")
-        return jsonify({"error": "Internal server error"}), 500
-
-
 # 获取预选股票池分类列表
 @stock_bp.route("/get_stock_pre_pools_category")
 def get_stock_pre_pools_category():
@@ -816,38 +723,6 @@ def get_stock_position():
     )
 
 
-# 新增股票持仓信息
-@stock_bp.route("/create_stock_position", methods=["POST"])
-def create_stock_position():
-    position = request.json
-    inserted_id = func_timeout(
-        30, _create_business_service().createStockPosition, args=(position,)
-    )
-    res = {"id": str(inserted_id)}
-    return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
-
-
-# 更新股票持仓信息
-@stock_bp.route("/update_stock_position", methods=["POST"])
-def update_stock_position():
-    position = request.json
-    func_timeout(30, _create_business_service().updateStockPosition, args=(position,))
-    res = {"code": "ok"}
-    return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
-
-
-# 更新股票持仓状态
-@stock_bp.route("/update_stock_position_status")
-def update_stock_position_status():
-    id = request.args.get("id")
-    status = request.args.get("status")
-    func_timeout(
-        30, _create_business_service().updateStockPositionStatus, args=(id, status)
-    )
-    res = {"code": "ok"}
-    return Response(json.dumps(res, cls=FqJsonEncoder), mimetype="application/json")
-
-
 @stock_bp.route("/get_settings")
 def get_params():
     params = _get_stock_service().get_params()
@@ -947,103 +822,4 @@ def query_stock_fills():
         else:
             return jsonify({"code": "1", "msg": "没有查询到任何数据"})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@stock_bp.route("/stock_fills/reset", methods=["POST"])
-def reset_stock_fills():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "Missing request data"}), 400
-
-        code = data.get("code")
-        grid_list = data.get("grid_list")
-
-        # 过滤掉price和quantity任一个字段是0的数据
-        if grid_list:
-            grid_list = [
-                item
-                for item in grid_list
-                if item.get("price", 0) != 0 and item.get("quantity", 0) != 0
-            ]
-
-        if not code or not grid_list:
-            return (
-                jsonify({"error": "Missing required fields: code and grid_list"}),
-                400,
-            )
-
-        position_info = get_stock_hold_position(code)
-        if not position_info:
-            return jsonify({"error": "No such position"}), 400
-        quantity = position_info["quantity"]
-        grid_quantity = sum(int(item["quantity"]) for item in grid_list)
-        if quantity != grid_quantity:
-            return jsonify({"error": "Quantity mismatch"}), 400
-
-        existing_records = list(DBfreshquant.stock_fills.find({"symbol": code}))
-        if existing_records:
-            DBfreshquant.audit_log.insert_one(
-                {
-                    "operation": "reset_stock_fills",
-                    "symbol": code,
-                    "original_records": existing_records,
-                    "timestamp": datetime.now(),
-                    "record_count": len(existing_records),
-                }
-            )
-
-        instrument = query_instrument_info(code)
-        stock_name = instrument.get("name", "") if instrument else ""
-        stock_code = fq_util_code_append_market_code_suffix(code)
-        trade_dates_df = fq_trading_fetch_trade_dates()
-        trade_dates = trade_dates_df["trade_date"].tolist()
-
-        today = datetime.now().date()
-        past_trade_dates = [date for date in trade_dates if date < today]
-        past_trade_dates.sort(reverse=True)
-
-        if len(past_trade_dates) < len(grid_list):
-            return jsonify({"error": "Not enough trading days for the grid items"}), 400
-
-        new_records = []
-        for i, grid_item in enumerate(grid_list):
-            trade_date = past_trade_dates[len(grid_list) - 1 - i]
-            date_int = int(trade_date.strftime("%Y%m%d"))
-
-            new_records.append(
-                {
-                    "symbol": code,
-                    "date": date_int,
-                    "time": "09:31:00",
-                    "price": float(grid_item["price"]),
-                    "amount": float(grid_item["amount"]),
-                    "amount_adjust": float(grid_item["amount_adjust"]),
-                    "quantity": int(grid_item["quantity"]),
-                }
-            )
-
-        result = _get_manual_write_service().reset_symbol_lots(
-            code=code,
-            name=stock_name,
-            stock_code=stock_code,
-            grid_items=new_records,
-            source="reset",
-        )
-
-        return (
-            jsonify(
-                {
-                    "message": f"Successfully reset stock fills for {code}",
-                    "deleted_count": result["deleted_count"],
-                    "inserted_count": result["inserted_count"],
-                }
-            ),
-            200,
-        )
-
-    except Exception as e:
-        error_msg = f"Error in reset_stock_fills: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg)  # 用于调试
         return jsonify({"error": str(e)}), 500

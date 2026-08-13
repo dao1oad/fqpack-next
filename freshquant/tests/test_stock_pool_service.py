@@ -128,9 +128,6 @@ def _import_stock_service_with_stubs(monkeypatch):
     strategy_module = types.ModuleType("freshquant.strategy")
     strategy_common_module = types.ModuleType("freshquant.strategy.common")
     strategy_common_module.get_trade_amount = lambda code=None: 100
-    strategy_toolkit_module = types.ModuleType("freshquant.strategy.toolkit")
-    strategy_grid_module = types.ModuleType("freshquant.strategy.toolkit.grid")
-    strategy_grid_module.plan_grid_distribution = lambda *args, **kwargs: None
     # stock_service 模块级 import queryMustPoolCodes（pool.general）：
     # 必须一并 stub，否则 reload stock_service 会首次执行真实 pool.general，
     # 遇到被 stub 的 freshquant.util.code（缺 fq_util_code_append_market_code_suffix）
@@ -150,12 +147,6 @@ def _import_stock_service_with_stubs(monkeypatch):
     monkeypatch.setitem(sys.modules, "freshquant.strategy", strategy_module)
     monkeypatch.setitem(
         sys.modules, "freshquant.strategy.common", strategy_common_module
-    )
-    monkeypatch.setitem(
-        sys.modules, "freshquant.strategy.toolkit", strategy_toolkit_module
-    )
-    monkeypatch.setitem(
-        sys.modules, "freshquant.strategy.toolkit.grid", strategy_grid_module
     )
 
     import freshquant.stock_service as stock_service

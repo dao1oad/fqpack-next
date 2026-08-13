@@ -23,7 +23,6 @@ from freshquant.pool.general import queryMustPoolCodes
 from freshquant.pre_pool_service import PrePoolService
 from freshquant.signal.a_stock_common import save_a_stock_pools
 from freshquant.strategy.common import get_trade_amount
-from freshquant.strategy.toolkit.grid import plan_grid_distribution
 from freshquant.util.code import fq_util_code_append_market_code, normalize_to_base_code
 
 
@@ -643,70 +642,6 @@ def get_stock_pools_list(page=1):
         return out
     else:
         return []
-
-
-def plan_stock_grid_trade(
-    ceiling_price: float,
-    floor_price: float,
-    amount: float,
-    quantity: int,
-    grid_num: int = 10,
-) -> dict:
-    """
-    计算股票网格交易的价格和数量分布方案。
-
-    Args:
-        ceiling_price (float): 网格上限价格
-        floor_price (float): 网格下限价格
-        amount (float): 计划投入的总金额
-        quantity (int): 计划交易的总数量
-        grid_num (int, optional): 网格数量，默认为10
-
-    Returns:
-        dict: 包含网格交易计划的详细信息：
-            - grid_points: 网格点列表，每个点包含price（价格）, quantity（数量）和amount（金额）
-            - total: 汇总信息，包含total_quantity和total_amount
-    """
-    # 生成网格分布方案（股票每手100股）
-    df = plan_grid_distribution(
-        ceiling_price=ceiling_price,
-        floor_price=floor_price,
-        amount=amount,
-        quantity=quantity,
-        grid_num=grid_num,
-        lot_shares=100,
-    )
-
-    # 转换为API响应格式
-    grid_list = []
-    for _, row in df.iterrows():
-        grid_list.append(
-            {
-                "price": round(float(row["price"]), 6),
-                "quantity": int(row["quantity"]),
-                "amount": round(float(row["amount"]), 6),
-                "amount_adjust": round(float(row["amount_adjust"]), 6),
-                "price_diff": (
-                    round(float(row["price_diff"]), 6)
-                    if "price_diff" in row and not pd.isna(row["price_diff"])
-                    else None
-                ),
-                "price_percent": (
-                    round(float(row["price_percent"]), 6)
-                    if "price_percent" in row and not pd.isna(row["price_percent"])
-                    else None
-                ),
-            }
-        )
-
-    # 计算实际总计
-    total_quantity = int(df["quantity"].sum())
-    total_amount = float((df["amount"] * df["amount_adjust"].iloc[0]).sum())
-
-    return {
-        "grid_list": grid_list,
-        "total": {"quantity": total_quantity, "amount": total_amount},
-    }
 
 
 def get_stock_pre_pools_category():
