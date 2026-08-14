@@ -28,7 +28,7 @@
   - `python -m freshquant.cli stock.fill teardown-legacy`（6b 拆表唯一入口，C2：
     命令内先 compare，干净/归因后才 drop；默认 dry-run，`--execute` 真正删除
     legacy 三账本 + stock_fills_compat + stock_fills；`--confirm-residue` 显式
-    接受 compat 陈旧残留；事件 `legacy_teardown_compare` / `legacy_teardown_drop`
+    接受 compat 陈旧残留（券商真值按总持仓 `volume` 比对，含在途 on_road_volume）；事件 `legacy_teardown_compare` / `legacy_teardown_drop`
     落 runtime，快照落 `D:/fqpack/runtime/formal-deploy/legacy-teardown-*.json`）
   - `python -m freshquant.cli guardian.sell simulate --code <symbol> --signal-price <price>`
 - 核心服务
