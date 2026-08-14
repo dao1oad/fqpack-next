@@ -10,13 +10,13 @@ from pathlib import Path
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_entry_slices,
 )
+from freshquant.order_management.guardian.arranger import _resolve_entry_status
 from freshquant.order_management.guardian.sell_semantics import (
     normalize_preferred_entry_quantities,
     resolve_guardian_sell_source_entries_from_open_slices,
 )
 from freshquant.order_management.reconcile.service import (
     _after_holdings_reconciled,
-    _resolve_entry_status,
 )
 from freshquant.order_management.repository import OrderManagementRepository
 

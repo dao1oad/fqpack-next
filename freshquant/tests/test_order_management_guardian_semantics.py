@@ -5,14 +5,10 @@ from pathlib import Path
 import freshquant.order_management.guardian.arranger as arranger_module
 from freshquant.order_management.guardian.allocation_policy import (
     allocate_sell_to_entry_slices,
-    allocate_sell_to_slices,
 )
 from freshquant.order_management.guardian.arranger import (
-    arrange_buy_lot,
     arrange_entry,
-    build_buy_lot_from_trade_fact,
     build_position_entry_from_trade_fact,
-    rebuild_guardian_position,
 )
 from freshquant.order_management.guardian.read_model import (
     build_arranged_fill_read_model,
@@ -28,7 +24,7 @@ def _load_cases():
 
 
 def test_arranger_splits_buy_into_guardian_slices_using_current_grid_rules():
-    buy_lot = build_buy_lot_from_trade_fact(
+    entry = build_position_entry_from_trade_fact(
         {
             "trade_fact_id": "trade_buy_1",
             "symbol": "000001",
@@ -38,11 +34,14 @@ def test_arranger_splits_buy_into_guardian_slices_using_current_grid_rules():
             "trade_time": 1710000000,
             "date": 20240102,
             "time": "09:31:00",
-        }
+        },
+        source_ref_type="broker_order",
+        source_ref_id="81011",
+        entry_type="broker_execution_group",
     )
 
-    slices = arrange_buy_lot(
-        buy_lot,
+    slices = arrange_entry(
+        entry,
         lot_amount=3000,
         grid_interval=1.03,
     )
@@ -56,7 +55,7 @@ def test_arranger_splits_buy_into_guardian_slices_using_current_grid_rules():
 
 
 def test_sell_allocation_consumes_lowest_guardian_price_first():
-    buy_lot = build_buy_lot_from_trade_fact(
+    entry = build_position_entry_from_trade_fact(
         {
             "trade_fact_id": "trade_buy_1",
             "symbol": "000001",
@@ -66,12 +65,15 @@ def test_sell_allocation_consumes_lowest_guardian_price_first():
             "trade_time": 1710000000,
             "date": 20240102,
             "time": "09:31:00",
-        }
+        },
+        source_ref_type="broker_order",
+        source_ref_id="81011",
+        entry_type="broker_execution_group",
     )
-    slices = arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03)
+    slices = arrange_entry(entry, lot_amount=3000, grid_interval=1.03)
 
-    allocations = allocate_sell_to_slices(
-        buy_lots=[buy_lot],
+    allocations = allocate_sell_to_entry_slices(
+        entries=[entry],
         open_slices=slices,
         sell_trade_fact={
             "trade_fact_id": "trade_sell_1",
@@ -92,7 +94,7 @@ def test_sell_allocation_consumes_lowest_guardian_price_first():
 
 
 def test_partial_sell_updates_buy_lot_remaining_and_sell_history():
-    buy_lot = build_buy_lot_from_trade_fact(
+    entry = build_position_entry_from_trade_fact(
         {
             "trade_fact_id": "trade_buy_2",
             "symbol": "000001",
@@ -102,12 +104,15 @@ def test_partial_sell_updates_buy_lot_remaining_and_sell_history():
             "trade_time": 1710000000,
             "date": 20240102,
             "time": "09:31:00",
-        }
+        },
+        source_ref_type="broker_order",
+        source_ref_id="81011",
+        entry_type="broker_execution_group",
     )
-    slices = arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03)
+    slices = arrange_entry(entry, lot_amount=3000, grid_interval=1.03)
 
-    allocations = allocate_sell_to_slices(
-        buy_lots=[buy_lot],
+    allocations = allocate_sell_to_entry_slices(
+        entries=[entry],
         open_slices=slices,
         sell_trade_fact={
             "trade_fact_id": "trade_sell_2",
@@ -118,21 +123,50 @@ def test_partial_sell_updates_buy_lot_remaining_and_sell_history():
         },
     )
 
-    assert buy_lot["remaining_quantity"] == 650
-    assert len(buy_lot["sell_history"]) == 1
-    assert allocations[0]["buy_lot_id"] == buy_lot["buy_lot_id"]
+    assert entry["remaining_quantity"] == 650
+    assert len(entry["sell_history"]) == 1
+    assert allocations[0]["entry_id"] == entry["entry_id"]
     assert slices[-1]["remaining_quantity"] == 50
 
 
 def test_guardian_read_model_matches_legacy_sell_quantity_cases():
     case = _load_cases()[0]
 
-    position = rebuild_guardian_position(
+    entries = []
+    open_slices = []
+    for trade_fact in sorted(
         case["trade_facts"],
-        lot_amount=case["lot_amount"],
-        grid_interval_lookup=lambda _symbol, _trade_fact: case["grid_interval"],
-    )
-    arranged = build_arranged_fill_read_model(position["open_slices"])
+        key=lambda item: (
+            item.get("trade_time", 0),
+            item.get("date", 0),
+            item.get("time", ""),
+        ),
+    ):
+        if trade_fact["side"] == "buy":
+            entry = build_position_entry_from_trade_fact(
+                trade_fact,
+                source_ref_type="broker_order",
+                source_ref_id=str(trade_fact.get("trade_fact_id")),
+                entry_type="broker_execution_group",
+            )
+            entries.append(entry)
+            open_slices.extend(
+                arrange_entry(
+                    entry,
+                    lot_amount=case["lot_amount"],
+                    grid_interval=case["grid_interval"],
+                )
+            )
+        else:
+            allocate_sell_to_entry_slices(
+                entries,
+                open_slices,
+                dict(
+                    trade_fact,
+                    trade_fact_id=trade_fact.get("trade_fact_id") or "tf_sell",
+                ),
+            )
+    arranged = build_arranged_fill_read_model(open_slices)
 
     assert [
         {
@@ -144,14 +178,14 @@ def test_guardian_read_model_matches_legacy_sell_quantity_cases():
     ] == case["expected_open_slices"]
 
 
-def test_build_buy_lot_from_trade_fact_backfills_date_and_time_from_trade_time():
+def test_build_position_entry_from_trade_fact_backfills_date_and_time_from_trade_time():
     trade_time = 1710000000
     expected_dt = datetime.fromtimestamp(
         trade_time,
         tz=timezone(timedelta(hours=8)),
     )
 
-    buy_lot = build_buy_lot_from_trade_fact(
+    entry = build_position_entry_from_trade_fact(
         {
             "trade_fact_id": "trade_buy_missing_date_time",
             "symbol": "000001",
@@ -161,14 +195,17 @@ def test_build_buy_lot_from_trade_fact_backfills_date_and_time_from_trade_time()
             "trade_time": trade_time,
             "date": None,
             "time": None,
-        }
+        },
+        source_ref_type="broker_order",
+        source_ref_id="81011",
+        entry_type="broker_execution_group",
     )
 
-    assert buy_lot["date"] == int(expected_dt.strftime("%Y%m%d"))
-    assert buy_lot["time"] == expected_dt.strftime("%H:%M:%S")
+    assert entry["date"] == int(expected_dt.strftime("%Y%m%d"))
+    assert entry["time"] == expected_dt.strftime("%H:%M:%S")
 
 
-def test_build_buy_lot_from_trade_fact_uses_beijing_time_even_if_local_fromtimestamp_differs(
+def test_build_position_entry_from_trade_fact_uses_beijing_time_even_if_local_fromtimestamp_differs(
     monkeypatch,
 ):
     observed = {}
@@ -183,7 +220,7 @@ def test_build_buy_lot_from_trade_fact_uses_beijing_time_even_if_local_fromtimes
         _fake_beijing_date_time_from_epoch,
     )
 
-    buy_lot = arranger_module.build_buy_lot_from_trade_fact(
+    entry = arranger_module.build_position_entry_from_trade_fact(
         {
             "trade_fact_id": "trade_buy_missing_date_time_local_drift",
             "symbol": "000001",
@@ -193,11 +230,14 @@ def test_build_buy_lot_from_trade_fact_uses_beijing_time_even_if_local_fromtimes
             "trade_time": 1710000000,
             "date": None,
             "time": None,
-        }
+        },
+        source_ref_type="broker_order",
+        source_ref_id="81011",
+        entry_type="broker_execution_group",
     )
 
-    assert buy_lot["date"] == 20240310
-    assert buy_lot["time"] == "00:00:00"
+    assert entry["date"] == 20240310
+    assert entry["time"] == "00:00:00"
     assert observed["timestamp"] == 1710000000
 
 
