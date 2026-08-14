@@ -5,11 +5,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from bson import ObjectId
 from prettytable import PrettyTable
 
 from freshquant.carnation.enum_instrument import InstrumentType
-from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info, query_instrument_type
 from freshquant.KlineDataTool import get_stock_data
 from freshquant.order_management.manual.service import OrderManagementManualWriteService
