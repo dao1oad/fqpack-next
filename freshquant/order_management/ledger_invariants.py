@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from freshquant.util.code import normalize_to_base_code
+
 
 def _coerce_int(value: Any, default: int = 0) -> int:
     try:
@@ -29,14 +31,9 @@ def _coerce_int(value: Any, default: int = 0) -> int:
 
 
 def _normalize_code(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    for suffix in (".SH", ".SZ", ".BJ"):
-        if text.upper().endswith(suffix):
-            text = text[: -len(suffix)]
-            break
-    return text
+    # 读侧统一（总收口 PR4）：所有 stock_code/symbol 消费归一为 6 位基础代码，
+    # 单一口径 normalize_to_base_code（含前后缀/大小写/带点格式）。
+    return normalize_to_base_code(str(value or "").strip())
 
 
 def _position_type_of(value: Any) -> str:

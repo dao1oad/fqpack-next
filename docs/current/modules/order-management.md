@@ -247,6 +247,14 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   `stock_code`/`account_id`；rebuild 重放路径
   `_build_trade_fact_from_execution_fill` 从 `om_execution_fills` 透传
   `account_id` 并补 6 位 `stock_code`
+- 读侧 6 位归一口径（总收口 PR4）：所有 stock_code/symbol 读侧消费统一经
+  `freshquant/util/code.py normalize_to_base_code` 归一为 6 位基础代码
+  （覆盖 `000001.SZ` / `sz000001` / 纯 6 位等格式）；删除分散的旧兜底：
+  `stock_code[:6]`（xt_reports 异常事件、reconcile `_build_positions_by_symbol`）、
+  `split(".", 1)[0]`（repair/targeted_ledger）、`.SH/.SZ/.BJ` 后缀剥离
+  （ledger_invariants._normalize_code）、rebuild `_normalize_symbol` 的
+  「有点才拆」分叉；对外部接口仍需带市场后缀的构造（`get_trade_amount` /
+  `get_grid_interval_config` 查询键）保持原样，不属于 6 位消费面
 - `OrderStateService`（`freshquant/order_management/tracking/order_state.py`）
   收敛订单状态写入口：`FILLED` / `CANCELED` 终态后状态不回退，迟到 order /
   trade 回报只吸收状态并写 `late_order_report_after_terminal` /

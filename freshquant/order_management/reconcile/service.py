@@ -54,6 +54,7 @@ from freshquant.runtime_observability.failures import (
     mark_exception_emitted,
 )
 from freshquant.runtime_observability.logger import RuntimeEventLogger
+from freshquant.util.code import normalize_to_base_code
 
 _DEFAULT_RECONCILE_LOT_AMOUNT = 50000
 _SELL_GAP_FUSE_MIN_SYMBOLS = 3
@@ -759,7 +760,7 @@ def _build_positions_by_symbol(positions):
     result = {}
     for item in positions:
         stock_code = item.get("stock_code", "")
-        symbol = item.get("symbol") or stock_code[:6]
+        symbol = item.get("symbol") or normalize_to_base_code(stock_code)
         result[symbol] = item
     return result
 

@@ -32,6 +32,7 @@ from freshquant.order_management.ledger_resolver import (
     resolve_buy_position_type,
 )
 from freshquant.order_management.tracking.order_state import OrderStateService
+from freshquant.util.code import normalize_to_base_code
 
 # Rebuild only needs stable Beijing wall-clock derivation, so use a fixed UTC+8
 # offset instead of relying on system tzdata availability.
@@ -764,13 +765,10 @@ def _apply_execution_fill_to_broker_order(broker_order, execution_fill):
 
 
 def _normalize_symbol(payload):
-    symbol = str(payload.get("symbol") or "").strip()
-    if symbol:
-        return symbol
-    stock_code = str(payload.get("stock_code") or "").strip()
-    if "." in stock_code:
-        return stock_code.split(".", 1)[0]
-    return stock_code
+    # 读侧统一（总收口 PR4）：归一为 6 位基础代码（含前后缀/带点格式）。
+    return normalize_to_base_code(
+        str(payload.get("symbol") or payload.get("stock_code") or "").strip()
+    )
 
 
 def _normalize_side(order_type):
