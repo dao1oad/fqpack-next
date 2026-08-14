@@ -393,6 +393,7 @@ def _buy_report(broker_trade_id="T-100", **overrides):
     payload = {
         "internal_order_id": "ord_test_1",
         "broker_trade_id": broker_trade_id,
+        "account_id": "acc-test-001",
         "symbol": "000001",
         "side": "buy",
         "quantity": 900,
@@ -410,6 +411,7 @@ def _sell_report(broker_trade_id="T-101", **overrides):
     payload = {
         "internal_order_id": "ord_test_sell_1",
         "broker_trade_id": broker_trade_id,
+        "account_id": "acc-test-001",
         "symbol": "000001",
         "side": "sell",
         "quantity": 500,
@@ -1560,6 +1562,68 @@ def test_trade_report_does_not_chain_merge_beyond_anchor_five_minute_window():
     assert sorted(
         int(item["original_quantity"]) for item in repository.position_entries
     ) == [300, 600]
+
+
+def test_trade_report_does_not_merge_across_accounts():
+    repository = InMemoryRepository()
+    tracking_service = OrderTrackingService(repository=repository)
+    for internal_order_id, quantity in (
+        ("ord_acct_1", 400),
+        ("ord_acct_2", 500),
+    ):
+        tracking_service.submit_order(
+            {
+                "action": "buy",
+                "ledger_intent": "base",
+                "symbol": "000001",
+                "price": 10.0,
+                "quantity": quantity,
+                "source": "xt_trade_callback",
+                "internal_order_id": internal_order_id,
+            }
+        )
+    ingest_service = OrderManagementXtIngestService(
+        repository=repository,
+        tracking_service=tracking_service,
+    )
+    xt_reports_module._sync_stock_fills_compat = _noop_sync_stock_fills_compat
+
+    ingest_service.ingest_trade_report(
+        _buy_report(
+            "T-ACCT-1",
+            internal_order_id="ord_acct_1",
+            account_id="acc-A",
+            quantity=400,
+            price=10.0,
+            trade_time=1710000000,
+            date=20240310,
+            time="09:30:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+    result = ingest_service.ingest_trade_report(
+        _buy_report(
+            "T-ACCT-2",
+            internal_order_id="ord_acct_2",
+            account_id="acc-B",
+            quantity=500,
+            price=10.02,
+            trade_time=1710000240,
+            date=20240310,
+            time="09:34:00",
+        ),
+        lot_amount=50000,
+        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
+    )
+
+    assert len(repository.position_entries) == 2
+    assert sorted(item["account_id"] for item in repository.position_entries) == [
+        "acc-A",
+        "acc-B",
+    ]
+    assert result["position_entry"]["account_id"] == "acc-B"
+    assert result["position_entry"]["original_quantity"] == 500
 
 
 def test_trade_report_does_not_merge_after_sell_touches_clustered_entry():

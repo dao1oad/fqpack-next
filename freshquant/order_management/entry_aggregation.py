@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from freshquant.order_management.broker_identity import normalize_account_id
 from freshquant.order_management.entry_adapter import (
     POSITION_TYPE_BASE,
     position_type_of,
@@ -38,10 +39,19 @@ def select_cluster_entry(
     broker_order_key,
     *,
     position_type=None,
+    account_id=None,
 ):
+    # fail-closed 账户约束：exact key match 本身已含账户前缀，不受影响；
+    # 模糊聚类（时间窗+价差）要求 group 账户与 entry 账户一致，group 缺
+    # 账户或 entry 缺账户一律不匹配，禁止跨账户/无账户聚合。
     exact_match = find_entry_for_broker_order(entries, broker_order_key)
     if exact_match is not None:
         return exact_match
+    group_account_id = normalize_account_id(
+        account_id if account_id is not None else group_trade_fact.get("account_id")
+    )
+    if group_account_id is None:
+        return None
 
     symbol = _normalize_text(group_trade_fact.get("symbol"))
     group_trade_time = _coerce_int(group_trade_fact.get("trade_time"))
@@ -51,6 +61,8 @@ def select_cluster_entry(
 
     for entry in list(entries or []):
         if _normalize_text(entry.get("symbol")) != symbol:
+            continue
+        if normalize_account_id(entry.get("account_id")) != group_account_id:
             continue
         # #571：禁止跨账本聚合 —— 候选 entry 必须与本次解析出的
         # position_type 一致（先解析归属后聚类）。

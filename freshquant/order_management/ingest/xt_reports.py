@@ -1190,6 +1190,7 @@ def _upsert_broker_position_entry(
         buy_group_trade_fact,
         broker_order_key,
         position_type=resolved_position_type,
+        account_id=buy_group_trade_fact.get("account_id"),
     )
     if (
         existing_entry is None
@@ -1204,6 +1205,7 @@ def _upsert_broker_position_entry(
             buy_group_trade_fact,
             internal_order_id,
             position_type=resolved_position_type,
+            account_id=buy_group_trade_fact.get("account_id"),
         )
     if (
         existing_entry is not None

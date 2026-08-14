@@ -68,7 +68,8 @@ def simulate_buy_cluster_entry(
     """模拟一笔买入的聚类归属（纯内存，零 DB/IO）。
 
     ``sim_fact`` 最小字段：``symbol / price / quantity / trade_time /
-    date / time``。对拍平 entry 期望返回 ``entry_id=None``（运行态据此新建
+    date / time / account_id``（PR3 起聚类按账户 fail-closed，sim 必须
+    携带账户）。对拍平 entry 期望返回 ``entry_id=None``（运行态据此新建
     entry，成本不被并入拍平 entry）。
     """
 
