@@ -38,11 +38,8 @@ ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS = (
     "om_broker_orders",
     "om_trade_facts",
     "om_execution_fills",
-    "om_buy_lots",
     "om_position_entries",
-    "om_lot_slices",
     "om_entry_slices",
-    "om_sell_allocations",
     "om_exit_allocations",
     "om_external_candidates",
     "om_reconciliation_gaps",
@@ -50,13 +47,10 @@ ORDER_LEDGER_REBUILD_PURGE_COLLECTIONS = (
     "om_ingest_rejections",
 )
 
-# 迁移期只读集合；保留给 legacy adapter / 历史排障，避免继续新增主链写入。
+# 只读集合；仅历史排障与审计，主链写入集中在 V2 集合。
 ORDER_LEDGER_LEGACY_COLLECTIONS = (
     "om_orders",
     "om_trade_facts",
-    "om_buy_lots",
-    "om_lot_slices",
-    "om_sell_allocations",
     "om_external_candidates",
 )
 

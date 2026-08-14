@@ -23,28 +23,17 @@ def _get_manual_write_service():
 
 
 def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
+    repository = OrderManagementRepository()
     if code:
-        repository = OrderManagementRepository()
-        results = build_raw_fills_view(repository.list_trade_facts(code))
+        rows = repository.list_trade_facts(code)
     else:
-        collection = DBfreshquant.stock_fills
-        query = {}
-        if dt:
-            query["date"] = int(dt.replace("-", "").replace(".", ""))
-
-        fields = {
-            "_id": 1,
-            "op": 1,
-            "symbol": 1,
-            "stock_code": 1,
-            "name": 1,
-            "quantity": 1,
-            "price": 1,
-            "amount": 1,
-            "date": 1,
-            "time": 1,
-        }
-        results = list(collection.find(query, fields))
+        rows = repository.list_trade_facts()
+    results = build_raw_fills_view(rows)
+    if dt:
+        normalized_dt = int(dt.replace("-", "").replace(".", ""))
+        results = [
+            item for item in results if int(item.get("date") or 0) == normalized_dt
+        ]
 
     table = PrettyTable()
     table.field_names = [
@@ -63,7 +52,7 @@ def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
     for result in results:
         table.add_row(
             [
-                result.get("_id"),
+                result.get("source", ""),
                 result.get("op"),
                 result.get("symbol"),
                 result.get("stock_code"),
@@ -142,27 +131,6 @@ def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
             print(
                 f"当前持股数量: {total_quantity}, 累计盈亏金额: {round(-total_cost, 2)}, 当前盈亏金额: {round(-current_cost, 2)}"
             )
-
-
-def remove_fill(id=None, code=None):
-    """Deprecated raw legacy mutator; legacy 集合随 6b 拆表删除，仅排障冻结期使用。"""
-    if id is None and code is None:
-        raise ValueError("必须提供id或code参数")
-
-    collection = DBfreshquant.stock_fills
-    query = {}
-
-    if id is not None:
-        query["_id"] = ObjectId(id)
-    elif code is not None:
-        query["symbol"] = code
-
-    result = collection.delete_many(query)
-
-    if result.deleted_count == 0:
-        print("未找到匹配的记录")
-    else:
-        print(f"成功删除{result.deleted_count}条记录")
 
 
 def import_fill(

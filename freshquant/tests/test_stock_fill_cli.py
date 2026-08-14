@@ -19,15 +19,7 @@ def _install_stock_cli_stubs(monkeypatch):
     must_pool = types.ModuleType("freshquant.data.astock.must_pool")
     fill = types.ModuleType("freshquant.data.astock.fill")
     fill.list_fill = lambda *args, **kwargs: None
-    fill.remove_fill = lambda *args, **kwargs: None
     fill.import_fill = lambda *args, **kwargs: None
-    fill.compare_fill_compat = lambda code: None
-    fill.compare_fill_compat_all = lambda archive_dir=None: {
-        "zero_diff": True,
-        "symbols_compared": 0,
-        "mismatch_count": 0,
-        "mismatches": [],
-    }
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.pre_pool", pre_pool)
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.pool", pool)
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.must_pool", must_pool)

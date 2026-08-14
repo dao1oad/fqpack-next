@@ -31,10 +31,6 @@ from freshquant.util.code import (
 )
 
 
-def _get_legacy_stock_fills_collection():
-    return DBfreshquant["stock_fills"]
-
-
 def _resolve_position_name(position: Dict) -> str:
     raw_name = str(position.get("name") or "").strip()
 
@@ -312,71 +308,6 @@ def get_stock_hold_position(code):
 
 
 # 清理股票持仓数据
-def clean_stock_fills():
-    """Deprecated raw legacy cleanup; keep only for manual audit workflows."""
-    # 检查当前时间是否在晚上8点之后
-    current_time = datetime.now()
-    if current_time.hour < 20:  # 20点是晚上8点
-        print(
-            f"清理操作只能在晚上8点之后执行，当前时间: {current_time.strftime('%H:%M:%S')}"
-        )
-        return False
-
-    # 在允许的时间范围内执行清理操作
-    codes = get_stock_holding_codes()
-    _get_legacy_stock_fills_collection().delete_many({"symbol": {"$nin": codes}})
-    return True
-
-
-def compact_stock_fills(code=None):
-    """Deprecated raw legacy compaction; prefer stock.fill rebuild for compat maintenance."""
-    # 检查当前时间是否在晚上8点之后
-    current_time = datetime.now()
-    if current_time.hour < 20:  # 20点是晚上8点
-        print(
-            f"compact_stock_fills只能在晚上8点之后执行，当前时间: {current_time.strftime('%H:%M:%S')}"
-        )
-        return False
-    holding_codes = get_stock_holding_codes()
-    if code is not None:
-        holding_codes = [c for c in holding_codes if c == code]
-    for code in holding_codes:
-        position_info = get_stock_hold_position(code)
-        if position_info:
-            stock_fill_list = list(
-                _get_legacy_stock_fills_collection().find({"symbol": code})
-            )
-            quantity = int(position_info["quantity"])
-            amount_adjusted = float(position_info["amount_adjusted"])
-            if len(stock_fill_list) > 1 and quantity == 0 and amount_adjusted < 0:
-                records = [
-                    {
-                        "op": "买",
-                        "symbol": code,
-                        "date": int(datetime.now().strftime("%Y%m%d")),
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "price": 0.0,
-                        "amount": -amount_adjusted,
-                        "name": position_info["name"],
-                        "quantity": 0,
-                        "source": "reset",
-                        "stock_code": position_info["stock_code"],
-                    }
-                ]
-                existing_records = list(DBfreshquant.stock_fills.find({"symbol": code}))
-                if len(existing_records) > 1:
-                    audit_record = {
-                        "operation": "reset_stock_fills",
-                        "symbol": code,
-                        "original_records": existing_records,
-                        "timestamp": datetime.now(),
-                        "record_count": len(existing_records),
-                    }
-                    DBfreshquant.audit_log.insert_one(audit_record)
-                _get_legacy_stock_fills_collection().delete_many({"symbol": code})
-                DBfreshquant.stock_fills.insert_many(records)
-
-
 if __name__ == "__main__":
     # stock_fills = get_stock_fills("002599")
     # print(stock_fills)
@@ -385,5 +316,3 @@ if __name__ == "__main__":
     # print(len(fills))
     # print(json_util.dumps(get_stock_positions(), indent=4))
     # print(get_stock_holding_codes())
-    # compact_stock_fills()
-    # clean_stock_fills()

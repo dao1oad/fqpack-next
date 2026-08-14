@@ -644,18 +644,6 @@ def stock_fill_list_command(code: str, date: str):
     fill.list_fill(code, date)
 
 
-@stock_fill_command_group.command(name="rm")
-@click.option("--id", type=str)
-@click.option("--code", type=str)
-def stock_fill_rm_command(id: str, code: str):
-    if not id and not code:
-        raise click.UsageError("必须提供 --id 或 --code 参数")
-    if id:
-        fill.remove_fill(id=id)
-    else:
-        fill.remove_fill(code=code)
-
-
 @stock_fill_command_group.command(name="import")
 @click.argument("op", type=click.Choice(["buy", "sell"]))
 @click.argument("code", required=False)

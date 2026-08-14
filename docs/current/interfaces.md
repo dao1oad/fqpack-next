@@ -201,8 +201,8 @@ python -m freshquant.rear.api_server --port 5000
   - 查询参数 `days` 控制 membership 有效期，默认 `30`
   - 返回 `source_count / synced_count / removed_count / holding_excluded_count / invalid_count / failed_count` 及对应代码列表；只写 `must_pool`，不写 `stock_pools`，不触发交易动作
 - `/api/stock_fills`
-  - 仍保留旧名称
-  - 底层优先读 `entry ledger`
+  - 兼容 API 名保留，数据全部由 V2 投影提供（`om_position_entries` /
+    `om_entry_slices`），无 legacy 兜底；legacy 集合已随 6b 删除
 - `/api/clx-daily-selection/batches` 与 `/api/clx-daily-selection/batches/latest`
   - 默认只读取 `is_final=true` 且 `publication.status in [published, not_required]` 的完整 batch
   - 只有显式传 `include_partial=1` 时才把单侧完成、运行中、失败、drift 或 publication `pending/publishing/failed` 纳入返回

@@ -5,7 +5,6 @@ from loguru import logger
 
 from freshquant.assets.opening_amounts import clean_old_opening_amounts
 from freshquant.carnation.config import STOCK_ORDER_QUEUE
-from freshquant.data.astock.holding import clean_stock_fills, compact_stock_fills
 from freshquant.database.redis import redis_db
 from freshquant.db import DBfreshquant
 from freshquant.pool.general import cleanMustPool
@@ -30,8 +29,6 @@ def clean_db():
     )
     DBfreshquant["stock_realtime"].delete_many({})
     DBfreshquant["future_realtime"].delete_many({})
-    clean_stock_fills()
-    compact_stock_fills()
     DBfreshquant["stock_orders"].delete_many(
         {"date": {"$lt": int(pendulum.now().add(days=-7).format("YYYYMMDD"))}}
     )

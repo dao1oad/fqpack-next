@@ -25,7 +25,8 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 - 独立 `/order-management` 路由已移除；订单列表、订单详情与对账排障统一收口到 `/position-management`
 - 独立 `/tpsl`、`/futures-control`、`/stock-cjsd` 路由已移除
 - 止损触发功能（全仓止损 + 单笔止损）已随 Issue #603 整体下线，三条 BUY 抄底线承担补仓
-- `stock_fills` 旧接口仍保留，但底层优先读取 entry ledger
+- `/api/stock_fills` 兼容 API 名保留，数据全部由 V2 投影提供；legacy 集合
+  （stock_fills / stock_fills_compat 等）已随 6b 拆表删除（Issue #605）
 
 ## 当前目录职责
 
