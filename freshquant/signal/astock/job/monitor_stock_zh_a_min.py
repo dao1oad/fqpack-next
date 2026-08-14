@@ -5,17 +5,14 @@ from time import sleep
 import click
 from loguru import logger
 
-from freshquant.data.astock.holding import (
-    get_arranged_stock_fill_list,
-    get_stock_holding_codes,
-)
+from freshquant.data.astock.holding import get_arranged_stock_fill_list
 from freshquant.market_data.xtdata.pools import (
     LINE_1M_T,
     LINE_5M_NEW_OPEN,
     lines_for_modes,
+    load_monitor_scope,
 )
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
-from freshquant.pool.general import queryMustPoolCodes
 from freshquant.runtime_constants import TZ
 from freshquant.signal.a_stock_common import save_a_stock_signal
 from freshquant.signal.astock.job.bar_event_listener import BarEventListener
@@ -105,20 +102,20 @@ def monitor_stock_zh_a_min_event_driven() -> None:
     }
 
     def _load_scope() -> dict[str, set[str]]:
-        holding_codes = {
-            normalize_to_base_code(code) for code in get_stock_holding_codes() if code
-        }
-        must_pool_codes = {
-            normalize_to_base_code(code) for code in queryMustPoolCodes() if code
-        }
+        # A10 收口：代码池真值来自 pools.load_monitor_scope（按行装配，
+        # must_pool active 规则单一来源）；此处仅保留二次门禁（纯数字校验）。
+        scope = load_monitor_scope(
+            trading_mode=trading_mode,
+            screening_mode=screening_mode,
+        )
         return {
-            "holding_codes": {code for code in holding_codes if code.isdigit()},
-            "must_pool_codes": {code for code in must_pool_codes if code.isdigit()},
+            line: {code for code in codes if code.isdigit()}
+            for line, codes in scope.items()
         }
 
     def _load_codes(scope: dict[str, set[str]]) -> set[str]:
-        base_codes = (scope.get("holding_codes") or set()) | (
-            scope.get("must_pool_codes") or set()
+        base_codes = (scope.get(LINE_1M_T) or set()) | (
+            scope.get(LINE_5M_NEW_OPEN) or set()
         )
         return {normalize_prefixed_code(code).lower() for code in base_codes}
 
@@ -159,8 +156,8 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                 return
 
             scope = scope_lock.get("scope") or {}
-            in_holding = base_code in (scope.get("holding_codes") or set())
-            in_must_pool = base_code in (scope.get("must_pool_codes") or set())
+            in_holding = base_code in (scope.get(LINE_1M_T) or set())
+            in_must_pool = base_code in (scope.get(LINE_5M_NEW_OPEN) or set())
             if period_backend == "1min" and LINE_1M_T not in enabled_lines:
                 return
             if period_backend == "1min" and not in_holding:

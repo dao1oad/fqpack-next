@@ -42,6 +42,14 @@ producer 是唯一 XTData 实时订阅入口；consumer 是唯一 bar 队列消�
   - producer 订阅 = 启用线的并集；consumer / Guardian 按周期与线归属消费
   - 超限按优先级 `line_1m_t > line_5m_new_open > line_15_30_clx` 截断，
     触顶写 runtime 事件（`reason_code=line_codes_truncated`）并日志告警，不静默
+  - must_pool active 规则（总收口 PR8）：`line_5m_new_open` 只收「非 disabled
+    且未过期」成员，规则单一来源 = `freshquant/pool/general.py`
+    `_is_active_member`（D1/S4 步骤 7，forever/expire_at/memberships 语义）
+  - 分行 scope 接口（总收口 PR8）：`load_monitor_scope(*, trading_mode,
+    screening_mode)` 返回「启用行 → 6 位基础代码集合」（不含优先级截断），
+    供需要自定义并集/二次门禁的消费者（signal monitor）使用；
+    `signal/astock/job/monitor_stock_zh_a_min.py` 的 `_load_scope` 已改为
+    委托该接口，仅保留纯数字校验二次门禁
 
 ## 数据流
 

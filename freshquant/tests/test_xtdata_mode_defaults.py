@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from freshquant.market_data.xtdata import pools
 from freshquant.preset import params
 
@@ -230,6 +232,74 @@ def test_holding_exclusion_is_not_truncated_by_max_symbols(monkeypatch):
     assert len(clx_codes) == 10
     # 600001..600020 全部在持仓中，必须被排除；剩余 600021..600030 取前 10 个
     assert clx_codes == [f"sh6000{i:02d}" for i in range(21, 31)]
+
+
+def test_load_monitor_scope_returns_per_line_base_codes(monkeypatch):
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def find(self, query=None, projection=None):
+            return list(self.docs)
+
+    fake_db = {
+        "xt_positions": FakeCollection(
+            [{"symbol": "sz000001"}, {"symbol": "sh600000"}]
+        ),
+        "must_pool": FakeCollection(
+            [
+                {"code": "000002", "instrument_type": "stock_cn", "disabled": False},
+                # 已持仓 → must_pool 目标排除
+                {"code": "000001", "instrument_type": "stock_cn", "disabled": False},
+            ]
+        ),
+        "stock_pools": FakeCollection([{"code": "600001"}]),
+    }
+    monkeypatch.setattr(pools, "DBfreshquant", fake_db)
+
+    scope = pools.load_monitor_scope(trading_mode=True, screening_mode=True)
+
+    assert scope[pools.LINE_1M_T] == {"000001", "600000"}
+    assert scope[pools.LINE_5M_NEW_OPEN] == {"000002"}
+    assert scope[pools.LINE_15_30_CLX] == {"600001"}
+
+    trading_only = pools.load_monitor_scope(trading_mode=True, screening_mode=False)
+    assert pools.LINE_15_30_CLX not in trading_only
+
+
+def test_load_monitor_scope_must_pool_excludes_expired_members(monkeypatch):
+    class FakeCollection:
+        def __init__(self, docs):
+            self.docs = list(docs)
+
+        def find(self, query=None, projection=None):
+            return list(self.docs)
+
+    fake_db = {
+        "xt_positions": FakeCollection([]),
+        "must_pool": FakeCollection(
+            [
+                {
+                    "code": "000003",
+                    "instrument_type": "stock_cn",
+                    "disabled": False,
+                    "expire_at": datetime(2000, 1, 1),
+                },
+                {
+                    "code": "000004",
+                    "instrument_type": "stock_cn",
+                    "disabled": False,
+                    "forever": True,
+                },
+            ]
+        ),
+        "stock_pools": FakeCollection([]),
+    }
+    monkeypatch.setattr(pools, "DBfreshquant", fake_db)
+
+    scope = pools.load_monitor_scope(trading_mode=True, screening_mode=False)
+
+    assert scope[pools.LINE_5M_NEW_OPEN] == {"000004"}
 
 
 def test_init_param_dict_persists_dual_boolean_defaults_when_mode_missing(
