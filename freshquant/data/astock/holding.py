@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta
 from typing import Dict, List
 
 import pandas as pd
@@ -6,10 +5,8 @@ from bson import json_util
 from loguru import logger
 
 from freshquant.carnation.enum_instrument import InstrumentType
-from freshquant.data.qfq_reader import apply_qfq_to_bars
 from freshquant.database.cache import (
     get_cache_version,
-    in_memory_cache,
     redis_cache,
 )
 from freshquant.db import DBfreshquant
@@ -95,49 +92,12 @@ def insertStockPosition(acc: List, item: Dict):
     return acc
 
 
-def _compute_atr_last_stock(
-    inst_code_base: str, date_str: str, period: int
-) -> tuple[float, float]:
-    """
-    计算 A 股个股在给定周期下的最新 ATR 值。
-    """
-    from QUANTAXIS.QAFetch.QAQuery_Advance import QA_fetch_stock_day_adv
-    from talib import ATR
-
-    dt = datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)
-    start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
-    end_date = dt.strftime("%Y-%m-%d")
-    data = QA_fetch_stock_day_adv(inst_code_base, start_date, end_date)
-    data, _metadata = apply_qfq_to_bars(
-        data.data,
-        scope="stock",
-        code=inst_code_base,
-        date_col="date",
-    )
-    atr_value = ATR(data.high.values, data.low.values, data.close.values, period)
-    return float(atr_value[-1]), float(data.close.values[-1])
-
-
-@in_memory_cache.memoize(expiration=900)
-def _compute_atr_last_index(
-    inst_code_base: str, date_str: str, period: int
-) -> tuple[float, float]:
-    """
-    计算 A 股指数/ETF 在给定周期下的最新 ATR 值，并使用内存缓存避免重复计算。
-    """
-    from QUANTAXIS.QAFetch.QAQuery_Advance import QA_fetch_index_day_adv
-    from talib import ATR
-
-    dt = datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)
-    start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
-    end_date = dt.strftime("%Y-%m-%d")
-    data = QA_fetch_index_day_adv(inst_code_base, start_date, end_date)
-    data = data.data
-    atr_value = ATR(data.high.values, data.low.values, data.close.values, period)
-    return float(atr_value[-1]), float(data.close.values[-1])
-
-
 def _query_grid_interval(inst_code_base: str, date_str: str) -> float:
+    from freshquant.strategy.toolkit.threshold import (
+        _compute_atr_last_index,
+        _compute_atr_last_stock,
+    )
+
     instrument_code = normalize_to_inst_code_with_suffix(inst_code_base)
     cfg = get_grid_interval_config(instrument_code)
     mode = cfg.get("mode", "percent")
@@ -149,12 +109,12 @@ def _query_grid_interval(inst_code_base: str, date_str: str) -> float:
         multiplier = float(cfg.get("atr", {}).get("multiplier", 1))
         if instrument_type == InstrumentType.STOCK_CN:
             atr_value, close_price = _compute_atr_last_stock(
-                inst_code_base, date_str, period
+                inst_code_base, period, date_str
             )
             return 1.0 + atr_value * multiplier / close_price
         elif instrument_type == InstrumentType.ETF_CN:
             atr_value, close_price = _compute_atr_last_index(
-                inst_code_base, date_str, period
+                inst_code_base, period, date_str
             )
             return 1.0 + atr_value * multiplier / close_price
 

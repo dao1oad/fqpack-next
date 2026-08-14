@@ -139,6 +139,18 @@ Guardian 持仓加仓数量（`build_holding_add_decision`）按价格四段走�
 - `_handle_sell` 提交卖单时写入 `guardian_sell_sources` **version=2** 来源计划：`slices[]`（精确执行合同，每 slice 一行，携带 `entry_slice_id / guardian_price / threshold_price`）+ `entries[]`（按 entry 聚合唯一行）；来源计划只包含达到独立阈值的 slice，`sum(slices.quantity) == sum(entries.quantity) == submit_quantity`
 - 历史 v1 请求（只有 `entries[]`，无 `entry_slice_id`）由 Order Management 按 entry 级剩余预算兼容处理
 
+ATR 计算（总收口 PR7 收敛）：
+
+- `freshquant/strategy/toolkit/threshold.py` 为唯一实现：
+  `_compute_atr_last_stock / _compute_atr_last_index` 均返回
+  `(atr_last, close_last)`，数据窗口锚定 `anchor_date` 前一交易日（前 60 日）
+- index 版带 900s 内存缓存，缓存键含 `anchor_date`（交易日），避免跨日串值；
+  stock 版不加缓存（qfq 调整输出禁止无版本感知缓存，治理测试约束）
+- `eval_stock_threshold_price` 的 atr 模式取 `atr_last` 分量计算上下阈值，
+  行为与收敛前一致
+- `freshquant/data/astock/holding.py` 的同构拷贝已删除，`_query_grid_interval`
+  委托 threshold 实现（`atr` 模式传入 `date_str` 作为 anchor）
+
 ## 存储
 
 Guardian 自身不维护订单账本，但依赖以下状态：
