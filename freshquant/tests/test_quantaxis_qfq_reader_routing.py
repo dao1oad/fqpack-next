@@ -399,7 +399,6 @@ def test_qfq_adjusted_outputs_are_not_memoized_without_snapshot_version():
         "freshquant/KlineDataTool.py": {"get_stock_data"},
         "freshquant/data/stock.py": {"fq_data_stock_fetch_atr"},
         "freshquant/data/astock/holding.py": {
-            "_compute_atr_last_stock",
             "_query_grid_interval",
         },
         "freshquant/strategy/toolkit/threshold.py": {"_compute_atr_last_stock"},

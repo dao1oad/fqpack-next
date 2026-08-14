@@ -18,12 +18,25 @@ from freshquant.util.code import (
 )
 
 
-def _compute_atr_last_stock(inst_code_base: str, period: int) -> float:
+def _resolve_atr_anchor_date(date_str=None):
+    if date_str:
+        return str(date_str)
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _compute_atr_last_stock(
+    inst_code_base: str, period: int, anchor_date: str
+) -> tuple[float, float]:
     """
-    计算 A 股个股在给定周期下的最新 ATR 值。
+    计算 A 股个股在给定周期下的最新 ATR 值与最新收盘价。
+
+    数据窗口锚定 anchor_date 前一交易日（前 60 日）。
+    qfq 调整输出禁止无版本感知缓存（治理测试
+    test_quantaxis_qfq_reader_routing 约束），故本函数不加 memoize。
     """
-    start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
-    end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    dt = datetime.strptime(anchor_date, "%Y-%m-%d") - timedelta(days=1)
+    start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
+    end_date = dt.strftime("%Y-%m-%d")
     data = QA_fetch_stock_day_adv(inst_code_base, start_date, end_date)
     data, _metadata = apply_qfq_to_bars(
         data.data,
@@ -32,20 +45,26 @@ def _compute_atr_last_stock(inst_code_base: str, period: int) -> float:
         date_col="date",
     )
     atr_value = ATR(data.high.values, data.low.values, data.close.values, period)
-    return float(atr_value[-1])
+    return float(atr_value[-1]), float(data.close.values[-1])
 
 
 @in_memory_cache.memoize(expiration=900)
-def _compute_atr_last_index(inst_code_base: str, period: int) -> float:
+def _compute_atr_last_index(
+    inst_code_base: str, period: int, anchor_date: str
+) -> tuple[float, float]:
     """
-    计算 A 股指数/ETF 在给定周期下的最新 ATR 值，并使用内存缓存避免重复计算。
+    计算 A 股指数/ETF 在给定周期下的最新 ATR 值与最新收盘价。
+
+    数据窗口锚定 anchor_date 前一交易日（前 60 日）；内存缓存键含
+    anchor_date（交易日），避免跨日串值。
     """
-    start_date = (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d")
-    end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    dt = datetime.strptime(anchor_date, "%Y-%m-%d") - timedelta(days=1)
+    start_date = (dt - timedelta(days=60)).strftime("%Y-%m-%d")
+    end_date = dt.strftime("%Y-%m-%d")
     data = QA_fetch_index_day_adv(inst_code_base, start_date, end_date)
     data = data.data
     atr_value = ATR(data.high.values, data.low.values, data.close.values, period)
-    return float(atr_value[-1])
+    return float(atr_value[-1]), float(data.close.values[-1])
 
 
 def eval_stock_threshold_price(instument_code: str, price: float) -> Dict[str, Any]:
@@ -85,13 +104,18 @@ def eval_stock_threshold_price(instument_code: str, price: float) -> Dict[str, A
         period = int(cfg.get("atr", {}).get("period", 20))
         multiplier = float(cfg.get("atr", {}).get("multiplier", 1))
         instrument_type = query_instrument_type(inst_code_base.lower())
+        anchor_date = _resolve_atr_anchor_date()
         if instrument_type == InstrumentType.STOCK_CN:
-            atr_last = _compute_atr_last_stock(inst_code_base, period)
+            atr_last, _close_last = _compute_atr_last_stock(
+                inst_code_base, period, anchor_date
+            )
             top_river_price = float(round(price + atr_last * multiplier, 4))
             bot_river_price = float(round(price - atr_last * multiplier, 4))
             percent = float(round(atr_last / price * 100, 2))
         elif instrument_type == InstrumentType.ETF_CN:
-            atr_last = _compute_atr_last_index(inst_code_base, period)
+            atr_last, _close_last = _compute_atr_last_index(
+                inst_code_base, period, anchor_date
+            )
             top_river_price = float(round(price + atr_last * multiplier, 4))
             bot_river_price = float(round(price - atr_last * multiplier, 4))
             percent = float(round(atr_last / price * 100, 2))
