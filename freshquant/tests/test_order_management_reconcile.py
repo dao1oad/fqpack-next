@@ -7,10 +7,6 @@ import pytest
 import freshquant.order_management.ingest.xt_reports as xt_reports_module
 import freshquant.order_management.reconcile.service as reconcile_service_module
 from freshquant.order_management.broker_identity import BrokerIdentityError
-from freshquant.order_management.guardian.arranger import (
-    arrange_buy_lot,
-    build_buy_lot_from_trade_fact,
-)
 from freshquant.order_management.reconcile.service import ExternalOrderReconcileService
 from freshquant.order_management.tracking.service import OrderTrackingService
 
@@ -1209,23 +1205,6 @@ def test_reconcile_trade_report_uses_correlation_token_with_duplicate_broker_id(
 ):
     repository, service = _build_service(monkeypatch)
     tracking_service = OrderTrackingService(repository=repository)
-    buy_lot = build_buy_lot_from_trade_fact(
-        {
-            "trade_fact_id": "trade_duplicate_seed_buy_1",
-            "symbol": "002262",
-            "side": "buy",
-            "quantity": 2300,
-            "price": 21.0,
-            "trade_time": 1_000,
-            "date": 20260429,
-            "time": "09:31:00",
-        }
-    )
-    repository.insert_buy_lot(buy_lot)
-    repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=50_000, grid_interval=1.03),
-    )
     tracking_service.submit_order(
         {
             "action": "buy",
@@ -1707,22 +1686,34 @@ def test_non_board_lot_gap_is_rejected_without_creating_entry(monkeypatch):
 
 def test_sell_side_non_board_lot_gap_is_rejected_without_reducing_holdings(monkeypatch):
     repository, service = _build_service(monkeypatch)
-    buy_lot = build_buy_lot_from_trade_fact(
+    # 冻结 legacy 快照（手工构造，legacy 构建器已随 PR6 C4 收敛删除）。
+    repository.insert_buy_lot(
         {
-            "trade_fact_id": "trade_seed_buy_sell_odd",
+            "buy_lot_id": "lot_seed_sell_odd",
             "symbol": "000001",
-            "side": "buy",
-            "quantity": 200,
-            "price": 10.0,
-            "trade_time": 1_000,
-            "date": 20240102,
-            "time": "09:31:00",
+            "original_quantity": 200,
+            "remaining_quantity": 200,
+            "buy_price_real": 10.0,
+            "position_type": "base",
+            "status": "open",
+            "sell_history": [],
         }
     )
-    repository.insert_buy_lot(buy_lot)
     repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+        "lot_seed_sell_odd",
+        [
+            {
+                "lot_slice_id": "slice_seed_sell_odd",
+                "buy_lot_id": "lot_seed_sell_odd",
+                "symbol": "000001",
+                "guardian_price": 10.0,
+                "sort_key": 10.0,
+                "original_quantity": 200,
+                "remaining_quantity": 200,
+                "remaining_amount": 2000.0,
+                "status": "open",
+            }
+        ],
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 50, "avg_price": 10.5}],
@@ -1829,9 +1820,7 @@ def test_frozen_legacy_remaining_not_counted_after_v2_full_exit(monkeypatch):
     内部持仓（不得产生虚假 sell gap / auto-close）。"""
 
     from freshquant.order_management.guardian.arranger import (
-        arrange_buy_lot,
         arrange_entry,
-        build_buy_lot_from_trade_fact,
         build_position_entry_from_trade_fact,
     )
 
@@ -1858,12 +1847,35 @@ def test_frozen_legacy_remaining_not_counted_after_v2_full_exit(monkeypatch):
             for item in arrange_entry(entry, lot_amount=3000, grid_interval=1.03)
         ],
     )
-    # legacy 冻结快照残留（ingest 停写后不再递减）
-    buy_lot = build_buy_lot_from_trade_fact(seed_trade_fact)
-    repository.insert_buy_lot(buy_lot)
+    # legacy 冻结快照残留（ingest 停写后不再递减；手工构造，
+    # legacy 构建器已随 PR6 C4 收敛删除）
+    repository.insert_buy_lot(
+        {
+            "buy_lot_id": "lot_frozen_1",
+            "symbol": "000001",
+            "original_quantity": 900,
+            "remaining_quantity": 900,
+            "buy_price_real": 10.0,
+            "position_type": "base",
+            "status": "open",
+            "sell_history": [],
+        }
+    )
     repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+        "lot_frozen_1",
+        [
+            {
+                "lot_slice_id": "slice_frozen_1",
+                "buy_lot_id": "lot_frozen_1",
+                "symbol": "000001",
+                "guardian_price": 10.0,
+                "sort_key": 10.0,
+                "original_quantity": 900,
+                "remaining_quantity": 900,
+                "remaining_amount": 9000.0,
+                "status": "open",
+            }
+        ],
     )
 
     detected = service.detect_external_candidates(
@@ -2313,7 +2325,7 @@ def test_confirm_expired_candidates_keeps_entry_truth_when_arrangement_materiali
     )
     monkeypatch.setattr(
         reconcile_service_module,
-        "_arrange_entry_slices",
+        "arrange_entry",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("arrange boom")),
         raising=False,
     )

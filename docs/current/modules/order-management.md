@@ -237,6 +237,19 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   #571 broker-only 语义统一归 base 并携带 `_build_grouped_trade_fact`
   透传的 account_id；gap 重建路径无账户维度（`_normalize_xt_positions`
   按 symbol 折叠），auto-open 一律不模糊聚类、新建独立 entry
+- 切片与卖单分配唯一实现（总收口 PR6，C3+C4 收敛）：
+  - 切片唯一实现 = `guardian/arranger.py arrange_entry`（×20 价格上限、
+    board-lot 整手、tail-merge 守恒）；reconcile 的同构拷贝
+    `_arrange_entry_slices/_arrange_entry_remaining` 与 legacy buy_lot 版
+    `arrange_buy_lot/_arrange_remaining/rebuild_guardian_position` 已删除，
+    auto-open 直接调用 `arrange_entry`
+  - 卖单扣减唯一排序 = `guardian/allocation_policy.py
+    allocate_sell_to_entry_slices`（guardian_price 升序 + 三段分桶，
+    显式稳定排序）；reconcile 的降序拷贝
+    `_allocate_gap_to_entry_slices/_consume_entry_slice_allocation` 已删除，
+    sell gap auto-close 改调该唯一实现（V2 open slice 不足时抛 ValueError，
+    落入 `empty_candidate_fallback` 审计路径不静默猜测）
+  - legacy `allocate_sell_to_slices`（buy_lot 版）已删除
 - 写侧身份字段（总收口 PR2）：`normalize_xt_trade_report` 输出保留 6 位
   `stock_code`；`ingest_trade_report_with_meta` 落库的 `om_trade_facts` 同样
   携带 6 位 `stock_code`；manual 写路径（import_fill / reset_symbol_lots）按

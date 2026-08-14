@@ -18,8 +18,9 @@ from freshquant.order_management.entry_aggregation import (
     select_cluster_entry,
 )
 from freshquant.order_management.guardian.allocation_policy import (
-    allocate_sell_to_slices,
+    allocate_sell_to_entry_slices,
 )
+from freshquant.order_management.guardian.arranger import arrange_entry
 from freshquant.order_management.guardian.sell_semantics import (
     normalize_preferred_entry_quantities as normalize_guardian_preferred_entry_quantities,
 )
@@ -27,8 +28,6 @@ from freshquant.order_management.guardian.sell_semantics import (
     resolve_guardian_sell_source_entries_from_open_slices,
 )
 from freshquant.order_management.ids import (
-    new_allocation_id,
-    new_entry_slice_id,
     new_position_entry_id,
     new_reconciliation_gap_id,
     new_reconciliation_resolution_id,
@@ -612,7 +611,7 @@ class ExternalOrderReconcileService:
             )
         entry_slices = []
         try:
-            entry_slices = _arrange_entry_slices(
+            entry_slices = arrange_entry(
                 entry,
                 lot_amount=arrange_runtime["lot_amount"],
                 grid_interval=arrange_runtime["grid_interval"],
@@ -691,13 +690,53 @@ class ExternalOrderReconcileService:
             )
         entry_allocations = []
         if remaining > 0:
-            remaining, entry_allocations = _allocate_gap_to_entry_slices(
-                repository=self.repository,
-                symbol=gap["symbol"],
-                quantity=remaining,
-                resolution_id=resolution_id,
-                preferred_entry_quantities=gap.get("sell_source_entries"),
-            )
+            entries = {
+                item["entry_id"]: dict(item)
+                for item in self.repository.list_position_entries(symbol=gap["symbol"])
+                if int(item.get("remaining_quantity") or 0) > 0
+            }
+            open_slices = [
+                dict(item)
+                for item in self.repository.list_open_entry_slices(symbol=gap["symbol"])
+            ]
+            sell_trade_fact = {
+                "trade_fact_id": None,
+                "symbol": gap["symbol"],
+                "side": "sell",
+                "quantity": remaining,
+                "avg_filled_price": float(gap.get("price_estimate") or 0.0),
+            }
+            slices_by_entry = {}
+            for slice_document in open_slices:
+                slices_by_entry.setdefault(slice_document["entry_id"], []).append(
+                    slice_document
+                )
+            try:
+                entry_allocations = allocate_sell_to_entry_slices(
+                    list(entries.values()),
+                    open_slices,
+                    sell_trade_fact,
+                    preferred_entry_quantities=gap.get("sell_source_entries"),
+                )
+                # om_exit_allocations 契约：auto-close 分配补 resolution 审计键
+                # （repair 漂移审计按 resolution_id/symbol 定位），
+                # exit_trade_fact_id 保持 None（gap close 无对应 trade_fact）。
+                for allocation in entry_allocations:
+                    allocation["resolution_id"] = resolution_id
+                    allocation["symbol"] = gap["symbol"]
+                remaining = 0
+            except ValueError:
+                # V2 open slice 不足以解释差额：保留 remaining，走下方
+                # empty_candidate_fallback 审计路径（fail-closed 不静默猜测）。
+                entry_allocations = []
+            for allocation in entry_allocations:
+                entry_id = allocation["entry_id"]
+                self.repository.replace_position_entry(entries[entry_id])
+                self.repository.replace_entry_slices_for_entry(
+                    entry_id, slices_by_entry.get(entry_id, [])
+                )
+            if entry_allocations:
+                self.repository.insert_exit_allocations(entry_allocations)
 
         legacy_allocations = []
         empty_candidate_fallback = False
@@ -1688,257 +1727,6 @@ def _mark_entry_arrangement_failure(entry, exc, *, existing_errors=None):
         }
     )
     return entry
-
-
-def _arrange_entry_slices(entry, *, lot_amount, grid_interval):
-    slices = []
-    _arrange_entry_remaining(
-        slices=slices,
-        entry=entry,
-        remaining_quantity=int(entry["original_quantity"]),
-        remaining_amount=float(entry["original_quantity"])
-        * float(entry["entry_price"]),
-        current_price=float(entry["entry_price"]),
-        lot_amount=lot_amount,
-        grid_interval=grid_interval,
-        slice_seq=0,
-    )
-    return slices
-
-
-def _arrange_entry_remaining(
-    *,
-    slices,
-    entry,
-    remaining_quantity,
-    remaining_amount,
-    current_price,
-    lot_amount,
-    grid_interval,
-    slice_seq,
-):
-    if remaining_quantity <= 0:
-        return
-
-    if remaining_amount > lot_amount:
-        # 根⑤：整手规则统一走 trading.board_lot。
-        from freshquant.trading.board_lot import quantity_for_amount, resolve_board_lot
-
-        quantity = quantity_for_amount(
-            lot_amount, current_price, code=str(entry.get("symbol") or "")
-        )
-        if quantity == 0:
-            quantity = resolve_board_lot(code=str(entry.get("symbol") or ""))
-        quantity = min(quantity, remaining_quantity)
-    else:
-        quantity = remaining_quantity
-
-    rounded_price = float(f"{current_price:.2f}")
-    slices.append(
-        {
-            "entry_slice_id": new_entry_slice_id(),
-            "entry_id": entry["entry_id"],
-            "slice_seq": slice_seq,
-            "guardian_price": rounded_price,
-            "original_quantity": quantity,
-            "remaining_quantity": quantity,
-            "remaining_amount": round(rounded_price * quantity, 2),
-            "sort_key": rounded_price,
-            "date": entry.get("date"),
-            "time": entry.get("time"),
-            "trade_time": entry.get("trade_time"),
-            "symbol": entry["symbol"],
-            "status": "OPEN",
-        }
-    )
-
-    next_quantity = remaining_quantity - quantity
-    if next_quantity <= 0:
-        return
-
-    next_amount = remaining_amount - quantity * rounded_price
-    next_price = float(f"{(current_price * grid_interval):.2f}")
-    _arrange_entry_remaining(
-        slices=slices,
-        entry=entry,
-        remaining_quantity=next_quantity,
-        remaining_amount=next_amount,
-        current_price=next_price,
-        lot_amount=lot_amount,
-        grid_interval=grid_interval,
-        slice_seq=slice_seq + 1,
-    )
-
-
-def _allocate_gap_to_entry_slices(
-    *,
-    repository,
-    symbol,
-    quantity,
-    resolution_id,
-    preferred_entry_quantities=None,
-):
-    remaining = int(quantity or 0)
-    if remaining <= 0:
-        return 0, []
-    entries = {
-        item["entry_id"]: dict(item)
-        for item in repository.list_position_entries(symbol=symbol)
-        if int(item.get("remaining_quantity") or 0) > 0
-    }
-    if not entries:
-        return remaining, []
-
-    open_slices = sorted(
-        repository.list_open_entry_slices(symbol=symbol),
-        key=lambda item: (
-            float(item.get("guardian_price") or 0.0),
-            str(item.get("entry_slice_id") or ""),
-        ),
-        reverse=True,
-    )
-    allocations = []
-    touched_entry_ids = set()
-    slices_by_entry = {}
-    for slice_document in open_slices:
-        slices_by_entry.setdefault(slice_document["entry_id"], []).append(
-            slice_document
-        )
-
-    preferred_plan = _normalize_preferred_entry_quantities(
-        preferred_entry_quantities,
-        remaining_quantity=remaining,
-    )
-    if preferred_plan:
-        remaining, preferred_allocations = _allocate_gap_to_preferred_entry_slices(
-            entries=entries,
-            open_slices=open_slices,
-            symbol=symbol,
-            remaining_quantity=remaining,
-            resolution_id=resolution_id,
-            preferred_plan=preferred_plan,
-        )
-        allocations.extend(preferred_allocations)
-        touched_entry_ids.update(item["entry_id"] for item in preferred_allocations)
-
-    for slice_document in open_slices:
-        if remaining <= 0:
-            continue
-        allocation = _consume_entry_slice_allocation(
-            entries=entries,
-            slice_document=slice_document,
-            resolution_id=resolution_id,
-            symbol=symbol,
-            max_quantity=remaining,
-        )
-        if allocation is None:
-            continue
-        allocations.append(allocation)
-        touched_entry_ids.add(slice_document["entry_id"])
-        remaining -= int(allocation["allocated_quantity"] or 0)
-
-    for entry_id in touched_entry_ids:
-        repository.replace_position_entry(entries[entry_id])
-        repository.replace_entry_slices_for_entry(
-            entry_id, slices_by_entry.get(entry_id, [])
-        )
-    if allocations:
-        repository.insert_exit_allocations(allocations)
-    return remaining, allocations
-
-
-def _normalize_preferred_entry_quantities(
-    preferred_entry_quantities, *, remaining_quantity
-):
-    return normalize_guardian_preferred_entry_quantities(
-        preferred_entry_quantities,
-        remaining_quantity=remaining_quantity,
-    )
-
-
-def _allocate_gap_to_preferred_entry_slices(
-    *,
-    entries,
-    open_slices,
-    symbol,
-    remaining_quantity,
-    resolution_id,
-    preferred_plan,
-):
-    remaining = int(remaining_quantity or 0)
-    allocations = []
-    for source_entry in list(preferred_plan or []):
-        entry_id = str(source_entry.get("entry_id") or "").strip()
-        entry_remaining = int(source_entry.get("quantity") or 0)
-        if remaining <= 0 or not entry_id or entry_remaining <= 0:
-            continue
-        for slice_document in open_slices:
-            if remaining <= 0 or entry_remaining <= 0:
-                break
-            if str(slice_document.get("entry_id") or "").strip() != entry_id:
-                continue
-            allocation = _consume_entry_slice_allocation(
-                entries=entries,
-                slice_document=slice_document,
-                resolution_id=resolution_id,
-                symbol=symbol,
-                max_quantity=min(remaining, entry_remaining),
-            )
-            if allocation is None:
-                continue
-            allocations.append(allocation)
-            allocated_quantity = int(allocation.get("allocated_quantity") or 0)
-            remaining -= allocated_quantity
-            entry_remaining -= allocated_quantity
-    return remaining, allocations
-
-
-def _consume_entry_slice_allocation(
-    *,
-    entries,
-    slice_document,
-    resolution_id,
-    symbol,
-    max_quantity,
-):
-    allowed_quantity = int(max_quantity or 0)
-    remaining_quantity = int(slice_document.get("remaining_quantity") or 0)
-    if allowed_quantity <= 0 or remaining_quantity <= 0:
-        return None
-    allocated_quantity = min(remaining_quantity, allowed_quantity)
-    slice_document["remaining_quantity"] -= allocated_quantity
-    slice_document["remaining_amount"] = round(
-        float(slice_document.get("guardian_price") or 0.0)
-        * int(slice_document["remaining_quantity"]),
-        2,
-    )
-    slice_document["status"] = (
-        "CLOSED" if int(slice_document["remaining_quantity"]) == 0 else "OPEN"
-    )
-    entry = entries[slice_document["entry_id"]]
-    entry["remaining_quantity"] = (
-        int(entry.get("remaining_quantity") or 0) - allocated_quantity
-    )
-    entry["status"] = _resolve_entry_status(
-        entry["remaining_quantity"], entry["original_quantity"]
-    )
-    return {
-        "allocation_id": new_allocation_id(),
-        "resolution_id": resolution_id,
-        "entry_id": slice_document["entry_id"],
-        "entry_slice_id": slice_document["entry_slice_id"],
-        "guardian_price": slice_document.get("guardian_price"),
-        "allocated_quantity": allocated_quantity,
-        "symbol": symbol,
-    }
-
-
-def _resolve_entry_status(remaining_quantity, original_quantity):
-    if int(remaining_quantity or 0) <= 0:
-        return "CLOSED"
-    if int(remaining_quantity or 0) >= int(original_quantity or 0):
-        return "OPEN"
-    return "PARTIALLY_EXITED"
 
 
 def _is_board_lot_delta(quantity, *, code=""):
