@@ -230,7 +230,3 @@ test('createTpslManagementActions calls takeprofit save and history load happy p
     ['listHistory', '600000', 'takeprofit', 5],
   ])
 })
-
-
-
-

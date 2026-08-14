@@ -31,4 +31,3 @@ test('buildDetailViewModel normalizes reconciliation state to canonical shared m
   assert.equal(drift.reconciliation.state_label, '漂移')
   assert.equal(drift.reconciliation.state_chip_variant, 'danger')
 })
-
