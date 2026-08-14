@@ -434,6 +434,8 @@ class OrderTrackingService:
             "order_sysid": report.get("order_sysid"),
             "trading_day": report.get("trading_day"),
             "symbol": report["symbol"],
+            "stock_code": report.get("stock_code")
+            or normalize_symbol(report.get("symbol")),
             "side": report["side"],
             "quantity": report["quantity"],
             "price": report["price"],

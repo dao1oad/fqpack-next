@@ -440,6 +440,7 @@ def test_normalize_xt_trade_report_extracts_side_symbol_and_timestamp():
     assert normalized["internal_order_id"] == "O-100"
     assert normalized["broker_trade_id"] == "T-100"
     assert normalized["symbol"] == "000001"
+    assert normalized["stock_code"] == "000001"
     assert normalized["side"] == "buy"
     assert normalized["date"] == 20240310
 

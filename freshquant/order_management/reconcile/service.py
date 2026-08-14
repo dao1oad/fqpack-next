@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from freshquant.order_management.broker_identity import (
     BrokerIdentityError,
     build_broker_only_internal_order_id,
+    normalize_account_id,
+    normalize_symbol,
 )
 from freshquant.order_management.broker_match import find_order_for_broker_report
 from freshquant.order_management.entry_aggregation import (
@@ -116,7 +118,7 @@ class ExternalOrderReconcileService:
         self._lot_amount_resolver = lot_amount_resolver
         self._grid_interval_resolver = grid_interval_resolver
 
-    def detect_external_candidates(self, positions, detected_at):
+    def detect_external_candidates(self, positions, detected_at, *, account_id=None):
         self._skip_sell_confirmation = False
         positions_by_symbol = _build_positions_by_symbol(positions)
         internal_by_symbol = _build_internal_remaining_by_symbol(self.repository)
@@ -253,6 +255,7 @@ class ExternalOrderReconcileService:
             gap = {
                 "gap_id": new_reconciliation_gap_id(),
                 "symbol": item["symbol"],
+                "account_id": normalize_account_id(account_id),
                 "side": item["side"],
                 "quantity_delta": item["quantity_delta"],
                 "detected_at": int(detected_at),
@@ -492,7 +495,11 @@ class ExternalOrderReconcileService:
         matched = []
         confirmed = []
         if positions is not None and now is not None:
-            detected = self.detect_external_candidates(positions, detected_at=now)
+            detected = self.detect_external_candidates(
+                positions,
+                detected_at=now,
+                account_id=account_id,
+            )
         if xt_trades:
             matched = self.reconcile_trade_reports(xt_trades)
         if now is not None:
@@ -561,6 +568,8 @@ class ExternalOrderReconcileService:
 
         trade_fact = {
             "symbol": gap["symbol"],
+            "stock_code": normalize_symbol(gap.get("symbol")),
+            "account_id": normalize_account_id(gap.get("account_id")),
             "trade_time": int(now),
             "price": chosen_price,
             "quantity": quantity,
@@ -1627,6 +1636,8 @@ def _build_auto_open_entry(
     return {
         "entry_id": new_position_entry_id(),
         "symbol": gap["symbol"],
+        "stock_code": normalize_symbol(gap.get("symbol")),
+        "account_id": normalize_account_id(gap.get("account_id")),
         "entry_type": "auto_reconciled_open",
         "position_type": resolved_position_type,
         "source_ref_type": "reconciliation_resolution",

@@ -643,6 +643,7 @@ def normalize_xt_trade_report(report, repository=None):
         "trading_day": identity["trading_day"],
         "broker_correlation_token": identity["broker_correlation_token"],
         "symbol": identity["symbol"],
+        "stock_code": identity["symbol"],
         "side": identity["side"],
         "quantity": report["traded_volume"],
         "price": report["traded_price"],
