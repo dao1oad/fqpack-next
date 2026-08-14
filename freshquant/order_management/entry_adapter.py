@@ -22,46 +22,31 @@ def position_type_of(value) -> str:
 
 
 def get_entry_view(entry_id, repository=None):
+    """读侧唯一入口：按 entry_id 返回 V2 position entry 视图。
+
+    6a 收口后 V2 为唯一真值；legacy buy_lot 兜底已移除。
+    """
+
     repository = repository or OrderManagementRepository()
     entry_id_text = str(entry_id or "").strip()
     if not entry_id_text:
         return None
-    if hasattr(repository, "find_position_entry"):
-        entry = repository.find_position_entry(entry_id_text)
-        if entry is not None:
-            return _normalize_entry(entry)
-        if not _is_legacy_buy_lot_id(entry_id_text):
-            return None
-    if not hasattr(repository, "find_buy_lot"):
+    entry = repository.find_position_entry(entry_id_text)
+    if entry is None:
         return None
-    buy_lot = repository.find_buy_lot(entry_id_text)
-    if buy_lot is None:
-        return None
-    return _legacy_buy_lot_to_entry(buy_lot)
+    return _normalize_entry(entry)
 
 
 def list_open_entry_views(symbol=None, repository=None):
+    """读侧唯一入口：V2 position entries 的开放持仓视图。"""
+
     repository = repository or OrderManagementRepository()
     rows = []
-    seen_entry_ids = set()
-    supports_v2_entries = hasattr(repository, "list_position_entries")
-
-    if supports_v2_entries:
-        for item in repository.list_position_entries(symbol=symbol):
-            normalized = _normalize_entry(item)
-            if int(normalized.get("remaining_quantity") or 0) <= 0:
-                continue
-            rows.append(normalized)
-            seen_entry_ids.add(normalized["entry_id"])
-
-    if not supports_v2_entries and hasattr(repository, "list_buy_lots"):
-        for item in repository.list_buy_lots(symbol):
-            normalized = _legacy_buy_lot_to_entry(item)
-            if normalized["entry_id"] in seen_entry_ids:
-                continue
-            if int(normalized.get("remaining_quantity") or 0) <= 0:
-                continue
-            rows.append(normalized)
+    for item in repository.list_position_entries(symbol=symbol):
+        normalized = _normalize_entry(item)
+        if int(normalized.get("remaining_quantity") or 0) <= 0:
+            continue
+        rows.append(normalized)
 
     rows.sort(
         key=lambda item: (
@@ -75,40 +60,19 @@ def list_open_entry_views(symbol=None, repository=None):
     return rows
 
 
-def list_open_entry_slices_compat(symbol=None, entry_ids=None, repository=None):
+def list_open_entry_slices(symbol=None, entry_ids=None, repository=None):
+    """读侧唯一入口：V2 开放 entry slices 视图（原 list_open_entry_slices_compat）。"""
+
     repository = repository or OrderManagementRepository()
     normalized_entry_ids = {
         str(item).strip() for item in list(entry_ids or []) if str(item).strip()
     }
     rows = []
-    seen_slice_ids = set()
-    supports_v2_slices = hasattr(repository, "list_open_entry_slices")
-
-    if supports_v2_slices:
-        for item in repository.list_open_entry_slices(
-            symbol=symbol,
-            entry_ids=list(normalized_entry_ids) if normalized_entry_ids else None,
-        ):
-            normalized = _normalize_entry_slice(item)
-            rows.append(normalized)
-            seen_slice_ids.add(normalized["entry_slice_id"])
-
-    if not supports_v2_slices:
-        legacy_rows = (
-            repository.list_open_slices(symbol)
-            if hasattr(repository, "list_open_slices")
-            else []
-        )
-        for item in legacy_rows:
-            normalized = _legacy_lot_slice_to_entry_slice(item)
-            if (
-                normalized_entry_ids
-                and normalized["entry_id"] not in normalized_entry_ids
-            ):
-                continue
-            if normalized["entry_slice_id"] in seen_slice_ids:
-                continue
-            rows.append(normalized)
+    for item in repository.list_open_entry_slices(
+        symbol=symbol,
+        entry_ids=list(normalized_entry_ids) if normalized_entry_ids else None,
+    ):
+        rows.append(_normalize_entry_slice(item))
 
     rows.sort(
         key=lambda item: (
@@ -131,60 +95,9 @@ def _normalize_entry(entry):
     return row
 
 
-def _is_legacy_buy_lot_id(entry_id):
-    return str(entry_id or "").strip().startswith("lot_")
-
-
-def _legacy_buy_lot_to_entry(buy_lot):
-    row = dict(buy_lot)
-    entry_id = str(row.get("buy_lot_id") or "").strip()
-    return {
-        "entry_id": entry_id,
-        "buy_lot_id": entry_id,
-        "symbol": row.get("symbol"),
-        "entry_type": "legacy_buy_lot",
-        "entry_price": row.get("buy_price_real"),
-        "buy_price_real": row.get("buy_price_real"),
-        "original_quantity": row.get("original_quantity"),
-        "remaining_quantity": row.get("remaining_quantity"),
-        "amount": row.get("amount"),
-        "amount_adjust": row.get("amount_adjust"),
-        "date": row.get("date"),
-        "time": row.get("time"),
-        "trade_time": row.get("trade_time"),
-        "source": row.get("source", "legacy_buy_lot"),
-        "arrange_mode": row.get("arrange_mode", "runtime_grid"),
-        "status": str(row.get("status") or "").upper() or "OPEN",
-        "sell_history": list(row.get("sell_history") or []),
-        "name": row.get("name"),
-        "stock_code": row.get("stock_code"),
-    }
-
-
 def _normalize_entry_slice(item):
     row = dict(item)
     row["entry_slice_id"] = str(row.get("entry_slice_id") or "").strip()
     row["entry_id"] = str(row.get("entry_id") or "").strip()
     row["status"] = row.get("status") or "OPEN"
     return row
-
-
-def _legacy_lot_slice_to_entry_slice(item):
-    row = dict(item)
-    entry_id = str(row.get("buy_lot_id") or "").strip()
-    return {
-        "entry_slice_id": str(row.get("lot_slice_id") or "").strip(),
-        "entry_id": entry_id,
-        "buy_lot_id": entry_id,
-        "slice_seq": row.get("slice_seq"),
-        "guardian_price": row.get("guardian_price"),
-        "original_quantity": row.get("original_quantity"),
-        "remaining_quantity": row.get("remaining_quantity"),
-        "remaining_amount": row.get("remaining_amount"),
-        "sort_key": row.get("sort_key"),
-        "date": row.get("date"),
-        "time": row.get("time"),
-        "trade_time": row.get("trade_time"),
-        "symbol": row.get("symbol"),
-        "status": row.get("status") or "OPEN",
-    }

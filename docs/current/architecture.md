@@ -217,7 +217,8 @@ buy 先解析归属后聚类，禁止跨账本聚合。
 - `om_reconciliation_*`
   - 只负责自动平账，不再伪造成 fake order / fake trade
 - `stock_fills_compat`
-  - 只做兼容投影，不再参与运行期真值判断
+  - 6a 起无运行期消费者（仅 `stock fill compare --all` 工具只读）；
+    删除批次 = 步骤 6b（Issue #605）
 
 ## 当前页面消费关系
 

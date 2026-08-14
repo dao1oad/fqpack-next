@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from freshquant.order_management.entry_adapter import (
-    list_open_entry_slices_compat,
+    list_open_entry_slices,
     list_open_entry_views,
 )
 from freshquant.order_management.reconcile.summary import (
@@ -151,7 +151,7 @@ class TpslManagementService:
             reverse=True,
         )
         entry_slices = _normalize_entry_slices(
-            list_open_entry_slices_compat(
+            list_open_entry_slices(
                 symbol=normalized_symbol,
                 repository=self.order_repository,
             )

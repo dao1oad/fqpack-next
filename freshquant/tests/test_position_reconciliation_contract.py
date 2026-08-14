@@ -13,7 +13,6 @@ def test_reconciliation_contract_exposes_canonical_surfaces_in_display_order():
         "snapshot",
         "entry_ledger",
         "slice_ledger",
-        "compat_projection",
         "stock_fills_projection",
     ]
     assert CONSISTENCY_SURFACES[0]["label"] == "券商"
@@ -25,7 +24,7 @@ def test_reconciliation_contract_exposes_canonical_rule_ids_and_expected_relatio
     assert [item["id"] for item in CONSISTENCY_RULES] == ["R1", "R2", "R3", "R4"]
     assert CONSISTENCY_RULES[0]["key"] == "broker_snapshot_consistency"
     assert CONSISTENCY_RULES[0]["expected_relation"] == "exact_match"
-    assert CONSISTENCY_RULES[2]["key"] == "compat_projection_consistency"
+    assert CONSISTENCY_RULES[2]["key"] == "projection_consistency"
     assert CONSISTENCY_RULES[2]["expected_relation"] == "projection_match"
     assert CONSISTENCY_RULES[3]["key"] == "broker_vs_ledger_consistency"
     assert CONSISTENCY_RULES[3]["expected_relation"] == "reconciliation_explained"

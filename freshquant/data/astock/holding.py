@@ -2,12 +2,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 
 import pandas as pd
-import pymongo
 from bson import json_util
 from loguru import logger
 
 from freshquant.carnation.enum_instrument import InstrumentType
-from freshquant.config import settings
 from freshquant.data.qfq_reader import apply_qfq_to_bars
 from freshquant.database.cache import (
     get_cache_version,
@@ -101,28 +99,6 @@ def insertStockPosition(acc: List, item: Dict):
     return acc
 
 
-def accStockTrades(acc: List, cur: Dict):
-    if "买" in cur["op"]:
-        acc = insertStockPosition(acc, json_util.loads(json_util.dumps(cur)))
-    elif "卖" in cur["op"]:
-        if len(acc) > 0:
-            if acc[-1]["quantity"] < cur["quantity"]:
-                r = float((cur["quantity"] - acc[-1]["quantity"])) / float(
-                    cur["quantity"]
-                )
-                cur["quantity"] = cur["quantity"] - acc[-1]["quantity"]
-                cur["amount"] = cur["amount"] * r
-                acc.pop()
-                acc = accStockTrades(acc, cur)
-            elif acc[-1]["quantity"] == cur["quantity"]:
-                acc.pop()
-            else:
-                r = acc[-1]["quantity"] - cur["quantity"] / float(acc[-1]["quantity"])
-                acc[-1]["quantity"] = acc[-1]["quantity"] - cur["quantity"]
-                acc[-1]["amount"] = acc[-1]["amount"] * r
-    return acc
-
-
 def _compute_atr_last_stock(
     inst_code_base: str, date_str: str, period: int
 ) -> tuple[float, float]:
@@ -189,109 +165,25 @@ def _query_grid_interval(inst_code_base: str, date_str: str) -> float:
     raise NotImplementedError("invalid mode")
 
 
-def accArrangedStockTrades(acc: List, cur: Dict, lotAmount: int):
-    if "买" in cur["op"]:
-        if cur["amount"] > lotAmount:
-            item = json_util.loads(json_util.dumps(cur))
-            from freshquant.trading.board_lot import (
-                quantity_for_amount,
-                resolve_board_lot,
-            )
-
-            quantity = quantity_for_amount(
-                lotAmount, item["price"], code=str(cur.get("symbol") or "")
-            )
-            if quantity == 0:
-                quantity = resolve_board_lot(code=str(cur.get("symbol") or ""))
-            if quantity == item["quantity"]:
-                acc = insertStockPosition(acc, item)
-            else:
-                item["quantity"] = quantity
-                item["amount"] = quantity * item["price"]
-                acc = insertStockPosition(acc, item)
-                cur["quantity"] = cur["quantity"] - quantity
-                cur["amount"] = cur["amount"] - quantity * item["price"]
-                code = str(cur.get("symbol") or cur.get("code") or "")
-                date_str = datetime.strptime(str(cur["date"]), "%Y%m%d").strftime(
-                    "%Y-%m-%d"
-                )
-                grid_interval = _query_grid_interval(code, date_str)
-                cur["price"] = float("%.2f" % (cur["price"] * grid_interval))
-                acc = accArrangedStockTrades(acc, cur, lotAmount)
-        else:
-            acc = insertStockPosition(acc, json_util.loads(json_util.dumps(cur)))
-    elif "卖" in cur["op"]:
-        if len(acc) > 0:
-            if acc[-1]["quantity"] < cur["quantity"]:
-                r = float((cur["quantity"] - acc[-1]["quantity"])) / float(
-                    cur["quantity"]
-                )
-                cur["quantity"] = cur["quantity"] - acc[-1]["quantity"]
-                cur["amount"] = cur["amount"] * r
-                acc.pop()
-                acc = accStockTrades(acc, cur)
-            elif acc[-1]["quantity"] == cur["quantity"]:
-                acc.pop()
-            else:
-                r = acc[-1]["quantity"] - cur["quantity"] / float(acc[-1]["quantity"])
-                acc[-1]["quantity"] = acc[-1]["quantity"] - cur["quantity"]
-                acc[-1]["amount"] = acc[-1]["amount"] * r
-    return acc
-
-
 def get_stock_fill_list(symbol):
-    records = _get_order_management_stock_fill_list(symbol)
-    if records is not None:
-        _compare_with_legacy_fill_list(symbol, records)
-        return records
-    records = _get_compat_stock_fill_list(symbol)
-    if records:
-        return records
-    if not _allow_legacy_runtime_fallback():
-        return None
-    return _get_legacy_stock_fill_list(symbol)
+    return _get_order_management_stock_fill_list(symbol)
 
 
 def _get_order_management_stock_fill_list(symbol):
     return list_open_buy_fills(symbol)
 
 
-def _get_legacy_stock_fill_list(symbol):
-    records = (
-        DBfreshquant["stock_fills"]
-        .find({"symbol": symbol, "quantity": {"$ne": 0}})
-        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
-    )
-    df = pd.DataFrame(records)
-    if not df.empty:
-        if "amount_adjust" not in df.columns:
-            df["amount_adjust"] = 1
-        df["amount_adjust"].fillna(1, inplace=True)
-        records = df.to_dict("records")
-        acc = []
-        for record in records:
-            acc = accStockTrades(acc, record)
-        return acc
-    else:
-        return None
+def get_stock_fills(symbol):
+    records = get_stock_fill_list(symbol)
+    if records is not None:
+        return pd.DataFrame(records)
+    return None
 
 
-def _get_compat_stock_fill_list(symbol):
-    records = (
-        DBfreshquant["stock_fills_compat"]
-        .find({"symbol": symbol, "quantity": {"$ne": 0}})
-        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
-    )
-    df = pd.DataFrame(records)
-    if not df.empty:
-        if "amount_adjust" not in df.columns:
-            df["amount_adjust"] = 1
-        df["amount_adjust"].fillna(1, inplace=True)
-        records = df.to_dict("records")
-        acc = []
-        for record in records:
-            acc = accStockTrades(acc, record)
-        return acc
+def get_stock_last_fill(symbol):
+    records = get_stock_fill_list(symbol)
+    if records is not None and len(records) > 0:
+        return records[-1]
     return None
 
 
@@ -305,179 +197,16 @@ def getInstrumentStrategy(instrumentCode: str):
 
 
 def get_arranged_stock_fill_list(symbol):
-    records = _get_order_management_arranged_fill_list(symbol)
-    if records is not None:
-        _compare_with_legacy_arranged_fill_list(symbol, records)
-        return records
-    records = _get_compat_arranged_stock_fill_list(symbol)
-    if records:
-        return records
-    if not _allow_legacy_runtime_fallback():
-        return None
-    return _get_legacy_arranged_stock_fill_list(symbol)
+    return _get_order_management_arranged_fill_list(symbol)
 
 
 def _get_order_management_arranged_fill_list(symbol):
     return list_arranged_fills(symbol)
 
 
-def _get_legacy_arranged_stock_fill_list(symbol):
-    records = list(
-        DBfreshquant["stock_fills"]
-        .find({"symbol": symbol, "quantity": {"$ne": 0}})
-        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
-    )
-    if len(records) > 0:
-        stockCode = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
-        lotAmount = get_trade_amount(stockCode)
-        acc = []
-        for record in records:
-            acc = accArrangedStockTrades(acc, record, lotAmount)
-        return acc
-    else:
-        return None
-
-
-def _get_compat_arranged_stock_fill_list(symbol):
-    records = list(
-        DBfreshquant["stock_fills_compat"]
-        .find({"symbol": symbol, "quantity": {"$ne": 0}})
-        .sort([("date", pymongo.ASCENDING), ("time", pymongo.ASCENDING)])
-    )
-    if len(records) > 0:
-        stockCode = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
-        lotAmount = get_trade_amount(stockCode)
-        acc = []
-        for record in records:
-            acc = accArrangedStockTrades(acc, record, lotAmount)
-        return acc
-    return None
-
-
-def _compare_with_legacy_fill_list(symbol, projected_records):
-    if not settings.get("order_management", {}).get("enable_dual_read_compare", True):
-        return
-    legacy_records = _get_compat_stock_fill_list(symbol) or _get_legacy_stock_fill_list(
-        symbol
-    )
-    if legacy_records is None:
-        return
-    if _normalize_records_for_compare(
-        projected_records
-    ) != _normalize_records_for_compare(legacy_records):
-        logger.warning(
-            "order_management open buy fills differ from legacy for {}", symbol
-        )
-
-
-def _compare_with_legacy_arranged_fill_list(symbol, projected_records):
-    if not settings.get("order_management", {}).get("enable_dual_read_compare", True):
-        return
-    legacy_records = _get_compat_arranged_stock_fill_list(
-        symbol
-    ) or _get_legacy_arranged_stock_fill_list(symbol)
-    if legacy_records is None:
-        return
-    if _normalize_records_for_compare(
-        projected_records
-    ) != _normalize_records_for_compare(legacy_records):
-        logger.warning(
-            "order_management arranged fills differ from legacy for {}", symbol
-        )
-
-
-def _allow_legacy_runtime_fallback():
-    return bool(
-        settings.get("order_management", {}).get(
-            "enable_legacy_stock_fill_runtime_fallback", False
-        )
-    )
-
-
-def _normalize_records_for_compare(records):
-    normalized = []
-    for item in records or []:
-        normalized.append(
-            {
-                "date": item.get("date"),
-                "time": item.get("time"),
-                "price": round(float(item.get("price", 0)), 2),
-                "quantity": int(item.get("quantity", 0)),
-                "amount": round(float(item.get("amount", 0)), 2),
-            }
-        )
-    return normalized
-
-
-def get_stock_fills(symbol):
-    records = get_stock_fill_list(symbol)
-    if records is not None:
-        return pd.DataFrame(records)
-    else:
-        return None
-
-
-def get_stock_last_fill(symbol):
-    records = get_stock_fill_list(symbol)
-    if records is not None and len(records) > 0:
-        return records[-1]
-    else:
-        return None
-
-
-# 查询股票持仓，包括：
-# 1. 持仓数量为正
-# 2. 持仓金额为负
 def get_stock_positions():
     records = _get_xt_position_positions()
     return _enrich_position_names(records)
-
-
-def _get_legacy_stock_positions():
-    records = (
-        DBfreshquant["stock_fills"]
-        .find({})
-        .sort([("date", pymongo.DESCENDING), ("time", pymongo.DESCENDING)])
-    )
-    df = pd.DataFrame(records)
-    if len(df) > 0:
-        df.drop(columns=["_id"], inplace=True)
-        if "amount_adjust" not in df.columns:
-            df["amount_adjust"] = 1
-        df["amount_adjust"].fillna(1, inplace=True)
-        df["symbol"] = df["symbol"].apply(lambda x: fq_util_code_append_market_code(x))
-        df["direction"] = df["op"].apply(lambda op: -1 if "买" in op else 1)
-        df["amount"] = df["amount"] * df["direction"]
-        df["amount_adjusted"] = df["amount"] * df["amount_adjust"]
-        df["quantity"] = df["quantity"] * df["direction"] * -1
-
-        df = df.reset_index(drop=True)
-
-        # 先分组聚合
-        grouped = (
-            df.groupby(by=["symbol"])
-            .agg(
-                {
-                    "symbol": "first",
-                    "stock_code": "first",
-                    "name": "first",
-                    "quantity": "sum",
-                    "amount": "sum",
-                    "amount_adjusted": "sum",
-                    "date": "last",
-                    "time": "last",
-                }
-            )
-            .reset_index(drop=True)
-        )
-        # 筛选条件：持仓数量>0 且 调整后金额<0
-        grouped = grouped[(grouped["amount_adjusted"] < 0) | (grouped["quantity"] > 0)]
-        grouped = grouped.sort_values(by=["date", "time"])
-        df = df.round({"amount": 2})
-
-        return _enrich_position_names(grouped.to_dict(orient="records"))
-    else:
-        return []
 
 
 def _get_xt_position_positions():

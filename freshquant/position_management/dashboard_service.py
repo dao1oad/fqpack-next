@@ -178,11 +178,7 @@ class PositionManagementDashboardService:
         ) or {}
         holding_codes = self._get_holding_codes()
         tracked_symbol_context = self._get_tracked_symbol_context()
-        snapshots = (
-            self.repository.list_symbol_snapshots()
-            if hasattr(self.repository, "list_symbol_snapshots")
-            else []
-        )
+        snapshots = self.repository.list_symbol_snapshots()
         snapshot_map = {
             normalize_to_base_code(item.get("symbol")): item
             for item in snapshots
@@ -241,10 +237,8 @@ class PositionManagementDashboardService:
         overrides = (config_view.get("symbol_position_limits") or {}).get(
             "overrides"
         ) or {}
-        snapshot = None
-        if hasattr(self.repository, "get_symbol_snapshot"):
-            snapshot = self.repository.get_symbol_snapshot(normalized_symbol)
-        if snapshot is None and hasattr(self.repository, "list_symbol_snapshots"):
+        snapshot = self.repository.get_symbol_snapshot(normalized_symbol)
+        if snapshot is None:
             rows = self.repository.list_symbol_snapshots(symbols=[normalized_symbol])
             snapshot = rows[0] if rows else None
         holding_codes = self._get_holding_codes()
@@ -468,9 +462,9 @@ class PositionManagementDashboardService:
     def _resolve_snapshot(self, current_state):
         snapshot_id = (current_state or {}).get("snapshot_id")
         snapshot = None
-        if snapshot_id and hasattr(self.repository, "get_snapshot"):
+        if snapshot_id:
             snapshot = self.repository.get_snapshot(snapshot_id)
-        if snapshot is None and hasattr(self.repository, "get_latest_snapshot"):
+        if snapshot is None:
             snapshot = self.repository.get_latest_snapshot()
         return snapshot
 
@@ -520,8 +514,6 @@ class PositionManagementDashboardService:
         return rows
 
     def _build_recent_decisions(self, limit=10):
-        if not hasattr(self.repository, "list_recent_decisions"):
-            return []
         decisions = self.repository.list_recent_decisions(limit=limit) or []
         config_view = self.get_config()
         default_limit = config_view["thresholds"]["single_symbol_position_limit"]
@@ -536,7 +528,7 @@ class PositionManagementDashboardService:
             if normalize_to_base_code(item.get("symbol"))
         ]
         snapshot_map = {}
-        if hasattr(self.repository, "list_symbol_snapshots") and symbols:
+        if symbols:
             snapshot_map = {
                 normalize_to_base_code(item.get("symbol")): item
                 for item in self.repository.list_symbol_snapshots(symbols=symbols)

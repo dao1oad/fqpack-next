@@ -67,7 +67,7 @@ def find_order_for_broker_report(
         broker_order_id=broker_order_id,
         strict=False,
     )
-    if broker_order_key is not None and hasattr(repository, "find_broker_order"):
+    if broker_order_key is not None:
         broker_order = repository.find_broker_order(broker_order_key)
         if broker_order is not None and _candidate_matches_report(broker_order, report):
             return repository.find_order(broker_order.get("internal_order_id"))
@@ -176,8 +176,4 @@ def side_from_order_type(order_type):
 
 
 def _list_order_candidates(repository, broker_order_id):
-    if hasattr(repository, "list_orders_by_broker_order_id"):
-        return list(repository.list_orders_by_broker_order_id(broker_order_id))
-
-    order = repository.find_order_by_broker_order_id(broker_order_id)
-    return [order] if order is not None else []
+    return list(repository.list_orders_by_broker_order_id(broker_order_id))

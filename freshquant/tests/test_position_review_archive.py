@@ -51,6 +51,52 @@ class MemoryCollection:
         self.documents = [item for item in self.documents if not _matches(item, query)]
         return SimpleNamespace(deleted_count=before - len(self.documents))
 
+    def create_index(self, keys, **kwargs):
+        return f"idx_{len(keys)}"
+
+    def bulk_write(self, operations, ordered=False):
+        matched = 0
+        upserted = 0
+        for operation in operations:
+            name = operation.__class__.__name__
+            if name == "UpdateOne":
+                existing = [
+                    item for item in self.documents if _matches(item, operation._filter)
+                ]
+                if existing:
+                    matched += 1
+                    for item in existing:
+                        _apply_update(item, operation._doc)
+                else:
+                    upserted += 1
+                    document = dict(operation._filter)
+                    _apply_update(document, operation._doc)
+                    self.documents.append(document)
+            elif name == "InsertOne":
+                upserted += 1
+                self.documents.append(dict(operation._doc))
+        return SimpleNamespace(
+            matched_count=matched,
+            modified_count=matched,
+            upserted_count=upserted,
+        )
+
+
+def _apply_update(document, update):
+    for operation, fields in dict(update or {}).items():
+        if operation == "$set":
+            document.update(fields)
+        elif operation == "$setOnInsert":
+            for key, value in (fields or {}).items():
+                document.setdefault(key, value)
+        elif operation == "$addToSet":
+            for key, value in (fields or {}).items():
+                each = value.get("$each", []) if isinstance(value, dict) else [value]
+                existing = list(document.get(key) or [])
+                additions = [item for item in each if item not in existing]
+                if additions:
+                    document[key] = existing + additions
+
 
 class MemoryDatabase(dict):
     def __missing__(self, key):
@@ -203,7 +249,10 @@ def test_two_accounts_do_not_turn_one_unknown_fill_into_third_execution():
     assert {item["execution_key"] for item in collection.documents} == {
         build_execution_key(_execution())
     }
-    assert all(item["execution_fill_snapshots"] == [] for item in collection.documents)
+    assert all(
+        (item.get("execution_fill_snapshots") or []) == []
+        for item in collection.documents
+    )
 
 
 def test_opposite_side_om_row_is_conflict_evidence_not_canonical_execution():
@@ -218,7 +267,9 @@ def test_opposite_side_om_row_is_conflict_evidence_not_canonical_execution():
     assert result["conflicting_evidence"] == 1
     assert len(execution_collection.documents) == 1
     assert execution_collection.documents[0]["side"] == "sell"
-    assert execution_collection.documents[0]["execution_fill_snapshots"] == []
+    assert (
+        execution_collection.documents[0].get("execution_fill_snapshots") or []
+    ) == []
 
     second_phase = archive_execution_reports(
         execution_fills=[_fill(side="buy")],

@@ -61,6 +61,19 @@ class FakeRepository:
             rows = [item for item in rows if item.get("symbol") in allowed]
         return rows
 
+    def get_symbol_snapshot(self, symbol):
+        for item in self.symbol_snapshot_docs:
+            if item.get("symbol") == symbol:
+                return item
+        return None
+
+    def delete_symbol_snapshots_missing_symbols(self, symbols):
+        allowed = set(symbols)
+        self.symbol_snapshot_docs = [
+            item for item in self.symbol_snapshot_docs if item.get("symbol") in allowed
+        ]
+        return len(self.symbol_snapshot_docs)
+
 
 class SuccessfulCreditClient:
     account_id = "1208970161"

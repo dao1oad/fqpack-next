@@ -55,14 +55,6 @@ def test_reconciliation_read_service_builds_aligned_row_and_summary():
                 "name": "浦发银行",
             }
         ],
-        compat_positions_loader=lambda: [
-            {
-                "symbol": "600000",
-                "quantity": 1200,
-                "amount_adjusted": -510000.0,
-                "name": "浦发银行",
-            }
-        ],
         stock_fills_projection_loader=lambda symbols: [
             {
                 "symbol": "600000",
@@ -96,7 +88,6 @@ def test_reconciliation_read_service_builds_aligned_row_and_summary():
     assert row["snapshot"]["quantity"] == 1200
     assert row["entry_ledger"]["quantity"] == 1200
     assert row["slice_ledger"]["quantity"] == 1200
-    assert row["compat_projection"]["quantity"] == 1200
     assert row["stock_fills_projection"]["quantity"] == 1200
     assert row["reconciliation"]["state"] == "ALIGNED"
     assert row["audit_status"] == "OK"
@@ -116,7 +107,6 @@ def test_reconciliation_read_service_exposes_internal_integrity():
         snapshot_positions_loader=lambda: [],
         entry_positions_loader=lambda: [],
         slice_positions_loader=lambda: [],
-        compat_positions_loader=lambda: [],
         stock_fills_projection_loader=lambda symbols: [],
         reconciliation_summary_loader=lambda symbols: {},
         allocation_integrity_loader=lambda: {
@@ -167,7 +157,6 @@ def test_reconciliation_read_service_internal_integrity_ok_when_healthy():
         snapshot_positions_loader=lambda: [],
         entry_positions_loader=lambda: [],
         slice_positions_loader=lambda: [],
-        compat_positions_loader=lambda: [],
         stock_fills_projection_loader=lambda symbols: [],
         reconciliation_summary_loader=lambda symbols: {},
         allocation_integrity_loader=lambda: {
@@ -241,14 +230,6 @@ def test_reconciliation_read_service_marks_observing_gap_as_warn():
                 "name": "浦发银行",
             }
         ],
-        compat_positions_loader=lambda: [
-            {
-                "symbol": "600000",
-                "quantity": 1000,
-                "amount_adjusted": -510000.0,
-                "name": "浦发银行",
-            }
-        ],
         stock_fills_projection_loader=lambda symbols: [
             {
                 "symbol": "600000",
@@ -316,14 +297,6 @@ def test_reconciliation_read_service_marks_broken_and_internal_mismatch_as_error
                 "name": "浦发银行",
             }
         ],
-        compat_positions_loader=lambda: [
-            {
-                "symbol": "600000",
-                "quantity": 950,
-                "amount_adjusted": -500000.0,
-                "name": "浦发银行",
-            }
-        ],
         stock_fills_projection_loader=lambda symbols: [
             {
                 "symbol": "600000",
@@ -349,16 +322,13 @@ def test_reconciliation_read_service_marks_broken_and_internal_mismatch_as_error
     assert row["reconciliation"]["state"] == "BROKEN"
     assert row["audit_status"] == "ERROR"
     assert "entry_vs_slice_quantity_mismatch" in row["mismatch_codes"]
-    assert "entry_vs_compat_quantity_mismatch" in row["mismatch_codes"]
     assert "broker_vs_entry_quantity_mismatch" in row["mismatch_codes"]
     assert row["checks"]["ledger_internal_consistency"]["status"] == "ERROR"
-    assert row["checks"]["compat_projection_consistency"]["status"] == "WARN"
+    assert row["checks"]["projection_consistency"]["status"] == "OK"
     assert row["checks"]["broker_vs_ledger_consistency"]["status"] == "ERROR"
     assert row["rule_results"]["R2"]["status"] == "ERROR"
-    assert row["rule_results"]["R3"]["status"] == "WARN"
-    assert row["rule_results"]["R3"]["mismatch_codes"] == [
-        "entry_vs_compat_quantity_mismatch"
-    ]
+    assert row["rule_results"]["R3"]["status"] == "OK"
+    assert row["rule_results"]["R3"]["mismatch_codes"] == []
 
 
 def test_reconciliation_read_service_marks_drift_without_gap_rows_as_error():
@@ -381,7 +351,6 @@ def test_reconciliation_read_service_marks_drift_without_gap_rows_as_error():
             }
         ],
         slice_positions_loader=lambda: [],
-        compat_positions_loader=lambda: [],
         stock_fills_projection_loader=lambda symbols: [],
         reconciliation_summary_loader=lambda symbols: {
             "600000": {
@@ -412,7 +381,6 @@ def test_reconciliation_read_service_rejects_unknown_symbol():
         snapshot_positions_loader=lambda: [],
         entry_positions_loader=lambda: [],
         slice_positions_loader=lambda: [],
-        compat_positions_loader=lambda: [],
         stock_fills_projection_loader=lambda symbols: [],
         reconciliation_summary_loader=lambda symbols: {},
     )
@@ -493,7 +461,6 @@ def test_reconciliation_read_service_builds_symbol_workspace_with_gap_resolution
                 "name": "浦发银行",
             }
         ],
-        compat_positions_loader=lambda: [],
         stock_fills_projection_loader=lambda symbols: [],
         reconciliation_summary_loader=lambda symbols: {
             "600000": {

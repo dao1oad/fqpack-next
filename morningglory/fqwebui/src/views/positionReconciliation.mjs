@@ -33,10 +33,6 @@ const MISMATCH_CODE_META = {
     label: 'Entry与Slice账本数量不一致',
     chipVariant: 'danger',
   },
-  entry_vs_compat_quantity_mismatch: {
-    label: 'Entry账本与Compat镜像数量不一致',
-    chipVariant: 'warning',
-  },
   entry_vs_stock_fills_quantity_mismatch: {
     label: 'Entry账本与StockFills投影数量不一致',
     chipVariant: 'warning',
@@ -67,7 +63,6 @@ const sortRows = (rows) => [...rows].sort((left, right) => {
 
 const buildDetailItems = (row = {}) => ([
   ['Slice账本', formatInteger(row?.slice_ledger?.quantity)],
-  ['Compat镜像', formatInteger(row?.compat_projection?.quantity)],
   ['StockFills投影', formatInteger(row?.stock_fills_projection?.quantity)],
   ['mismatch_codes', Array.isArray(row?.mismatch_codes) && row.mismatch_codes.length ? row.mismatch_codes.join(', ') : '-'],
   ['signed gap', formatInteger(row?.reconciliation?.signed_gap_quantity)],

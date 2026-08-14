@@ -295,6 +295,47 @@ class InMemoryRepository:
         self.exit_allocations.extend(dict(item) for item in allocations)
         return allocations
 
+    def list_trade_facts(self, symbol):
+        return [dict(item) for item in self.trade_facts if item.get("symbol") == symbol]
+
+    def list_exit_allocations_for_request(
+        self, *, request_id=None, internal_order_id=None
+    ):
+        rows = list(self.exit_allocations)
+        if request_id is not None:
+            rows = [item for item in rows if item.get("request_id") == request_id]
+        if internal_order_id is not None:
+            rows = [
+                item
+                for item in rows
+                if item.get("internal_order_id") == internal_order_id
+            ]
+        return [dict(item) for item in rows]
+
+    def sum_exit_allocations_for_request(
+        self, *, request_id=None, internal_order_id=None
+    ):
+        by_slice: dict[str, int] = {}
+        by_entry: dict[str, int] = {}
+        for row in self.list_exit_allocations_for_request(
+            request_id=request_id,
+            internal_order_id=internal_order_id,
+        ):
+            entry_id = str(row.get("entry_id") or "").strip()
+            entry_slice_id = str(row.get("entry_slice_id") or "").strip()
+            allocated_quantity = int(row.get("allocated_quantity") or 0)
+            if entry_id:
+                by_entry[entry_id] = by_entry.get(entry_id, 0) + allocated_quantity
+            if entry_slice_id:
+                by_slice[entry_slice_id] = (
+                    by_slice.get(entry_slice_id, 0) + allocated_quantity
+                )
+        return {
+            "by_slice": by_slice,
+            "by_entry": by_entry,
+            "total": sum(by_entry.values()),
+        }
+
 
 def test_reconcile_trade_reports_emits_runtime_events(monkeypatch):
     monkeypatch.setattr(

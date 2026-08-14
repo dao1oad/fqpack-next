@@ -114,18 +114,18 @@
 - `freshquant.stock_fills`
 - `freshquant.stock_fills_compat`
 
-这些集合仍存在于迁移期，但不再定义运行期真值。`stock_fills_compat` 当前只作为 legacy mirror / adapter 输出，镜像口径已经切到 open `position_entries`。
+这些集合仍存在于迁移期，但不再定义运行期真值。`stock_fills_compat` 自 6a
+（读侧收口）起**无运行期消费者**（仅 `stock fill compare --all` 工具只读），
+删除批次 = 步骤 6b（Issue #605）。
 
-观察期协议（路线步骤 5，§2.5）：
-- 对照物 = V2 账本投影 vs `stock_fills_compat` 镜像（ingest 停写 legacy
-  三账本后，compat 投影继续由 holdings 变化镜像路径维护至 6a 完成；
-  legacy 三账本以停写前最后快照为基线存档）。
-- 执行工具 = `freshquant stock fill compare --all`；输出落
-  `D:/fqpack/runtime/formal-deploy` 观察期档案；任一差异 → 中止 6a 开工、
-  保留镜像、修复后观察期重新计时。
-- 观察期内禁止执行 destructive rebuild（`freshquant stock fill rebuild`
-  为 CLI 手动命令，Issue #605 + 部署负责人双重约束，并向 100/116 操作人公告）。
-- 出口 = 连续 ≥5 个交易日零差异 → 记录观察期档案 → 才允许 6a 开工。
+收口口径（用户 2026-08-14 决策，替代原观察期协议）：
+- 不设观察期；V2 为唯一读侧真值：`holding` / `entry_adapter` /
+  `read_service` / `reconcile` / `manual` / `ingest` 全部直读 V2，
+  compat/legacy fallback 与 hasattr 能力探测已清零（范围=账本读路径）。
+- 运行问题复现依据 = runtime events（reason_code）+ compare --all 快照
+  （删表前每日盘后）+ broker 持仓 vs V2 remaining 对账（删表后）。
+- legacy 三账本以停写前最后快照为冻结基线（各机基线见
+  `D:/fqpack/review-reports/prod-state-20260814.json`）。
 
 ## 当前数据流
 
@@ -289,14 +289,15 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   `om_position_entries / om_entry_slices / om_exit_allocations`，
   不再双写 legacy `om_buy_lots / om_lot_slices / om_sell_allocations`；
   manual 写服务（手工导入买入/卖出、reset_symbol_lots）同步收敛为
-  单写 V2；legacy 三账本自本步起冻结为停写前快照（仅 reconcile 的
-  legacy 兜底分配链在迁移期保留，且仅对 V2 从未覆盖过的 legacy-only
-  标的生效）；删除批次 = 步骤 6b（Issue #605），触发条件 = 观察期
-  连续 5 个交易日 V2 投影 vs `stock_fills_compat` 零差异
-- 对账 internal remaining 口径（步骤 5）：仓库支持 V2 entries 时，
-  V2 曾覆盖过的标的（含已清仓）一律以 V2 为准，冻结的 legacy 残留
-  不再计入，避免清仓标的产生虚假 sell gap；仅 V2 从未覆盖的
-  legacy-only 标的继续以 legacy 为准
+  单写 V2；legacy 三账本自本步起冻结为停写前快照；reconcile 的
+  legacy 兜底分配链随 6a 读侧收口移除——无 V2 open slice 候选时落
+  `empty_candidate_fallback=true` 审计路径，不再写 legacy 三账本；
+  删除批次 = 步骤 6b（Issue #605），6a 完成后执行
+- 对账 internal remaining 口径（6a 读侧收口）：全量以 V2
+  `om_position_entries` 为准；冻结的 legacy 残留与 legacy-only 标的不再
+  计入内部持仓（reconcile 的 legacy 兜底分配链已删除）——broker 有持仓而
+  V2 无数据时产生 sell gap 并落 `empty_candidate_fallback=true` 审计
+  resolution，不再写 legacy 三账本
 
 当前读侧检查语义：
 
@@ -539,9 +540,13 @@ flatten 模式执行时的归档/清理边界：
 
 重建后的运行期读侧：
 
-- `holding.py` / `/api/stock_fills` 把 OM 主链返回的空列表视为 authoritative，不再因此掉回 compat/raw legacy
-- `entry_adapter` 在存在 v2 entry 时不再混读 legacy `buy_lot`
-- `SubjectManagement`、`TPSL` 现在可以在没有 legacy `buy_lots` 的情况下直接读取 v2 `position_entries`
+- 6a 起 `holding.py` 读侧唯一路径 = V2（`list_open_buy_fills` /
+  `list_arranged_fills`）；compat/raw legacy fallback 与双读对比
+  （`enable_dual_read_compare`）已删除
+- `entry_adapter` 为 V2-only：`get_entry_view` / `list_open_entry_views` /
+  `list_open_entry_slices` 只读 `position_entries` / `entry_slices`，
+  legacy `buy_lot` / `lot_slice` 转换与 `lot_` id 兼容查找已删除
+- `SubjectManagement`、`TPSL` 直接读取 v2 `position_entries` / `entry_slices`
 - 当前 rebuild 生成的 buy-side `position_entries` 已切到 `buy_cluster / broker_execution_cluster` 语义
 
 ## Board Lot 规则
@@ -563,8 +568,8 @@ flatten 模式执行时的归档/清理边界：
   - 详情中成交、券商订单聚合和运行态说明都来自 V2 账本
 - `/api/stock_fills`
   - 名称仍保留给旧页面/脚本
-  - 底层优先读 `om_position_entries + om_entry_slices`
-  - `freshquant.stock_fills_compat` 仅作为兼容镜像兜底
+  - 底层唯一读 `om_position_entries + om_entry_slices`（V2 空列表即权威空，
+  不再有 compat 兜底）
 
 ## 页面语义
 
@@ -641,6 +646,6 @@ flatten 模式执行时的归档/清理边界：
 
 ### 旧接口显示碎片化持仓
 
-- 查 `om_position_entries`
-- 查 `freshquant.stock_fills_compat`
-- 若 compat 镜像仍旧异常，再查 legacy `om_buy_lots`
+- 查 `om_position_entries` / `om_entry_slices`（V2 唯一真值）
+- 冻结期排障（6b 前）：`freshquant.stock_fills_compat` 与 legacy
+  `om_buy_lots` 仅作冻结快照核对，不进入运行期读路径

@@ -129,6 +129,66 @@ class FakeCollection:
         self.documents.extend(list(documents or []))
         return {"inserted_count": len(list(documents or [])), "ordered": ordered}
 
+    def find(self, query=None):
+        return [
+            dict(item)
+            for item in self.documents
+            if all(
+                document.get(key) == value for key, value in dict(query or {}).items()
+            )
+            for document in [item]
+        ]
+
+    def create_index(self, keys, **kwargs):
+        return f"idx_{len(keys)}"
+
+    def bulk_write(self, operations, ordered=False):
+        matched = 0
+        upserted = 0
+        for operation in operations:
+            name = operation.__class__.__name__
+            if name == "UpdateOne":
+                existing = [
+                    item
+                    for item in self.documents
+                    if all(
+                        item.get(key) == value
+                        for key, value in dict(operation._filter or {}).items()
+                    )
+                ]
+                if existing:
+                    matched += 1
+                    _apply_fake_update(existing[0], operation._doc)
+                else:
+                    upserted += 1
+                    document = dict(operation._filter or {})
+                    _apply_fake_update(document, operation._doc)
+                    self.documents.append(document)
+            elif name == "InsertOne":
+                upserted += 1
+                self.documents.append(dict(operation._doc))
+        return {
+            "matched_count": matched,
+            "modified_count": matched,
+            "upserted_count": upserted,
+        }
+
+
+def _apply_fake_update(document, update):
+    for operation, fields in dict(update or {}).items():
+        if operation == "$set":
+            document.update(fields)
+        elif operation == "$setOnInsert":
+            for key, value in (fields or {}).items():
+                document.setdefault(key, value)
+        elif operation == "$addToSet":
+            for key, value in (fields or {}).items():
+                each = value.get("$each", []) if isinstance(value, dict) else [value]
+                existing = list(document.get(key) or [])
+                additions = [item for item in each if item not in existing]
+                if additions:
+                    document[key] = existing + additions
+
 
 class FakeDatabase:
     def __init__(self, initial=None):

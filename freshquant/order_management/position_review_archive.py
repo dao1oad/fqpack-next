@@ -185,13 +185,6 @@ def archive_position_review_evidence(
         collection = DBOrderManagement[POSITION_REVIEW_EVIDENCE_ARCHIVE_COLLECTION]
     ensure_position_review_evidence_indexes(collection)
     archived_at = datetime.now(timezone.utc).isoformat()
-    if not hasattr(collection, "bulk_write"):
-        return _insert_evidence_without_bulk(
-            collection=collection,
-            documents=documents,
-            reason=reason,
-            archived_at=archived_at,
-        )
     operations = []
     for document in documents:
         immutable = dict(document)
@@ -288,8 +281,6 @@ def backfill_position_review_history(
 
 
 def ensure_position_review_evidence_indexes(collection):
-    if not hasattr(collection, "create_index"):
-        return
     collection.create_index(
         [("evidence_key", ASCENDING)],
         unique=True,
@@ -534,37 +525,6 @@ def _find_all(database, collection_name: str) -> list[dict[str, Any]]:
     if not callable(finder):
         return []
     return [_sanitize(dict(item)) for item in finder({})]
-
-
-def _insert_evidence_without_bulk(
-    *,
-    collection,
-    documents,
-    reason,
-    archived_at,
-):
-    existing = {str(item.get("evidence_key") or "") for item in collection.find({})}
-    inserts = []
-    for document in documents:
-        if document["evidence_key"] in existing:
-            continue
-        inserts.append(
-            {
-                **document,
-                "first_archived_at": archived_at,
-                "archive_reason": str(reason or "unknown"),
-            }
-        )
-    if inserts:
-        collection.insert_many(inserts, ordered=False)
-    return {
-        "discovered": len(documents),
-        "attempted": len(documents),
-        "upserted": len(inserts),
-        "matched": len(documents) - len(inserts),
-        "dry_run": False,
-        "collection": POSITION_REVIEW_EVIDENCE_ARCHIVE_COLLECTION,
-    }
 
 
 def _normalize_symbol(value) -> str:

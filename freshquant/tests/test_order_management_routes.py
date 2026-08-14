@@ -328,6 +328,41 @@ def test_order_management_routes_jsonify_sanitized_documents(monkeypatch):
                 )
             ]
 
+        def list_broker_orders(self, **_kwargs):
+            return list(self.orders)
+
+        def find_broker_order_by_internal_order_id(self, internal_order_id):
+            return self.find_order(internal_order_id)
+
+        def find_broker_order_by_broker_order_id(self, broker_order_id):
+            return None
+
+        def list_execution_fills(self, *, broker_order_keys=None, **_kwargs):
+            rows = []
+            for item in self.trade_facts:
+                rows.append(
+                    {
+                        "execution_fill_id": f"fill_{item.get('trade_fact_id')}",
+                        "internal_order_id": item.get("internal_order_id"),
+                        "symbol": item.get("symbol"),
+                        "quantity": item.get("quantity"),
+                        "price": item.get("price"),
+                        "trade_time": item.get("trade_time"),
+                        "side": "buy",
+                    }
+                )
+            return rows
+
+        def list_exit_allocations_for_request(
+            self, *, request_id=None, internal_order_id=None
+        ):
+            return []
+
+        def list_exit_allocations_for_requests(
+            self, request_ids, *, internal_order_ids=None
+        ):
+            return []
+
     read_service = OrderManagementReadService(repository=Repository())
     monkeypatch.setattr(
         "freshquant.rear.order.routes._get_order_management_read_service",

@@ -1485,6 +1485,40 @@ class _FakeMaintenanceCollection:
         self.event_log.append(f"delete_many:{self.name}")
         return SimpleNamespace(deleted_count=before - len(self.rows))
 
+    def create_index(self, keys, **kwargs):
+        self.event_log.append(f"create_index:{self.name}")
+        return f"idx_{self.name}"
+
+    def bulk_write(self, operations, ordered=False):
+        matched = 0
+        upserted = 0
+        for operation in operations:
+            name = operation.__class__.__name__
+            if name == "UpdateOne":
+                existing = [
+                    item
+                    for item in self.rows
+                    if _matches_query(item, operation._filter)
+                ]
+                if existing:
+                    matched += 1
+                    for item in existing:
+                        _apply_maintenance_update(item, operation._doc)
+                else:
+                    upserted += 1
+                    document = dict(operation._filter)
+                    _apply_maintenance_update(document, operation._doc)
+                    self.rows.append(document)
+            elif name == "InsertOne":
+                upserted += 1
+                self.rows.append(dict(operation._doc))
+        self.event_log.append(f"bulk_write:{self.name}")
+        return SimpleNamespace(
+            matched_count=matched,
+            modified_count=matched,
+            upserted_count=upserted,
+        )
+
 
 class _FakeMaintenanceDatabase:
     def __init__(self, collections=None, *, name="freshquant_order_management"):
@@ -1531,6 +1565,22 @@ def _matches_query(document, query):
         if actual != expected:
             return False
     return True
+
+
+def _apply_maintenance_update(document, update):
+    for operation, fields in dict(update or {}).items():
+        if operation == "$set":
+            document.update(fields)
+        elif operation == "$setOnInsert":
+            for key, value in (fields or {}).items():
+                document.setdefault(key, value)
+        elif operation == "$addToSet":
+            for key, value in (fields or {}).items():
+                each = value.get("$each", []) if isinstance(value, dict) else [value]
+                existing = list(document.get(key) or [])
+                additions = [item for item in each if item not in existing]
+                if additions:
+                    document[key] = existing + additions
 
 
 def _load_rebuild_cli_module():
@@ -1761,8 +1811,8 @@ def test_rebuild_cli_execute_with_backup_purges_then_writes(monkeypatch):
         for index, event in enumerate(database.event_log)
         if event
         in {
-            "insert_many:om_execution_history_archive",
-            "insert_many:position_review_evidence_archive",
+            "bulk_write:om_execution_history_archive",
+            "bulk_write:position_review_evidence_archive",
         }
     ]
     assert archive_indexes

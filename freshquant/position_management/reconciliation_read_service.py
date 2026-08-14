@@ -44,7 +44,6 @@ class PositionReconciliationReadService:
         snapshot_positions_loader=None,
         entry_positions_loader=None,
         slice_positions_loader=None,
-        compat_positions_loader=None,
         stock_fills_projection_loader=None,
         reconciliation_summary_loader=None,
         allocation_integrity_loader=None,
@@ -70,11 +69,6 @@ class PositionReconciliationReadService:
             slice_positions_loader
             if slice_positions_loader is not None
             else self._default_slice_positions_loader
-        )
-        self.compat_positions_loader = (
-            compat_positions_loader
-            if compat_positions_loader is not None
-            else self._default_compat_positions_loader
         )
         self.stock_fills_projection_loader = (
             stock_fills_projection_loader
@@ -151,20 +145,8 @@ class PositionReconciliationReadService:
             default_quantity_source="om_entry_slices.remaining_quantity",
             default_market_value_source="om_entry_slices.remaining_amount",
         )
-        compat_map = _build_position_map(
-            self.compat_positions_loader(),
-            quantity_key="quantity",
-            market_value_keys=("market_value", "amount_adjusted", "amount"),
-            default_quantity_source="stock_fills_compat",
-            default_market_value_source="stock_fills_compat.amount_adjusted",
-        )
-
         seed_symbols = sorted(
-            set(broker_map)
-            | set(snapshot_map)
-            | set(entry_map)
-            | set(slice_map)
-            | set(compat_map)
+            set(broker_map) | set(snapshot_map) | set(entry_map) | set(slice_map)
         )
         reconciliation_map = _normalize_reconciliation_map(
             self.reconciliation_summary_loader(seed_symbols)
@@ -189,7 +171,6 @@ class PositionReconciliationReadService:
                 snapshot_map=snapshot_map,
                 entry_map=entry_map,
                 slice_map=slice_map,
-                compat_map=compat_map,
                 stock_fills_map=stock_fills_map,
                 reconciliation_map=reconciliation_map,
             )
@@ -247,7 +228,6 @@ class PositionReconciliationReadService:
         snapshot_map,
         entry_map,
         slice_map,
-        compat_map,
         stock_fills_map,
         reconciliation_map,
     ):
@@ -265,10 +245,6 @@ class PositionReconciliationReadService:
         slice_ledger = slice_map.get(symbol) or _empty_position_view(
             "om_entry_slices.remaining_quantity",
             "om_entry_slices.remaining_amount",
-        )
-        compat_projection = compat_map.get(symbol) or _empty_position_view(
-            "stock_fills_compat",
-            "stock_fills_compat.amount_adjusted",
         )
         stock_fills_projection = stock_fills_map.get(symbol) or _empty_position_view(
             "api.stock_fills",
@@ -295,9 +271,8 @@ class PositionReconciliationReadService:
                 right=slice_ledger,
                 mismatch_code="entry_vs_slice_quantity_mismatch",
             ),
-            "compat_projection_consistency": _build_projection_check(
+            "projection_consistency": _build_projection_check(
                 entry_ledger=entry_ledger,
-                compat_projection=compat_projection,
                 stock_fills_projection=stock_fills_projection,
             ),
             "broker_vs_ledger_consistency": _build_broker_vs_ledger_check(
@@ -316,7 +291,6 @@ class PositionReconciliationReadService:
             snapshot,
             entry_ledger,
             slice_ledger,
-            compat_projection,
             stock_fills_projection,
         )
         surface_values = _build_surface_values(
@@ -324,7 +298,6 @@ class PositionReconciliationReadService:
             snapshot=snapshot,
             entry_ledger=entry_ledger,
             slice_ledger=slice_ledger,
-            compat_projection=compat_projection,
             stock_fills_projection=stock_fills_projection,
         )
         return {
@@ -334,7 +307,6 @@ class PositionReconciliationReadService:
             "snapshot": snapshot,
             "entry_ledger": entry_ledger,
             "slice_ledger": slice_ledger,
-            "compat_projection": compat_projection,
             "stock_fills_projection": stock_fills_projection,
             "reconciliation": reconciliation,
             "latest_resolution_label": reconciliation.get("latest_resolution_type")
@@ -363,17 +335,10 @@ class PositionReconciliationReadService:
 
     def _default_slice_positions_loader(self):
         from freshquant.order_management.entry_adapter import (
-            list_open_entry_slices_compat,
+            list_open_entry_slices,
         )
 
-        return list_open_entry_slices_compat(repository=self._get_order_repository())
-
-    def _default_compat_positions_loader(self):
-        from freshquant.order_management.projection.stock_fills_compat import (
-            list_compat_stock_positions,
-        )
-
-        return list_compat_stock_positions(repository=self._get_order_repository())
+        return list_open_entry_slices(repository=self._get_order_repository())
 
     def _default_reconciliation_summary_loader(self, symbols):
         payload = _build_reconciliation_summary_map(
@@ -613,15 +578,11 @@ def _build_exact_match_check(*, left, right, mismatch_code):
 def _build_projection_check(
     *,
     entry_ledger,
-    compat_projection,
     stock_fills_projection,
 ):
     entry_quantity = int(entry_ledger.get("quantity") or 0)
-    compat_quantity = int(compat_projection.get("quantity") or 0)
     stock_fills_quantity = int(stock_fills_projection.get("quantity") or 0)
     mismatch_codes = []
-    if entry_quantity != compat_quantity:
-        mismatch_codes.append("entry_vs_compat_quantity_mismatch")
     if entry_quantity != stock_fills_quantity:
         mismatch_codes.append("entry_vs_stock_fills_quantity_mismatch")
     if not mismatch_codes:
@@ -629,11 +590,7 @@ def _build_projection_check(
             "status": "OK",
             "mismatch_codes": [],
         }
-    distinct_values = {
-        entry_quantity,
-        compat_quantity,
-        stock_fills_quantity,
-    }
+    distinct_values = {entry_quantity, stock_fills_quantity}
     return {
         "status": "WARN" if len(distinct_values) == 2 else "ERROR",
         "mismatch_codes": mismatch_codes,

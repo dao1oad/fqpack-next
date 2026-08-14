@@ -11,7 +11,6 @@ export const CONSISTENCY_SURFACES = [
   { key: 'snapshot', label: 'PM快照', source: 'pm_symbol_position_snapshots' },
   { key: 'entry_ledger', label: 'Entry账本', source: 'om_position_entries' },
   { key: 'slice_ledger', label: 'Slice账本', source: 'om_entry_slices' },
-  { key: 'compat_projection', label: 'Compat镜像', source: 'stock_fills_compat' },
   { key: 'stock_fills_projection', label: 'StockFills投影', source: 'api.stock_fills' },
 ]
 
@@ -30,8 +29,8 @@ export const CONSISTENCY_RULES = [
   },
   {
     id: 'R3',
-    key: 'compat_projection_consistency',
-    label: '账本与兼容投影',
+    key: 'projection_consistency',
+    label: '账本与StockFills投影',
     expectedRelation: 'projection_match',
   },
   {
