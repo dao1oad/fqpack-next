@@ -97,65 +97,6 @@ def saveTrades(trades):
         )
     )
 
-    def groupByTrades(trade):
-        # "date", "stock_code", "order_type", "price"
-        # 同一天的同个价位成交的合并在一起
-        tradedTime = pendulum.from_timestamp(
-            trade["traded_time"], tz=pendulum.local_timezone()
-        )
-        date = int(tradedTime.format("YYYYMMDD"))
-        stock_code = trade["stock_code"]
-        order_type = trade["order_type"]
-        price = trade["traded_price"]
-        return f'{date}, {stock_code}, {order_type}, {price}'
-
-    tradesGroup = pydash.group_by(trades, lambda x: groupByTrades(x))
-    batch = []
-    for value in tradesGroup.values():
-        tradedTime = pendulum.from_timestamp(
-            value[-1]["traded_time"], tz=pendulum.local_timezone()
-        )
-        date = int(tradedTime.format("YYYYMMDD"))
-        strTime = tradedTime.to_time_string()
-        symbol = value[-1]["stock_code"][0:6]
-        stock_code = value[-1]["stock_code"]
-        instrumentInfo = query_instrument_info(symbol)
-        name = pydash.get(instrumentInfo, "name")
-        op = "买" if value[-1]["order_type"] == xtconstant.STOCK_BUY else "卖"
-        op = "买" if value[-1]["order_type"] in BUY_ORDER_TYPES else "卖"
-        quantity = pydash.sum_([item["traded_volume"] for item in value])
-        price = value[-1]["traded_price"]
-        amount = pydash.sum_([item["traded_amount"] for item in value])
-        source = "deal"
-        batch.append(
-            UpdateOne(
-                {
-                    "date": date,
-                    "symbol": symbol,
-                    "op": op,
-                    "price": price,
-                },
-                {
-                    "$set": {
-                        "date": date,
-                        "time": strTime,
-                        "symbol": symbol,
-                        "stock_code": stock_code,
-                        "name": name,
-                        "op": op,
-                        "quantity": quantity,
-                        "price": price,
-                        "amount": amount,
-                        "source": source,
-                        "traded_ids": [item["traded_id"] for item in value],
-                    }
-                },
-                upsert=True,
-            )
-        )
-    if len(batch) > 0:
-        DBfreshquant["stock_fills"].bulk_write(batch)
-
 
 def sync_trades():
     """线程与进程安全的成交同步函数"""

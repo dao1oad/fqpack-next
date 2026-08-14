@@ -19,10 +19,8 @@
 - `guardian_ladder_events`
   - 阶梯事件幂等表；`created_at_dt` + TTL 索引 `ttl_guardian_ladder_events`（7 天）
 - `realtime_screen_multi_period`
-- `stock_fills`
-  - raw legacy fill 集合
-- `stock_fills_compat`
-  - legacy mirror，当前由 open entry 视图投影生成
+- `stock_fills`（已随 6b 拆表删除）
+- `stock_fills_compat`（已随 6b 拆表删除）
 - `dagster_pipeline_markers`
   - 盘后链 ready marker；CLX 输入为 `stock_postclose_ready / etf_postclose_ready`，finalizer 成功后写 `clx_daily_selection_ready`
   - CLX ready marker 额外保存 `generation_id / generation_order / publication_id`；generation order 是规范 UTC 可排序键，同 publication id 重试幂等，较旧 generation 不能覆盖较新 marker
@@ -169,12 +167,9 @@
 
 - `om_trade_facts`
   - 仍保留给迁移期读链和排障
-- `om_buy_lots / om_lot_slices / om_sell_allocations`
-  - 仍保留给 legacy 兼容
-- `stock_fills_compat`
-  - 当前只做镜像/adapter，不再定义运行期仓位真值
-- `stock_fills`
-  - 仅 raw 审计与最终兜底
+- `om_buy_lots / om_lot_slices / om_sell_allocations`（已随 6b 拆表删除）
+- `stock_fills_compat`（已随 6b 拆表删除）
+- `stock_fills`（已随 6b 拆表删除）
 
 ## 订单身份索引与并发边界
 
@@ -211,7 +206,6 @@
   - 写 `om_execution_fills / om_trade_facts / om_broker_orders`
   - 写 `om_position_entries / om_entry_slices / om_exit_allocations`
   - 写 `om_ingest_rejections`
-  - 同步 legacy `buy_lot` 链与 `stock_fills_compat`
 - `ExternalOrderReconcileService`
   - 写 `om_reconciliation_gaps / om_reconciliation_resolutions`
   - 必要时自动写 `position_entries / exit_allocations`
@@ -254,7 +248,7 @@
 - 查账本解释先看 `om_position_entries`
 - 查执行事实先看 `om_broker_orders / om_execution_fills`
 - 查 odd-lot 或拒绝写入先看 `om_ingest_rejections`
-- 查 legacy 镜像问题最后再看 `stock_fills_compat / om_buy_lots`
+- legacy 镜像（stock_fills_compat / om_buy_lots 等）已随 6b 删除；冻结期排障以 `om_position_entries / om_entry_slices` 与 runtime events（legacy_teardown_*）为准
 - 查全历史持仓复盘缺失先看
   `om_execution_history_archive / position_review_evidence_archive`
 - 查 CLX 单侧重试先看 `partition_attempts`，不要删除或重算另一侧 completed partition

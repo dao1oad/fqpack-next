@@ -644,18 +644,6 @@ def stock_fill_list_command(code: str, date: str):
     fill.list_fill(code, date)
 
 
-@stock_fill_command_group.command(name="rm")
-@click.option("--id", type=str)
-@click.option("--code", type=str)
-def stock_fill_rm_command(id: str, code: str):
-    if not id and not code:
-        raise click.UsageError("必须提供 --id 或 --code 参数")
-    if id:
-        fill.remove_fill(id=id)
-    else:
-        fill.remove_fill(code=code)
-
-
 @stock_fill_command_group.command(name="import")
 @click.argument("op", type=click.Choice(["buy", "sell"]))
 @click.argument("code", required=False)
@@ -755,34 +743,34 @@ def stock_fill_import_command(
     fill.import_fill(op, code, quantity, price, amount, standardized_date)
 
 
-@stock_fill_command_group.command(name="rebuild")
-@click.option("--code", type=str)
-@click.option("--all", "all_symbols", is_flag=True, default=False)
-def stock_fill_rebuild_command(code: str, all_symbols: bool):
-    if bool(code) == bool(all_symbols):
-        raise click.UsageError("必须且只能提供 --code 或 --all 其中之一")
-    fill.rebuild_fill_compat(code=code, all_symbols=all_symbols)
-
-
-@stock_fill_command_group.command(name="compare")
-@click.option("--code", type=str)
-@click.option("--all", "all_symbols", is_flag=True, default=False)
+@stock_fill_command_group.command(name="teardown-legacy")
 @click.option("--archive-dir", type=str, default=None)
-def stock_fill_compare_command(code: str, all_symbols: bool, archive_dir: str):
-    """对比 V2 账本投影与 stock_fills_compat 镜像。
+@click.option("--confirm-residue", is_flag=True, default=False)
+@click.option("--execute", "execute", is_flag=True, default=False)
+def stock_fill_teardown_legacy_command(
+    archive_dir: str,
+    confirm_residue: bool,
+    execute: bool,
+):
+    """6b 拆表（C2）：命令内先 compare，干净/归因后才 drop。
 
-    单标的：freshquant stock fill compare --code 000001；
-    全量观察期：freshquant stock fill compare --all
-    （档案落 D:/fqpack/runtime/formal-deploy/fill-compare-YYYYMMDD.json）。
+    - 默认 dry-run：只出 compare 证据与 legacy_teardown_compare 事件；
+    - --execute：真正删除 legacy 三账本 + stock_fills_compat + stock_fills；
+    - compare 不干净时需 --confirm-residue（差异全部归因 compat 陈旧残留、
+      V2 与券商一致）才允许 drop；broker 不一致一律拒绝。
     """
 
-    if bool(code) == bool(all_symbols):
-        raise click.UsageError("必须且只能提供 --code 或 --all 其中之一")
-    if all_symbols:
-        document = fill.compare_fill_compat_all(archive_dir=archive_dir)
-        if not document.get("zero_diff"):
-            raise click.ClickException(
-                f"fill compare mismatch: {document.get('mismatch_count')} symbols"
-            )
-    else:
-        fill.compare_fill_compat(code)
+    from freshquant.order_management.legacy_teardown import run_legacy_teardown
+
+    result = run_legacy_teardown(
+        archive_dir=archive_dir,
+        allow_residue=confirm_residue,
+        execute=execute,
+    )
+    import json
+
+    print(json.dumps(result, ensure_ascii=False, default=str))
+    if result["status"] == "blocked":
+        raise click.ClickException(
+            "legacy teardown blocked: " + "; ".join(result.get("blocked_reasons") or [])
+        )

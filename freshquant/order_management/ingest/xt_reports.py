@@ -366,7 +366,6 @@ class OrderManagementXtIngestService:
             projections = _build_entry_projections(symbol, repository=self.repository)
             if holdings_changed:
                 mark_stock_holdings_projection_updated()
-                _sync_stock_fills_compat(symbol, repository=self.repository)
             self._emit_runtime(
                 "report_receive", report, extra_payload={"report_type": "trade"}
             )
@@ -1311,14 +1310,6 @@ def _get_ladder_state():
     from freshquant.strategy.guardian_ladder import get_guardian_ladder_state
 
     return get_guardian_ladder_state()
-
-
-def _sync_stock_fills_compat(symbol, *, repository):
-    from freshquant.order_management.projection.stock_fills_compat import (
-        sync_symbol,
-    )
-
-    sync_symbol(symbol, repository=repository)
 
 
 _runtime_logger = None

@@ -112,7 +112,7 @@ TPSL 在独立 tick 链路上评估止盈条件，并生成退出单。止损触
 
 - `entry_ledger`
   - 主读模型，来自 `om_position_entries + om_entry_slices`
-- `stock_fills_compat`
+- ~~`stock_fills_compat`~~（已随 6b 删除）
   - 仅兼容旧接口/旧脚本
   - 不再定义 TPSL 主页面真值
 

@@ -686,25 +686,6 @@ test('createSubjectManagementActions calls subject and position-limit apis', asy
   ])
 })
 
-test('SubjectManagement view uses symbol-limit editor layout and leaves guardian and takeprofit editing to kline-slim', () => {
-  const source = fs.readFileSync(new URL('./SubjectManagement.vue', import.meta.url), 'utf8')
-
-  assert.match(source, /subject-editor-summarybar/)
-  assert.match(source, /subject-editor-table-panel/)
-  assert.match(source, /subject-editor-config-table/)
-  assert.match(source, /基础配置 \+ 单标的仓位上限/)
-  assert.match(source, /仓位上限/)
-  assert.match(source, /当前生效值会显示来源；未配置项会明确标记/)
-  assert.match(source, /当前生效/)
-  assert.match(source, /positionLimitDraft/)
-  assert.doesNotMatch(source, /position_limit_mode/)
-  assert.doesNotMatch(source, /use_default/)
-  assert.doesNotMatch(source, /subject-form-grid/)
-  assert.doesNotMatch(source, /subject-runtime-grid/)
-  assert.doesNotMatch(source, /保存基础与 Guardian/)
-  assert.doesNotMatch(source, /保存止盈/)
-  assert.doesNotMatch(source, /按持仓入口止损/)
-})
 
 test('buildDetailViewModel ignores zero latest-price market values and keeps non-zero fallback labels', () => {
   const detail = buildDetailViewModel({

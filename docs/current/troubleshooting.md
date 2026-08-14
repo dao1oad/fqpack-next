@@ -480,7 +480,7 @@ stale knowledge（先 `--dry-run` 预演）。
 
 - GitHub 上是否已有本次 rebuild 的正式 Issue，且写清影响面、验收标准、部署影响
 - 当前 rebuild 输入是否只包含 `xt_orders`、`xt_trades`、`xt_positions`
-- 当前方案是否把 `om_*` / `stock_fills` 仅作为兼容投影或排障参考，而不是 primary truth
+- 当前方案是否只以 `om_*`（V2）与 `xt_positions` 为真值（legacy 集合已随 6b 删除）
 
 常见根因：
 
@@ -491,7 +491,7 @@ stale knowledge（先 `--dry-run` 预演）。
 
 - 先补 GitHub Issue，再进入编码或执行阶段
 - 若方案不是 broker truth 驱动，立即停止；重写为只基于 `xt_orders`、`xt_trades`、`xt_positions` 的 rebuild 输入
-- 不要用 legacy `om_*`、`stock_fills`、`stock_fills_compat` 反推正式 rebuild 主账本
+- legacy 集合（stock_fills / stock_fills_compat / om_buy_lots 等）已随 6b 删除，不复存在；rebuild 主账本只由 V2 与 broker truth 驱动
 
 ## Order Ledger V2 rebuild 后仍出现空日期/空时间
 
@@ -517,7 +517,7 @@ print(repo.list_open_entry_slices(symbol='300760'))
 处理：
 
 - 先确认已执行 `script/maintenance/rebuild_order_ledger_v2.py --execute --backup-db <backup>`
-- 再确认 `holding.py` / `entry_adapter` 当前已经优先返回 v2 entry / slice，而不是回退 legacy `stock_fills` 或 `buy_lots`
+- 6a 起 `holding.py` / `entry_adapter` 只读 V2（legacy 回退已删除）；6b 起 legacy 集合已不存在
 - 若记录仍缺 `date/time`，优先查对应 `trade_time` 是否存在，再查该 symbol 是否还停留在旧账本
 
 ## 券商有持仓但没有“聚合买入列表”入口
@@ -535,16 +535,16 @@ from freshquant.order_management.repository import OrderManagementRepository
 repo = OrderManagementRepository()
 symbol = '512000'
 print('entries', repo.list_position_entries(symbol=symbol))
-print('buy_lots', repo.list_buy_lots(symbol=symbol))
+print('slices', repo.list_open_entry_slices(symbol=symbol))
 print('gaps', repo.list_reconciliation_gaps(symbol=symbol))
 print('resolutions', repo.list_reconciliation_resolutions(symbol=symbol))
 '@ | py -3.12 -m uv run -`
 
 常见根因：
 
-- 历史 mixed-state 同时保留了 open `om_position_entries` 和 open legacy `om_buy_lots`
-- 旧对账口径把两者同时计入 internal remaining，随后误判为 `ledger > broker`
-- 错误 `auto_close_allocation` 先把 V2 entry 关掉，只剩 legacy lot 留在兼容层
+- 历史 mixed-state 曾同时保留 open `om_position_entries` 与 legacy `om_buy_lots`（legacy 已随 6b 删除；6a 起 internal remaining 只计 V2）
+- 旧对账口径曾把两者同时计入 internal remaining 导致误判；6a 起 internal remaining 全量以 V2 为准
+- 曾因错误 `auto_close_allocation` 先关 V2 entry；6a 起分配只走 V2 entry slices，无候选落 `empty_candidate_fallback` 审计
 
 处理：
 

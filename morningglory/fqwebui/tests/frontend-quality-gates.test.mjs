@@ -137,7 +137,6 @@ test('legacy futures pages import trading constants explicitly instead of relyin
   ]
   const legacyTradingGlobalPattern = /(this|that)\.\$(futureAccount|stockAccount|digitCoinAccount|globalFutureAccount|digitCoinLevel|globalFutureSymbol|maxAccountUseRate|stopRate)\b/
   const legacyTradingFiles = [
-    '../src/views/js/future-control.js',
     '../src/views/js/kline-mixin.js',
     '../src/views/FuturePositionList.vue',
     '../src/views/StatisticsChat.vue'

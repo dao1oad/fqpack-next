@@ -159,8 +159,6 @@ class OrderManagementRepository:
     def order_requests(self):
         return self.database["om_order_requests"]
 
-    # Legacy collection accessors stay available during migration so existing
-    # read-models and compatibility flows can keep working while V2 is added.
     @property
     def orders(self):
         return self.database["om_orders"]
@@ -182,24 +180,12 @@ class OrderManagementRepository:
         return self.database["om_execution_fills"]
 
     @property
-    def buy_lots(self):
-        return self.database["om_buy_lots"]
-
-    @property
     def position_entries(self):
         return self.database["om_position_entries"]
 
     @property
-    def lot_slices(self):
-        return self.database["om_lot_slices"]
-
-    @property
     def entry_slices(self):
         return self.database["om_entry_slices"]
-
-    @property
-    def sell_allocations(self):
-        return self.database["om_sell_allocations"]
 
     @property
     def exit_allocations(self):
@@ -702,24 +688,6 @@ class OrderManagementRepository:
             raise BrokerIdentityConflict(f"{identity_field} insert did not persist")
         return saved, bool(result is not None and result.upserted_id is not None)
 
-    def find_buy_lot_by_origin_trade_fact_id(self, origin_trade_fact_id):
-        return self.buy_lots.find_one({"origin_trade_fact_id": origin_trade_fact_id})
-
-    def find_buy_lot(self, buy_lot_id):
-        return self.buy_lots.find_one({"buy_lot_id": buy_lot_id})
-
-    def insert_buy_lot(self, document):
-        self.buy_lots.insert_one(document)
-        return document
-
-    def replace_buy_lot(self, document):
-        self.buy_lots.replace_one(
-            {"buy_lot_id": document["buy_lot_id"]},
-            document,
-            upsert=True,
-        )
-        return document
-
     def find_position_entry(self, entry_id):
         return self.position_entries.find_one({"entry_id": entry_id})
 
@@ -731,30 +699,11 @@ class OrderManagementRepository:
         )
         return document
 
-    def replace_lot_slices_for_lot(self, buy_lot_id, slices):
-        self.lot_slices.delete_many({"buy_lot_id": buy_lot_id})
-        if slices:
-            self.lot_slices.insert_many(slices)
-        return slices
-
     def replace_entry_slices_for_entry(self, entry_id, slices):
         self.entry_slices.delete_many({"entry_id": entry_id})
         if slices:
             self.entry_slices.insert_many(slices)
         return slices
-
-    def replace_open_slices(self, slices):
-        if not slices:
-            return slices
-        slice_ids = [item["lot_slice_id"] for item in slices]
-        self.lot_slices.delete_many({"lot_slice_id": {"$in": slice_ids}})
-        self.lot_slices.insert_many(slices)
-        return slices
-
-    def insert_sell_allocations(self, allocations):
-        if allocations:
-            self.sell_allocations.insert_many(allocations)
-        return allocations
 
     def insert_exit_allocations(self, allocations):
         if allocations:
@@ -772,14 +721,6 @@ class OrderManagementRepository:
     def insert_ingest_rejection(self, document):
         self.ingest_rejections.insert_one(document)
         return document
-
-    def list_buy_lots(self, symbol=None, buy_lot_ids=None):
-        query = {}
-        if symbol is not None:
-            query["symbol"] = symbol
-        if buy_lot_ids is not None:
-            query["buy_lot_id"] = {"$in": list(buy_lot_ids)}
-        return list(self.buy_lots.find(query))
 
     def list_orders(
         self,
@@ -902,14 +843,6 @@ class OrderManagementRepository:
         if status is not None:
             query["status"] = status
         return list(self.position_entries.find(query))
-
-    def list_open_slices(self, symbol=None, buy_lot_ids=None):
-        query = {"remaining_quantity": {"$gt": 0}}
-        if symbol is not None:
-            query["symbol"] = symbol
-        if buy_lot_ids is not None:
-            query["buy_lot_id"] = {"$in": list(buy_lot_ids)}
-        return list(self.lot_slices.find(query))
 
     def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         query = {"remaining_quantity": {"$gt": 0}}

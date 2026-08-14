@@ -5,18 +5,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from bson import ObjectId
 from prettytable import PrettyTable
 
 from freshquant.carnation.enum_instrument import InstrumentType
-from freshquant.db import DBfreshquant
 from freshquant.instrument.general import query_instrument_info, query_instrument_type
 from freshquant.KlineDataTool import get_stock_data
 from freshquant.order_management.manual.service import OrderManagementManualWriteService
 from freshquant.order_management.projection.stock_fills import build_raw_fills_view
-from freshquant.order_management.projection.stock_fills_compat import (
-    StockFillsCompatibilityService,
-)
 from freshquant.order_management.repository import OrderManagementRepository
 from freshquant.quote.etf import queryEtfCandleSticks
 
@@ -25,33 +20,18 @@ def _get_manual_write_service():
     return OrderManagementManualWriteService()
 
 
-def _get_stock_fills_compat_service():
-    return StockFillsCompatibilityService()
-
-
 def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
+    repository = OrderManagementRepository()
     if code:
-        repository = OrderManagementRepository()
-        results = build_raw_fills_view(repository.list_trade_facts(code))
+        rows = repository.list_trade_facts(code)
     else:
-        collection = DBfreshquant.stock_fills
-        query = {}
-        if dt:
-            query["date"] = int(dt.replace("-", "").replace(".", ""))
-
-        fields = {
-            "_id": 1,
-            "op": 1,
-            "symbol": 1,
-            "stock_code": 1,
-            "name": 1,
-            "quantity": 1,
-            "price": 1,
-            "amount": 1,
-            "date": 1,
-            "time": 1,
-        }
-        results = list(collection.find(query, fields))
+        rows = repository.list_trade_facts()
+    results = build_raw_fills_view(rows)
+    if dt:
+        normalized_dt = int(dt.replace("-", "").replace(".", ""))
+        results = [
+            item for item in results if int(item.get("date") or 0) == normalized_dt
+        ]
 
     table = PrettyTable()
     table.field_names = [
@@ -70,7 +50,7 @@ def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
     for result in results:
         table.add_row(
             [
-                result.get("_id"),
+                result.get("source", ""),
                 result.get("op"),
                 result.get("symbol"),
                 result.get("stock_code"),
@@ -151,27 +131,6 @@ def list_fill(code: Optional[str] = None, dt: Optional[str] = None):
             )
 
 
-def remove_fill(id=None, code=None):
-    """Deprecated raw legacy mutator; prefer stock.fill rebuild/compare for compat maintenance."""
-    if id is None and code is None:
-        raise ValueError("必须提供id或code参数")
-
-    collection = DBfreshquant.stock_fills
-    query = {}
-
-    if id is not None:
-        query["_id"] = ObjectId(id)
-    elif code is not None:
-        query["symbol"] = code
-
-    result = collection.delete_many(query)
-
-    if result.deleted_count == 0:
-        print("未找到匹配的记录")
-    else:
-        print(f"成功删除{result.deleted_count}条记录")
-
-
 def import_fill(
     op: str,
     code: str,
@@ -193,66 +152,3 @@ def import_fill(
     )
     print(f"成功导入{code}的{op}操作记录")
     list_fill(code)
-
-
-def rebuild_fill_compat(*, code: Optional[str] = None, all_symbols: bool = False):
-    service = _get_stock_fills_compat_service()
-    if all_symbols:
-        result = service.sync_symbols()
-    else:
-        if not code:
-            raise ValueError("必须提供 code 或 all_symbols=True")
-        normalized = str(code or "").strip()
-        rows = service.sync_symbol(normalized)
-        result = {
-            "synced_symbols": [normalized],
-            "rows_by_symbol": {normalized: len(rows)},
-        }
-    print(json.dumps(result, ensure_ascii=False, default=str))
-    return result
-
-
-def compare_fill_compat(code: str):
-    result = _get_stock_fills_compat_service().compare_symbol(code)
-    print(json.dumps(result, ensure_ascii=False, default=str))
-    return result
-
-
-def compare_fill_compat_all(archive_dir: Optional[str] = None):
-    """全量对比 V2 账本投影与 stock_fills_compat 镜像（步骤 5 观察期档案）。
-
-    输出落到观察期档案目录（默认 D:/fqpack/runtime/formal-deploy，
-    可用环境变量 FQ_FILL_COMPARE_ARCHIVE_DIR 覆盖），文件名按日期戳；
-    任一差异时返回非零退出码（由 CLI 转换）。
-    """
-
-    result = _get_stock_fills_compat_service().compare_symbols()
-    document = {
-        "asof": datetime.now().isoformat(timespec="seconds"),
-        "mode": "full",
-        **result,
-    }
-    # 先打印对比结果，再落观察期档案：落盘失败不得吞掉对比结论。
-    print(json.dumps(document, ensure_ascii=False, default=str))
-    archive_root = Path(
-        str(
-            archive_dir
-            or os.environ.get("FQ_FILL_COMPARE_ARCHIVE_DIR")
-            or "D:/fqpack/runtime/formal-deploy"
-        ).strip()
-    )
-    stamp = datetime.now().strftime("%Y%m%d")
-    archive_path = archive_root / f"fill-compare-{stamp}.json"
-    try:
-        archive_root.mkdir(parents=True, exist_ok=True)
-        archive_path.write_text(
-            json.dumps(document, ensure_ascii=False, default=str, indent=2),
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        logging.getLogger(__name__).warning(
-            "fill compare archive write failed: %s (%s)",
-            archive_path,
-            exc,
-        )
-    return document

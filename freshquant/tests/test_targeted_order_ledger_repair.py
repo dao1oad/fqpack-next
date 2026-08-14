@@ -266,8 +266,6 @@ def test_stage_rejects_stale_plan_preimage_without_writes():
         ("business", "xt_trades"),
         ("business", "xt_positions"),
         ("business", "stock_orders"),
-        ("business", "stock_fills"),
-        ("business", "stock_fills_compat"),
     ],
 )
 def test_stage_rejects_mutation_of_every_read_only_evidence_collection(

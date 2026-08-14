@@ -39,9 +39,6 @@ _MUTABLE_ORDER_COLLECTIONS = {
     "om_reconciliation_gaps",
     "om_reconciliation_resolutions",
     "om_ingest_rejections",
-    "om_buy_lots",
-    "om_lot_slices",
-    "om_sell_allocations",
     "om_external_candidates",
 }
 _READ_ONLY_ORDER_COLLECTIONS = {
@@ -55,8 +52,6 @@ _READ_ONLY_BUSINESS_COLLECTIONS = {
     "xt_trades",
     "xt_positions",
     "stock_orders",
-    "stock_fills",
-    "stock_fills_compat",
 }
 
 
@@ -662,27 +657,6 @@ def verify_targeted_repair(
         v2_passed,
         **v2_details,
     )
-    legacy_allocations = (
-        list(
-            databases["order"]["om_sell_allocations"].find(
-                {"sell_trade_fact_id": {"$in": sorted(sell_fact_ids)}}
-            )
-        )
-        if sell_fact_ids
-        else []
-    )
-    legacy_passed, legacy_details = _allocation_verification(
-        legacy_allocations,
-        trade_fact_field="sell_trade_fact_id",
-        sell_trade_fact_ids=sell_fact_ids,
-    )
-    _add_verification_check(
-        checks,
-        "legacy_allocations_688772",
-        legacy_passed,
-        **legacy_details,
-    )
-
     live_gaps = list(
         databases["order"]["om_reconciliation_gaps"].find({"symbol": "688772"})
     )
@@ -779,31 +753,6 @@ def verify_targeted_repair(
             }
         ),
         mismatched_change_ids=immutable_mismatches,
-    )
-
-    compat_symbols = list(_FIX_504_SYMBOLS)
-    compat_stock_codes = [
-        symbol_variant
-        for symbol in _FIX_504_SYMBOLS
-        for symbol_variant in (symbol, f"{symbol}.SH", f"{symbol}.SZ")
-    ]
-    live_compat_by_id = {}
-    compat_collection = databases["business"]["stock_fills_compat"]
-    for query in (
-        {"symbol": {"$in": compat_symbols}},
-        {"stock_code": {"$in": compat_stock_codes}},
-    ):
-        for document in compat_collection.find(query):
-            live_compat_by_id[_hash_value(document.get("_id"))] = document
-    live_compat_rows = list(live_compat_by_id.values())
-    _add_verification_check(
-        checks,
-        "stock_fills_compat_empty",
-        not live_compat_rows,
-        matched_documents=len(live_compat_rows),
-        document_ids=sorted(
-            _hash_value(document.get("_id")) for document in live_compat_rows
-        ),
     )
 
     result = {

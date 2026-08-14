@@ -19,15 +19,7 @@ def _install_stock_cli_stubs(monkeypatch):
     must_pool = types.ModuleType("freshquant.data.astock.must_pool")
     fill = types.ModuleType("freshquant.data.astock.fill")
     fill.list_fill = lambda *args, **kwargs: None
-    fill.remove_fill = lambda *args, **kwargs: None
     fill.import_fill = lambda *args, **kwargs: None
-    fill.compare_fill_compat = lambda code: None
-    fill.compare_fill_compat_all = lambda archive_dir=None: {
-        "zero_diff": True,
-        "symbols_compared": 0,
-        "mismatch_count": 0,
-        "mismatches": [],
-    }
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.pre_pool", pre_pool)
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.pool", pool)
     monkeypatch.setitem(sys.modules, "freshquant.data.astock.must_pool", must_pool)
@@ -80,71 +72,21 @@ def _load_stock_command_module(monkeypatch):
             sys.modules["freshquant.command.stock"] = original
 
 
-def test_stock_fill_rebuild_command_routes_to_fill_module(monkeypatch):
+def test_stock_fill_teardown_legacy_routes_to_legacy_teardown(monkeypatch):
+    """C2：teardown-legacy CLI 转发到 run_legacy_teardown 并透传参数。"""
+
     stock_command_module = _load_stock_command_module(monkeypatch)
     captured = []
 
     monkeypatch.setattr(
-        stock_command_module.fill,
-        "rebuild_fill_compat",
-        lambda *, code=None, all_symbols=False: captured.append(
-            {"code": code, "all_symbols": all_symbols}
-        ),
-        raising=False,
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(
-        stock_command_module.stock_fill_command_group,
-        ["rebuild", "--code", "000001"],
-    )
-
-    assert result.exit_code == 0
-    assert captured == [{"code": "000001", "all_symbols": False}]
-
-    result = runner.invoke(
-        stock_command_module.stock_fill_command_group,
-        ["rebuild", "--all"],
-    )
-
-    assert result.exit_code == 0
-    assert captured[-1] == {"code": None, "all_symbols": True}
-
-
-def test_stock_fill_compare_command_routes_to_fill_module(monkeypatch):
-    stock_command_module = _load_stock_command_module(monkeypatch)
-    captured = []
-
-    monkeypatch.setattr(
-        stock_command_module.fill,
-        "compare_fill_compat",
-        lambda code: captured.append(code),
-        raising=False,
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(
-        stock_command_module.stock_fill_command_group,
-        ["compare", "--code", "000001"],
-    )
-
-    assert result.exit_code == 0
-    assert captured == ["000001"]
-
-
-def test_stock_fill_compare_all_routes_to_fill_module(monkeypatch):
-    stock_command_module = _load_stock_command_module(monkeypatch)
-    captured = []
-
-    monkeypatch.setattr(
-        stock_command_module.fill,
-        "compare_fill_compat_all",
-        lambda archive_dir=None: captured.append(archive_dir)
+        "freshquant.order_management.legacy_teardown.run_legacy_teardown",
+        lambda **kwargs: captured.append(kwargs)
         or {
-            "zero_diff": True,
-            "symbols_compared": 3,
-            "mismatch_count": 0,
-            "mismatches": [],
+            "status": "dry_run_ready",
+            "sha": "abc",
+            "snapshot_path": "p",
+            "evidence": {"zero_diff": True},
+            "dropped": {},
         },
         raising=False,
     )
@@ -152,24 +94,36 @@ def test_stock_fill_compare_all_routes_to_fill_module(monkeypatch):
     runner = CliRunner()
     result = runner.invoke(
         stock_command_module.stock_fill_command_group,
-        ["compare", "--all"],
+        [
+            "teardown-legacy",
+            "--execute",
+            "--confirm-residue",
+            "--archive-dir",
+            "D:/tmp",
+        ],
     )
 
     assert result.exit_code == 0
-    assert captured == [None]
+    assert captured == [
+        {
+            "archive_dir": "D:/tmp",
+            "allow_residue": True,
+            "execute": True,
+        }
+    ]
 
 
-def test_stock_fill_compare_all_nonzero_on_mismatch(monkeypatch):
+def test_stock_fill_teardown_legacy_defaults_to_dry_run(monkeypatch):
     stock_command_module = _load_stock_command_module(monkeypatch)
 
     monkeypatch.setattr(
-        stock_command_module.fill,
-        "compare_fill_compat_all",
-        lambda archive_dir=None: {
-            "zero_diff": False,
-            "symbols_compared": 3,
-            "mismatch_count": 1,
-            "mismatches": [{"symbol": "000001"}],
+        "freshquant.order_management.legacy_teardown.run_legacy_teardown",
+        lambda **kwargs: {
+            "status": "dry_run_ready",
+            "sha": "abc",
+            "snapshot_path": "p",
+            "evidence": {"zero_diff": True},
+            "dropped": {},
         },
         raising=False,
     )
@@ -177,7 +131,34 @@ def test_stock_fill_compare_all_nonzero_on_mismatch(monkeypatch):
     runner = CliRunner()
     result = runner.invoke(
         stock_command_module.stock_fill_command_group,
-        ["compare", "--all"],
+        ["teardown-legacy"],
+    )
+
+    assert result.exit_code == 0
+
+
+def test_stock_fill_teardown_legacy_blocked_raises(monkeypatch):
+    """C2：compare 不干净且未满足放行条件时 CLI 以非零退出。"""
+
+    stock_command_module = _load_stock_command_module(monkeypatch)
+
+    monkeypatch.setattr(
+        "freshquant.order_management.legacy_teardown.run_legacy_teardown",
+        lambda **kwargs: {
+            "status": "blocked",
+            "sha": "abc",
+            "snapshot_path": "p",
+            "blocked_reasons": ["broker_consistent=false"],
+            "evidence": {"zero_diff": False},
+            "dropped": {},
+        },
+        raising=False,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        stock_command_module.stock_fill_command_group,
+        ["teardown-legacy", "--execute"],
     )
 
     assert result.exit_code != 0

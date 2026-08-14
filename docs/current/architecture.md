@@ -179,13 +179,10 @@ buy 先解析归属后聚类，禁止跨账本聚合。
 - `om_reconciliation_resolutions`
 - `om_ingest_rejections`
 
-### 兼容层
+### 兼容层（已随 6b 拆表删除，Issue #605）
 
-- `om_buy_lots`
-- `om_lot_slices`
-- `om_sell_allocations`
-- `freshquant.stock_fills`
-- `freshquant.stock_fills_compat`
+- ~~`om_buy_lots` / `om_lot_slices` / `om_sell_allocations`~~
+- ~~`freshquant.stock_fills` / `freshquant.stock_fills_compat`~~
 
 ## 当前关键边界
 
@@ -216,9 +213,9 @@ buy 先解析归属后聚类，禁止跨账本聚合。
   - 定义系统可消费的持仓入口
 - `om_reconciliation_*`
   - 只负责自动平账，不再伪造成 fake order / fake trade
-- `stock_fills_compat`
-  - 6a 起无运行期消费者（仅 `stock fill compare --all` 工具只读）；
-    删除批次 = 步骤 6b（Issue #605）
+- `stock_fills_compat`（已随 6b 删除）
+  - 6a 起无运行期消费者；6b 由 `stock.fill teardown-legacy` 删除，快照 +
+    `legacy_teardown_*` runtime events 作为 log 复现依据
 
 ## 当前页面消费关系
 

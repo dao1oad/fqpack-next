@@ -489,12 +489,6 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
             "om_buy_lots": [{"buy_lot_id": "stale-buy-lot"}],
         }
     )
-    projection_database = FakeDatabase(
-        {
-            "stock_fills_compat": [{"symbol": "000001", "quantity": 100}],
-        }
-    )
-    compat_calls = []
 
     class FakeRebuildService:
         def build_from_truth(self, *, xt_orders, xt_trades, xt_positions):
@@ -527,14 +521,7 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
     summary = _bootstrap_order_ledger_from_synced_truth(
         xt_positions=[{"stock_code": "000001.SZ", "avg_price": 12.5}],
         database=database,
-        projection_database=projection_database,
         rebuild_service=FakeRebuildService(),
-        compat_view_rebuilder=lambda **kwargs: compat_calls.append(kwargs)
-        or {
-            "synced_symbols": ["000001"],
-            "rows_by_symbol": {"000001": 1},
-            "rebuilt_collections": ["stock_fills_compat"],
-        },
     )
 
     assert summary == {
@@ -556,33 +543,19 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_state_and_rebuilds_comp
             "om_broker_orders",
             "om_trade_facts",
             "om_execution_fills",
-            "om_buy_lots",
             "om_position_entries",
-            "om_lot_slices",
             "om_entry_slices",
-            "om_sell_allocations",
             "om_exit_allocations",
             "om_external_candidates",
             "om_reconciliation_gaps",
             "om_reconciliation_resolutions",
             "om_ingest_rejections",
         ],
-        "compat": {
-            "synced_symbols": ["000001"],
-            "rows_by_symbol": {"000001": 1},
-            "rebuilt_collections": ["stock_fills_compat"],
-        },
     }
-    assert database["om_buy_lots"].documents == []
+    assert database["om_buy_lots"].documents == [{"buy_lot_id": "stale-buy-lot"}]
     assert database["om_position_entries"].documents == [{"entry_id": "entry-1"}]
     assert database["om_reconciliation_resolutions"].documents == [
         {"resolution_id": "resolution-1"}
-    ]
-    assert compat_calls == [
-        {
-            "order_database": database,
-            "projection_database": projection_database,
-        }
     ]
 
 
@@ -624,11 +597,6 @@ def test_initialize_archives_review_evidence_before_order_ledger_purge():
         database=database,
         rebuild_service=FakeRebuildService(),
         history_archiver=history_archiver,
-        compat_view_rebuilder=lambda **kwargs: {
-            "synced_symbols": [],
-            "rows_by_symbol": {},
-            "rebuilt_collections": ["stock_fills_compat"],
-        },
     )
 
     assert events[:2] == ["archive", "build"]
@@ -725,52 +693,11 @@ def test_bootstrap_order_ledger_from_synced_truth_purges_existing_ledger_instead
         xt_positions=[],
         database=database,
         rebuild_service=FakeRebuildService(),
-        compat_view_rebuilder=lambda **kwargs: {
-            "synced_symbols": [],
-            "rows_by_symbol": {},
-            "rebuilt_collections": ["stock_fills_compat"],
-        },
     )
 
     assert summary["skipped"] is False
     assert summary["position_entries"] == 0
     assert database["om_position_entries"].documents == []
-
-
-def test_rebuild_initialize_compat_views_clears_stock_fills_compat_and_rebuilds_from_order_database(
-    monkeypatch,
-):
-    from freshquant.initialize import _rebuild_initialize_compat_views
-
-    order_database = FakeDatabase({"om_position_entries": [{"entry_id": "entry-1"}]})
-    projection_database = FakeDatabase(
-        {"stock_fills_compat": [{"symbol": "000001", "quantity": 100}]}
-    )
-    sync_calls = []
-
-    monkeypatch.setattr(
-        "freshquant.order_management.projection.stock_fills_compat.sync_symbols",
-        lambda **kwargs: sync_calls.append(kwargs)
-        or {
-            "synced_symbols": ["000001"],
-            "rows_by_symbol": {"000001": 1},
-        },
-    )
-
-    summary = _rebuild_initialize_compat_views(
-        order_database=order_database,
-        projection_database=projection_database,
-    )
-
-    assert projection_database["stock_fills_compat"].documents == []
-    assert projection_database["stock_fills_compat"].delete_queries == [{}]
-    assert sync_calls[0]["database"] is projection_database
-    assert sync_calls[0]["repository"].database is order_database
-    assert summary == {
-        "synced_symbols": ["000001"],
-        "rows_by_symbol": {"000001": 1},
-        "rebuilt_collections": ["stock_fills_compat"],
-    }
 
 
 def test_upsert_xt_runtime_documents_clears_account_scope_even_when_documents_are_empty():

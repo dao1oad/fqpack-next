@@ -77,12 +77,10 @@ def test_verify_fixed_fix_504_postconditions_are_read_only():
         "position_entry_688772",
         "entry_slices_688772",
         "v2_allocations_688772",
-        "legacy_allocations_688772",
         "reconciliation_gaps_removed",
         "reconciliation_resolutions_removed",
         "odd_lot_rejections_removed",
         "immutable_evidence_unchanged",
-        "stock_fills_compat_empty",
     }
     assert sum(
         len(collection.find_one_queries)
@@ -130,18 +128,6 @@ def test_verify_fails_closed_when_read_only_evidence_changes():
         TargetedRepairError,
         match="immutable_evidence_unchanged",
     ):
-        verify_targeted_repair(manifest=manifest, databases=databases)
-
-
-def test_verify_fails_closed_when_stock_fills_compat_contains_target_symbol():
-    manifest, databases = _manifest_and_postimage_databases()
-    databases["business"]["stock_fills_compat"].documents["extra-compat"] = {
-        "_id": "extra-compat",
-        "symbol": "688772",
-        "quantity": 1,
-    }
-
-    with pytest.raises(TargetedRepairError, match="stock_fills_compat_empty"):
         verify_targeted_repair(manifest=manifest, databases=databases)
 
 
@@ -366,15 +352,6 @@ def _manifest_and_postimage_databases():
                 "exit_trade_fact_id": f"trade-{trade_index}",
             },
         )
-        add(
-            "om_sell_allocations",
-            f"legacy-allocation-{index}",
-            after={
-                "_id": f"legacy-allocation-{index}",
-                "allocated_quantity": quantity,
-                "sell_trade_fact_id": f"trade-{trade_index}",
-            },
-        )
 
     for index in range(3):
         add(
@@ -418,7 +395,6 @@ def _manifest_and_postimage_databases():
         "xt_trades",
         "xt_positions",
         "stock_orders",
-        "stock_fills",
     ):
         document = {
             "_id": f"readonly-{collection}",

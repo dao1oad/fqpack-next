@@ -1938,7 +1938,6 @@ def _is_board_lot_delta(quantity, *, code=""):
 
 def _after_holdings_reconciled(symbol, *, repository):
     _mark_stock_holdings_projection_updated()
-    _sync_stock_fills_compat(symbol, repository=repository)
 
 
 def _mark_stock_holdings_projection_updated():
@@ -1947,14 +1946,6 @@ def _mark_stock_holdings_projection_updated():
     )
 
     return mark_stock_holdings_projection_updated()
-
-
-def _sync_stock_fills_compat(symbol, *, repository):
-    from freshquant.order_management.projection.stock_fills_compat import (
-        sync_symbol,
-    )
-
-    return sync_symbol(symbol, repository=repository)
 
 
 _runtime_logger = None
