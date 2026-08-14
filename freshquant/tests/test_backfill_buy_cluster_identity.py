@@ -94,3 +94,21 @@ def test_plan_entry_changes_idempotent_and_fail_closed():
     assert module.plan_entry_changes(
         _entry(aggregation_member_keys=["resolution:res-1"])
     ) == {"stock_code": "002262"}
+
+
+def test_account_id_falls_back_to_member_trade_fact():
+    module = _load_module()
+
+    entry = _entry(
+        aggregation_member_keys=["ord_broker_1201afdd"],
+        aggregation_members=[
+            {"broker_order_key": "ord_broker_1201afdd", "trade_fact_id": "tf-1"}
+        ],
+    )
+    assert module.plan_entry_changes(
+        entry,
+        {"tf-1": {"trade_fact_id": "tf-1", "account_id": " acc-5 "}},
+    ) == {"stock_code": "002262", "account_id": "acc-5"}
+
+    # trade_fact 也查不到 → account 保持 None（fail-closed）
+    assert module.plan_entry_changes(entry, {}) == {"stock_code": "002262"}
