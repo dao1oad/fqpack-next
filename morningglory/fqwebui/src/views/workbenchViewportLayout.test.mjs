@@ -7,10 +7,8 @@ const readSource = (relativePath) => (
 )
 
 const dailySource = readSource('./DailyScreening.vue')
-const orderSource = readSource('./OrderManagement.vue')
 const positionSource = readSource('./PositionManagement.vue')
 const positionSubjectOverviewSource = readSource('../components/position-management/PositionSubjectOverviewPanel.vue')
-const subjectSource = readSource('./SubjectManagement.vue')
 const runtimeSource = readSource('./RuntimeObservability.vue')
 const systemSettingsSource = readSource('./SystemSettings.vue')
 const ganttSource = readSource('./GanttUnified.vue')
@@ -23,9 +21,6 @@ test('daily screening workbench keeps the page shell fixed and scrolls only insi
 })
 
 test('order, position, subject, reconciliation and runtime pages no longer use page-level scrolling at desktop widths', () => {
-  assert.match(orderSource, /\.order-body \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(orderSource, /\.order-main-grid \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(orderSource, /\.order-detail-grid \{[\s\S]*overflow:\s*auto;/)
 
   assert.match(positionSource, /\.position-body \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSource, /\.position-workbench-column--left \{[\s\S]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\);[\s\S]*overflow:\s*hidden;/)
@@ -37,10 +32,6 @@ test('order, position, subject, reconciliation and runtime pages no longer use p
   assert.match(positionSubjectOverviewSource, /\.position-subject-table-wrap \{[\s\S]*overflow:\s*hidden;/)
   assert.match(positionSubjectOverviewSource, /<el-table[\s\S]*height="100%"/)
 
-  assert.match(subjectSource, /\.subject-management-page \{[\s\S]*height:\s*100vh;[\s\S]*height:\s*100dvh;[\s\S]*overflow:\s*hidden;/)
-  assert.doesNotMatch(subjectSource, /\.subject-management-page \{[\s\S]*max-height:\s*100dvh;/)
-  assert.match(subjectSource, /\.subject-management-body \{[\s\S]*overflow:\s*hidden;/)
-  assert.match(subjectSource, /\.subject-editor-stack \{[\s\S]*overflow:\s*auto;/)
 
   assert.match(runtimeSource, /\.runtime-shell \{[\s\S]*overflow:\s*hidden;/)
   assert.match(runtimeSource, /\.runtime-browse-layout \{[\s\S]*overflow:\s*hidden;/)

@@ -76,7 +76,7 @@ FreshQuant 当前阶段以“当前系统事实收敛、潜在 bug 修复、部�
 - 保持 `xt_positions`、订单账本、TPSL、前端读模型的一致性
 - 保持 docs、deploy、health check、cleanup 与合并结果同步
 - 保持 stock/ETF marker、最近 5 个已完成交易日 catch-up、partition owner/token fencing、独立 attempt/漂移处理、不可变 partition、finalization attempt 与 generation-aware publication CAS 合同一致
-- 继续压缩 legacy `buy_lot / stock_fills_compat` 的运行期影响面
+- legacy `buy_lot / stock_fills / stock_fills_compat` 已随 6b 拆表删除（Issue #605），运行期仅 V2 单路径
 
 ## 模块入口
 

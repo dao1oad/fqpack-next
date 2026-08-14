@@ -10,7 +10,7 @@
 - 基于券商仓位差额维护 `reconciliation gap / resolution`
 - 通过独立的 `xt_auto_repay.worker` 承接普通融资负债自动还款，并复用现有 broker 提交链
 - 为 TPSL、SubjectManagement、KlineSlim、PositionManagement 提供 entry 级读模型
-- 为旧接口保留 `stock_fills` 兼容投影，但兼容投影不再参与运行期真值判断
+- 旧接口的 `stock_fills` / `stock_fills_compat` 兼容投影已随 6b 拆表删除（Issue #605）；读侧唯一真值 = V2
 
 ## 入口
 
@@ -25,12 +25,11 @@
 - CLI
   - `python -m freshquant.cli om-order submit ...`
   - `python -m freshquant.cli om-order cancel ...`
-  - `python -m freshquant.cli stock.fill rebuild --code <symbol>`
-  - `python -m freshquant.cli stock.fill rebuild --all`
-  - `python -m freshquant.cli stock.fill compare --code <symbol>`
-  - `python -m freshquant.cli stock.fill compare --all`（步骤 5 观察期全量对比；
-    档案落 `D:/fqpack/runtime/formal-deploy/fill-compare-YYYYMMDD.json`，
-    可用 `FQ_FILL_COMPARE_ARCHIVE_DIR` 覆盖；任一差异非零退出）
+  - `python -m freshquant.cli stock.fill teardown-legacy`（6b 拆表唯一入口，C2：
+    命令内先 compare，干净/归因后才 drop；默认 dry-run，`--execute` 真正删除
+    legacy 三账本 + stock_fills_compat + stock_fills；`--confirm-residue` 显式
+    接受 compat 陈旧残留；事件 `legacy_teardown_compare` / `legacy_teardown_drop`
+    落 runtime，快照落 `D:/fqpack/runtime/formal-deploy/legacy-teardown-*.json`）
   - `python -m freshquant.cli guardian.sell simulate --code <symbol> --signal-price <price>`
 - 核心服务
   - `freshquant.order_management.submit.service.OrderSubmitService`
@@ -54,9 +53,9 @@
 ### 破坏性 rebuild 治理
 
 - 破坏性 `order-ledger rebuild` 只能由 broker truth 驱动，primary truth 只允许 `xt_orders`、`xt_trades`、`xt_positions`
-- `om_*`、`stock_fills`、`stock_fills_compat` 只能作为迁移期兼容投影或排障线索，不能作为 rebuild 主输入
+- rebuild 主输入只允许 `xt_orders`、`xt_trades`、`xt_positions`；legacy 集合（om_buy_lots/om_lot_slices/om_sell_allocations/stock_fills/stock_fills_compat）已随 6b 删除
 - rebuild 默认拒绝用空 `xt_positions` 快照去 flatten 非空账本；只有显式允许空快照 flatten 时，才会把空 `xt_positions` 视为券商已清仓
-- 初始化向导的 runtime bootstrap 当前走 `xt_positions`-only destructive rebuild 变体：先 purge order-ledger rebuild 边界内的旧账本集合，再按券商当前持仓快照重建 V2 账本，并刷新 `stock_fills_compat`
+- 初始化向导的 runtime bootstrap 当前走 `xt_positions`-only destructive rebuild 变体：先 purge order-ledger rebuild 边界内的 V2 集合，再按券商当前持仓快照重建 V2 账本（不再刷新任何 legacy 镜像）
 - 这类破坏性 rebuild 在编码前必须先建立 GitHub Issue，写清影响面、验收标准与部署影响
 
 ### OM 主账本
@@ -105,25 +104,23 @@
 - `om_ingest_rejections`
   - 进入 XT ingest 但不允许进入主账本的拒绝记录
 
-### legacy / 兼容集合
+### legacy / 兼容集合（已随 6b 拆表删除，Issue #605）
 
-- `om_buy_lots`
-- `om_lot_slices`
-- `om_sell_allocations`
-- `om_external_candidates`
-- `freshquant.stock_fills`
-- `freshquant.stock_fills_compat`
+- ~~`om_buy_lots` / `om_lot_slices` / `om_sell_allocations`~~（legacy 三账本，已删）
+- ~~`freshquant.stock_fills` / `freshquant.stock_fills_compat`~~（兼容镜像，已删）
+- `om_external_candidates`（保留，独立候选缓存）
 
-这些集合仍存在于迁移期，但不再定义运行期真值。`stock_fills_compat` 自 6a
-（读侧收口）起**无运行期消费者**（仅 `stock fill compare --all` 工具只读），
-删除批次 = 步骤 6b（Issue #605）。
+删除动作由 `stock.fill teardown-legacy` 命令执行（C2：命令内 compare 强制），
+删除时点快照与 `legacy_teardown_compare` / `legacy_teardown_drop` runtime events
+作为 log 复现依据。
 
 收口口径（用户 2026-08-14 决策，替代原观察期协议）：
 - 不设观察期；V2 为唯一读侧真值：`holding` / `entry_adapter` /
   `read_service` / `reconcile` / `manual` / `ingest` 全部直读 V2，
   compat/legacy fallback 与 hasattr 能力探测已清零（范围=账本读路径）。
-- 运行问题复现依据 = runtime events（reason_code）+ compare --all 快照
-  （删表前每日盘后）+ broker 持仓 vs V2 remaining 对账（删表后）。
+- 运行问题复现依据 = runtime events（reason_code，含 legacy_teardown_*）+ 拆表
+  快照（`legacy-teardown-*.json`）+ broker 持仓 vs V2 remaining 对账
+  （compare --all 工具已随 6b 删除，对照物消失，后续以 broker 对账为主）。
 - legacy 三账本以停写前最后快照为冻结基线（各机基线见
   `D:/fqpack/review-reports/prod-state-20260814.json`）。
 
@@ -209,7 +206,7 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 
 ### XT trade callback
 
-`XT trade callback -> normalize_xt_trade_report -> OrderTrackingService.ingest_trade_report_with_meta -> om_execution_fills / om_trade_facts / om_broker_orders aggregate refresh -> om_position_entries / om_entry_slices / om_exit_allocations -> stock_fills_compat mirror sync`
+`XT trade callback -> normalize_xt_trade_report -> OrderTrackingService.ingest_trade_report_with_meta -> om_execution_fills / om_trade_facts / om_broker_orders aggregate refresh -> om_position_entries / om_entry_slices / om_exit_allocations`
 
 当前写链规则：
 
@@ -364,10 +361,8 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
 `LedgerResolver` 显式解析为 `base`（`position_type=base`）；先解析归属再
 做 buy cluster，只并入同账本（base）聚类，禁止并入 t 账本聚类。
 
-自动平账成功写入 `auto_open_entry / auto_close_allocation` 后，当前也会同步：
-
-- 刷新 stock holdings projection cache
-- 刷新 `stock_fills_compat` 镜像，避免 legacy 兼容视图滞后于 OM 主账本
+自动平账成功写入 `auto_open_entry / auto_close_allocation` 后，当前会刷新
+stock holdings projection cache（legacy 镜像已随 6b 删除，不再同步）。
 
 sell-side 自动平账当前在 gap 上保留最近一笔 Guardian 卖出请求携带的 `sell_source_entries`。当正常成交回报缺失、只能走 `auto_close_allocation` 时，当前会优先按这组来源入口扣减，再回退到默认 slice 顺序，避免把卖出剩余数量错扣到未参与本次卖量计算的历史入口上。
 
@@ -390,7 +385,7 @@ py -3.12 script/maintenance/repair_guardian_sell_entry_allocations.py --execute 
 当前内部仓位累计规则：
 
 - 若某个 symbol 已存在 open `om_position_entries`，对账只以 V2 entry remaining quantity 作为内部仓位真值
-- 同 symbol 的 legacy `om_buy_lots` 仅保留给兼容读链与排障，不再额外叠加进对账 internal remaining，避免 mixed-state 双计数后误生成 `sell gap`
+- legacy `om_buy_lots` 已随 6b 删除；6a 起 internal remaining 全量以 V2 为准（不再有 mixed-state 双计数）
 自动平账在检测到“同一轮快照对账户内多只持仓同时形成大比例 sell-gap、且近期缺少足够卖出成交证据”时，当前会熔断该轮 sell reconcile，不新建 sell gap，也不推进 sell-side gap 自动确认。
 
 自动平账在解析运行期辅助元数据失败时，当前会优先收敛 broker truth：
@@ -470,7 +465,7 @@ broker 与 execution_bridge 必须同批部署。
 
 ### 手工导入
 
-`manual import/reset -> om_trade_facts -> om_position_entries / om_entry_slices -> stock_fills_compat mirror sync`
+`manual import/reset -> om_trade_facts -> om_position_entries / om_entry_slices`
 
 手工入口当前也强制执行 `100` 股整数倍校验。
 
@@ -505,7 +500,7 @@ flatten 模式执行时的归档/清理边界：
 - 执行破坏性 flatten 仍要求显式 `--backup-db` 且不允许 `--account-id`；
   dry-run 允许 `--account-id` 单账户演练。
 
-初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前会直接执行 destructive rebuild：先把将被替换的 `xt_trades` 和将被 purge 的订单请求、订单、成交、position entries / slices / allocations 幂等写入 `om_execution_history_archive / position_review_evidence_archive`；归档成功后才 purge order-ledger rebuild 边界内的旧账本集合，再仅用刚同步的 `xt_positions` 生成新的 `om_position_entries / om_entry_slices / om_exit_allocations` 等主账本结果，并在完成后重建 `stock_fills_compat` 镜像，同时把同账户的 `xt_orders / xt_trades` 快照清空，避免旧委托/成交残留继续被误当成 broker truth，而不是走 runtime `auto_open_entry` 平账链路。归档失败时初始化会在删除前中止。
+初始化向导 `python -m freshquant.initialize` 的运行态 bootstrap 当前会直接执行 destructive rebuild：先把将被替换的 `xt_trades` 和将被 purge 的订单请求、订单、成交、position entries / slices / allocations 幂等写入 `om_execution_history_archive / position_review_evidence_archive`；归档成功后才 purge order-ledger rebuild 边界内的旧账本集合，再仅用刚同步的 `xt_positions` 生成新的 `om_position_entries / om_entry_slices / om_exit_allocations` 等主账本结果，同时把同账户的 `xt_orders / xt_trades` 快照清空，避免旧委托/成交残留继续被误当成 broker truth，而不是走 runtime `auto_open_entry` 平账链路。归档失败时初始化会在删除前中止。
 
 当前约束：
 
@@ -529,7 +524,6 @@ flatten 模式执行时的归档/清理边界：
 - `om_order_requests / om_order_events / om_orders`
 - `om_broker_orders / om_execution_fills / om_trade_facts`
 - `om_position_entries / om_entry_slices / om_exit_allocations`
-- `om_buy_lots / om_lot_slices / om_sell_allocations`
 - `om_external_candidates / om_reconciliation_gaps / om_reconciliation_resolutions`
 - `om_ingest_rejections`
 
@@ -647,5 +641,5 @@ flatten 模式执行时的归档/清理边界：
 ### 旧接口显示碎片化持仓
 
 - 查 `om_position_entries` / `om_entry_slices`（V2 唯一真值）
-- 冻结期排障（6b 前）：`freshquant.stock_fills_compat` 与 legacy
-  `om_buy_lots` 仅作冻结快照核对，不进入运行期读路径
+- legacy 集合已随 6b 删除；历史冻结快照以拆表时点
+  `legacy-teardown-*.json` 与 `legacy_teardown_*` runtime events 为据

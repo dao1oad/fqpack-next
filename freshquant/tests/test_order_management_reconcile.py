@@ -1559,37 +1559,6 @@ def test_inferred_pending_auto_open_does_not_merge_into_t_cluster(monkeypatch):
     assert repository.reconciliation_gaps[0]["entry_id"] == new_entry["entry_id"]
 
 
-def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_open(
-    monkeypatch,
-):
-    marks = []
-    sync_calls = []
-    repository, service = _build_service(monkeypatch, marks=marks, mark_label="open")
-    monkeypatch.setattr(
-        reconcile_service_module,
-        "_sync_stock_fills_compat",
-        lambda symbol, *, repository: sync_calls.append((symbol, repository)),
-        raising=False,
-    )
-    service.detect_external_candidates(
-        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
-        detected_at=1_000,
-    )
-    service.detect_external_candidates(
-        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
-        detected_at=1_015,
-    )
-    service.detect_external_candidates(
-        positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
-        detected_at=1_030,
-    )
-
-    service.confirm_expired_candidates(now=1_030)
-
-    assert marks == ["open"]
-    assert sync_calls == [("000001", repository)]
-
-
 def test_confirmed_gap_is_not_recreated_for_same_position_delta(monkeypatch):
     repository, service = _build_service(monkeypatch)
     service.detect_external_candidates(
@@ -1894,54 +1863,6 @@ def test_frozen_legacy_remaining_not_counted_after_v2_full_exit(monkeypatch):
 
     assert detected == []
     assert repository.reconciliation_gaps == []
-
-
-def test_confirm_expired_candidates_marks_and_syncs_compat_after_auto_close(
-    monkeypatch,
-):
-    marks = []
-    sync_calls = []
-    repository, service = _build_service(monkeypatch, marks=marks, mark_label="close")
-    monkeypatch.setattr(
-        reconcile_service_module,
-        "_sync_stock_fills_compat",
-        lambda symbol, *, repository: sync_calls.append((symbol, repository)),
-        raising=False,
-    )
-    buy_lot = build_buy_lot_from_trade_fact(
-        {
-            "trade_fact_id": "trade_seed_buy_close_sync",
-            "symbol": "000001",
-            "side": "buy",
-            "quantity": 900,
-            "price": 10.0,
-            "trade_time": 1_000,
-            "date": 20240102,
-            "time": "09:31:00",
-        }
-    )
-    repository.insert_buy_lot(buy_lot)
-    repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
-    )
-    service.detect_external_candidates(
-        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
-        detected_at=1_000,
-    )
-    service.detect_external_candidates(
-        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
-        detected_at=1_015,
-    )
-    service.detect_external_candidates(
-        positions=[{"stock_code": "000001.SZ", "volume": 400, "avg_price": 10.5}],
-        detected_at=1_030,
-    )
-
-    service.confirm_expired_candidates(now=1_030)
-
-    assert marks == ["close"]
-    assert sync_calls == [("000001", repository)]
 
 
 def test_confirm_expired_candidates_prefers_guardian_sell_source_entries_for_auto_close(

@@ -150,7 +150,6 @@ class OrderManagementManualWriteService:
                 # 根①写侧收敛（步骤 5）：manual 卖出单写 V2 exit_allocations。
 
         mark_stock_holdings_projection_updated()
-        _sync_stock_fills_compat(symbol, repository=self.repository)
         return {
             "trade_fact": trade_fact,
             "buy_lot": buy_lot,
@@ -220,7 +219,6 @@ class OrderManagementManualWriteService:
             inserted_count += 1
 
         mark_stock_holdings_projection_updated()
-        _sync_stock_fills_compat(symbol, repository=self.repository)
         return {
             "deleted_count": deleted_count,
             "inserted_count": inserted_count,
@@ -399,11 +397,3 @@ def _get_tpsl_service():
     from freshquant.tpsl.service import TpslService
 
     return TpslService()
-
-
-def _sync_stock_fills_compat(symbol, *, repository):
-    from freshquant.order_management.projection.stock_fills_compat import (
-        sync_symbol,
-    )
-
-    sync_symbol(symbol, repository=repository)

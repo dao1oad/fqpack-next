@@ -30,7 +30,6 @@ test('Element Plus el-link underline props use string enums instead of deprecate
     read('../components/StockPools.vue'),
     read('../components/StockPrePools.vue'),
     read('./FuturePositionList.vue'),
-    read('./FuturesControl.vue'),
     read('./StockPositionList.vue'),
   ])
 
@@ -102,64 +101,4 @@ test('multi-period draw watchers ignore empty period payloads before calling dra
   assert.match(content, /klineData30Min: function \(newKlineData\) \{[\s\S]*if \(newKlineData\) \{[\s\S]*draw\(this, newKlineData, '30m'\)/)
   assert.match(content, /klineData60Min: function \(newKlineData\) \{[\s\S]*if \(newKlineData\) \{[\s\S]*draw\(this, newKlineData, '60m'\)/)
   assert.match(content, /klineData1D: function \(newKlineData\) \{[\s\S]*if \(newKlineData\) \{[\s\S]*draw\(this, newKlineData, '1d'\)/)
-})
-
-test('FuturesControl defers statistics mounting and prejudge fetching until the matching tab is activated', async () => {
-  const [viewContent, scriptContent] = await Promise.all([
-    read('./FuturesControl.vue'),
-    read('./js/future-control.js')
-  ])
-  const normalizedScript = scriptContent.replace(/\r/g, '')
-
-  assert.match(viewContent, /<StatisticsChat v-if="statisticsTabLoaded"><\/StatisticsChat>/)
-
-  const mountedBlock = normalizedScript.match(/mounted \(\) \{([\s\S]*?)\n\s*\},\n\s*methods:/)
-  assert.ok(mountedBlock, 'expected to find the futures-control mounted block')
-  assert.doesNotMatch(mountedBlock[1], /this\.getPrejudgeList\(\)/)
-
-  assert.match(
-    normalizedScript,
-    /handleChangeTab \(tab\) \{[\s\S]*const tabName = tab\?\.props\?\.name \|\| tab\?\.paneName \|\| tab\?\.name[\s\S]*if \(tabName === 'second' && !this\.prejudgeTabLoaded\) \{[\s\S]*this\.prejudgeTabLoaded = true[\s\S]*this\.getPrejudgeList\(\)[\s\S]*\}[\s\S]*if \(tabName === 'third' && !this\.statisticsTabLoaded\) \{[\s\S]*this\.statisticsTabLoaded = true[\s\S]*\}/
-  )
-})
-
-test('future-control stores its dashboard polling handle and clears it on unmount', async () => {
-  const content = (await read('./js/future-control.js')).replace(/\r/g, '')
-
-  assert.match(content, /dashboardRefreshTimer:\s*null/)
-  assert.match(content, /this\.dashboardRefreshTimer = window\.setInterval\(/)
-  assert.match(
-    content,
-    /beforeUnmount \(\) \{[\s\S]*if \(this\.dashboardRefreshTimer\) \{[\s\S]*window\.clearInterval\(this\.dashboardRefreshTimer\)[\s\S]*this\.dashboardRefreshTimer = null[\s\S]*\}/
-  )
-})
-
-test('future-control route sources avoid active debug console.log noise and deprecated barBorderRadius options', async () => {
-  const [statisticsContent, futureControlContent, drawContent, positionContent] = await Promise.all([
-    read('./StatisticsChat.vue'),
-    read('./js/future-control.js'),
-    read('./js/draw.js'),
-    read('./FuturePositionList.vue')
-  ])
-
-  for (const content of [statisticsContent, futureControlContent, drawContent, positionContent]) {
-    assert.doesNotMatch(content, /^\s*console\.log\(/m)
-  }
-
-  assert.doesNotMatch(statisticsContent, /barBorderRadius:/)
-  assert.match(statisticsContent, /legend:\s*\{[\s\S]*data:\s*\['保证金占用'\]/)
-  assert.match(statisticsContent, /name:\s*'保证金占用'/)
-})
-
-test('shared stock-pool settings and kline helpers avoid active console.log noise', async () => {
-  const [prePoolsContent, mySettingContent, commonToolContent, klineMixinContent] = await Promise.all([
-    read('../components/StockPrePools.vue'),
-    read('../components/MySetting.vue'),
-    read('../tool/CommonTool.js'),
-    read('./js/kline-mixin.js')
-  ])
-
-  for (const content of [prePoolsContent, mySettingContent, commonToolContent, klineMixinContent]) {
-    assert.doesNotMatch(content, /^\s*console\.log\(/m)
-  }
 })

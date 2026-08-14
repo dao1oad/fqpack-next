@@ -366,7 +366,9 @@ def _stub_ingest_side_effects(monkeypatch):
         lambda: type(
             "FakeTpslService",
             (),
-            {"on_new_buy_trade": lambda self, symbol, buy_price: None},
+            {
+                "on_new_buy_trade": lambda self, symbol, buy_price, position_type="base": None
+            },
         )(),
         raising=False,
     )
@@ -1041,18 +1043,11 @@ def test_migrate_entry_member_key_preserves_reconciliation_resolution_members():
 def test_trade_report_marks_holding_projection_updated(monkeypatch):
     repository, ingest_service = _bootstrap_service()
     marks = []
-    sync_calls = []
 
     monkeypatch.setattr(
         xt_reports_module,
         "mark_stock_holdings_projection_updated",
         lambda: marks.append("marked"),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        xt_reports_module,
-        "_sync_stock_fills_compat",
-        lambda symbol, repository: sync_calls.append((symbol, repository)),
         raising=False,
     )
 
@@ -1063,7 +1058,6 @@ def test_trade_report_marks_holding_projection_updated(monkeypatch):
     )
 
     assert marks == ["marked"]
-    assert sync_calls == [("000001", repository)]
 
 
 def test_sell_trade_report_creates_sell_allocations_and_updates_projection():
@@ -1332,39 +1326,6 @@ def test_sell_multi_fill_ingest_shares_request_remaining_budget():
         item.get("request_id") and item.get("internal_order_id")
         for item in repository.exit_allocations
     )
-
-
-def test_sell_trade_report_syncs_stock_fills_compat_when_holdings_change(monkeypatch):
-    repository, ingest_service = _bootstrap_service()
-    sync_calls = []
-    monkeypatch.setattr(
-        xt_reports_module,
-        "_sync_stock_fills_compat",
-        lambda symbol, repository: sync_calls.append((symbol, repository)),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        xt_reports_module,
-        "mark_stock_holdings_projection_updated",
-        lambda: None,
-        raising=False,
-    )
-
-    ingest_service.ingest_trade_report(
-        _buy_report(),
-        lot_amount=3000,
-        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
-    )
-    ingest_service.ingest_trade_report(
-        _sell_report("T-101-sync"),
-        lot_amount=3000,
-        grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
-    )
-
-    assert sync_calls == [
-        ("000001", repository),
-        ("000001", repository),
-    ]
 
 
 def test_sell_trade_report_resets_guardian_buy_grid_state(monkeypatch):
@@ -1739,13 +1700,6 @@ def test_sell_trade_skips_legacy_allocation_when_v2_entries_are_authoritative(
     )
     repository.buy_lots = []
     repository.lot_slices = []
-    sync_calls = []
-    monkeypatch.setattr(
-        xt_reports_module,
-        "_sync_stock_fills_compat",
-        lambda symbol, repository=None: sync_calls.append((symbol, repository)),
-        raising=False,
-    )
 
     result = ingest_service.ingest_trade_report(
         _sell_report(),
@@ -1777,7 +1731,6 @@ def test_sell_trade_skips_legacy_allocation_when_v2_entries_are_authoritative(
         )
         == 400
     )
-    assert sync_calls == [("000001", repository)]
 
 
 def test_order_report_updates_existing_order_state():

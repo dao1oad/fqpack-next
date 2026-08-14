@@ -201,7 +201,7 @@ inventory 参数表已从本页移除，去重后的只读补充项已并入 `/s
 - `GET /api/position-management/reconciliation-workspace/<symbol>`
 
 一致性检查只读，不负责修复，不会触发 compat sync、reconcile、repair、rebuild 或任何写操作。
-对账面板 6a 起不再包含 Compat 镜像列（`stock_fills_compat` 无消费者，删除批次 6b / Issue #605）；
+对账面板自 6a 起不再包含 Compat 镜像列，6b 起 `stock_fills_compat` 集合已删除（Issue #605）；
 R3 检查口径 = Entry 账本 vs StockFills 投影（`projection_consistency`）。
 
 ## 持仓复盘（position-review）

@@ -110,18 +110,14 @@ _INITIALIZE_PURGE_COLLECTIONS = (
     "om_broker_orders",
     "om_trade_facts",
     "om_execution_fills",
-    "om_buy_lots",
     "om_position_entries",
-    "om_lot_slices",
     "om_entry_slices",
-    "om_sell_allocations",
     "om_exit_allocations",
     "om_external_candidates",
     "om_reconciliation_gaps",
     "om_reconciliation_resolutions",
     "om_ingest_rejections",
 )
-_INITIALIZE_COMPAT_COLLECTIONS = ("stock_fills_compat",)
 
 
 def main(
@@ -422,7 +418,6 @@ def _bootstrap_order_ledger_from_synced_truth(
     database=None,
     projection_database=None,
     rebuild_service=None,
-    compat_view_rebuilder=None,
     history_archiver=None,
 ):
     from freshquant.order_management.db import get_order_management_db
@@ -448,17 +443,10 @@ def _bootstrap_order_ledger_from_synced_truth(
         if documents:
             database[collection_name].insert_many(documents, ordered=False)
 
-    compat_view_rebuilder = compat_view_rebuilder or _rebuild_initialize_compat_views
-    compat_summary = compat_view_rebuilder(
-        order_database=database,
-        projection_database=projection_database,
-    )
-
     summary = {"skipped": False}
     for key in _INITIALIZE_REBUILD_SUMMARY_KEYS:
         summary[key] = int(rebuild_result.get(key) or 0)
     summary["purged_collections"] = list(_INITIALIZE_PURGE_COLLECTIONS)
-    summary["compat"] = compat_summary
     return summary
 
 
@@ -477,23 +465,6 @@ def _purge_initialize_order_ledger(*, database, collection_names=None):
     for collection_name in list(collection_names or _INITIALIZE_PURGE_COLLECTIONS):
         database[collection_name].delete_many({})
     return list(collection_names or _INITIALIZE_PURGE_COLLECTIONS)
-
-
-def _rebuild_initialize_compat_views(*, order_database, projection_database=None):
-    from freshquant.order_management.db import get_projection_db
-    from freshquant.order_management.projection.stock_fills_compat import sync_symbols
-    from freshquant.order_management.repository import OrderManagementRepository
-
-    projection_database = projection_database or get_projection_db()
-    repository = OrderManagementRepository(database=order_database)
-    for collection_name in _INITIALIZE_COMPAT_COLLECTIONS:
-        projection_database[collection_name].delete_many({})
-    compat_summary = sync_symbols(
-        repository=repository,
-        database=projection_database,
-    )
-    compat_summary["rebuilt_collections"] = list(_INITIALIZE_COMPAT_COLLECTIONS)
-    return compat_summary
 
 
 def _ensure_xt_runtime_connection():

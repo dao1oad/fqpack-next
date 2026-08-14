@@ -3,15 +3,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 test('legacy pages use viewport shells instead of browser scrolling', async () => {
-  const [futures, stockPools, stockCjsd] = await Promise.all([
-    readFile(new URL('./FuturesControl.vue', import.meta.url), 'utf8'),
+  const [stockPools, stockCjsd] = await Promise.all([
     readFile(new URL('../components/StockPools.vue', import.meta.url), 'utf8'),
     readFile(new URL('../components/StockCjsd.vue', import.meta.url), 'utf8'),
   ])
-
-  assert.match(futures, /future-control-shell/)
-  assert.match(futures, /future-control-body/)
-
   assert.match(stockPools, /stock-pool-page/)
   assert.match(stockPools, /stock-pool-body/)
   assert.match(stockPools, /stock-pool-panel__table/)

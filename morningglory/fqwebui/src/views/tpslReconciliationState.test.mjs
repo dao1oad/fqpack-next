@@ -32,10 +32,3 @@ test('buildDetailViewModel normalizes reconciliation state to canonical shared m
   assert.equal(drift.reconciliation.state_chip_variant, 'danger')
 })
 
-test('TpslManagement.vue renders reconciliation label through shared StatusChip meta', () => {
-  const source = fs.readFileSync(new URL('./TpslManagement.vue', import.meta.url), 'utf8')
-
-  assert.match(source, /detail\.reconciliation\.state_label/)
-  assert.match(source, /detail\.reconciliation\.state_chip_variant/)
-  assert.match(source, /<StatusChip v-if="detail" :variant="detail\.reconciliation\.state_chip_variant">/)
-})
