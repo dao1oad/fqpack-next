@@ -1398,6 +1398,7 @@ def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypat
         {
             "entry_id": "entry_cluster_1",
             "symbol": "000001",
+            "account_id": "acc-001",
             "entry_type": "broker_execution_cluster",
             "position_type": "base",
             "source_ref_type": "buy_cluster",
@@ -1441,14 +1442,17 @@ def test_inferred_pending_auto_open_merges_into_nearby_clustered_entry(monkeypat
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
         detected_at=1710000210,
+        account_id="acc-001",
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
         detected_at=1710000225,
+        account_id="acc-001",
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.02}],
         detected_at=1710000240,
+        account_id="acc-001",
     )
 
     confirmed = service.confirm_expired_candidates(now=1710000240)

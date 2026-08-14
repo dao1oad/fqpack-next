@@ -91,6 +91,7 @@ def _sample_xt_trade(**overrides):
     payload = {
         "traded_id": "T-70001",
         "order_id": 70001,
+        "account_id": "acc-rebuild-001",
         "stock_code": "600000.SH",
         "order_type": "buy",
         "traded_volume": 100,
@@ -1145,7 +1146,9 @@ def test_rebuild_service_creates_auto_reconciled_open_entry_from_xt_positions_ga
     assert position_entry["trade_time"] == 1775000000
 
 
-def test_rebuild_service_merges_auto_open_gap_into_nearby_clustered_entry():
+def test_rebuild_service_auto_open_gap_creates_separate_entry_without_account():
+    """PR3 fail-closed：gap 重建路径无账户维度（positions 按 symbol 折叠），
+    auto-open 不得跨账户/无账户并入邻近 buy_cluster，只能新建独立 entry。"""
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
@@ -1186,27 +1189,27 @@ def test_rebuild_service_merges_auto_open_gap_into_nearby_clustered_entry():
     assert result["reconciliation_gaps"] == 1
     assert result["reconciliation_resolutions"] == 1
     assert result["auto_open_entries"] == 1
-    assert result["position_entries"] == 1
+    assert result["position_entries"] == 2
 
     gap = result["reconciliation_gap_documents"][0]
     resolution = result["reconciliation_resolution_documents"][0]
-    position_entry = result["position_entry_documents"][0]
+    cluster_entry = result["position_entry_documents"][0]
+    auto_open_entry = result["position_entry_documents"][1]
 
     assert gap["state"] == "AUTO_OPENED"
     assert gap["resolution_type"] == "auto_open_entry"
-    assert gap["entry_id"] == position_entry["entry_id"]
+    assert gap["entry_id"] == auto_open_entry["entry_id"]
     assert resolution["resolution_type"] == "auto_open_entry"
     assert resolution["source_ref_type"] == "position_entry"
-    assert resolution["source_ref_id"] == position_entry["entry_id"]
-    assert position_entry["source_ref_type"] == "buy_cluster"
-    assert position_entry["entry_type"] == "broker_execution_cluster"
-    assert position_entry["original_quantity"] == 200
-    assert position_entry["remaining_quantity"] == 200
-    assert position_entry["trade_time"] == 1710000000
-    assert position_entry["entry_price"] == pytest.approx(10.01, abs=1e-6)
-    assert position_entry["aggregation_window"]["member_count"] == 2
-    assert position_entry["aggregation_members"][0]["broker_order_key"] == "81301"
-    assert position_entry["aggregation_members"][1]["trade_time"] == 1710000240
+    assert resolution["source_ref_id"] == auto_open_entry["entry_id"]
+    assert cluster_entry["source_ref_type"] == "buy_cluster"
+    assert cluster_entry["entry_type"] == "broker_execution_cluster"
+    assert cluster_entry["original_quantity"] == 100
+    assert auto_open_entry["entry_type"] == "auto_reconciled_open"
+    assert auto_open_entry["position_type"] == "base"
+    assert auto_open_entry["stock_code"] == "000001"
+    assert auto_open_entry["account_id"] is None
+    assert auto_open_entry["original_quantity"] == 100
 
 
 def test_rebuild_service_rejects_non_board_lot_xt_positions_delta():

@@ -586,6 +586,7 @@ class ExternalOrderReconcileService:
             trade_fact,
             inferred_member_key,
             position_type=trade_fact["position_type"],
+            account_id=trade_fact.get("account_id"),
         )
         arrange_runtime = _resolve_external_arrangement_runtime(
             gap["symbol"],

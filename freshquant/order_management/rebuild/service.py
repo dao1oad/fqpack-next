@@ -470,6 +470,10 @@ def _rebuild_position_entries(
                 position_entry_documents,
                 trade_fact,
                 replay_event.get("broker_order_key"),
+                # 重建重放无 order_requests 上下文：按 #571 broker-only
+                # 语义统一归 base（与 A8 手动终端买入口径一致）。
+                position_type=resolve_buy_position_type(broker_only=True),
+                account_id=trade_fact.get("account_id"),
             )
             position_entry = build_clustered_position_entry(
                 group_trade_fact=trade_fact,
@@ -658,6 +662,10 @@ def _build_grouped_trade_fact(*, broker_order, fills):
         or first_fill.get("broker_trade_id")
         or f"rebuild-buy:{broker_order.get('broker_order_key')}",
         "symbol": broker_order.get("symbol") or first_fill.get("symbol"),
+        "stock_code": normalize_symbol(
+            broker_order.get("symbol") or first_fill.get("symbol")
+        ),
+        "account_id": normalize_account_id(first_fill.get("account_id")),
         "side": "buy",
         "quantity": quantity or 0,
         "price": price or 0.0,
@@ -682,6 +690,7 @@ def _normalize_execution_fill(raw_trade, broker_order):
         "broker_trade_id": _normalize_identifier(raw_trade.get("traded_id")),
         "broker_order_key": broker_order["broker_order_key"],
         "broker_order_id": broker_order.get("broker_order_id"),
+        "account_id": normalize_account_id(raw_trade.get("account_id")),
         "symbol": broker_order.get("symbol") or _normalize_symbol(raw_trade),
         "side": broker_order.get("side")
         or _normalize_side(raw_trade.get("order_type") or raw_trade.get("side")),
@@ -1548,6 +1557,7 @@ def _reconcile_positions_against_xt_positions(
                 "date": date_value,
                 "time": time_value,
                 "source": "external_inferred",
+                "position_type": resolve_buy_position_type(broker_only=True),
             }
             inferred_member_key = build_reconciliation_resolution_member_key(
                 resolution_id=resolution_id
@@ -1556,6 +1566,10 @@ def _reconcile_positions_against_xt_positions(
                 position_entry_documents,
                 trade_fact,
                 inferred_member_key,
+                position_type=trade_fact["position_type"],
+                # gap 重建无账户维度（_normalize_xt_positions 按 symbol 折叠），
+                # account_id=None 触发 fail-closed：不模糊聚类、只新建 entry。
+                account_id=None,
             )
             if existing_entry is not None:
                 position_entry = build_clustered_position_entry(

@@ -229,6 +229,14 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   单条 target；这里是数据库收敛重试，不是重复券商委托
 - 若 `broker_order_id` 已在 submit 成功阶段绑定到内部订单，trade callback 当前仍会继续进入 `ingest_trade_report()`；`ExternalOrderReconcileService` 只负责补齐 trace/request/internal order 上下文与 reconcile 侧 runtime event，不再把这类回报提前短路
 - buy fill 先按 `broker_order_key` 收口成 buy execution group，再按保守规则归并进 `buy_cluster` entry
+- 聚类账户约束（总收口 PR3）：`select_cluster_entry` 按 account_id
+  fail-closed——exact 成员键命中不受影响（canonical key 本身含账户前缀）；
+  模糊聚类（同 trading_day + 距锚点 ≤5 分钟 + 价差）要求 group 与 entry
+  账户一致，group 或 entry 任一方缺账户一律不匹配（禁止跨账户/无账户聚合）
+- rebuild 重放路径（总收口 PR3）：买组重放无 order_requests 上下文，按
+  #571 broker-only 语义统一归 base 并携带 `_build_grouped_trade_fact`
+  透传的 account_id；gap 重建路径无账户维度（`_normalize_xt_positions`
+  按 symbol 折叠），auto-open 一律不模糊聚类、新建独立 entry
 - 写侧身份字段（总收口 PR2）：`normalize_xt_trade_report` 输出保留 6 位
   `stock_code`；`ingest_trade_report_with_meta` 落库的 `om_trade_facts` 同样
   携带 6 位 `stock_code`；manual 写路径（import_fill / reset_symbol_lots）按
