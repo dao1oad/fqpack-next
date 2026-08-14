@@ -72,6 +72,7 @@ from freshquant.runtime_observability.failures import (
     mark_exception_emitted,
 )
 from freshquant.runtime_observability.logger import RuntimeEventLogger
+from freshquant.util.code import normalize_to_base_code
 
 _BUY_ORDER_TYPES = {
     xtconstant.STOCK_BUY,
@@ -1323,7 +1324,7 @@ def _emit_wrapper_exception(report, *, report_type, exc):
     symbol = payload.get("symbol")
     if not symbol:
         stock_code = str(payload.get("stock_code") or "")
-        symbol = stock_code[:6] if stock_code else None
+        symbol = normalize_to_base_code(stock_code) if stock_code else None
     event = {
         "component": "xt_report_ingest",
         "node": "report_receive",

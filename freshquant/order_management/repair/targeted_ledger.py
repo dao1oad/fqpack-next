@@ -13,6 +13,8 @@ from typing import Any, Mapping, Sequence
 from bson import json_util
 from pymongo.errors import DuplicateKeyError
 
+from freshquant.util.code import normalize_to_base_code
+
 TARGETED_REPAIR_PLAN_SCHEMA_VERSION = 1
 TARGETED_REPAIR_MANIFEST_SCHEMA_VERSION = 1
 
@@ -1045,7 +1047,7 @@ def _assert_document_within_fix_504_scope(change, *, approved_ids):
         if symbol in (None, ""):
             symbol = document.get("stock_code")
         if symbol not in (None, ""):
-            normalized_symbol = str(symbol).strip().split(".", 1)[0]
+            normalized_symbol = normalize_to_base_code(str(symbol).strip())
             if normalized_symbol not in _FIX_504_SYMBOLS:
                 raise InvalidRepairPlan(
                     f"change {change['change_id']} contains an out-of-scope symbol"
@@ -1213,7 +1215,7 @@ def _document_symbol(document):
     value = document.get("symbol")
     if value in (None, ""):
         value = document.get("stock_code")
-    return str(value or "").strip().split(".", 1)[0]
+    return normalize_to_base_code(str(value or "").strip())
 
 
 def _document_side(document):
