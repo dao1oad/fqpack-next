@@ -221,3 +221,31 @@ def test_teardown_defaults_to_dry_run(tmp_path):
     assert [e["reason_code"] for e in logger.events] == ["legacy_teardown_compare"]
     assert order_db.om_buy_lots.rows
     assert business_db.stock_fills_compat.rows
+
+
+def test_teardown_broker_truth_uses_total_volume_including_on_road(tmp_path):
+    """券商真值按 volume（总持仓，含在途）；can_use_volume 在途买入场景不得误拒。"""
+
+    result, logger, business_db, order_db = _run(
+        entries=[_entry("512600", 872000, price=0.583)],
+        compat_rows=[
+            {
+                "symbol": "512600",
+                "quantity": 872000,
+                "price": 0.583,
+                "amount_adjust": 1.0,
+            }
+        ],
+        broker_rows=[
+            {
+                "stock_code": "512600.SH",
+                "volume": 872000,
+                "can_use_volume": 837400,
+                "on_road_volume": 34600,
+            }
+        ],
+        execute=True,
+        tmp_path=tmp_path,
+    )
+
+    assert result["status"] == "dropped"

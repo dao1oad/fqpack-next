@@ -94,7 +94,9 @@ def _broker_positions(database=None):
         )
         if not symbol:
             continue
-        result[symbol] = int(row.get("can_use_volume") or row.get("volume") or 0)
+        # 券商真值取总持仓 volume（含在途 on_road_volume）；can_use_volume 为
+        # 可用量（今日买入在途未可用时 < volume），会导致 V2 与券商误判不一致。
+        result[symbol] = int(row.get("volume") or row.get("can_use_volume") or 0)
     return result
 
 
