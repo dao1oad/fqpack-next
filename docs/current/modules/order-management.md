@@ -564,6 +564,9 @@ flatten 模式执行时的归档/清理边界：
   - 名称仍保留给旧页面/脚本
   - 底层唯一读 `om_position_entries + om_entry_slices`（V2 空列表即权威空，
   不再有 compat 兜底）
+- 页面台账汇总辅助 `_load_position_ledger_summary`（base/t 账本汇总展示）
+  - 读 V2 `om_entry_slices`（按 base code 聚合剩余股数 × guardian_price）
+  - 读失败时降级返回空汇总并 `logging.warning` 留痕（纯展示路径，不参与交易决策）
 
 ## 页面语义
 

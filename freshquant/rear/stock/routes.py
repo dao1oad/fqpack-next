@@ -568,10 +568,11 @@ def _load_position_ledger_summary() -> dict:
         from freshquant.order_management.repository import OrderManagementRepository
 
         repository = OrderManagementRepository()
-        if not hasattr(repository, "list_open_entry_slices"):
-            return {}
         open_slices = repository.list_open_entry_slices()
-    except Exception:
+    except Exception as exc:
+        # 展示辅助路径（P3 收口）：读失败时降级为空汇总并留痕，便于日志复现；
+        # 不参与交易决策，fail-open 仅影响页面汇总栏显示。
+        logging.warning("load_position_ledger_summary read failed: %s", exc)
         return {}
     summary: dict = {}
     for item in open_slices or []:
