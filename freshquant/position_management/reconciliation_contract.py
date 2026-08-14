@@ -32,11 +32,6 @@ CONSISTENCY_SURFACES = (
         "source": "om_entry_slices",
     },
     {
-        "key": "compat_projection",
-        "label": "Compat镜像",
-        "source": "stock_fills_compat",
-    },
-    {
         "key": "stock_fills_projection",
         "label": "StockFills投影",
         "source": "api.stock_fills",
@@ -58,8 +53,8 @@ CONSISTENCY_RULES = (
     },
     {
         "id": "R3",
-        "key": "compat_projection_consistency",
-        "label": "账本与兼容投影",
+        "key": "projection_consistency",
+        "label": "账本与StockFills投影",
         "expected_relation": "projection_match",
     },
     {

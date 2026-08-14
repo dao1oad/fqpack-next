@@ -115,16 +115,6 @@ def test_get_stock_fill_list_reads_open_buy_projection(monkeypatch):
     monkeypatch.setattr(
         holding_module, "_get_order_management_stock_fill_list", lambda symbol: sample
     )
-    monkeypatch.setattr(
-        holding_module, "_compare_with_legacy_fill_list", lambda symbol, records: None
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_legacy_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError("legacy reader should not be used")
-        ),
-    )
 
     assert holding_module.get_stock_fill_list("000001") == sample
 
@@ -147,51 +137,8 @@ def test_get_arranged_stock_fill_list_matches_projection_output(monkeypatch):
         "_get_order_management_arranged_fill_list",
         lambda symbol: sample,
     )
-    monkeypatch.setattr(
-        holding_module,
-        "_compare_with_legacy_arranged_fill_list",
-        lambda symbol, records: None,
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_legacy_arranged_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError("legacy arranged reader should not be used")
-        ),
-    )
 
     assert holding_module.get_arranged_stock_fill_list("000001") == sample
-
-
-def test_get_stock_fill_list_prefers_compat_fallback_before_raw_legacy(monkeypatch):
-    _, holding_module, _ = _reload_modules(monkeypatch)
-    sample = [
-        {
-            "symbol": "000001",
-            "date": 20240102,
-            "time": "09:31:00",
-            "price": 10.0,
-            "quantity": 300,
-            "amount": 3000.0,
-            "source": "om_projection_mirror",
-        }
-    ]
-
-    monkeypatch.setattr(
-        holding_module, "_get_order_management_stock_fill_list", lambda symbol: None
-    )
-    monkeypatch.setattr(
-        holding_module, "_get_compat_stock_fill_list", lambda symbol: sample
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_legacy_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError("raw legacy stock_fills should stay fallback-only")
-        ),
-    )
-
-    assert holding_module.get_stock_fill_list("000001") == sample
 
 
 def test_get_stock_fill_list_treats_empty_order_management_projection_as_authoritative(
@@ -202,62 +149,8 @@ def test_get_stock_fill_list_treats_empty_order_management_projection_as_authori
     monkeypatch.setattr(
         holding_module, "_get_order_management_stock_fill_list", lambda symbol: []
     )
-    monkeypatch.setattr(
-        holding_module, "_compare_with_legacy_fill_list", lambda symbol, records: None
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_compat_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError("compat fallback should not run after authoritative v2 read")
-        ),
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_legacy_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError(
-                "raw legacy fallback should not run after authoritative v2 read"
-            )
-        ),
-    )
 
     assert holding_module.get_stock_fill_list("000001") == []
-
-
-def test_get_arranged_stock_fill_list_prefers_compat_fallback_before_raw_legacy(
-    monkeypatch,
-):
-    _, holding_module, _ = _reload_modules(monkeypatch)
-    sample = [
-        {
-            "symbol": "000001",
-            "date": 20240102,
-            "time": "09:31:00",
-            "price": 10.93,
-            "quantity": 200,
-            "amount": 2186.0,
-            "source": "om_projection_mirror",
-        }
-    ]
-
-    monkeypatch.setattr(
-        holding_module,
-        "_get_order_management_arranged_fill_list",
-        lambda symbol: None,
-    )
-    monkeypatch.setattr(
-        holding_module, "_get_compat_arranged_stock_fill_list", lambda symbol: sample
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_legacy_arranged_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError("raw legacy arranged stock_fills should stay fallback-only")
-        ),
-    )
-
-    assert holding_module.get_arranged_stock_fill_list("000001") == sample
 
 
 def test_get_arranged_stock_fill_list_treats_empty_order_management_projection_as_authoritative(
@@ -269,27 +162,6 @@ def test_get_arranged_stock_fill_list_treats_empty_order_management_projection_a
         holding_module,
         "_get_order_management_arranged_fill_list",
         lambda symbol: [],
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_compare_with_legacy_arranged_fill_list",
-        lambda symbol, records: None,
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_compat_arranged_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError("compat fallback should not run after authoritative v2 read")
-        ),
-    )
-    monkeypatch.setattr(
-        holding_module,
-        "_get_legacy_arranged_stock_fill_list",
-        lambda symbol: (_ for _ in ()).throw(
-            AssertionError(
-                "raw legacy fallback should not run after authoritative v2 read"
-            )
-        ),
     )
 
     assert holding_module.get_arranged_stock_fill_list("000001") == []
@@ -416,31 +288,6 @@ def test_entry_view_adapter_treats_v2_miss_as_authoritative(monkeypatch):
     )
 
 
-def test_entry_view_adapter_keeps_legacy_lookup_for_lot_compat_ids(monkeypatch):
-    _reload_modules(monkeypatch)
-    import freshquant.order_management.entry_adapter as entry_adapter_module
-
-    class Repo:
-        def find_position_entry(self, entry_id):
-            return None
-
-        def find_buy_lot(self, buy_lot_id):
-            assert buy_lot_id == "lot_1"
-            return {
-                "buy_lot_id": "lot_1",
-                "symbol": "000001",
-                "buy_price_real": 10.2,
-                "remaining_quantity": 200,
-                "original_quantity": 300,
-                "status": "partial",
-            }
-
-    row = entry_adapter_module.get_entry_view("lot_1", repository=Repo())
-
-    assert row["entry_id"] == "lot_1"
-    assert row["entry_type"] == "legacy_buy_lot"
-
-
 def test_open_entry_view_adapter_treats_empty_v2_result_as_authoritative(monkeypatch):
     _reload_modules(monkeypatch)
     import freshquant.order_management.entry_adapter as entry_adapter_module
@@ -469,7 +316,7 @@ def test_open_entry_slice_adapter_treats_empty_v2_result_as_authoritative(monkey
             )
 
     assert (
-        entry_adapter_module.list_open_entry_slices_compat(
+        entry_adapter_module.list_open_entry_slices(
             symbol="000001",
             repository=Repo(),
         )

@@ -26,8 +26,6 @@ def find_anchor_slices_present(
 ) -> list[float]:
     """查询旧锚点价格当前是否仍存在于 ``om_entry_slices``（只读）。"""
 
-    if not hasattr(collection, "find_one"):
-        return []
     found: list[float] = []
     for price in sorted(float(item) for item in anchor_prices):
         match = collection.find_one(
@@ -91,18 +89,10 @@ def sample_archive_replay(
 ) -> dict[str, Any]:
     """读取一条 archive 记录作为回放样例（只读）。"""
 
-    if not hasattr(collection, "find"):
-        return {"available": False, "error": "collection has no find()"}
     query = {}
     if symbol not in {None, ""}:
         query["symbol"] = str(symbol).strip()
-    try:
-        finder = collection.find(query)
-        rows = list(finder.limit(max(int(limit or 1), 1)))
-    except TypeError:
-        rows = list(collection.find(query))[: max(int(limit or 1), 1)]
-    except AttributeError:
-        rows = list(collection.find(query))[: max(int(limit or 1), 1)]
+    rows = list(collection.find(query)[: max(int(limit or 1), 1)])
     return {
         "available": bool(rows),
         "count": len(rows),

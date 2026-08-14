@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 from freshquant.order_management.entry_adapter import (
-    list_open_entry_slices_compat,
+    list_open_entry_slices,
     list_open_entry_views,
 )
 from freshquant.order_management.guardian.read_model import (
@@ -104,33 +104,24 @@ def list_open_buy_fills(symbol, repository=None):
 
 def list_arranged_fills(symbol, repository=None):
     repository = repository or OrderManagementRepository()
-    open_slices = list_open_entry_slices_compat(symbol=symbol, repository=repository)
+    open_slices = list_open_entry_slices(symbol=symbol, repository=repository)
     entry_views = list_open_entry_views(symbol, repository=repository)
-    supports_v2_entries = hasattr(repository, "list_position_entries")
     entry_by_id = {
         item.get("entry_id"): item
         for item in entry_views
         if item.get("entry_id") is not None
     }
-    if supports_v2_entries:
-        missing_entry_ids = {
-            str(item.get("entry_id") or "").strip()
-            for item in open_slices
-            if str(item.get("entry_id") or "").strip()
-            and str(item.get("entry_id") or "").strip() not in entry_by_id
-        }
-        if hasattr(repository, "find_position_entry"):
-            for entry_id in missing_entry_ids:
-                entry = repository.find_position_entry(entry_id)
-                if entry is None:
-                    continue
-                entry_by_id[entry_id] = dict(entry)
-    elif hasattr(repository, "list_buy_lots"):
-        for item in repository.list_buy_lots(symbol):
-            entry_id = str(item.get("buy_lot_id") or "").strip()
-            if not entry_id or entry_id in entry_by_id:
-                continue
-            entry_by_id[entry_id] = dict(item)
+    missing_entry_ids = {
+        str(item.get("entry_id") or "").strip()
+        for item in open_slices
+        if str(item.get("entry_id") or "").strip()
+        and str(item.get("entry_id") or "").strip() not in entry_by_id
+    }
+    for entry_id in missing_entry_ids:
+        entry = repository.find_position_entry(entry_id)
+        if entry is None:
+            continue
+        entry_by_id[entry_id] = dict(entry)
     normalized_slices = [
         _with_resolved_date_time(
             item,

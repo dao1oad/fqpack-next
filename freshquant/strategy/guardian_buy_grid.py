@@ -969,14 +969,14 @@ class GuardianBuyGridService:
         t_quantity = 0
         try:
             from freshquant.order_management.entry_adapter import (
-                list_open_entry_slices_compat,
+                list_open_entry_slices,
             )
             from freshquant.order_management.repository import (
                 OrderManagementRepository,
             )
 
             repository = self.order_repository or OrderManagementRepository()
-            open_slices = list_open_entry_slices_compat(
+            open_slices = list_open_entry_slices(
                 symbol=code,
                 repository=repository,
             )

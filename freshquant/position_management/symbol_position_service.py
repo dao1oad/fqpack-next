@@ -78,8 +78,7 @@ class SingleSymbolPositionService:
 
     def refresh_all_from_positions(self):
         symbols = sorted(set(self._xt_position_map()))
-        if hasattr(self.repository, "delete_symbol_snapshots_missing_symbols"):
-            self.repository.delete_symbol_snapshots_missing_symbols(symbols)
+        self.repository.delete_symbol_snapshots_missing_symbols(symbols)
         rows = []
         for symbol in symbols:
             snapshot = self.resolve_symbol_snapshot(symbol, None)

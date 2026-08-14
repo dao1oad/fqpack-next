@@ -572,14 +572,12 @@ class ExternalOrderReconcileService:
         inferred_member_key = build_reconciliation_resolution_member_key(
             resolution_id=resolution_id
         )
-        existing_entry = None
-        if hasattr(self.repository, "list_position_entries"):
-            existing_entry = select_cluster_entry(
-                self.repository.list_position_entries(symbol=gap["symbol"]),
-                trade_fact,
-                inferred_member_key,
-                position_type=trade_fact["position_type"],
-            )
+        existing_entry = select_cluster_entry(
+            self.repository.list_position_entries(symbol=gap["symbol"]),
+            trade_fact,
+            inferred_member_key,
+            position_type=trade_fact["position_type"],
+        )
         arrange_runtime = _resolve_external_arrangement_runtime(
             gap["symbol"],
             trade_fact,
@@ -693,26 +691,9 @@ class ExternalOrderReconcileService:
         legacy_allocations = []
         empty_candidate_fallback = False
         if remaining > 0:
-            # #571 D2：空候选兜底 —— 无 V2 open slice、也无 legacy 候选时，
-            # 不再抛错中断整轮 reconcile；落带审计标记的 resolution。
-            if _symbol_known_to_v2(self.repository, gap["symbol"]):
-                # 根①写侧收敛（步骤 5）：V2 覆盖标的的剩余分配不走 legacy
-                # 兜底（legacy 三账本已冻结），改走审计 fallback 路径。
-                empty_candidate_fallback = True
-            elif bool(self.repository.list_buy_lots(gap["symbol"])) and bool(
-                self.repository.list_open_slices(gap["symbol"])
-            ):
-                legacy_allocations = _allocate_gap_to_legacy_buy_lots(
-                    repository=self.repository,
-                    symbol=gap["symbol"],
-                    quantity=remaining,
-                    price=float(gap.get("price_estimate") or 0.0),
-                    resolution_id=resolution_id,
-                    trade_time=int(now),
-                )
-                remaining = 0
-            else:
-                empty_candidate_fallback = True
+            # 6a 读侧收口：V2 为唯一分配路径；无 V2 open slice 候选时落
+            # 审计 fallback（不再走 legacy 兜底——legacy 三账本已冻结，随 6b 删除）。
+            empty_candidate_fallback = True
 
         resolution = {
             "resolution_id": resolution_id,
@@ -776,40 +757,15 @@ def _build_positions_by_symbol(positions):
 def _build_internal_remaining_by_symbol(repository):
     result = {}
     v2_known_symbols = set()
-    position_entries = []
-    if hasattr(repository, "list_position_entries"):
-        position_entries = list(repository.list_position_entries() or [])
-        v2_known_symbols = {item.get("symbol") for item in position_entries}
+    position_entries = list(repository.list_position_entries() or [])
+    v2_known_symbols = {item.get("symbol") for item in position_entries}
     for item in position_entries:
         remaining_quantity = int(item.get("remaining_quantity", 0) or 0)
         if remaining_quantity <= 0:
             continue
         symbol = item["symbol"]
         result[symbol] = result.get(symbol, 0) + remaining_quantity
-    for item in repository.list_buy_lots():
-        symbol = item["symbol"]
-        if symbol in v2_known_symbols:
-            # 根①写侧收敛（步骤 5）：V2 曾存在该标的（含已清仓）时，
-            # legacy 冻结残留不再计入内部持仓，避免清仓标的回灌冻结快照
-            # 产生虚假 sell gap。
-            continue
-        result[symbol] = result.get(symbol, 0) + int(item.get("remaining_quantity", 0))
     return result
-
-
-def _symbol_known_to_v2(repository, symbol):
-    """该标的是否曾被 V2 position_entries 覆盖（含已清仓）。
-
-    根①写侧收敛（步骤 5）：V2 覆盖过的标的不得再走 legacy 兜底分配，
-    避免改写冻结快照（与 internal remaining 同口径）。
-    """
-
-    if not hasattr(repository, "list_position_entries"):
-        return False
-    for item in repository.list_position_entries() or []:
-        if item.get("symbol") == symbol:
-            return True
-    return False
 
 
 def _detect_sell_gap_blast(
@@ -872,27 +828,25 @@ def _collect_recent_sell_evidence(*, repository, detected_at, symbols):
     evidence_symbols = set()
     quantity_total = 0
 
-    if hasattr(repository, "list_trade_facts"):
-        for symbol in tracked_symbols:
-            for item in repository.list_trade_facts(symbol=symbol) or []:
-                if str(item.get("side") or "").lower() != "sell":
-                    continue
-                trade_time = int(item.get("trade_time") or 0)
-                if trade_time < lower_bound:
-                    continue
-                evidence_symbols.add(symbol)
-                quantity_total += int(item.get("quantity") or 0)
+    for symbol in tracked_symbols:
+        for item in repository.list_trade_facts(symbol=symbol) or []:
+            if str(item.get("side") or "").lower() != "sell":
+                continue
+            trade_time = int(item.get("trade_time") or 0)
+            if trade_time < lower_bound:
+                continue
+            evidence_symbols.add(symbol)
+            quantity_total += int(item.get("quantity") or 0)
 
-    if hasattr(repository, "list_execution_fills"):
-        for symbol in tracked_symbols:
-            for item in repository.list_execution_fills(symbol=symbol) or []:
-                if str(item.get("side") or "").lower() != "sell":
-                    continue
-                trade_time = int(item.get("trade_time") or 0)
-                if trade_time < lower_bound:
-                    continue
-                evidence_symbols.add(symbol)
-                quantity_total += int(item.get("quantity") or 0)
+    for symbol in tracked_symbols:
+        for item in repository.list_execution_fills(symbol=symbol) or []:
+            if str(item.get("side") or "").lower() != "sell":
+                continue
+            trade_time = int(item.get("trade_time") or 0)
+            if trade_time < lower_bound:
+                continue
+            evidence_symbols.add(symbol)
+            quantity_total += int(item.get("quantity") or 0)
 
     return {
         "symbol_count": len(evidence_symbols),
@@ -907,8 +861,6 @@ def _resolve_recent_guardian_sell_source_entries(
     quantity,
     detected_at,
 ):
-    if not hasattr(repository, "list_order_requests"):
-        return []
     target_quantity = int(quantity or 0)
     if target_quantity <= 0:
         return []
@@ -941,11 +893,7 @@ def _resolve_recent_guardian_sell_source_entries(
         raw_entries = _extract_guardian_sell_source_entries(request)
         planned_quantity = _resolve_guardian_sell_source_quantity(request, raw_entries)
         runtime_entries = []
-        if (
-            not raw_entries
-            and planned_quantity >= target_quantity
-            and hasattr(repository, "list_open_entry_slices")
-        ):
+        if not raw_entries and planned_quantity >= target_quantity:
             runtime_entries = resolve_guardian_sell_source_entries_from_open_slices(
                 repository.list_open_entry_slices(symbol=symbol),
                 exit_price=request.get("price"),
@@ -984,8 +932,6 @@ def _collect_tp_return_loss_evidence(*, repository, symbol, detected_at):
     fill 缺失）时，返回证据行；调用方只告警、不阻断自动平账。
     """
 
-    if not hasattr(repository, "list_order_requests"):
-        return []
     window_start_epoch = int(detected_at) - _SELL_SOURCE_REQUEST_WINDOW_SECONDS
     window_start_iso = datetime.fromtimestamp(
         window_start_epoch,
@@ -1010,21 +956,19 @@ def _collect_tp_return_loss_evidence(*, repository, symbol, detected_at):
     if not tp_requests:
         return []
     filled_internal_order_ids: set[str] = set()
-    if hasattr(repository, "list_execution_fills"):
-        fills = repository.list_execution_fills(symbol=symbol) or []
-        filled_internal_order_ids = {
-            str(item.get("internal_order_id") or "").strip()
-            for item in fills
-            if str(item.get("internal_order_id") or "").strip()
-        }
+    fills = repository.list_execution_fills(symbol=symbol) or []
+    filled_internal_order_ids = {
+        str(item.get("internal_order_id") or "").strip()
+        for item in fills
+        if str(item.get("internal_order_id") or "").strip()
+    }
     evidence = []
     for request in tp_requests:
         order = None
-        if hasattr(repository, "find_order_by_request_id"):
-            try:
-                order = repository.find_order_by_request_id(request.get("request_id"))
-            except Exception:
-                order = None
+        try:
+            order = repository.find_order_by_request_id(request.get("request_id"))
+        except Exception:
+            order = None
         internal_order_id = str(
             (order or {}).get("internal_order_id")
             or request.get("internal_order_id")
@@ -1974,40 +1918,6 @@ def _consume_entry_slice_allocation(
         "allocated_quantity": allocated_quantity,
         "symbol": symbol,
     }
-
-
-def _allocate_gap_to_legacy_buy_lots(
-    *,
-    repository,
-    symbol,
-    quantity,
-    price,
-    resolution_id,
-    trade_time,
-):
-    remaining = int(quantity or 0)
-    if remaining <= 0:
-        return []
-    buy_lots = repository.list_buy_lots(symbol)
-    open_slices = repository.list_open_slices(symbol)
-    sell_trade_fact = {
-        "trade_fact_id": resolution_id,
-        "symbol": symbol,
-        "side": "sell",
-        "quantity": remaining,
-        "price": price,
-        "trade_time": trade_time,
-    }
-    allocations = allocate_sell_to_slices(
-        buy_lots=buy_lots,
-        open_slices=open_slices,
-        sell_trade_fact=sell_trade_fact,
-    )
-    for item in buy_lots:
-        repository.replace_buy_lot(item)
-    repository.replace_open_slices(open_slices)
-    repository.insert_sell_allocations(allocations)
-    return allocations
 
 
 def _resolve_entry_status(remaining_quantity, original_quantity):

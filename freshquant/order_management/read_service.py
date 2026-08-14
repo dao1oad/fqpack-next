@@ -142,15 +142,13 @@ class OrderManagementReadService:
                 item.get("execution_fill_id") or "",
             ),
         )
-        exit_allocations = []
-        if hasattr(self.repository, "list_exit_allocations_for_request"):
-            exit_allocations = [
-                _sanitize_document(item)
-                for item in self.repository.list_exit_allocations_for_request(
-                    request_id=(request or {}).get("request_id"),
-                    internal_order_id=order_id,
-                )
-            ]
+        exit_allocations = [
+            _sanitize_document(item)
+            for item in self.repository.list_exit_allocations_for_request(
+                request_id=(request or {}).get("request_id"),
+                internal_order_id=order_id,
+            )
+        ]
         assembled_order = _assemble_order_row(
             order,
             request,
@@ -342,25 +340,10 @@ class OrderManagementReadService:
         allocations_by_request: dict[str, list[dict]] = {}
         allocations_by_internal_order: dict[str, list[dict]] = {}
         if sell_request_ids or sell_internal_order_ids:
-            if hasattr(self.repository, "list_exit_allocations_for_requests"):
-                allocation_rows = self.repository.list_exit_allocations_for_requests(
-                    list(sell_request_ids),
-                    internal_order_ids=list(sell_internal_order_ids),
-                )
-            else:
-                allocation_rows = []
-                for request_id in sell_request_ids:
-                    allocation_rows.extend(
-                        self.repository.list_exit_allocations_for_request(
-                            request_id=request_id
-                        )
-                    )
-                for internal_order_id in sell_internal_order_ids:
-                    allocation_rows.extend(
-                        self.repository.list_exit_allocations_for_request(
-                            internal_order_id=internal_order_id
-                        )
-                    )
+            allocation_rows = self.repository.list_exit_allocations_for_requests(
+                list(sell_request_ids),
+                internal_order_ids=list(sell_internal_order_ids),
+            )
             for allocation in allocation_rows:
                 request_id = str(allocation.get("request_id") or "").strip()
                 if request_id:
@@ -422,20 +405,13 @@ class OrderManagementReadService:
         limit=None,
         sort_field="updated_at",
     ):
-        if hasattr(self.repository, "list_broker_orders"):
-            orders = self.repository.list_broker_orders(
-                symbol=symbol,
-                states=states,
-                skip=skip,
-                limit=limit,
-                sort_field=sort_field,
-            )
-        else:
-            orders = self.repository.list_orders(
-                symbol=symbol,
-                states=states,
-                missing_broker_only=False,
-            )
+        orders = self.repository.list_broker_orders(
+            symbol=symbol,
+            states=states,
+            skip=skip,
+            limit=limit,
+            sort_field=sort_field,
+        )
         if missing_broker_only:
             orders = [
                 item for item in orders if item.get("broker_order_id") in (None, "")
@@ -445,26 +421,20 @@ class OrderManagementReadService:
     def _find_broker_order(self, internal_order_id):
         # #582：按 internal_order_id 走索引反查，不再把 internal_order_id 当
         # broker_order_key 直查，也不再全表扫描兜底。
-        if hasattr(self.repository, "find_broker_order_by_internal_order_id"):
-            order = self.repository.find_broker_order_by_internal_order_id(
-                internal_order_id
-            )
-            if order is not None:
-                return order
-        if hasattr(self.repository, "find_broker_order_by_broker_order_id"):
-            order = self.repository.find_broker_order_by_broker_order_id(
-                internal_order_id
-            )
-            if order is not None:
-                return order
+        order = self.repository.find_broker_order_by_internal_order_id(
+            internal_order_id
+        )
+        if order is not None:
+            return order
+        order = self.repository.find_broker_order_by_broker_order_id(internal_order_id)
+        if order is not None:
+            return order
         return self.repository.find_order(internal_order_id)
 
     def _list_execution_fills(self, broker_order_key, *, internal_order_id):
-        if hasattr(self.repository, "list_execution_fills"):
-            return self.repository.list_execution_fills(
-                broker_order_keys=[broker_order_key]
-            )
-        return self.repository.list_trade_facts(internal_order_ids=[internal_order_id])
+        return self.repository.list_execution_fills(
+            broker_order_keys=[broker_order_key]
+        )
 
 
 def _assemble_order_row(order, request, *, exit_allocations=None):

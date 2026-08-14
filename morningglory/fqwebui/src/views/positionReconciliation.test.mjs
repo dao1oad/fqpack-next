@@ -26,13 +26,12 @@ const createRows = () => ([
     snapshot: { quantity: 1200, market_value: 520000 },
     entry_ledger: { quantity: 1000, market_value: 510000 },
     slice_ledger: { quantity: 1000, market_value: 510000 },
-    compat_projection: { quantity: 1000, market_value: 510000 },
     stock_fills_projection: { quantity: 1000, market_value: 510000 },
     reconciliation: { state: 'OBSERVING', signed_gap_quantity: 200, open_gap_count: 1 },
     rule_results: {
       R1: { id: 'R1', key: 'broker_snapshot_consistency', label: '券商与PM快照', expected_relation: 'exact_match', status: 'OK', mismatch_codes: [] },
       R2: { id: 'R2', key: 'ledger_internal_consistency', label: 'Entry与Slice账本', expected_relation: 'exact_match', status: 'OK', mismatch_codes: [] },
-      R3: { id: 'R3', key: 'compat_projection_consistency', label: '账本与兼容投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
+      R3: { id: 'R3', key: 'projection_consistency', label: '账本与StockFills投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
       R4: { id: 'R4', key: 'broker_vs_ledger_consistency', label: '券商与账本解释', expected_relation: 'reconciliation_explained', status: 'WARN', mismatch_codes: ['broker_vs_entry_quantity_mismatch'] },
     },
     surface_values: {
@@ -40,7 +39,6 @@ const createRows = () => ([
       snapshot: { quantity: 1200, market_value: 520000, quantity_source: 'pm_symbol_position_snapshots' },
       entry_ledger: { quantity: 1000, market_value: 510000, quantity_source: 'om_position_entries' },
       slice_ledger: { quantity: 1000, market_value: 510000, quantity_source: 'om_entry_slices.remaining_quantity' },
-      compat_projection: { quantity: 1000, market_value: 510000, quantity_source: 'stock_fills_compat' },
       stock_fills_projection: { quantity: 1000, market_value: 510000, quantity_source: 'api.stock_fills' },
     },
     evidence_sections: {
@@ -64,13 +62,12 @@ const createRows = () => ([
     snapshot: { quantity: 800, market_value: 220000 },
     entry_ledger: { quantity: 700, market_value: 210000 },
     slice_ledger: { quantity: 600, market_value: 200000 },
-    compat_projection: { quantity: 700, market_value: 210000 },
     stock_fills_projection: { quantity: 700, market_value: 210000 },
     reconciliation: { state: 'BROKEN', signed_gap_quantity: 100, open_gap_count: 1 },
     rule_results: {
       R1: { id: 'R1', key: 'broker_snapshot_consistency', label: '券商与PM快照', expected_relation: 'exact_match', status: 'OK', mismatch_codes: [] },
       R2: { id: 'R2', key: 'ledger_internal_consistency', label: 'Entry与Slice账本', expected_relation: 'exact_match', status: 'ERROR', mismatch_codes: ['entry_vs_slice_quantity_mismatch'] },
-      R3: { id: 'R3', key: 'compat_projection_consistency', label: '账本与兼容投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
+      R3: { id: 'R3', key: 'projection_consistency', label: '账本与StockFills投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
       R4: { id: 'R4', key: 'broker_vs_ledger_consistency', label: '券商与账本解释', expected_relation: 'reconciliation_explained', status: 'ERROR', mismatch_codes: ['broker_vs_entry_quantity_mismatch'] },
     },
     surface_values: {
@@ -78,7 +75,6 @@ const createRows = () => ([
       snapshot: { quantity: 800, market_value: 220000, quantity_source: 'pm_symbol_position_snapshots' },
       entry_ledger: { quantity: 700, market_value: 210000, quantity_source: 'om_position_entries' },
       slice_ledger: { quantity: 600, market_value: 200000, quantity_source: 'om_entry_slices.remaining_quantity' },
-      compat_projection: { quantity: 700, market_value: 210000, quantity_source: 'stock_fills_compat' },
       stock_fills_projection: { quantity: 700, market_value: 210000, quantity_source: 'api.stock_fills' },
     },
     evidence_sections: {
@@ -101,13 +97,12 @@ const createRows = () => ([
     snapshot: { quantity: 400, market_value: 150000 },
     entry_ledger: { quantity: 400, market_value: 150000 },
     slice_ledger: { quantity: 400, market_value: 150000 },
-    compat_projection: { quantity: 400, market_value: 150000 },
     stock_fills_projection: { quantity: 400, market_value: 150000 },
     reconciliation: { state: 'AUTO_RECONCILED', signed_gap_quantity: 0, open_gap_count: 0 },
     rule_results: {
       R1: { id: 'R1', key: 'broker_snapshot_consistency', label: '券商与PM快照', expected_relation: 'exact_match', status: 'OK', mismatch_codes: [] },
       R2: { id: 'R2', key: 'ledger_internal_consistency', label: 'Entry与Slice账本', expected_relation: 'exact_match', status: 'OK', mismatch_codes: [] },
-      R3: { id: 'R3', key: 'compat_projection_consistency', label: '账本与兼容投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
+      R3: { id: 'R3', key: 'projection_consistency', label: '账本与StockFills投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
       R4: { id: 'R4', key: 'broker_vs_ledger_consistency', label: '券商与账本解释', expected_relation: 'reconciliation_explained', status: 'OK', mismatch_codes: [] },
     },
     surface_values: {
@@ -115,7 +110,6 @@ const createRows = () => ([
       snapshot: { quantity: 400, market_value: 150000, quantity_source: 'pm_symbol_position_snapshots' },
       entry_ledger: { quantity: 400, market_value: 150000, quantity_source: 'om_position_entries' },
       slice_ledger: { quantity: 400, market_value: 150000, quantity_source: 'om_entry_slices.remaining_quantity' },
-      compat_projection: { quantity: 400, market_value: 150000, quantity_source: 'stock_fills_compat' },
       stock_fills_projection: { quantity: 400, market_value: 150000, quantity_source: 'api.stock_fills' },
     },
     evidence_sections: {
@@ -138,13 +132,12 @@ const createRows = () => ([
     snapshot: { quantity: 0, market_value: 0 },
     entry_ledger: { quantity: 450, market_value: 95000 },
     slice_ledger: { quantity: 450, market_value: 95000 },
-    compat_projection: { quantity: 450, market_value: 95000 },
     stock_fills_projection: { quantity: 450, market_value: 95000 },
     reconciliation: { state: 'DRIFT', signed_gap_quantity: 50, open_gap_count: 0 },
     rule_results: {
       R1: { id: 'R1', key: 'broker_snapshot_consistency', label: '券商与PM快照', expected_relation: 'exact_match', status: 'ERROR', mismatch_codes: ['broker_vs_snapshot_quantity_mismatch'] },
       R2: { id: 'R2', key: 'ledger_internal_consistency', label: 'Entry与Slice账本', expected_relation: 'exact_match', status: 'OK', mismatch_codes: [] },
-      R3: { id: 'R3', key: 'compat_projection_consistency', label: '账本与兼容投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
+      R3: { id: 'R3', key: 'projection_consistency', label: '账本与StockFills投影', expected_relation: 'projection_match', status: 'OK', mismatch_codes: [] },
       R4: { id: 'R4', key: 'broker_vs_ledger_consistency', label: '券商与账本解释', expected_relation: 'reconciliation_explained', status: 'ERROR', mismatch_codes: ['broker_vs_entry_quantity_mismatch'] },
     },
     surface_values: {
@@ -152,7 +145,6 @@ const createRows = () => ([
       snapshot: { quantity: 0, market_value: 0, quantity_source: 'pm_symbol_position_snapshots' },
       entry_ledger: { quantity: 450, market_value: 95000, quantity_source: 'om_position_entries' },
       slice_ledger: { quantity: 450, market_value: 95000, quantity_source: 'om_entry_slices.remaining_quantity' },
-      compat_projection: { quantity: 450, market_value: 95000, quantity_source: 'stock_fills_compat' },
       stock_fills_projection: { quantity: 450, market_value: 95000, quantity_source: 'api.stock_fills' },
     },
     evidence_sections: {

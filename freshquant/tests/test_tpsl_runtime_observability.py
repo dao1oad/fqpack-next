@@ -87,17 +87,26 @@ class FalsyHit(dict):
 
 
 class FakeOrderRepository:
-    def list_open_slices(self, symbol=None, buy_lot_ids=None):
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
         return [
             {
-                "buy_lot_id": "lot1",
-                "lot_slice_id": "slice1",
+                "entry_id": "lot1",
+                "entry_slice_id": "slice1",
                 "guardian_price": 9.5,
                 "remaining_quantity": 300,
+                "original_quantity": 300,
+                "slice_seq": 1,
                 "sort_key": 1,
                 "symbol": symbol or "000001",
+                "position_type": "base",
             }
         ]
+
+    def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+        return []
+
+    def find_position_entry(self, entry_id):
+        return None
 
 
 class FixedPositionReader:
@@ -152,7 +161,7 @@ def test_tpsl_submit_intent_emits_trace_step():
             "updated_by": "tpsl_submit",
             "trigger_price": 10.8,
             "entry_details": [{"entry_id": "lot1", "quantity": 100}],
-            "buy_lot_details": [{"buy_lot_id": "lot1", "quantity": 100}],
+            "buy_lot_details": [],
         }
     ]
 

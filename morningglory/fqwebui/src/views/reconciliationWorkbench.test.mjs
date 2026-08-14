@@ -37,7 +37,6 @@ test('reconciliation workbench actions compose overview rows and symbol workspac
               snapshot: { quantity: 500 },
               entry_ledger: { quantity: 0 },
               slice_ledger: { quantity: 0 },
-              compat_projection: { quantity: 0 },
               stock_fills_projection: { quantity: 0 },
               reconciliation: {
                 state: 'DRIFT',

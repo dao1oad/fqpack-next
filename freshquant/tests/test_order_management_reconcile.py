@@ -405,6 +405,63 @@ class InMemoryRepository:
         self.exit_allocations.extend(dict(item) for item in allocations)
         return allocations
 
+    def list_exit_allocations_for_request(
+        self, *, request_id=None, internal_order_id=None
+    ):
+        rows = list(self.exit_allocations)
+        if request_id is not None:
+            rows = [item for item in rows if item.get("request_id") == request_id]
+        if internal_order_id is not None:
+            rows = [
+                item
+                for item in rows
+                if item.get("internal_order_id") == internal_order_id
+            ]
+        return [dict(item) for item in rows]
+
+    def list_exit_allocations_for_requests(
+        self, request_ids, *, internal_order_ids=None
+    ):
+        allowed_requests = set(request_ids)
+        rows = [
+            item
+            for item in self.exit_allocations
+            if item.get("request_id") in allowed_requests
+        ]
+        if internal_order_ids:
+            allowed_internal = set(internal_order_ids)
+            rows = [
+                item
+                for item in rows
+                if item.get("internal_order_id") in allowed_internal
+            ]
+        return [dict(item) for item in rows]
+
+    def sum_exit_allocations_for_request(
+        self, *, request_id=None, internal_order_id=None
+    ):
+        rows = self.list_exit_allocations_for_request(
+            request_id=request_id,
+            internal_order_id=internal_order_id,
+        )
+        by_slice: dict[str, int] = {}
+        by_entry: dict[str, int] = {}
+        for row in rows:
+            entry_id = str(row.get("entry_id") or "").strip()
+            entry_slice_id = str(row.get("entry_slice_id") or "").strip()
+            allocated_quantity = int(row.get("allocated_quantity") or 0)
+            if entry_id:
+                by_entry[entry_id] = by_entry.get(entry_id, 0) + allocated_quantity
+            if entry_slice_id:
+                by_slice[entry_slice_id] = (
+                    by_slice.get(entry_slice_id, 0) + allocated_quantity
+                )
+        return {
+            "by_slice": by_slice,
+            "by_entry": by_entry,
+            "total": sum(by_entry.values()),
+        }
+
 
 def _stub_ingest_side_effects(monkeypatch, *, marks=None, mark_label="updated"):
     monkeypatch.setattr(
@@ -516,17 +573,16 @@ def test_detect_external_candidates_from_position_delta():
             "internal_order_id": "ord_existing_1",
         }
     )
-    repository.insert_buy_lot(
+    repository.replace_position_entry(
         {
-            "buy_lot_id": "lot_existing_1",
-            "origin_trade_fact_id": "trade_existing_1",
+            "entry_id": "entry_existing_1",
             "symbol": "000001",
             "buy_price_real": 10.0,
             "original_quantity": 100,
             "remaining_quantity": 100,
             "amount_adjust": 1.0,
             "source": "strategy",
-            "status": "open",
+            "status": "OPEN",
             "arrange_mode": "runtime_grid",
             "sell_history": [],
         }
@@ -604,12 +660,13 @@ def test_detect_external_candidates_fuses_batch_sell_gap_without_recent_sell_evi
         runtime_events=runtime_events,
     )
     for symbol in ("000001", "000002", "000003", "000004"):
-        repository.insert_buy_lot(
+        repository.replace_position_entry(
             {
-                "buy_lot_id": f"lot_{symbol}",
-                "origin_trade_fact_id": f"trade_{symbol}",
+                "entry_id": f"entry_{symbol}",
                 "symbol": symbol,
+                "original_quantity": 100,
                 "remaining_quantity": 100,
+                "trade_time": 1_000,
             }
         )
 
@@ -634,12 +691,13 @@ def test_detect_external_candidates_allows_batch_sell_gap_when_recent_sell_evide
         runtime_events=runtime_events,
     )
     for symbol in ("000001", "000002", "000003", "000004"):
-        repository.insert_buy_lot(
+        repository.replace_position_entry(
             {
-                "buy_lot_id": f"lot_{symbol}",
-                "origin_trade_fact_id": f"trade_{symbol}",
+                "entry_id": f"entry_{symbol}",
                 "symbol": symbol,
+                "original_quantity": 100,
                 "remaining_quantity": 100,
+                "trade_time": 1_000,
             }
         )
     repository.trade_facts.extend(
@@ -2616,7 +2674,12 @@ def test_confirm_close_gap_emits_tp_return_loss_alert(monkeypatch):
         monkeypatch,
         runtime_events=runtime_events,
     )
-    buy_lot = build_buy_lot_from_trade_fact(
+    from freshquant.order_management.guardian.arranger import (
+        arrange_entry,
+        build_position_entry_from_trade_fact,
+    )
+
+    entry = build_position_entry_from_trade_fact(
         {
             "trade_fact_id": "trade_seed_buy_tp_loss",
             "symbol": "000001",
@@ -2628,10 +2691,10 @@ def test_confirm_close_gap_emits_tp_return_loss_alert(monkeypatch):
             "time": "09:31:00",
         }
     )
-    repository.insert_buy_lot(buy_lot)
-    repository.replace_lot_slices_for_lot(
-        buy_lot["buy_lot_id"],
-        arrange_buy_lot(buy_lot, lot_amount=3000, grid_interval=1.03),
+    repository.replace_position_entry(entry)
+    repository.replace_entry_slices_for_entry(
+        entry["entry_id"],
+        arrange_entry(entry, lot_amount=3000, grid_interval=1.03),
     )
     # TP 止盈请求已提交但无任何成交回报（回报丢失场景）
     repository.insert_order_request(

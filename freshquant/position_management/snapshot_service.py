@@ -83,11 +83,7 @@ class PositionSnapshotService:
         return details[0]
 
     def _state_from_bail(self, available_bail_balance):
-        thresholds = {}
-        if hasattr(self.repository, "get_config"):
-            thresholds = (self.repository.get_config() or {}).get(
-                "thresholds", {}
-            ) or {}
+        thresholds = (self.repository.get_config() or {}).get("thresholds", {}) or {}
         allow_open_min_bail = _safe_float(
             thresholds.get("allow_open_min_bail"),
             DEFAULT_ALLOW_OPEN_MIN_BAIL,

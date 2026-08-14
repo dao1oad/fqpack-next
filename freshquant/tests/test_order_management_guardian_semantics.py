@@ -201,7 +201,7 @@ def test_build_buy_lot_from_trade_fact_uses_beijing_time_even_if_local_fromtimes
     assert observed["timestamp"] == 1710000000
 
 
-def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():
+def test_list_arranged_fills_backfills_date_and_time_from_entry_trade_time():
     trade_time = 1710000000
     expected_dt = datetime.fromtimestamp(
         trade_time,
@@ -209,10 +209,27 @@ def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():
     )
 
     class FakeRepository:
-        def list_open_slices(self, symbol=None):
+        def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
             return [
                 {
-                    "buy_lot_id": "lot_1",
+                    "entry_id": "entry_1",
+                    "symbol": "000001",
+                    "trade_time": trade_time,
+                    "original_quantity": 200,
+                    "remaining_quantity": 200,
+                    "date": None,
+                    "time": None,
+                }
+            ]
+
+        def find_position_entry(self, entry_id):
+            return None
+
+        def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+            return [
+                {
+                    "entry_slice_id": "slice_1",
+                    "entry_id": "entry_1",
                     "symbol": "000001",
                     "guardian_price": 10.93,
                     "remaining_quantity": 200,
@@ -221,17 +238,7 @@ def test_list_arranged_fills_backfills_date_and_time_from_buy_lot_trade_time():
                     "status": "open",
                     "date": None,
                     "time": None,
-                }
-            ]
-
-        def list_buy_lots(self, symbol=None):
-            return [
-                {
-                    "buy_lot_id": "lot_1",
-                    "symbol": "000001",
-                    "trade_time": trade_time,
-                    "date": None,
-                    "time": None,
+                    "trade_time": None,
                 }
             ]
 

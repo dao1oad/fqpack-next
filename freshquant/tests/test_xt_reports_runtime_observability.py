@@ -25,6 +25,8 @@ class InMemoryRepository:
         self.buy_lots = []
         self.lot_slices = []
         self.sell_allocations = []
+        self.position_entries = []
+        self.entry_slices = []
 
     def insert_order_request(self, document):
         self.order_requests.append(document)
@@ -76,6 +78,13 @@ class InMemoryRepository:
             if str(order.get("broker_order_id")) == str(broker_order_id):
                 return order
         return None
+
+    def list_orders_by_broker_order_id(self, broker_order_id):
+        return [
+            order
+            for order in self.orders
+            if str(order.get("broker_order_id")) == str(broker_order_id)
+        ]
 
     def find_order_by_broker_correlation_token(self, token):
         for order in self.orders:
@@ -204,6 +213,58 @@ class InMemoryRepository:
     def insert_sell_allocations(self, allocations):
         self.sell_allocations.extend(allocations)
         return allocations
+
+    def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+        rows = list(self.position_entries)
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        if status is not None:
+            rows = [item for item in rows if item.get("status") == status]
+        return rows
+
+    def replace_position_entry(self, document):
+        for index, entry in enumerate(self.position_entries):
+            if entry["entry_id"] == document["entry_id"]:
+                self.position_entries[index] = dict(document)
+                return document
+        self.position_entries.append(dict(document))
+        return document
+
+    def list_open_entry_slices(self, *, symbol=None, entry_ids=None):
+        rows = [
+            item
+            for item in self.entry_slices
+            if int(item.get("remaining_quantity") or 0) > 0
+        ]
+        if symbol is not None:
+            rows = [item for item in rows if item.get("symbol") == symbol]
+        if entry_ids is not None:
+            allowed = set(entry_ids)
+            rows = [item for item in rows if item.get("entry_id") in allowed]
+        return [dict(item) for item in rows]
+
+    def replace_entry_slices_for_entry(self, entry_id, slices):
+        self.entry_slices = [
+            item for item in self.entry_slices if item["entry_id"] != entry_id
+        ]
+        self.entry_slices.extend(dict(item) for item in slices)
+        return slices
+
+    def list_trade_facts(self, symbol):
+        return [dict(item) for item in self.trade_facts if item.get("symbol") == symbol]
+
+    def list_exit_allocations_for_request(
+        self, *, request_id=None, internal_order_id=None
+    ):
+        return []
+
+    def sum_exit_allocations_for_request(
+        self, *, request_id=None, internal_order_id=None
+    ):
+        return {"by_slice": {}, "by_entry": {}, "total": 0}
 
 
 def _stub_ingest_side_effects(monkeypatch):

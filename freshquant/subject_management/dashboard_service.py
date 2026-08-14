@@ -8,7 +8,7 @@ from datetime import datetime
 from bson import ObjectId
 
 from freshquant.order_management.entry_adapter import (
-    list_open_entry_slices_compat,
+    list_open_entry_slices,
     list_open_entry_views,
     position_type_of,
 )
@@ -238,7 +238,7 @@ class SubjectManagementDashboardService:
         avg_price = _safe_float_or_none(position.get("avg_price"))
         latest_price, latest_price_source = _resolve_valid_latest_price(symbol_position)
         entry_slices_by_entry = _group_entry_slices_by_entry(
-            list_open_entry_slices_compat(
+            list_open_entry_slices(
                 symbol=normalized_symbol,
                 entry_ids=[item.get("entry_id") for item in entries],
                 repository=self.order_repository,

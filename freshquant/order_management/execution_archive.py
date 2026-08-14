@@ -144,11 +144,7 @@ def archive_execution_reports(
         from freshquant.order_management.db import DBOrderManagement
 
         collection = DBOrderManagement[EXECUTION_ARCHIVE_COLLECTION]
-    existing_archive_documents = []
-    if hasattr(collection, "find"):
-        existing_archive_documents = [
-            _sanitize(dict(item)) for item in collection.find({})
-        ]
+    existing_archive_documents = [_sanitize(dict(item)) for item in collection.find({})]
     existing_xt_documents = [
         item
         for item in existing_archive_documents
@@ -443,15 +439,6 @@ def archive_execution_reports(
         }
 
     ensure_execution_archive_indexes(collection)
-    if not hasattr(collection, "bulk_write"):
-        return _insert_execution_archive_without_bulk(
-            collection=collection,
-            documents=documents,
-            reason=reason,
-            archived_at=now,
-            ambiguous_evidence_count=ambiguous_evidence_count,
-            conflicting_evidence_count=conflicting_evidence_count,
-        )
     operations = []
     for document in documents:
         immutable = {
@@ -551,8 +538,6 @@ def backfill_execution_history(
 
 
 def ensure_execution_archive_indexes(collection):
-    if not hasattr(collection, "create_index"):
-        return
     collection.create_index(
         [("archive_key", ASCENDING)],
         unique=True,
@@ -668,47 +653,6 @@ def _append_unique(items, value):
 def _append_non_empty(items, value):
     if value not in (None, ""):
         _append_unique(items, value)
-
-
-def _insert_execution_archive_without_bulk(
-    *,
-    collection,
-    documents,
-    reason,
-    archived_at,
-    ambiguous_evidence_count,
-    conflicting_evidence_count,
-):
-    existing = {str(item.get("archive_key") or "") for item in collection.find({})}
-    inserts = []
-    for document in documents:
-        if document["archive_key"] in existing:
-            continue
-        inserts.append(
-            {
-                **document,
-                "first_archived_at": archived_at,
-                "last_archived_at": archived_at,
-                **(
-                    {"last_xt_archived_at": archived_at}
-                    if "xt_trades" in set(document.get("sources") or [])
-                    else {}
-                ),
-                "last_archive_reason": str(reason or "unknown"),
-            }
-        )
-    if inserts:
-        collection.insert_many(inserts, ordered=False)
-    return {
-        "discovered": len(documents),
-        "ambiguous_evidence": ambiguous_evidence_count,
-        "conflicting_evidence": conflicting_evidence_count,
-        "attempted": len(documents),
-        "upserted": len(inserts),
-        "matched": len(documents) - len(inserts),
-        "dry_run": False,
-        "collection": EXECUTION_ARCHIVE_COLLECTION,
-    }
 
 
 def _stable_price(value):

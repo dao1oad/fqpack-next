@@ -40,11 +40,11 @@ class FakeDatabase:
 
 
 class FakeRepository:
-    def __init__(self, buy_lots):
-        self.buy_lots = list(buy_lots)
+    def __init__(self, entries):
+        self.position_entries = list(entries)
 
-    def list_buy_lots(self, symbol=None):
-        rows = list(self.buy_lots)
+    def list_position_entries(self, *, symbol=None, entry_ids=None, status=None):
+        rows = list(self.position_entries)
         if symbol is not None:
             rows = [item for item in rows if item.get("symbol") == symbol]
         return rows
@@ -120,7 +120,7 @@ def test_sync_symbol_replaces_legacy_stock_fills_with_open_buy_lot_mirror():
     repository = FakeRepository(
         [
             {
-                "buy_lot_id": "lot_open_1",
+                "entry_id": "entry_open_1",
                 "symbol": "000001",
                 "remaining_quantity": 300,
                 "date": 20240102,
@@ -134,7 +134,7 @@ def test_sync_symbol_replaces_legacy_stock_fills_with_open_buy_lot_mirror():
                 "source": "manual_locked",
             },
             {
-                "buy_lot_id": "lot_closed_1",
+                "entry_id": "entry_closed_1",
                 "symbol": "000001",
                 "remaining_quantity": 0,
                 "date": 20240103,
@@ -243,7 +243,7 @@ def test_sync_symbol_removes_symbol_rows_when_no_open_lots_remain():
     repository = FakeRepository(
         [
             {
-                "buy_lot_id": "lot_closed_1",
+                "entry_id": "entry_closed_1",
                 "symbol": "000001",
                 "remaining_quantity": 0,
                 "date": 20240103,
@@ -450,7 +450,7 @@ def test_stock_fills_compat_service_sync_symbols_rebuilds_all_known_symbols():
     repository = FakeRepository(
         [
             {
-                "buy_lot_id": "lot_open_1",
+                "entry_id": "entry_open_1",
                 "symbol": "000001",
                 "remaining_quantity": 300,
                 "date": 20240102,
@@ -515,7 +515,7 @@ def test_stock_fills_compat_service_compare_symbol_reports_mismatch():
     repository = FakeRepository(
         [
             {
-                "buy_lot_id": "lot_open_1",
+                "entry_id": "entry_open_1",
                 "symbol": "000001",
                 "remaining_quantity": 300,
                 "date": 20240102,

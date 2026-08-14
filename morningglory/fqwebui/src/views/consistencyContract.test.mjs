@@ -12,7 +12,7 @@ import {
 test('consistency contract exposes canonical surface order and labels', () => {
   assert.deepEqual(
     CONSISTENCY_SURFACES.map((item) => item.key),
-    ['broker', 'snapshot', 'entry_ledger', 'slice_ledger', 'compat_projection', 'stock_fills_projection'],
+    ['broker', 'snapshot', 'entry_ledger', 'slice_ledger', 'stock_fills_projection'],
   )
   assert.equal(getConsistencySurfaceMeta('broker').label, '券商')
   assert.equal(getConsistencySurfaceMeta('snapshot').label, 'PM快照')

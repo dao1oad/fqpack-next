@@ -132,6 +132,15 @@ class InMemoryRepository:
                 return order
         return None
 
+    def find_order_by_request_id(self, request_id):
+        for order in self.orders:
+            if order.get("request_id") == request_id:
+                return order
+        return None
+
+    def list_trade_facts(self, symbol):
+        return [dict(item) for item in self.trade_facts if item.get("symbol") == symbol]
+
     def find_order_request(self, request_id):
         for request in self.order_requests:
             if request["request_id"] == request_id:

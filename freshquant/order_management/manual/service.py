@@ -6,7 +6,7 @@ from loguru import logger
 
 from freshquant.order_management.entry_adapter import (
     POSITION_TYPE_BASE,
-    list_open_entry_slices_compat,
+    list_open_entry_slices,
     list_open_entry_views,
 )
 from freshquant.order_management.guardian.allocation_policy import (
@@ -101,58 +101,52 @@ class OrderManagementManualWriteService:
         if created:
             if side == "buy":
                 # 根①写侧收敛（步骤 5）：manual 导入单写 V2，legacy 三账本冻结。
-                if hasattr(self.repository, "replace_position_entry") and hasattr(
-                    self.repository, "replace_entry_slices_for_entry"
-                ):
-                    position_entry = _build_manual_import_entry(
-                        trade_fact, position_type=POSITION_TYPE_BASE
-                    )
-                    self.repository.replace_position_entry(position_entry)
-                    entry_slices = arrange_entry(
-                        position_entry,
-                        lot_amount=lot_amount,
-                        grid_interval=grid_interval,
-                    )
-                    self.repository.replace_entry_slices_for_entry(
-                        position_entry["entry_id"],
-                        entry_slices,
-                    )
+                position_entry = _build_manual_import_entry(
+                    trade_fact, position_type=POSITION_TYPE_BASE
+                )
+                self.repository.replace_position_entry(position_entry)
+                entry_slices = arrange_entry(
+                    position_entry,
+                    lot_amount=lot_amount,
+                    grid_interval=grid_interval,
+                )
+                self.repository.replace_entry_slices_for_entry(
+                    position_entry["entry_id"],
+                    entry_slices,
+                )
                 self._notify_new_buy_trade(
                     symbol=symbol,
                     price=trade_fact["price"],
                     position_type=POSITION_TYPE_BASE,
                 )
             else:
-                if hasattr(self.repository, "list_position_entries") and hasattr(
-                    self.repository, "list_open_entry_slices"
-                ):
-                    entries = self.repository.list_position_entries(symbol=symbol)
-                    open_entry_slices = self.repository.list_open_entry_slices(
-                        symbol=symbol
+                entries = self.repository.list_position_entries(symbol=symbol)
+                open_entry_slices = self.repository.list_open_entry_slices(
+                    symbol=symbol
+                )
+                if entries and open_entry_slices:
+                    exit_allocations = allocate_sell_to_entry_slices(
+                        entries=entries,
+                        open_slices=open_entry_slices,
+                        sell_trade_fact=trade_fact,
                     )
-                    if entries and open_entry_slices:
-                        exit_allocations = allocate_sell_to_entry_slices(
-                            entries=entries,
-                            open_slices=open_entry_slices,
-                            sell_trade_fact=trade_fact,
+                    for item in entries:
+                        self.repository.replace_position_entry(item)
+                    touched_entry_ids = {
+                        item.get("entry_id")
+                        for item in open_entry_slices
+                        if item.get("entry_id")
+                    }
+                    for entry_id in touched_entry_ids:
+                        self.repository.replace_entry_slices_for_entry(
+                            entry_id,
+                            [
+                                item
+                                for item in open_entry_slices
+                                if item.get("entry_id") == entry_id
+                            ],
                         )
-                        for item in entries:
-                            self.repository.replace_position_entry(item)
-                        touched_entry_ids = {
-                            item.get("entry_id")
-                            for item in open_entry_slices
-                            if item.get("entry_id")
-                        }
-                        for entry_id in touched_entry_ids:
-                            self.repository.replace_entry_slices_for_entry(
-                                entry_id,
-                                [
-                                    item
-                                    for item in open_entry_slices
-                                    if item.get("entry_id") == entry_id
-                                ],
-                            )
-                        self.repository.insert_exit_allocations(exit_allocations)
+                    self.repository.insert_exit_allocations(exit_allocations)
                 # 根①写侧收敛（步骤 5）：manual 卖出单写 V2 exit_allocations。
 
         mark_stock_holdings_projection_updated()
@@ -173,65 +167,56 @@ class OrderManagementManualWriteService:
         deleted_count = 0
 
         # 根①写侧收敛（步骤 5）：reset 只清 V2 主账本；legacy 三账本冻结。
-        if hasattr(self.repository, "list_position_entries") and hasattr(
-            self.repository, "replace_position_entry"
-        ):
-            for item in self.repository.list_position_entries(symbol=symbol):
-                if int(item.get("remaining_quantity") or 0) <= 0:
-                    continue
+        for item in self.repository.list_position_entries(symbol=symbol):
+            if int(item.get("remaining_quantity") or 0) <= 0:
+                continue
+            item["remaining_quantity"] = 0
+            item["status"] = "CLOSED"
+            item["closed_reason"] = "manual_reset"
+            self.repository.replace_position_entry(item)
+            deleted_count += 1
+
+        existing_open_entry_slices = self.repository.list_open_entry_slices(
+            symbol=symbol
+        )
+        entry_ids = {
+            item.get("entry_id")
+            for item in existing_open_entry_slices
+            if item.get("entry_id")
+        }
+        if existing_open_entry_slices:
+            for item in existing_open_entry_slices:
                 item["remaining_quantity"] = 0
+                item["remaining_amount"] = 0.0
                 item["status"] = "CLOSED"
                 item["closed_reason"] = "manual_reset"
-                self.repository.replace_position_entry(item)
-                deleted_count += 1
-
-        if hasattr(self.repository, "list_open_entry_slices") and hasattr(
-            self.repository, "replace_entry_slices_for_entry"
-        ):
-            existing_open_entry_slices = self.repository.list_open_entry_slices(
-                symbol=symbol
-            )
-            entry_ids = {
-                item.get("entry_id")
-                for item in existing_open_entry_slices
-                if item.get("entry_id")
-            }
-            if existing_open_entry_slices:
-                for item in existing_open_entry_slices:
-                    item["remaining_quantity"] = 0
-                    item["remaining_amount"] = 0.0
-                    item["status"] = "CLOSED"
-                    item["closed_reason"] = "manual_reset"
-                for entry_id in entry_ids:
-                    self.repository.replace_entry_slices_for_entry(
-                        entry_id,
-                        [
-                            item
-                            for item in existing_open_entry_slices
-                            if item.get("entry_id") == entry_id
-                        ],
-                    )
+            for entry_id in entry_ids:
+                self.repository.replace_entry_slices_for_entry(
+                    entry_id,
+                    [
+                        item
+                        for item in existing_open_entry_slices
+                        if item.get("entry_id") == entry_id
+                    ],
+                )
 
         inserted_count = 0
         for item in grid_items:
             _ensure_board_lot_quantity(item["quantity"], code=symbol)
             # 根①写侧收敛（步骤 5）：manual reset 单写 V2 entry/slices。
-            if hasattr(self.repository, "replace_position_entry") and hasattr(
-                self.repository, "replace_entry_slices_for_entry"
-            ):
-                entry = _build_manual_locked_entry(
-                    symbol=symbol,
-                    name=name,
-                    stock_code=stock_code,
-                    grid_item=item,
-                    source=source,
-                )
-                entry["position_type"] = POSITION_TYPE_BASE
-                self.repository.replace_position_entry(entry)
-                self.repository.replace_entry_slices_for_entry(
-                    entry["entry_id"],
-                    [_build_manual_locked_entry_slice(entry)],
-                )
+            entry = _build_manual_locked_entry(
+                symbol=symbol,
+                name=name,
+                stock_code=stock_code,
+                grid_item=item,
+                source=source,
+            )
+            entry["position_type"] = POSITION_TYPE_BASE
+            self.repository.replace_position_entry(entry)
+            self.repository.replace_entry_slices_for_entry(
+                entry["entry_id"],
+                [_build_manual_locked_entry_slice(entry)],
+            )
             inserted_count += 1
 
         mark_stock_holdings_projection_updated()
@@ -256,19 +241,11 @@ class OrderManagementManualWriteService:
 
     def _build_current_projections(self, symbol):
         entries = list_open_entry_views(symbol=symbol, repository=self.repository)
-        open_slices = list_open_entry_slices_compat(
+        open_slices = list_open_entry_slices(
             symbol=symbol,
             repository=self.repository,
         )
-        trade_facts = (
-            self.repository.list_trade_facts(symbol)
-            if hasattr(self.repository, "list_trade_facts")
-            else [
-                item
-                for item in getattr(self.repository, "trade_facts", [])
-                if item["symbol"] == symbol
-            ]
-        )
+        trade_facts = self.repository.list_trade_facts(symbol)
         return {
             "raw_fills": build_raw_fills_view(trade_facts),
             "open_buy_fills": build_open_buy_fills_view(entries),

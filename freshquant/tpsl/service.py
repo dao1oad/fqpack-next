@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from freshquant.db import DBfreshquant
 from freshquant.order_management.entry_adapter import (
-    list_open_entry_slices_compat,
+    list_open_entry_slices,
     position_type_of,
 )
 from freshquant.order_management.ledger_resolver import (
@@ -179,7 +179,7 @@ class TpslService:
             if not hit:
                 return None
 
-            open_slices = list_open_entry_slices_compat(
+            open_slices = list_open_entry_slices(
                 symbol=base_symbol,
                 repository=self.order_repository,
             )

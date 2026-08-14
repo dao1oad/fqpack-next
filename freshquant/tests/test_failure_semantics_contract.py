@@ -97,7 +97,7 @@ def test_a4_ledger_occupancy_read_failure_blocks_decision(monkeypatch):
         raise RuntimeError("mongo down")
 
     monkeypatch.setattr(
-        "freshquant.order_management.entry_adapter.list_open_entry_slices_compat",
+        "freshquant.order_management.entry_adapter.list_open_entry_slices",
         _fail_list_slices,
     )
 
@@ -124,6 +124,13 @@ def test_a4_pending_buy_amount_read_failure_blocks_decision(monkeypatch):
     logger = _FakeLogger()
     service = _build_grid_service(_grid_config_database(), runtime_logger=logger)
     service._load_position_capacity = lambda _code: (100000.0, 800000.0)
+    # 6a 读侧收口后 V2 为唯一读路径：占用读取正常返回零占用，
+    # 让失败语义落在"在途买单读取失败"这一被测环节。
+    service._load_ledger_occupancy = lambda _code, _price: {
+        "d_plus_c": 0.0,
+        "base_quantity": 0,
+        "t_quantity": 0,
+    }
 
     class _BrokenRepository:
         def list_broker_orders(self, **_kwargs):
