@@ -71,7 +71,24 @@ def account_id_from_member_keys(entry) -> str | None:
     return None
 
 
-def plan_entry_changes(entry) -> dict | None:
+def account_id_from_member_trade_facts(entry, trade_facts_by_id) -> str | None:
+    """成员 trade_fact 的 account_id 回查（ord_broker 键无账户前缀时的
+    确定性来源；查不到返回 None，不猜账户）。"""
+
+    for member in list(entry.get("aggregation_members") or []):
+        trade_fact_id = member.get("trade_fact_id")
+        if not trade_fact_id:
+            continue
+        trade_fact = (trade_facts_by_id or {}).get(str(trade_fact_id))
+        if not trade_fact:
+            continue
+        account_id = normalize_account_id(trade_fact.get("account_id"))
+        if account_id:
+            return account_id
+    return None
+
+
+def plan_entry_changes(entry, trade_facts_by_id=None) -> dict | None:
     updates = {}
     current_stock = entry.get("stock_code")
     if current_stock:
@@ -89,6 +106,8 @@ def plan_entry_changes(entry) -> dict | None:
             updates["stock_code"] = resolved
     if not entry.get("account_id"):
         account_id = account_id_from_member_keys(entry)
+        if account_id is None:
+            account_id = account_id_from_member_trade_facts(entry, trade_facts_by_id)
         if account_id:
             updates["account_id"] = account_id
     return updates or None
@@ -97,6 +116,17 @@ def plan_entry_changes(entry) -> dict | None:
 def collect_targets(database):
     for doc in database[COLLECTION].find({"source_ref_type": "buy_cluster"}):
         yield doc
+
+
+def build_trade_facts_by_id(database) -> dict:
+    result = {}
+    for doc in database["om_trade_facts"].find(
+        {}, {"trade_fact_id": 1, "account_id": 1}
+    ):
+        trade_fact_id = doc.get("trade_fact_id")
+        if trade_fact_id:
+            result[str(trade_fact_id)] = doc
+    return result
 
 
 def _write_before_snapshot(documents, snapshot_dir):
@@ -127,9 +157,10 @@ def _final_missing_count(database) -> int:
 )
 def main(dry_run, execute, snapshot_dir):
     database = get_order_management_db()
+    trade_facts_by_id = build_trade_facts_by_id(database)
     changes = []
     for doc in collect_targets(database):
-        updates = plan_entry_changes(doc)
+        updates = plan_entry_changes(doc, trade_facts_by_id)
         if updates:
             changes.append((doc, updates))
 
