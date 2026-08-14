@@ -236,6 +236,10 @@ def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
     fake_db = SimpleNamespace(
         stock_fills=BoomStockFillsCollection(),
     )
+    for name in list(sys.modules):
+        if name == "fqxtrade" or name.startswith("fqxtrade."):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setitem(sys.modules, "fqxtrade", types.ModuleType("fqxtrade"))
     monkeypatch.setattr(
         "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
         lambda: 1,
@@ -256,11 +260,15 @@ def test_manual_write_service_import_fill_creates_trade_fact_and_projection(
 
     assert len(repository.trade_facts) == 1
     assert repository.trade_facts[0]["source"] == "manual_import"
+    assert repository.trade_facts[0]["stock_code"] == "000001"
+    assert repository.trade_facts[0]["account_id"] is None
     # 根①写侧收敛（步骤 5）：manual 导入单写 V2，legacy 不再写入。
     assert repository.buy_lots == []
     assert len(repository.position_entries) == 1
     assert repository.position_entries[0]["entry_type"] == "manual_import"
     assert repository.position_entries[0]["original_quantity"] == 900
+    assert repository.position_entries[0]["stock_code"] == "000001"
+    assert repository.position_entries[0]["account_id"] is None
     assert len(repository.entry_slices) == 4
     assert result["position_entry"]["original_quantity"] == 900
     assert len(result["entry_slices"]) == 4
@@ -291,6 +299,10 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
     fake_db = SimpleNamespace(
         stock_fills=BoomStockFillsCollection(),
     )
+    for name in list(sys.modules):
+        if name == "fqxtrade" or name.startswith("fqxtrade."):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setitem(sys.modules, "fqxtrade", types.ModuleType("fqxtrade"))
     monkeypatch.setattr(
         "freshquant.order_management.manual.service.mark_stock_holdings_projection_updated",
         lambda: 1,
@@ -350,6 +362,7 @@ def test_manual_write_service_reset_symbol_lots_closes_existing_and_creates_manu
     assert repository.buy_lots == []
     assert len(manual_locked_entries) == 2
     assert all(item["source"] == "reset" for item in manual_locked_entries)
+    assert all(item["stock_code"] == "000001" for item in manual_locked_entries)
     assert fake_db.stock_fills.rows == []
 
 
@@ -397,6 +410,20 @@ def test_manual_reset_rejects_non_board_lot_grid_items():
                 }
             ],
         )
+
+
+def test_manual_account_resolution_prefers_explicit_instrument_account(monkeypatch):
+    from freshquant.order_management.manual.service import (
+        _resolve_manual_account_id,
+    )
+
+    for name in list(sys.modules):
+        if name == "fqxtrade" or name.startswith("fqxtrade."):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setitem(sys.modules, "fqxtrade", types.ModuleType("fqxtrade"))
+
+    assert _resolve_manual_account_id({"account_id": " acc-42 "}) == "acc-42"
+    assert _resolve_manual_account_id({"account_id": ""}) is None
 
 
 def test_import_deals_routes_rows_through_manual_write_service(monkeypatch):

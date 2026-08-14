@@ -1307,15 +1307,19 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
     gap = service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
         detected_at=1_000,
+        account_id="acc-001",
     )[0]
+    assert gap["account_id"] == "acc-001"
     assert service.confirm_expired_candidates(now=1_015) == []
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
         detected_at=1_015,
+        account_id="acc-001",
     )
     service.detect_external_candidates(
         positions=[{"stock_code": "000001.SZ", "volume": 200, "avg_price": 10.5}],
         detected_at=1_030,
+        account_id="acc-001",
     )
 
     confirmed = service.confirm_expired_candidates(now=1_030)
@@ -1330,6 +1334,8 @@ def test_inferred_pending_auto_confirms_into_entry_without_fake_trade(monkeypatc
     assert len(repository.position_entries) == 1
     assert repository.position_entries[0]["entry_type"] == "auto_reconciled_open"
     assert repository.position_entries[0]["remaining_quantity"] == 200
+    assert repository.position_entries[0]["stock_code"] == "000001"
+    assert repository.position_entries[0]["account_id"] == "acc-001"
     assert len(repository.entry_slices) > 0
     assert repository.orders == []
     assert repository.trade_facts == []

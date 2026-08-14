@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from freshquant.order_management.broker_identity import (
+    normalize_account_id,
+    normalize_symbol,
+)
 from freshquant.order_management.entry_adapter import (
     POSITION_TYPE_BASE,
     position_type_of,
@@ -80,7 +84,11 @@ def build_position_entry_from_trade_fact(
         "time": resolved_time,
         "trade_time": trade_fact.get("trade_time"),
         "name": trade_fact.get("name", ""),
-        "stock_code": trade_fact.get("stock_code"),
+        # 写侧统一：stock_code 真值 = 6 位 symbol；account_id 顶层字段自
+        # trade_fact 透传（normalize 后），缺源时保持 None（后续 fail-closed）。
+        "stock_code": trade_fact.get("stock_code")
+        or normalize_symbol(trade_fact.get("symbol")),
+        "account_id": normalize_account_id(trade_fact.get("account_id")),
         "source": source or trade_fact.get("source", "order_management"),
         "arrange_mode": arrange_mode or trade_fact.get("arrange_mode", "runtime_grid"),
         "sell_history": list(sell_history or trade_fact.get("sell_history") or []),

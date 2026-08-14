@@ -881,6 +881,8 @@ def test_rebuild_service_keeps_sell_before_future_buy_as_unmatched():
         {
             "trade_fact_id": "T-SELL-85001",
             "symbol": "002475",
+            "stock_code": "002475",
+            "account_id": None,
             "side": "sell",
             "quantity": 1600,
             "price": 49.02,
@@ -967,6 +969,8 @@ def test_rebuild_service_partially_allocates_known_inventory_before_marking_unma
         {
             "trade_fact_id": "T-SELL-86002:unmatched",
             "symbol": "300760",
+            "stock_code": "300760",
+            "account_id": None,
             "side": "sell",
             "quantity": 100,
             "price": 166.7,
@@ -1872,3 +1876,32 @@ def test_rebuild_execute_aborts_before_backup_and_purge_when_archive_fails():
 
     assert database["om_order_requests"].rows == [{"request_id": "must-survive"}]
     assert not any(event.startswith("delete_many:") for event in database.event_log)
+
+
+def test_rebuild_trade_fact_from_execution_fill_carries_account_and_stock_code():
+    """写侧统一：rebuild 重放 execution_fill 生成的 trade_fact 必须携带
+    normalize 后的 account_id 与 6 位 stock_code，避免重放重建的 entry 再
+    次缺失身份字段（与 PR9 backfill 抵消）。"""
+
+    rebuild_module = importlib.import_module(
+        "freshquant.order_management.rebuild.service"
+    )
+    trade_fact = rebuild_module._build_trade_fact_from_execution_fill(
+        {
+            "execution_fill_id": "fill-1",
+            "broker_trade_id": "T-1",
+            "broker_order_key": "account:acc-9:day:20240102:sysid:sys-1",
+            "account_id": " acc-9 ",
+            "symbol": "000001",
+            "side": "buy",
+            "quantity": 100,
+            "price": 10.0,
+            "trade_time": 1710000000,
+            "date": 20240102,
+            "time": "09:31:00",
+            "source": "broker_rebuild",
+        }
+    )
+
+    assert trade_fact["account_id"] == "acc-9"
+    assert trade_fact["stock_code"] == "000001"

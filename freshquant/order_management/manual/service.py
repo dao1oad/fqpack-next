@@ -4,6 +4,7 @@ from datetime import datetime
 
 from loguru import logger
 
+from freshquant.order_management.broker_identity import normalize_account_id
 from freshquant.order_management.entry_adapter import (
     POSITION_TYPE_BASE,
     list_open_entry_slices,
@@ -57,6 +58,7 @@ class OrderManagementManualWriteService:
         _ensure_board_lot_quantity(normalized_quantity, code=symbol)
         traded_at = _normalize_datetime(dt)
         instrument = instrument or {}
+        account_id = _resolve_manual_account_id(instrument)
         lot_amount = lot_amount or _resolve_lot_amount(symbol)
         grid_interval = grid_interval or _resolve_grid_interval(symbol, traded_at)
         trade_fact = {
@@ -85,6 +87,7 @@ class OrderManagementManualWriteService:
             "source": source,
             "name": instrument.get("name", ""),
             "stock_code": _resolve_stock_code(symbol, instrument),
+            "account_id": account_id,
             "amount_adjust": float(instrument.get("amount_adjust", 1.0)),
         }
         trade_fact, created = self.repository.upsert_trade_fact(
@@ -163,6 +166,8 @@ class OrderManagementManualWriteService:
 
     def reset_symbol_lots(self, *, code, name, stock_code, grid_items, source="reset"):
         symbol = normalize_to_base_code(code)
+        stock_code = _resolve_stock_code(symbol, {"stock_code": stock_code})
+        account_id = _resolve_manual_account_id({})
         deleted_count = 0
 
         # 根①写侧收敛（步骤 5）：reset 只清 V2 主账本；legacy 三账本冻结。
@@ -209,6 +214,7 @@ class OrderManagementManualWriteService:
                 stock_code=stock_code,
                 grid_item=item,
                 source=source,
+                account_id=account_id,
             )
             entry["position_type"] = POSITION_TYPE_BASE
             self.repository.replace_position_entry(entry)
@@ -278,11 +284,32 @@ def _normalize_datetime(dt):
 
 
 def _resolve_stock_code(symbol, instrument):
-    if instrument.get("stock_code"):
-        return instrument["stock_code"]
-    if instrument.get("code") and instrument.get("sse"):
-        return f'{instrument.get("code")}.{instrument.get("sse")}'.upper()
-    return fq_util_code_append_market_code_suffix(symbol, upper_case=True)
+    # 写侧统一：stock_code 真值 = 6 位基础代码（不含后缀），与读侧 6 位
+    # 消费口径一致；instrument 携带的带后缀/前缀代码在此归一。
+    raw = instrument.get("stock_code") or instrument.get("code") or symbol
+    return normalize_to_base_code(raw)
+
+
+def _resolve_manual_account_id(instrument):
+    raw_account_id = instrument.get("account_id")
+    if raw_account_id:
+        return normalize_account_id(raw_account_id)
+    try:
+        from fqxtrade.xtquant.account import resolve_stock_account
+    except Exception:
+        return None
+    try:
+        from freshquant.system_settings import system_settings
+
+        resolved = resolve_stock_account(settings_provider=system_settings)
+    except TypeError:
+        resolved = resolve_stock_account()
+    except Exception:
+        return None
+    account_id = (
+        resolved[1] if isinstance(resolved, tuple) and len(resolved) >= 2 else None
+    )
+    return normalize_account_id(account_id)
 
 
 def _build_manual_trade_id(*, source, symbol, side, traded_at, quantity, price):
@@ -321,7 +348,9 @@ def _build_manual_import_entry(trade_fact, *, position_type=POSITION_TYPE_BASE):
     )
 
 
-def _build_manual_locked_entry(*, symbol, name, stock_code, grid_item, source):
+def _build_manual_locked_entry(
+    *, symbol, name, stock_code, grid_item, source, account_id=None
+):
     return build_position_entry_from_trade_fact(
         {
             "trade_fact_id": None,
@@ -341,6 +370,7 @@ def _build_manual_locked_entry(*, symbol, name, stock_code, grid_item, source):
             "source": source,
             "name": name,
             "stock_code": stock_code,
+            "account_id": account_id,
             "amount_adjust": float(grid_item.get("amount_adjust", 1.0)),
             "arrange_mode": "manual_locked",
             "entry_type": "manual_locked",

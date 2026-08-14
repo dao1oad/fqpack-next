@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from freshquant.order_management.broker_identity import (
+    normalize_account_id,
+    normalize_symbol,
+)
 from freshquant.order_management.entry_aggregation import (
     build_clustered_position_entry,
     build_reconciliation_resolution_member_key,
@@ -704,6 +708,8 @@ def _build_trade_fact_from_execution_fill(execution_fill):
         or execution_fill.get("broker_trade_id")
         or execution_fill.get("broker_order_key"),
         "symbol": execution_fill.get("symbol"),
+        "stock_code": normalize_symbol(execution_fill.get("symbol")),
+        "account_id": normalize_account_id(execution_fill.get("account_id")),
         "side": execution_fill.get("side"),
         "quantity": _coerce_int(execution_fill.get("quantity")) or 0,
         "price": _coerce_float(execution_fill.get("price")) or 0.0,
@@ -1534,6 +1540,7 @@ def _reconcile_positions_against_xt_positions(
             trade_fact = {
                 "trade_fact_id": new_trade_fact_id(),
                 "symbol": symbol,
+                "stock_code": normalize_symbol(symbol),
                 "side": "buy",
                 "quantity": quantity_delta,
                 "price": float(price_estimate or 0.0),

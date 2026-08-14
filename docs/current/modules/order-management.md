@@ -80,6 +80,11 @@
   - 兼容期成交事实镜像，仍保留给旧读链和部分排障
 - `om_position_entries`
   - 系统持仓入口真值，供 TPSL/Subject/Kline/持仓解释层消费；当前 buy 侧默认落为保守聚合后的 `buy_cluster`
+  - 写侧身份字段（总收口 PR2）：每条 entry 顶层固定写入 `stock_code`
+    （6 位基础代码真值，与 `symbol` 同源）与 `account_id`
+    （`normalize_account_id(trade_fact.account_id)`，缺源时保持 `None`，
+    后续聚类/读侧按 fail-closed 处理）；`build_position_entry_from_trade_fact`
+    统一兜底 `stock_code` 缺省为 6 位 `symbol`
 - `om_entry_slices`
   - entry 的 Guardian 切片；当前按聚合后的 entry 重新按 `50000` 口径切片
   - `arrange_entry` 按 `price × grid_interval` 乘法递增、单格股数
@@ -224,6 +229,16 @@ entry 级剩余预算分配，不回退到全量 open slice 猜测。
   单条 target；这里是数据库收敛重试，不是重复券商委托
 - 若 `broker_order_id` 已在 submit 成功阶段绑定到内部订单，trade callback 当前仍会继续进入 `ingest_trade_report()`；`ExternalOrderReconcileService` 只负责补齐 trace/request/internal order 上下文与 reconcile 侧 runtime event，不再把这类回报提前短路
 - buy fill 先按 `broker_order_key` 收口成 buy execution group，再按保守规则归并进 `buy_cluster` entry
+- 写侧身份字段（总收口 PR2）：`normalize_xt_trade_report` 输出保留 6 位
+  `stock_code`；`ingest_trade_report_with_meta` 落库的 `om_trade_facts` 同样
+  携带 6 位 `stock_code`；manual 写路径（import_fill / reset_symbol_lots）按
+  `_resolve_manual_account_id`（instrument 显式 account_id → 本机
+  `fqxtrade.xtquant.account.resolve_stock_account` → 失败为 `None`）写
+  `account_id`，`stock_code` 一律归一为 6 位；reconcile 的 gap 文档在
+  `detect_external_candidates` 时携带 `account_id`，auto-open entry 写入
+  `stock_code`/`account_id`；rebuild 重放路径
+  `_build_trade_fact_from_execution_fill` 从 `om_execution_fills` 透传
+  `account_id` 并补 6 位 `stock_code`
 - `OrderStateService`（`freshquant/order_management/tracking/order_state.py`）
   收敛订单状态写入口：`FILLED` / `CANCELED` 终态后状态不回退，迟到 order /
   trade 回报只吸收状态并写 `late_order_report_after_terminal` /
