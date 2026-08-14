@@ -10,6 +10,7 @@ from loguru import logger
 from freshquant.db import DBfreshquant
 from freshquant.market_data.xtdata.schema import normalize_prefixed_code
 from freshquant.system_settings_contract import DEFAULT_XTDATA_MAX_SYMBOLS
+from freshquant.util.code import normalize_to_base_code
 
 # 三条正交监控线（按用途命名，替代旧 mode 字符串枚举）。
 LINE_1M_T = "line_1m_t"
@@ -95,6 +96,40 @@ def load_line_codes(*, line: str, max_symbols: int) -> list[str]:
     if line == LINE_15_30_CLX:
         return _load_clx_codes(limit)
     return []
+
+
+def load_monitor_scope(
+    *,
+    trading_mode: bool,
+    screening_mode: bool,
+) -> dict[str, set[str]]:
+    """启用监控行 → 6 位基础代码集合（代码池真值，不含优先级截断）。
+
+    供需要自定义并集/二次门禁的消费者（signal monitor）使用；
+    订阅装配仍走 ``load_monitor_codes``（含截断与告警事件）。
+    """
+
+    scope: dict[str, set[str]] = {}
+    for line in lines_for_modes(
+        trading_mode=bool(trading_mode),
+        screening_mode=bool(screening_mode),
+    ):
+        if line == LINE_1M_T:
+            scope[line] = _base_codes(_load_holding_codes_full())
+        elif line == LINE_5M_NEW_OPEN:
+            scope[line] = _base_codes(_load_must_pool_codes_full())
+        elif line == LINE_15_30_CLX:
+            scope[line] = _base_codes(_load_clx_codes_full())
+    return scope
+
+
+def _base_codes(prefixed_codes: Iterable[str]) -> set[str]:
+    base: set[str] = set()
+    for code in prefixed_codes:
+        normalized = normalize_to_base_code(code)
+        if normalized and len(normalized) == 6 and normalized.isdigit():
+            base.add(normalized)
+    return base
 
 
 def load_monitor_codes(
@@ -206,21 +241,41 @@ def _load_holding_codes_full() -> set[str]:
 def _load_must_pool_codes(limit: int) -> list[str]:
     """line_5m_new_open：must_pool 且未持仓，5m 开新仓。"""
 
+    codes = _load_must_pool_codes_full()
+    return sorted(c for c in codes if len(c) >= 8)[:limit]
+
+
+def _load_must_pool_codes_full() -> set[str]:
+    """完整 must_pool 集合（未持仓、active），永不受订阅上限截断。"""
+
+    from freshquant.pool.general import _is_active_member
+
     holding_codes = _load_holding_codes_full()
     codes: set[str] = set()
     for doc in DBfreshquant["must_pool"].find(
-        {"instrument_type": {"$in": ["stock_cn", "etf_cn"]}, "disabled": {"$ne": True}},
-        {"code": 1},
+        {"instrument_type": {"$in": ["stock_cn", "etf_cn"]}},
+        {"code": 1, "disabled": 1, "forever": 1, "expire_at": 1, "memberships": 1},
     ):
+        # D1/S4（步骤 7）：must_pool 成员只有「非 disabled 且未过期」才可
+        # 参与 5m 首开；active 规则以 pool.general._is_active_member 为真值。
+        if not _is_active_member(doc):
+            continue
         raw = doc.get("code") or ""
         norm = normalize_prefixed_code(str(raw)).lower()
         if norm and norm not in holding_codes:
             codes.add(norm)
-    return sorted(c for c in codes if len(c) >= 8)[:limit]
+    return codes
 
 
 def _load_clx_codes(limit: int) -> list[str]:
     """line_15_30_clx：未过期 stock_pools 且未持仓，15/30 CLX 选股。"""
+
+    codes = _load_clx_codes_full()
+    return sorted(c for c in codes if len(c) >= 8)[:limit]
+
+
+def _load_clx_codes_full() -> set[str]:
+    """完整 stock_pools 集合（未过期、未持仓），永不受订阅上限截断。"""
 
     holding_codes = _load_holding_codes_full()
     codes: set[str] = set()
@@ -239,7 +294,7 @@ def _load_clx_codes(limit: int) -> list[str]:
         norm = normalize_prefixed_code(str(raw)).lower()
         if norm and norm not in holding_codes:
             codes.add(norm)
-    return sorted(c for c in codes if len(c) >= 8)[:limit]
+    return codes
 
 
 def _emit_truncation_event(
@@ -277,6 +332,7 @@ __all__ = [
     "LINE_PRIORITY_ORDER",
     "lines_for_modes",
     "load_line_codes",
+    "load_monitor_scope",
     "load_monitor_codes",
     "load_guardian_monitor_codes",
     "load_clx_monitor_codes",

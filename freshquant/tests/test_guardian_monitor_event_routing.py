@@ -123,16 +123,18 @@ def test_guardian_monitor_routes_holding_1m_and_must_pool_new_open_5m(monkeypatc
         ),
     )
     monkeypatch.setattr(
-        monitor, "get_stock_holding_codes", lambda: ["000001"], raising=False
+        monitor,
+        "load_monitor_scope",
+        lambda *, trading_mode, screening_mode: {
+            monitor.LINE_1M_T: {"000001"},
+            monitor.LINE_5M_NEW_OPEN: {"600000"},
+        },
     )
     monkeypatch.setattr(
         monitor,
         "get_arranged_stock_fill_list",
         lambda _code: [{"date": "20260101", "time": "09:31:00", "price": 10.0}],
         raising=False,
-    )
-    monkeypatch.setattr(
-        monitor, "queryMustPoolCodes", lambda: ["600000"], raising=False
     )
     monkeypatch.setattr(
         monitor,

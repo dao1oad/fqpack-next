@@ -509,9 +509,13 @@ def test_a8_arranged_fills_read_failure_skips_1m_signal(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        monitor, "get_stock_holding_codes", lambda: ["000001"], raising=False
+        monitor,
+        "load_monitor_scope",
+        lambda *, trading_mode, screening_mode: {
+            monitor.LINE_1M_T: {"000001"},
+            monitor.LINE_5M_NEW_OPEN: set(),
+        },
     )
-    monkeypatch.setattr(monitor, "queryMustPoolCodes", lambda: [], raising=False)
     monkeypatch.setattr(
         monitor, "get_arranged_stock_fill_list", fail_fills, raising=False
     )
