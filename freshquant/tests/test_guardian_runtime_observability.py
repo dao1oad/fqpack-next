@@ -98,10 +98,8 @@ def _guardian_dependency_stubs_for_module():
                 sys.modules.pop(name, None)
             else:
                 sys.modules[name] = original
-        try:
-            importlib.reload(guardian_module)
-        except Exception:
-            pass
+        # 用 pop 而非 reload：避免静默失败留下半初始化模块；后续文件按需重新导入。
+        sys.modules.pop("freshquant.strategy.guardian", None)
         guardian_module = None
         StrategyGuardian = None
 
