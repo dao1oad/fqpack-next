@@ -383,3 +383,31 @@ def test_host_runtime_infra_paths_force_host_surface_reconcile() -> None:
         "-BridgeIfServiceUnavailable",
     ]
     assert any("host runtime" in note.lower() for note in plan["notes"])
+
+
+def test_position_review_paths_redeploy_api() -> None:
+    """position_review 变更必须触发 api 部署（持仓复盘读模型由 rear API 容器承载）。"""
+    module = load_module()
+
+    plan = module.build_deploy_plan(
+        changed_paths=["freshquant/position_review/repository.py"]
+    )
+
+    assert plan["deployment_required"] is True
+    assert plan["deployment_surfaces"] == ["api"]
+    assert plan["docker_services"] == ["fq_apiserver"]
+    assert "http://127.0.0.1:15000/api/runtime/health/summary" in plan["health_checks"]
+    assert any("漏部署" in note for note in plan["notes"])
+
+
+def test_deploy_plan_self_change_rebuilds_all_docker_surfaces() -> None:
+    """部署计划规则自身变更时重建全部容器运行面，使新映射一次性生效。"""
+    module = load_module()
+
+    plan = module.build_deploy_plan(changed_paths=["script/freshquant_deploy_plan.py"])
+
+    assert plan["deployment_required"] is True
+    assert plan["deployment_surfaces"] == ["api", "web", "dagster", "qa"]
+    assert plan["docker_build_targets"] == ["fq_apiserver", "fq_webui"]
+    assert "--no-deps" not in plan["docker_command"]
+    assert any("部署计划规则自身变更" in note for note in plan["notes"])
