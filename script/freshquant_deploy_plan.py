@@ -294,6 +294,15 @@ PATH_RULES: tuple[PathRule, ...] = (
         surfaces=("position_management",),
     ),
     PrefixRule(
+        label="position-review",
+        prefix="freshquant/position_review/",
+        surfaces=("api",),
+        notes=(
+            "持仓复盘读模型由 rear API 容器承载；缺该映射会导致变更漏部署"
+            "（2026-08-15 实测净值曲线窗口修复未触发重建）。",
+        ),
+    ),
+    PrefixRule(
         label="tpsl",
         prefix="freshquant/tpsl/",
         surfaces=("tpsl",),
@@ -391,6 +400,15 @@ PATH_RULES: tuple[PathRule, ...] = (
         surfaces=ALL_HOST_RUNTIME_SURFACES,
         notes=(
             "supervisor config renderer / inspector 变更后必须重跑全部宿主机 surfaces，确保正式运行面切到最新 deploy mirror 口径。",
+        ),
+    ),
+    ExactRule(
+        label="deploy-plan-self",
+        exact_path="script/freshquant_deploy_plan.py",
+        surfaces=("api", "indexer", "web", "dagster", "qa"),
+        notes=(
+            "部署计划规则自身变更时重建全部容器运行面，确保新增/调整的映射"
+            "一次性生效（含新映射的首次应用与 fq_runtime_indexer 镜像对齐）。",
         ),
     ),
 )
