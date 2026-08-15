@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import inspect
 import re
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from freshquant.order_management.execution_archive import (
@@ -24,6 +26,10 @@ class MemoryCursor(list):
             key=lambda item: str(item.get(field) or ""),
             reverse=reverse,
         )
+        return self
+
+    def limit(self, count):
+        del self[count:]
         return self
 
 
@@ -566,6 +572,57 @@ def test_repository_exposes_om_fill_side_conflict_against_broker_truth():
     fills = repository.list_execution_fills("002262")
     assert canonical == []
     assert fills == []
+
+
+def _credit_snapshot(minute_offset):
+    return {
+        "queried_at": datetime(2026, 1, 1, tzinfo=timezone.utc)
+        + timedelta(minutes=minute_offset),
+        "seq": minute_offset,
+    }
+
+
+def _credit_repository(snapshot_count):
+    position = MemoryDatabase(
+        {
+            "pm_credit_asset_snapshots": MemoryCollection(
+                [_credit_snapshot(offset) for offset in range(snapshot_count)]
+            )
+        }
+    )
+    return PositionReviewRepository(
+        business_database=MemoryDatabase(),
+        order_database=MemoryDatabase(),
+        position_database=position,
+    )
+
+
+def test_list_credit_asset_snapshots_returns_latest_window_ascending():
+    repository = _credit_repository(snapshot_count=300)
+
+    snapshots = repository.list_credit_asset_snapshots(limit=100)
+
+    # 集合超过 limit：只取最新 100 条，且返回顺序按 queried_at 升序。
+    assert [item["seq"] for item in snapshots] == list(range(200, 300))
+    queried = [item["queried_at"] for item in snapshots]
+    assert queried == sorted(queried)
+
+
+def test_list_credit_asset_snapshots_within_limit_returns_all_ascending():
+    repository = _credit_repository(snapshot_count=50)
+
+    snapshots = repository.list_credit_asset_snapshots(limit=100)
+
+    # 集合不超过 limit：全量返回且升序，现状语义不变。
+    assert [item["seq"] for item in snapshots] == list(range(50))
+    queried = [item["queried_at"] for item in snapshots]
+    assert queried == sorted(queried)
+
+
+def test_list_credit_asset_snapshots_default_limit_matches_production_caller():
+    signature = inspect.signature(PositionReviewRepository.list_credit_asset_snapshots)
+
+    assert signature.parameters["limit"].default == 200_000
 
 
 def test_xt_trades_do_not_override_om_ledger_fills():

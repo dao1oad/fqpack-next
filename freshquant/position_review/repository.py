@@ -206,9 +206,15 @@ class PositionReviewRepository:
     def list_credit_asset_snapshots(
         self,
         *,
-        limit: int = 20_000,
+        limit: int = 200_000,
     ) -> list[dict[str, Any]]:
-        """Read-only credit/asset snapshot series for equity reconstruction."""
+        """Read-only credit/asset snapshot series for equity reconstruction.
+
+        Returns the most recent ``limit`` snapshots in ascending ``queried_at``
+        order (descending query capped at ``limit``, then reversed) so the
+        series window keeps tracking the newest data once the collection grows
+        past ``limit`` documents.
+        """
 
         collection = _optional_collection(
             self.position_database,
@@ -216,9 +222,11 @@ class PositionReviewRepository:
         )
         if collection is None:
             return []
-        return _documents(
-            collection.find({}).sort("queried_at", 1).limit(max(int(limit or 0), 0))
+        documents = _documents(
+            collection.find({}).sort("queried_at", -1).limit(max(int(limit or 0), 0))
         )
+        documents.reverse()
+        return documents
 
     def load_catalog_bundles(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
         """Read every catalog collection once and group the snapshot in memory."""
