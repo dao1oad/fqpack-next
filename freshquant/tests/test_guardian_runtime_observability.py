@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 
@@ -43,41 +44,64 @@ sys.modules.setdefault(
         ),
     ),
 )
-sys.modules.setdefault(
-    "freshquant.strategy.toolkit.threshold",
-    _module(
+guardian_module = None
+StrategyGuardian = None
+
+_STUBBED_DEPENDENCY_MODULES = {
+    "freshquant.strategy.toolkit.threshold": _module(
         "freshquant.strategy.toolkit.threshold",
         eval_stock_threshold_price=lambda _code, _price: {
             "bot_river_price": 0.0,
             "top_river_price": 0.0,
         },
     ),
-)
-sys.modules.setdefault(
-    "freshquant.data.astock.holding",
-    _module(
+    "freshquant.data.astock.holding": _module(
         "freshquant.data.astock.holding",
         _query_grid_interval=lambda _code, _date_str: 1.03,
         get_arranged_stock_fill_list=lambda _code: [],
         get_stock_holding_codes=lambda: [],
     ),
-)
-sys.modules.setdefault(
-    "freshquant.pool.general",
-    _module("freshquant.pool.general", queryMustPoolCodes=lambda: []),
-)
-sys.modules.setdefault(
-    "freshquant.position.stock",
-    _module(
+    "freshquant.pool.general": _module(
+        "freshquant.pool.general", queryMustPoolCodes=lambda: []
+    ),
+    "freshquant.position.stock": _module(
         "freshquant.position.stock",
         query_stock_position_pct=lambda *_args, **_kwargs: 0,
     ),
-)
+}
 
-import freshquant.strategy.guardian as guardian_module
-from freshquant.strategy.guardian import StrategyGuardian
 
-sys.modules.pop("freshquant.message", None)
+@pytest.fixture(scope="module", autouse=True)
+def _guardian_dependency_stubs_for_module():
+    """本文件测试期间替换 guardian 依赖为 stub，结束后恢复原模块。
+
+    此前用 setdefault 在模块导入期安装 stub 且从不清理：同进程内后续测试
+    文件若尚未导入这些模块，会拿到 stub（pool.general 缺 ``_is_active_member``、
+    holding 缺 ``_get_order_management_stock_fill_list`` 等签名漂移）。
+    """
+    global guardian_module, StrategyGuardian
+
+    originals = {name: sys.modules.get(name) for name in _STUBBED_DEPENDENCY_MODULES}
+    for name, stub in _STUBBED_DEPENDENCY_MODULES.items():
+        sys.modules[name] = stub
+    import freshquant.strategy.guardian as module
+
+    module = importlib.reload(module)
+    guardian_module = module
+    StrategyGuardian = module.StrategyGuardian
+    sys.modules.pop("freshquant.message", None)
+    try:
+        yield
+    finally:
+        for name, original in originals.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
+        # 用 pop 而非 reload：避免静默失败留下半初始化模块；后续文件按需重新导入。
+        sys.modules.pop("freshquant.strategy.guardian", None)
+        guardian_module = None
+        StrategyGuardian = None
 
 
 @pytest.fixture(autouse=True)

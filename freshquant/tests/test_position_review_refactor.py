@@ -384,7 +384,7 @@ class FakeBuySellRepository:
             }
         ]
 
-    def list_credit_asset_snapshots(self, *, limit=20_000):
+    def list_credit_asset_snapshots(self, *, limit=200_000):
         return []
 
 
@@ -728,7 +728,7 @@ class FakeFlattenRebuildRepository:
     def list_xt_assets(self):
         return []
 
-    def list_credit_asset_snapshots(self, *, limit=20_000):
+    def list_credit_asset_snapshots(self, *, limit=200_000):
         return []
 
 

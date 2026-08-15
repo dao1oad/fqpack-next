@@ -95,6 +95,9 @@ def test_fetch_action_count_uses_auth_cookies_and_retries_form(monkeypatch):
     from freshquant.data import gantt_source_jygs as svc
 
     monkeypatch.setenv("JYGS_SESSION", "session-from-env")
+    # 隔离本机真实凭据环境（真实 JYGS_COOKIE / envs.conf 会覆盖断言目标）。
+    monkeypatch.delenv("JYGS_COOKIE", raising=False)
+    monkeypatch.setattr(svc, "_load_envs_from_file", lambda: {})
     calls = []
 
     class FakeResponse:

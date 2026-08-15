@@ -108,7 +108,7 @@
   - 跨模块或高影响改动独立成 PR，避免放大 review 面与回滚面；
   - 一次需连续合并多个 PR 时，优先按「文件不重叠」排序合并，减少 base 前进触发的全量 CI 重跑。
 - PR 必须满足：
-  - CI 全绿（`docs-current-guard`、`pre-commit`、`pytest`）
+  - CI 全绿（`governance`（含 docs-current-guard 检查）、`pre-commit`、`pytest`）
   - 所有 review discussion 已处理
 
 ## 6. 部署矩阵

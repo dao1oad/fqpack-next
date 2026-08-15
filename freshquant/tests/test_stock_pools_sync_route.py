@@ -11,9 +11,9 @@ from flask import Flask
 def _load_stock_routes():
     """惰性导入 rear.stock.routes，避免集合期被既有模块级 stub 污染。
 
-    test_guardian_strategy.py 在模块级永久替换 ``freshquant.data.astock.holding``
-    为 stub（无 get_stock_fills）；若本文件在集合期直接导入 routes 会 ImportError。
-    这里临时恢复真实 holding 完成导入后还原 stub，不影响同进程其它测试。
+    guardian 测试文件曾在本文件集合前把 ``freshquant.data.astock.holding``
+    替换为 stub（无 get_stock_fills）；该行为已改为用后恢复的 fixture，此处的
+    防御逻辑保留：若仍探测到 stub，临时恢复真实 holding 完成导入后还原。
     """
 
     holding = sys.modules.get("freshquant.data.astock.holding")

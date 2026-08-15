@@ -608,10 +608,16 @@ def test_d3_invalid_bar_time_counted_and_emitted(monkeypatch):
             )
         ),
     )
+    # 桩掉真实代码池读取链（A3）：_load_scope 只依赖 monitor.load_monitor_scope，
+    # 直接返回最小 scope，避免真实 Mongo 或跨文件模块污染影响断言。
     monkeypatch.setattr(
-        monitor, "get_stock_holding_codes", lambda: ["000001"], raising=False
+        monitor,
+        "load_monitor_scope",
+        lambda trading_mode, screening_mode: {
+            monitor.LINE_1M_T: {"000001"},
+            monitor.LINE_5M_NEW_OPEN: set(),
+        },
     )
-    monkeypatch.setattr(monitor, "queryMustPoolCodes", lambda: [], raising=False)
     monkeypatch.setattr(monitor, "save_a_stock_signal", fake_save)
     monkeypatch.setattr(monitor, "BarEventListener", FakeListener)
     monkeypatch.setattr(monitor, "sleep", fake_sleep)
