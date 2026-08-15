@@ -1374,8 +1374,10 @@ const prbuildSpanSegments = (events, bars) => events
 
 const prbuildCostPoints = (costSeries, bars) => costSeries
   .map((point) => {
+    const rawCost = point.average_cost
+    if (rawCost === null || rawCost === undefined || rawCost === '') return null
     const barIndex = prresolveBarIndex(prparseBarTimeMs(point.time), bars)
-    const value = prtoFiniteNumber(point.average_cost)
+    const value = prtoFiniteNumber(rawCost)
     if (barIndex === null || value === null) return null
     return { barIndex, value }
   })
