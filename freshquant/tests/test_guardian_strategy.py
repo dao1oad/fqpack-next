@@ -78,14 +78,49 @@ def _install_guardian_dependency_stubs() -> None:
     )
 
 
-_install_guardian_dependency_stubs()
+guardian_module = None
+StrategyGuardian = None
 
-import freshquant.strategy.guardian as guardian_module
+_STUBBED_DEPENDENCY_MODULES = (
+    "freshquant.strategy.toolkit.threshold",
+    "freshquant.data.astock.holding",
+    "freshquant.pool.general",
+    "freshquant.position.stock",
+)
 
-guardian_module = importlib.reload(guardian_module)
-from freshquant.strategy.guardian import StrategyGuardian
 
-sys.modules.pop("freshquant.message", None)
+@pytest.fixture(scope="module", autouse=True)
+def _guardian_dependency_stubs_for_module():
+    """本文件测试期间强制替换 guardian 依赖为 stub，文件结束后恢复原模块。
+
+    安装必须在首个测试前完成（guardian 的模块级绑定需 reload 刷新），恢复
+    必须在本文件全部测试结束后进行——此前在模块导入期安装且从不恢复，
+    污染同一进程内后续测试文件（xdist loadfile 分布下跨文件可见）。
+    """
+    global guardian_module, StrategyGuardian
+
+    originals = {name: sys.modules.get(name) for name in _STUBBED_DEPENDENCY_MODULES}
+    _install_guardian_dependency_stubs()
+    import freshquant.strategy.guardian as module
+
+    module = importlib.reload(module)
+    guardian_module = module
+    StrategyGuardian = module.StrategyGuardian
+    sys.modules.pop("freshquant.message", None)
+    try:
+        yield
+    finally:
+        for name, original in originals.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
+        try:
+            importlib.reload(guardian_module)
+        except Exception:
+            pass
+        guardian_module = None
+        StrategyGuardian = None
 
 
 class FailDb:

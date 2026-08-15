@@ -290,6 +290,17 @@ Guardian 当前有两条买入路径：
 
 因此“首次开仓且触发买入层级”在当前实现里不是同一路径：首次开仓按完整剩余容量计算，持仓加仓按剩余容量的一半截断。
 
+## 生产环境当前配置（2026-08-15 起）
+
+生产三机（101/100/116）的 Mongo 显式配置偏离代码默认值（代码默认 n=3、买入下限 1 万、卖出挂单 5 万），以显式参数承载：
+
+- `params.guardian.stock.buy_amount_exponent = 2`（代码默认 3.0）
+- `params.guardian.stock.min_buy_amount = 10000`（显式锁定，等于代码下限钳制值）
+- `params.guardian.stock.lot_amount = 20000`（代码默认回退 50000）
+- `instrument_strategy.*.lot_amount = 20000`（全部条目，按 `instrument_code` 精确匹配更新）
+
+调整依据：8 月新逻辑（n=3/1万/5万）两机 T 卖出合计 5 次/月、无闭环；8/11-14 网格回放实证 (n=2,1万,2万) 是唯一跑通 T 闭环的组合。观察期 2~4 周，复评用 `fq-replay/replay.py` 重跑参数网格对比。参数为运行期 Mongo 配置，进程内 900s 缓存自动刷新，无需重启服务；回滚=恢复 config-before 快照。首次开仓金额口径（`DEFAULT_INITIAL_LOT_AMOUNT=100000`）不受影响。
+
 ## 前端设置页
 
 新系统正式设置页：
