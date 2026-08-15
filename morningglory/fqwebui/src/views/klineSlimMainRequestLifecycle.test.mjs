@@ -56,6 +56,11 @@ function createVm() {
   return vm
 }
 
+test('order review overlay is enabled by default', () => {
+  const initial = component.data()
+  assert.equal(initial.showOrderReview, true)
+})
+
 test('futureApi.stockData forwards request config to http', async () => {
   const controller = new AbortController()
   let receivedConfig

@@ -130,10 +130,12 @@ test('order review chart keeps a single K-line grid and renders price-layer mark
     countRenderedSeriesData(option, 'order-review-chart-fill-spans'),
     1,
   )
+  // 持仓均价阶梯线已移除：即使 chart 仍返回 cost_basis_series，也不渲染该系列。
   assert.equal(
-    countRenderedSeriesData(option, 'order-review-chart-cost'),
-    2,
+    option.series.some((item) => item.id === 'order-review-chart-cost'),
+    false,
   )
+  assert.equal(countRenderedSeriesData(option, 'order-review-chart-cost'), 0)
   const markerSeries = option.series.find((item) => item.id === 'order-review-chart-markers')
   const buy = markerSeries.data.find((item) => item.event.event_id === 'order-buy')
   const sell = markerSeries.data.find((item) => item.event.event_id === 'order-sell')

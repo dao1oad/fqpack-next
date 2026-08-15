@@ -1055,7 +1055,6 @@ export function getOrderReviewChartConditions(eventId) {
 const ORDER_REVIEW_CHART_COLORS = Object.freeze({
   buy: '#ef4444',
   sell: '#22c55e',
-  cost: '#f59e0b',
   span: '#64748b',
 })
 
@@ -1187,49 +1186,10 @@ function buildKlineSlimOrderReviewChartLayer({
     })
     .filter(Boolean)
 
-  const costSeries = (Array.isArray(chart.cost_basis_series) ? chart.cost_basis_series : [])
-    .map((point) => {
-      const timestamp = orderReviewChartTimestamp(point.time)
-      const value = toOrderReviewChartNumber(point.average_cost)
-      const slot = Number.isFinite(timestamp)
-        ? tradingAxis.mapPointTsToSlot(timestamp)
-        : null
-      if (!Number.isFinite(slot) || value === null) {
-        return null
-      }
-      return { slot, value, time: point.time }
-    })
-    .filter(Boolean)
-    .sort((left, right) => left.slot - right.slot)
-
   return {
     hasData: Boolean(markers.length),
     markers,
     spans,
-    costSeries,
-  }
-}
-
-function buildOrderReviewChartCostSeries(layer) {
-  if (!layer.costSeries.length) {
-    return null
-  }
-  return {
-    id: 'order-review-chart-cost',
-    name: '持仓均价',
-    type: 'line',
-    xAxisIndex: 0,
-    yAxisIndex: 0,
-    step: 'end',
-    showSymbol: false,
-    animation: false,
-    z: 6,
-    silent: true,
-    lineStyle: { color: ORDER_REVIEW_CHART_COLORS.cost, width: 1.4, opacity: 0.85 },
-    data: layer.costSeries.map((point) => ({
-      value: [point.slot, point.value],
-      time: point.time,
-    })),
   }
 }
 
@@ -1321,7 +1281,6 @@ function buildOrderReviewChartMarkerSeries(layer) {
 function buildKlineSlimOrderReviewChartSeries(layer) {
   if (!layer?.hasData) return []
   return [
-    buildOrderReviewChartCostSeries(layer),
     buildOrderReviewChartSpanSeries(layer),
     buildOrderReviewChartMarkerSeries(layer),
   ].filter(Boolean)

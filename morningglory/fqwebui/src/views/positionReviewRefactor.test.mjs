@@ -265,6 +265,23 @@ test('buildSymbolReviewChartOption renders candles, markers, spans and cost line
   assert.equal(sell.mark, true)
 })
 
+test('buildSymbolReviewChartOption skips null average_cost points instead of plotting y=0', () => {
+  const chart = {
+    ...makeChart(),
+    cost_basis_series: [
+      { time: '2026-03-16T09:35:00+08:00', average_cost: 10.27 },
+      { time: '2026-03-16T09:40:00+08:00', average_cost: null },
+      { time: '2026-03-16T09:45:00+08:00', average_cost: '' },
+    ],
+  }
+  const option = buildSymbolReviewChartOption({ kline: makeKline(), chart })
+
+  const cost = option.series.find((item) => item.id === 'position-review-symbol-cost')
+  assert.ok(cost)
+  assert.equal(cost.data.length, 1)
+  assert.deepEqual(cost.data[0].value, [1, 10.27])
+})
+
 test('buildSymbolReviewChartOption returns null without bars', () => {
   assert.equal(buildSymbolReviewChartOption({ kline: { date: [] }, chart: {} }), null)
 })

@@ -334,7 +334,7 @@ export default {
       priceGuideLegendSelected: buildPriceGuideLegendSelectionState(),
       priceGuideEditMode: false,
       priceGuideDragDirty: false,
-      showOrderReview: false,
+      showOrderReview: true,
       orderReviewChart: null,
       orderReviewLoading: false,
       orderReviewError: '',
