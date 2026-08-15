@@ -64,6 +64,7 @@ docker compose -f docker/compose.parallel.yaml up -d --build
 - `script/ci/run_formal_deploy.py` 会读取 `production-state.json` 中的上一次成功部署 SHA，计算 `last_success_sha -> current main HEAD` 的 changed paths，再调用 `script/freshquant_deploy_plan.py` 得到本轮 deploy plan。
 - `script/ci/run_formal_deploy.py` 命中宿主机 deployment surface 时，会把当前 canonical repo root repo root 追加给 `script/fqnext_host_runtime_ctl.ps1`，由后者用 `script/fqnext_supervisor_config.py` 收敛 `D:\fqpack\config\supervisord.fqnext.conf`。
 - `script/fqnext_host_runtime_ctl.ps1` 或 `script/fqnext_supervisor_config.py` 自身发生变更时，`script/freshquant_deploy_plan.py` 现在会强制命中全部宿主机 deployment surface（`market_data`、`guardian`、`position_management`、`tpsl`、`order_management`）；这类 host-runtime infra 变更不允许再被判成 no-op deploy。
+- `script/freshquant_deploy_plan.py` 自身发生变更时，会强制重建全部容器运行面（`api`、`indexer`、`web`、`dagster`、`qa`），确保新增/调整的路径映射一次性生效（含 `fq_runtime_indexer` 镜像对齐）；计划器变更也不允许被判成 no-op deploy。
 - `script/ci/run_production_deploy.ps1` 会显式把 canonical repo root、local main sync root 与本机 canonical repo root 加入 git `safe.directory`，避免 runner 在多 worktree 场景下拒绝执行 git。
 - 正式 deploy 要求 production runner 至少存在一个可用的 Python 3.12；若 `py -3.12` 因旧注册失效，入口脚本会回退到已注册的 per-user / system Python 3.12，并回补 `HKCU\Software\Python\PythonCore\3.12\InstallPath`。
 - 若 runner Python 3.12 缺少 `uv` 模块，入口脚本会先执行 `python -m pip install uv --break-system-packages` 再继续部署。
@@ -219,6 +220,7 @@ powershell -ExecutionPolicy Bypass -File script/install_fqnext_supervisord_resta
 | `freshquant/runtime_observability/**` | Runtime Observability API / ClickHouse / indexer | 重建 `fq_apiserver`，并确认 `fq_runtime_clickhouse`、`fq_runtime_indexer` 已恢复 |
 | `freshquant/order_management/**` | 订单管理、API、broker/ingest、XT 自动还款相关宿主机进程 | 重建 API；执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/position_management/**` | 仓位管理（宿主机实际由统一 `xt_account_sync.worker` 承担） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -BridgeIfServiceUnavailable` |
+| `freshquant/position_review/**` | 持仓复盘读模型（组合总览/标的复盘，由 API 容器承载） | 重建 `fq_apiserver` |
 | `freshquant/xt_account_sync/**` | XT 主动查询统一 worker（仓位管理 + 订单管理） | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface position_management -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/xt_auto_repay/**` | XT 自动还款 worker | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface order_management -BridgeIfServiceUnavailable` |
 | `freshquant/tpsl/**` | TPSL | 执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface tpsl -BridgeIfServiceUnavailable` |

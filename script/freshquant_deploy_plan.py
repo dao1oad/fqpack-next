@@ -405,10 +405,10 @@ PATH_RULES: tuple[PathRule, ...] = (
     ExactRule(
         label="deploy-plan-self",
         exact_path="script/freshquant_deploy_plan.py",
-        surfaces=DOCKER_PARALLEL_ALL_SURFACES,
+        surfaces=("api", "indexer", "web", "dagster", "qa"),
         notes=(
             "部署计划规则自身变更时重建全部容器运行面，确保新增/调整的映射"
-            "一次性生效（含新映射的首次应用）。",
+            "一次性生效（含新映射的首次应用与 fq_runtime_indexer 镜像对齐）。",
         ),
     ),
 )

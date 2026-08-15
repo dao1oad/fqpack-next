@@ -396,6 +396,7 @@ def test_position_review_paths_redeploy_api() -> None:
     assert plan["deployment_required"] is True
     assert plan["deployment_surfaces"] == ["api"]
     assert plan["docker_services"] == ["fq_apiserver"]
+    assert "--build" in plan["docker_command"]
     assert "http://127.0.0.1:15000/api/runtime/health/summary" in plan["health_checks"]
     assert any("漏部署" in note for note in plan["notes"])
 
@@ -407,7 +408,15 @@ def test_deploy_plan_self_change_rebuilds_all_docker_surfaces() -> None:
     plan = module.build_deploy_plan(changed_paths=["script/freshquant_deploy_plan.py"])
 
     assert plan["deployment_required"] is True
-    assert plan["deployment_surfaces"] == ["api", "web", "dagster", "qa"]
+    assert plan["deployment_surfaces"] == ["api", "indexer", "web", "dagster", "qa"]
     assert plan["docker_build_targets"] == ["fq_apiserver", "fq_webui"]
+    assert plan["docker_services"] == [
+        "fq_apiserver",
+        "fq_webui",
+        "fq_runtime_indexer",
+        "fq_dagster_webserver",
+        "fq_dagster_daemon",
+        "fq_qawebserver",
+    ]
     assert "--no-deps" not in plan["docker_command"]
     assert any("部署计划规则自身变更" in note for note in plan["notes"])
