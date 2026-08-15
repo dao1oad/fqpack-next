@@ -34,6 +34,14 @@ def test_runtime_post_deploy_check_runs_strict_qfq_readiness_for_market_data() -
     assert "'status', '--strict'" in script_text
 
 
+def test_runtime_post_deploy_check_supports_indexer_surface() -> None:
+    """post-deploy verify 必须识别 indexer surface（部署计划器会输出该 surface）。"""
+    script_text = SCRIPT.read_text(encoding="utf-8")
+
+    assert "'indexer'," in script_text
+    assert "indexer = @('fq_runtime_indexer')" in script_text
+
+
 def _run_powershell(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     executable = shutil.which("powershell") or shutil.which("pwsh")
     if executable is None:

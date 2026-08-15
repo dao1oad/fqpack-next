@@ -202,6 +202,7 @@ $surfaceAliasMap = @{
 
 $knownDeploymentSurfaces = @(
     'api',
+    'indexer',
     'web',
     'dagster',
     'qa',
@@ -214,6 +215,7 @@ $knownDeploymentSurfaces = @(
 
 $dockerSurfaceMap = @{
     api = @('fq_apiserver')
+    indexer = @('fq_runtime_indexer')
     web = @('fq_webui')
     dagster = @('fq_dagster_webserver', 'fq_dagster_daemon')
     qa = @('fq_qawebserver')
