@@ -1341,13 +1341,15 @@ def build_conditions(
             )
             tier_price = _float((sell_sources or {}).get("tier_price"))
             allocation_policy = (
-                str((sell_sources or {}).get("allocation_policy") or "").strip()
+                str((sell_sources or {}).get("allocation_policy") or "").strip() or None
+            )
+            takeprofit_entries_total = (
+                sum(
+                    _int(item.get("quantity"))
+                    for item in ((sell_sources or {}).get("entries") or [])
+                )
                 or None
             )
-            takeprofit_entries_total = sum(
-                _int(item.get("quantity"))
-                for item in ((sell_sources or {}).get("entries") or [])
-            ) or None
             conditions.append(
                 _condition(
                     condition_key="signal_price_above_threshold",

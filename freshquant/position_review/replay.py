@@ -560,7 +560,9 @@ def _review_guardian_buy(*, request, context, expected, reason_codes):
     ):
         _append_once(reason_codes, "capacity_snapshot_conflict")
 
-    capacity_ref = recomputed_capacity if recomputed_capacity is not None else snapshot_capacity
+    capacity_ref = (
+        recomputed_capacity if recomputed_capacity is not None else snapshot_capacity
+    )
     if new_open and capacity_ref is not None:
         if recomputed_capacity is None:
             # 首开容量量无法独立复算：委托等于公式量仍可验收，委托等于快照

@@ -1869,9 +1869,7 @@ def test_replay_cost_basis_seeds_inherited_flatten_cost_and_sorts_series():
     derived = result["cost_basis_series"][0]
     assert derived["point_type"] == "rebuilt_open"
     assert derived["average_cost"] == 180.548022
-    warning_codes = {
-        item["code"] for item in result["data_quality"]["warnings"]
-    }
+    warning_codes = {item["code"] for item in result["data_quality"]["warnings"]}
     assert "cost_basis_inherited_snapshot" in warning_codes
 
 

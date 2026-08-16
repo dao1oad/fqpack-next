@@ -571,9 +571,7 @@ def build_portfolio_series(
                     window_start.isoformat() if window_start is not None else None
                 ),
                 "covered": window_covered,
-                "available_from": (
-                    series[0].get("time") if series else None
-                ),
+                "available_from": (series[0].get("time") if series else None),
             },
             "net_value_formula": "net_value = total_asset - total_debt",
             "qmt_reference": (
