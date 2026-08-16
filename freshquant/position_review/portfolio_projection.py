@@ -483,8 +483,8 @@ def build_portfolio_series(
         equity_basis = "estimated"
         label = "账户净资产（证据不足）"
 
-    window_days = None
-    window_start = None
+    window_days: int | None = None
+    window_start: datetime | None = None
     window_covered = True
     windowed = _WINDOWED_PERIODS.get(normalized_period)
     if windowed:
@@ -672,7 +672,7 @@ def build_portfolio_benchmark(
         buckets[bucket[0]] = close
 
     aligned = []
-    last_close = None
+    last_close: float | None = None
     observed_count = 0
     carried_count = 0
     for point in series or []:

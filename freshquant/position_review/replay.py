@@ -527,7 +527,7 @@ def _review_guardian_buy(*, request, context, expected, reason_codes):
     capacity_ratio = _positive_float(context.get("capacity_ratio"))
     snapshot_capacity = _int(context.get("capacity_quantity"))
     snapshot_capacity = snapshot_capacity if snapshot_capacity > 0 else None
-    recomputed_capacity = None
+    recomputed_capacity: int | None = None
     if (
         remaining_amount is not None
         and capacity_ratio is not None

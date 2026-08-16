@@ -1328,7 +1328,7 @@ def build_conditions(
     threshold_price = _float(expected.get("threshold_price"))
     signal_price = _float(request.get("price"))
     takeprofit_sell = side == "sell" and is_takeprofit_request(request)
-    takeprofit_entries_total = None
+    takeprofit_entries_total: int | None = None
     if side == "sell":
         if takeprofit_sell:
             # TPSL 止盈卖单不按 Guardian 规则复盘；条件证据改为展示触发快照
