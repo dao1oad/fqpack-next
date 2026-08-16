@@ -5,6 +5,7 @@ import { positionReviewApi } from '../../api/positionReviewApi.js'
 import {
   buildPortfolioBenchmarkSummary,
   buildPortfolioEquityOption,
+  buildPortfolioTradeTooltip,
   normalizePortfolioContributions,
   normalizePortfolioSummary,
   positionReviewRefactorFormatters,
@@ -20,6 +21,7 @@ const loading = ref(false)
 const error = ref('')
 const equityPeriod = ref('30d')
 const equityMode = ref('net')
+const pinnedTrade = ref(null)
 const equityPeriodOptions = [
   { value: '30d', label: '30日' },
   { value: '60d', label: '60日' },
@@ -38,6 +40,9 @@ const windowCoverage = computed(() => {
   if (!windowInfo || windowInfo.covered !== false) return null
   return windowInfo
 })
+const tradeCardHtml = computed(() => (
+  pinnedTrade.value ? buildPortfolioTradeTooltip(pinnedTrade.value) : ''
+))
 
 const equityBasisLabel = computed(() => {
   const basis = normalizedSummary.value.equityBasis
@@ -125,6 +130,21 @@ const handleContributionClick = (row) => {
   if (row.symbol) {
     emit('drill-symbol', row.symbol)
   }
+}
+
+const handleChartClick = (params) => {
+  if (
+    params?.seriesId === 'position-review-portfolio-trades'
+    && params?.data?.point
+  ) {
+    pinnedTrade.value = params.data.point
+    return
+  }
+  pinnedTrade.value = null
+}
+
+const closePinnedTrade = () => {
+  pinnedTrade.value = null
 }
 
 onMounted(() => {
@@ -230,8 +250,8 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
           <p class="portfolio-overview__panel-note">
             {{
               equityMode === 'asset'
-                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；切换的是时间窗口（跨度），曲线按日采样、X 轴仅交易日；净资产与上证综指ETF 510210 归一化到同一 Y 轴（可见区间首交易日=100，半年及以上窗口首日即 2026-04-07）便于对比；窗口早于可用历史的区间不插值。'
-                : '净资产 = 总资产 − 总负债；切换的是时间窗口（跨度），曲线按日采样、X 轴仅交易日；净资产与上证综指ETF 510210 归一化到同一 Y 轴（可见区间首交易日=100，半年及以上窗口首日即 2026-04-07）便于对比；窗口早于可用历史的区间不插值；交易日有成交标注交易点。'
+                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；切换的是时间窗口（跨度），曲线按日采样、X 轴仅交易日；净资产与上证综指ETF 510210 归一化到同一 Y 轴（可见区间首交易日=100，半年及以上窗口首日即 2026-04-07）便于对比；窗口早于可用历史的区间不插值；点击交易点可固定查看成交明细（点击空白处关闭）。'
+                : '净资产 = 总资产 − 总负债；切换的是时间窗口（跨度），曲线按日采样、X 轴仅交易日；净资产与上证综指ETF 510210 归一化到同一 Y 轴（可见区间首交易日=100，半年及以上窗口首日即 2026-04-07）便于对比；窗口早于可用历史的区间不插值；点击交易点可固定查看成交明细（点击空白处关闭）。'
             }}
           </p>
         </div>
@@ -249,7 +269,24 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
           :loading="loading"
           :empty="!equityOption"
           empty-text="缺少资产快照，暂无可绘制的曲线"
+          @chart-click="handleChartClick"
+          @chart-blank-click="closePinnedTrade"
         />
+        <div
+          v-if="pinnedTrade"
+          class="portfolio-overview__trade-card prt-tooltip"
+        >
+          <button
+            type="button"
+            class="portfolio-overview__trade-card-close"
+            aria-label="关闭成交明细"
+            @click.stop="closePinnedTrade"
+          >
+            ×
+          </button>
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div v-html="tradeCardHtml"></div>
+        </div>
       </div>
 
       <div class="portfolio-overview__hero-right">
@@ -428,6 +465,37 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   gap: 8px;
   min-width: 0;
   min-height: 0;
+  position: relative;
+}
+
+.portfolio-overview__trade-card {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 10000000;
+  max-width: 560px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.portfolio-overview__trade-card-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.portfolio-overview__trade-card-close:hover {
+  background: rgba(248, 113, 113, 0.45);
 }
 
 .portfolio-overview__hero-right {

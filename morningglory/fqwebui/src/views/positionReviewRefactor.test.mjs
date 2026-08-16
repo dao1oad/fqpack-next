@@ -226,6 +226,10 @@ test('buildPortfolioEquityOption normalizes trade scatter onto benchmark axis', 
   const scatter = option.series.find((item) => item.id === 'position-review-portfolio-trades')
   assert.ok(scatter)
   assert.equal(scatter.data[0].value[1], 100)
+  // 成交明细改为：hover 走 axis 快照卡合并 + 点击自绘固定卡（ECharts
+  // 全局 axis 触发下 series 级 tooltip 不生效，不再配置）。
+  assert.equal(scatter.tooltip, undefined)
+  assert.equal(option.tooltip.triggerOn, 'mousemove')
 })
 
 test('benchmark option renders via ECharts SSR without axis errors', () => {
@@ -332,6 +336,12 @@ test('portfolio tooltip formatters render asset snapshot with dark theme', () =>
         time: '2026-08-13', period_label: '2026-08-13',
         total_equity: 102000.0, net_value: 91800.0,
         market_value: 81000.0, cash: 13000.0, total_debt: 8200.0,
+        trades: [{
+          time: '2026-08-13T10:00+08:00', symbol: '300760', name: '迈瑞医疗',
+          side: 'buy', quantity: 100, price: 153.0, amount: 15300.0,
+          request_id: 'req_buy_x', association_quality: 'high', account_partition: 'partition_a',
+        }],
+        trade_count: 1,
       },
     ],
     benchmark: {
@@ -359,6 +369,8 @@ test('portfolio tooltip formatters render asset snapshot with dark theme', () =>
   assert.match(html, /上证综指ETF/)
   assert.match(html, /相对基准/)
   assert.match(html, /跑赢/)
+  assert.match(html, /当日成交明细/)
+  assert.match(html, /请求 req_buy_x/)
 })
 
 test('portfolio account-only tooltip renders snapshot without benchmark', () => {
