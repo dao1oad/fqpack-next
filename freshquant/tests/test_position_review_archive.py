@@ -37,6 +37,12 @@ class MemoryCollection:
     def __init__(self, documents=()):
         self.documents = [dict(item) for item in documents]
 
+    def find_one(self, query=None, *args, **kwargs):
+        for item in self.documents:
+            if _matches(item, query or {}):
+                return dict(item)
+        return None
+
     def find(self, query=None):
         return MemoryCursor(
             [dict(item) for item in self.documents if _matches(item, query or {})]
@@ -681,6 +687,63 @@ def test_list_credit_asset_daily_buckets_uses_server_side_pipeline():
     )
     assert {"$match": {"_id": {"$ne": None}}} in pipeline
     assert pipeline[-1]["$project"]["_id"] == 0
+
+
+def test_list_trade_dates_reads_calendar_cache():
+    from datetime import date as _date
+
+    today = _date.today().isoformat()
+    repository = PositionReviewRepository(
+        business_database=MemoryDatabase(
+            {
+                "trade_calendar_cache": MemoryCollection(
+                    [
+                        {
+                            "market": "cn_a",
+                            "source": "sina",
+                            "trade_dates": [
+                                "2026-04-07",
+                                "2026-05-01",
+                                today,
+                            ],
+                        }
+                    ]
+                )
+            }
+        ),
+        order_database=MemoryDatabase(),
+        position_database=MemoryDatabase(),
+    )
+
+    dates = repository.list_trade_dates()
+
+    assert dates == {"2026-04-07", "2026-05-01", today}
+
+
+def test_list_trade_dates_rejects_stale_cache():
+    from datetime import date as _date
+    from datetime import timedelta as _timedelta
+
+    stale_latest = (_date.today() - _timedelta(days=30)).isoformat()
+    repository = PositionReviewRepository(
+        business_database=MemoryDatabase(
+            {
+                "trade_calendar_cache": MemoryCollection(
+                    [
+                        {
+                            "market": "cn_a",
+                            "source": "sina",
+                            "trade_dates": ["2026-04-07", stale_latest],
+                        }
+                    ]
+                )
+            }
+        ),
+        order_database=MemoryDatabase(),
+        position_database=MemoryDatabase(),
+    )
+
+    assert repository.list_trade_dates() is None
 
 
 def test_xt_trades_do_not_override_om_ledger_fills():

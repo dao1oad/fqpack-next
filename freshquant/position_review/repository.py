@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.order_management.db import DBOrderManagement
@@ -19,6 +21,7 @@ from freshquant.position_management.db import DBPositionManagement
 from freshquant.util.code import normalize_to_base_code
 
 logger = logging.getLogger(__name__)
+_BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 
 
 class PositionReviewRepository:
@@ -298,6 +301,43 @@ class PositionReviewRepository:
             return None
         value = str((document or {}).get("queried_at") or "").strip()
         return value or None
+
+    def list_trade_dates(self) -> set[str] | None:
+        """复用交易日历缓存（``trade_calendar_cache``，cn_a/sina）。
+
+        返回 "YYYY-MM-DD" 交易日集合；缓存缺失/过期（最新交易日早于今天
+        7 天以上，视为陈旧，避免误删近期桶）时返回 None，由调用方降级
+        为不过滤并附告警。
+        """
+
+        collection = _optional_collection(
+            self.business_database,
+            "trade_calendar_cache",
+        )
+        if collection is None or not hasattr(collection, "find_one"):
+            return None
+        document = collection.find_one({"market": "cn_a", "source": "sina"})
+        if not document:
+            return None
+        trade_dates = (document or {}).get("trade_dates")
+        if not isinstance(trade_dates, list):
+            return None
+        dates = {str(value).strip()[:10] for value in trade_dates if str(value).strip()}
+        if not dates:
+            return None
+        latest = max(dates)
+        today = datetime.now(_BEIJING_TZ).date().isoformat()
+        latest_date = datetime.fromisoformat(latest).date()
+        stale_days = (datetime.now(_BEIJING_TZ).date() - latest_date).days
+        if latest < today and stale_days > 7:
+            logger.warning(
+                "trade calendar cache is stale (latest=%s, today=%s); "
+                "degrade to no trading-day filter",
+                latest,
+                today,
+            )
+            return None
+        return dates
 
     def list_credit_asset_daily_buckets(
         self,
