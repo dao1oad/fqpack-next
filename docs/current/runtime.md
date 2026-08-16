@@ -195,7 +195,7 @@
   - `GET /api/position-review/symbols`
   - `GET /api/position-review/symbols/<symbol>`
   - `GET /api/position-review/portfolio/summary`
-  - `GET /api/position-review/portfolio/series?period=day|week|month|30d|60d|90d|6m|1y|2y`（默认 `day`）
+  - `GET /api/position-review/portfolio/series?period=30d|60d|90d|6m|1y|2y`（默认 `30d`）
   - `GET /api/position-review/portfolio/contributions`
   - `GET /api/position-review/symbols/<symbol>/chart`
   - `GET /api/position-review/events/<event_id>/conditions`
@@ -206,13 +206,14 @@
 - 组合总览的账户净资产曲线按 QMT 口径计算：单位净值 =（基金资产总值 − 基金负债）/ 基金总份额，
   账户层面净资产 = 总资产 − 总负债；数据来自 `pm_credit_asset_snapshots` 的
   `total_asset / total_debt`。左上角切换器是**时间窗口**而不是 K 线式展示周期：
-  日=1 天 / 周=7 天 / 月=30 天 / 30日/60日/90日/半年(183天)/一年(365天)/两年(730天)，
-  默认 30日；**所有窗口统一按 5 分钟粒度展示**（北京时区 5 分钟桶取末笔快照），
-  窗口以最新快照为锚往前截取、
+  30日/60日/90日/半年(183天)/一年(365天)/两年(730天)，默认 30日；
+  **曲线按日采样**（北京日历日桶取当日末笔快照；快照仅交易时段产生，桶即
+  交易日，X 轴不含周末/节假日，点间直接连线无异常横线），窗口以最新快照
+  为锚往前截取、
   缺失区间不插值。净值曲线读取走服务器端聚合：`pm_credit_asset_snapshots`
-  建 `queried_at` 索引，Mongo `$dateTrunc` 按北京时区 5 分钟分桶取末笔
+  建 `queried_at` 索引，Mongo `$dateTrunc` 按北京时区按日分桶取末笔
   （`$match queried_at >= 锚点-窗口天数 → $sort → $group $last`，allowDiskUse），
-  查询侧只返回约 3 万个桶文档而不是 57 万条原始快照；账户快照历史晚于窗口
+  查询侧只返回约 130 个交易日桶文档而不是 57 万条原始快照；账户快照历史晚于窗口
   起点时页面顶部提示"仅覆盖可用区间"。
   快照由 `xt_account_sync` worker 主循环写入（每次同步查询 XT 信用资产明细后
   `sleep(15s)`，100 实测相邻 `queried_at` 间隔中位 15.1s），且仅交易时段采样
@@ -221,8 +222,9 @@
   缺失分桶沿用上一收盘价），面板徽章显示区间涨跌幅与跑赢/跑输幅度；
   交易发生的周期在图上标注交易点，悬浮展示该周期全部交易的时间、标的、方向、数量、
   价格、金额与请求 ID。
-- 净值曲线与基准曲线启用 ECharts `sampling: lttb` 渲染降采样：5 分钟粒度下大窗口
-  可达 2~3 万点，缩小视图按像素抽稀绘制、放大/悬浮仍读取原始点，不影响数值精度。
+- 净值曲线与基准曲线启用 ECharts `sampling: lttb` 渲染降采样：日采样下点数为
+  窗口内交易日数（两年约 130 点），缩小视图按像素抽稀绘制、放大/悬浮仍读取
+  原始点，不影响数值精度。
 - 逐单策略复盘对买入的判定口径：公式量 = `quantity_for_amount(base_amount × multiplier)`
   （首开为 `initial_amount`）；策略按阶段容量规则执行时，容量量由快照
   `remaining_amount × capacity_ratio` 独立复算（与

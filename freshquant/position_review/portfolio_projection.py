@@ -22,13 +22,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 _BEIJING_TZ = timezone(timedelta(hours=8))
-# 左上角选择器是「时间窗口」（看多长的跨度），曲线固定按 5 分钟粒度
-# 展示：value = (窗口天数, 展示名)。窗口按最近一笔快照往前截取，
-# 缺失区间不插值；5 分钟桶取该桶末笔快照。
+# 左上角选择器是「时间窗口」（看多长的跨度），曲线按日采样展示：
+# value = (窗口天数, 展示名)。窗口按最近一笔快照往前截取，缺失区间
+# 不插值；日桶 = 北京日历日（快照仅交易时段产生，天然只有交易日），
+# 取当日末笔快照。
 _PERIOD_WINDOWS: dict[str, tuple[int, str]] = {
-    "day": (1, "日"),
-    "week": (7, "周"),
-    "month": (30, "月"),
     "30d": (30, "30日"),
     "60d": (60, "60日"),
     "90d": (90, "90日"),
@@ -97,18 +95,16 @@ def _beijing_datetime(value) -> datetime | None:
 
 
 def _period_bucket_key(time_text: str, period: str) -> tuple[str, str] | None:
-    """Return (bucket_key, period_label) for a Beijing 5-minute bucket.
+    """Return (bucket_key, period_label) for a Beijing calendar-day bucket.
 
     Buckets follow Beijing time.  ``period`` 参数保留兼容（所有窗口统一
-    5 分钟粒度）。
+    按日采样）。
     """
 
     parsed = _beijing_datetime(time_text)
     if parsed is None:
         return None
-    minute = (parsed.minute // 5) * 5
-    bucket = parsed.replace(minute=minute, second=0, microsecond=0)
-    label = bucket.strftime("%Y-%m-%d %H:%M")
+    label = parsed.strftime("%Y-%m-%d")
     return (label, label)
 
 
@@ -372,7 +368,7 @@ def build_portfolio_series(
     xt_assets: list[dict[str, Any]],
     credit_snapshots: list[dict[str, Any]],
     trade_events: list[dict[str, Any]] | None = None,
-    period: str = "day",
+    period: str = "30d",
     generated_at: str,
 ) -> dict[str, Any]:
     """Build the account net-value curve with an explicit basis.
@@ -386,17 +382,15 @@ def build_portfolio_series(
 
     ``pm_credit_asset_snapshots`` carries both ``total_asset`` and
     ``total_debt``, so each point reports ``net_value = total_asset -
-    total_debt``.  ``period`` 是时间窗口（``day``=1天 / ``week``=7天 /
-    ``month``=30天 / ``30d``/``60d``/``90d``/``6m``/``1y``/``2y``），
-    所有窗口统一按 5 分钟粒度展示（北京时区，每桶保留末笔快照）。
-    交易发生在哪个 5 分钟桶就挂到哪个点，供 UI 渲染交易点与悬浮明细。
+    total_debt``.  ``period`` 是时间窗口（``30d``/``60d``/``90d``/
+    ``6m``/``1y``/``2y``），曲线按日采样展示（北京日历日桶取当日末笔
+    快照，快照仅交易时段产生，因此桶即交易日）。交易发生在哪个交易日
+    就挂到哪个点，供 UI 渲染交易点与悬浮明细。
     """
 
-    normalized_period = str(period or "day").strip().lower()
+    normalized_period = str(period or "30d").strip().lower()
     if normalized_period not in _PERIODS:
-        raise ValueError(
-            "period must be one of day, week, month, 30d, 60d, 90d, 6m, 1y, 2y"
-        )
+        raise ValueError("period must be one of 30d, 60d, 90d, 6m, 1y, 2y")
     trade_events = list(trade_events or [])
 
     broker_points = []
@@ -422,7 +416,7 @@ def build_portfolio_series(
             if time_text is None:
                 continue
             # 高频快照先按北京时区聚合到分钟（queried_at 为 UTC，必须
-            # 显式转北京时间再取分钟键，否则 5 分钟桶会整体偏移 8 小时）；
+            # 显式转北京时间再取分钟键，否则日桶边界会偏移 8 小时）；
             # 缺失分钟不插值。
             parsed = _beijing_datetime(time_text)
             if parsed is None:
@@ -496,7 +490,7 @@ def build_portfolio_series(
         trade_events=trade_events,
         period="day",
     )
-    period_label = _PERIOD_WINDOWS.get(normalized_period, (1, "日"))[1]
+    period_label = _PERIOD_WINDOWS.get(normalized_period, (30, "30日"))[1]
 
     warnings = []
     if equity_basis != "broker_total_asset":
@@ -533,7 +527,7 @@ def build_portfolio_series(
             "point_count": len(series),
             "window": {
                 "period": normalized_period,
-                "granularity": "5min",
+                "granularity": "1d",
                 "window_days": window_days,
                 "window_start": (
                     window_start.isoformat() if window_start is not None else None
@@ -618,11 +612,10 @@ def build_portfolio_benchmark(
 ) -> dict[str, Any]:
     """Align benchmark daily bars onto the equity series buckets.
 
-    Each equity bucket (5-minute) takes the benchmark daily close of the same
-    trading day; buckets on a day without a fresh bar carry the previous
-    close forward (benchmark "as of" value).  ``covered_count`` only counts
-    buckets with an observed bar, ``carried_count`` counts carry-forward
-    buckets.
+    Each equity bucket (trading day) takes the benchmark daily close of the
+    same day; days without a fresh bar carry the previous close forward
+    (benchmark "as of" value).  ``covered_count`` only counts buckets with an
+    observed bar, ``carried_count`` counts carry-forward buckets.
     ``normalized`` rebases the aligned series to the first available point so
     the UI can render period returns and the beat/miss spread against the
     account curve.

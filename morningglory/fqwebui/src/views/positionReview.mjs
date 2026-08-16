@@ -1138,7 +1138,7 @@ const prnetValueOf = (point) => (
 const prformatPeriodTick = (label, period) => {
   const text = prtoText(label)
   if (!text) return ''
-  // 所有窗口统一 5 分钟粒度，标签为 YYYY-MM-DD HH:MM，横轴显示 MM-DD HH:MM。
+  // 所有窗口统一按日采样，标签为 YYYY-MM-DD（交易日），横轴显示 MM-DD。
   return text.length >= 10 ? text.slice(5) : text
 }
 

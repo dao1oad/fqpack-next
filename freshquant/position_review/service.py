@@ -451,9 +451,9 @@ class PositionReviewService:
         self,
         *,
         refresh=False,
-        period="day",
+        period="30d",
     ) -> dict[str, Any]:
-        normalized_period = str(period or "day").strip().lower()
+        normalized_period = str(period or "30d").strip().lower()
         detail_by_symbol, _, _, xt_assets, _catalog_credit = (
             self._build_portfolio_inputs(refresh=bool(refresh))
         )
@@ -467,17 +467,17 @@ class PositionReviewService:
         )
         payload["benchmark"] = self._build_portfolio_benchmark(
             series=payload.get("series") or [],
-            period=str(payload.get("period") or "day"),
+            period=str(payload.get("period") or "30d"),
         )
         return payload
 
     def _window_credit_snapshots(self, period: str) -> list[dict[str, Any]]:
-        """按窗口起点读取信用快照的 5 分钟聚合桶（服务器端聚合）。
+        """按窗口起点读取信用快照的日聚合桶（服务器端聚合）。
 
         窗口锚点 = 集合最新 ``queried_at``；读取范围为
         ``queried_at >= anchor - window_days``，由 Mongo ``$dateTrunc``
-        按北京时区 5 分钟分桶取末笔，返回约 3 万个桶文档而不是 57 万条
-        原始快照。
+        按北京时区按日分桶取末笔，返回约 130 个交易日桶文档而不是 57 万
+        条原始快照。
         """
 
         window_days = period_window_days(period)
@@ -498,7 +498,7 @@ class PositionReviewService:
             int(anchor - window_days * 86_400),
             tz=timezone.utc,
         ).isoformat()
-        return self.repository.list_credit_asset_5m_buckets(start_after=start_iso)
+        return self.repository.list_credit_asset_daily_buckets(start_after=start_iso)
 
     def _build_portfolio_benchmark(self, *, series, period) -> dict[str, Any]:
         """Attach the benchmark curve (上证综指ETF 510210) to the equity payload.

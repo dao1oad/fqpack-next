@@ -299,17 +299,17 @@ class PositionReviewRepository:
         value = str((document or {}).get("queried_at") or "").strip()
         return value or None
 
-    def list_credit_asset_5m_buckets(
+    def list_credit_asset_daily_buckets(
         self,
         *,
         start_after=None,
     ) -> list[dict[str, Any]]:
-        """Server-side 5-minute bucket aggregation of credit snapshots.
+        """Server-side daily bucket aggregation of credit snapshots.
 
-        MongoDB 8 的 ``$dateTrunc`` 按北京时区 5 分钟分桶、桶内取末笔
-        （``$last``），查询侧只返回约 3 万个桶文档而不是 57 万条原始快照。
-        返回与原始快照同构的文档列表，附加 ``bucket_time``（北京 5 分钟
-        桶边界的 BSON Date）。
+        MongoDB 8 的 ``$dateTrunc`` 按北京时区按日分桶、桶内取末笔
+        （``$last``），查询侧只返回约 130 个交易日桶文档而不是 57 万条
+        原始快照。返回与原始快照同构的文档列表，附加 ``bucket_time``
+        （北京交易日桶边界的 BSON Date）。
         """
 
         collection = _optional_collection(
@@ -333,8 +333,7 @@ class PositionReviewRepository:
                                     "onError": None,
                                 }
                             },
-                            "unit": "minute",
-                            "binSize": 5,
+                            "unit": "day",
                             "timezone": "Asia/Shanghai",
                         }
                     },

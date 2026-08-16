@@ -64,7 +64,7 @@ def get_position_review_portfolio_series():
     return _service_response(
         lambda service: service.get_portfolio_series(
             refresh=refresh,
-            period=str(request.args.get("period") or "").strip() or "day",
+            period=str(request.args.get("period") or "").strip() or "30d",
         )
     )
 

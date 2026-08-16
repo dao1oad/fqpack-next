@@ -639,7 +639,7 @@ class AggregateCollection:
         return iter(dict(item) for item in self.documents)
 
 
-def test_list_credit_asset_5m_buckets_uses_server_side_pipeline():
+def test_list_credit_asset_daily_buckets_uses_server_side_pipeline():
     collection = AggregateCollection(
         [
             {
@@ -658,7 +658,7 @@ def test_list_credit_asset_5m_buckets_uses_server_side_pipeline():
         position_database=MemoryDatabase({"pm_credit_asset_snapshots": collection}),
     )
 
-    buckets = repository.list_credit_asset_5m_buckets(
+    buckets = repository.list_credit_asset_daily_buckets(
         start_after="2026-08-01T00:00:00+00:00"
     )
 
@@ -672,6 +672,7 @@ def test_list_credit_asset_5m_buckets_uses_server_side_pipeline():
     }
     group_stage = pipeline[2]
     assert "$dateTrunc" in str(group_stage)
+    assert group_stage["$group"]["_id"]["$dateTrunc"]["unit"] == "day"
     assert group_stage["$group"]["queried_at"] == {"$last": "$queried_at"}
     # 畸形 queried_at 显式失败为 null 并过滤，不整管道报错。
     assert (

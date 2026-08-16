@@ -265,7 +265,7 @@ class FakePositionReviewRepository:
     def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
         return []
 
-    def list_credit_asset_5m_buckets(self, *, start_after=None):
+    def list_credit_asset_daily_buckets(self, *, start_after=None):
         return []
 
     def latest_credit_snapshot_time(self):
