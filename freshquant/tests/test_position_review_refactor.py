@@ -1283,12 +1283,12 @@ def test_build_portfolio_series_credit_rebuild_net_value_default_day():
     assert len(series["series"]) == 2
     point = series["series"][0]
     assert point["period_key"] == "2026-07-21 20:15"
-    assert point["total_asset"] == 5196064.04
+    assert point["total_equity"] == 5196064.04
     assert point["net_value"] == round(5196064.04 - 1637725.17, 2)
     assert point["trade_count"] == 0
     last = series["series"][1]
     assert last["period_key"] == "2026-07-21 21:00"
-    assert last["total_asset"] == 5200000.0
+    assert last["total_equity"] == 5200000.0
     assert last["trade_count"] == 1
     assert last["trades"][0]["symbol"] == "002262"
 
