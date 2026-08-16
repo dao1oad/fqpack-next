@@ -300,8 +300,9 @@ def build_portfolio_summary(
         if broker_debt is not None:
             # 券商快照自带负债（防御性分支；当前 FqXtAsset 不含该字段）：
             # 净资产 = 总资产 − 总负债（QMT 口径）。
-            current_net_value = _round(current_asset - broker_debt)
-            net_value_source = "broker_asset_minus_debt"
+            if current_asset is not None:
+                current_net_value = _round(current_asset - broker_debt)
+                net_value_source = "broker_asset_minus_debt"
         elif credit_snapshots:
             # 券商快照无负债字段（信用账户）：KPI 整体切换到最新信用资产
             # 快照口径（总资产/净资产/现金同源），保证
