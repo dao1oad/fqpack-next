@@ -28,6 +28,7 @@ from freshquant.position_review.chart_projection import (
     build_symbol_chart_payload,
     replay_cost_basis,
     resolve_signal_type,
+    signal_meta,
     signal_type_registry_payload,
 )
 from freshquant.position_review.portfolio_projection import (
@@ -3868,26 +3869,47 @@ def _normalize_symbol(value):
 
 
 def _portfolio_trade_events(detail_by_symbol):
-    """Flatten canonical executions into portfolio trade-point events."""
+    """Flatten canonical executions into portfolio trade-point events.
+
+    每笔事件附带所属订单（request）的触发信号类型/标签，供前端按订单
+    聚合展示（订单详情 = 聚合成交 + 触发信号），不需要逐笔成交明细。
+    """
 
     events = []
     for symbol in sorted(detail_by_symbol):
         detail = detail_by_symbol[symbol] or {}
         name = str((detail.get("symbol") or {}).get("name") or "") or symbol
+        reviews_by_request = {
+            str(review.get("request_id") or "").strip(): review
+            for review in (detail.get("reviews") or [])
+            if str(review.get("request_id") or "").strip()
+        }
         for execution in detail.get("executions") or []:
             quantity = _int(execution.get("quantity"))
             price = _float(execution.get("price"))
+            side = str(execution.get("side") or "").strip().lower()
+            review = reviews_by_request.get(
+                str(execution.get("request_id") or "").strip()
+            )
+            signal_type = resolve_signal_type(
+                request=(review or {}).get("request"),
+                signal=(review or {}).get("signal"),
+                side=side,
+            )
+            signal_label = signal_meta(signal_type)["label"]
             events.append(
                 {
                     "time": execution.get("time")
                     or _epoch_iso(_int(execution.get("trade_time"))),
                     "symbol": symbol,
                     "name": name,
-                    "side": str(execution.get("side") or "").strip().lower(),
+                    "side": side,
                     "quantity": quantity,
                     "price": price,
                     "amount": round(price * quantity, 2) if price is not None else None,
                     "request_id": execution.get("request_id") or None,
+                    "signal_type": signal_type,
+                    "signal_label": signal_label,
                     "broker_trade_id": execution.get("broker_trade_id") or None,
                     "account_partition": (
                         execution.get("account_partition") or "unknown"
