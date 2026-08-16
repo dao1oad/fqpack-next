@@ -195,7 +195,7 @@
   - `GET /api/position-review/symbols`
   - `GET /api/position-review/symbols/<symbol>`
   - `GET /api/position-review/portfolio/summary`
-  - `GET /api/position-review/portfolio/series?period=day|week|month`（默认 `day`）
+  - `GET /api/position-review/portfolio/series?period=day|week|month|30d|60d|90d|6m|1y|2y`（默认 `day`）
   - `GET /api/position-review/portfolio/contributions`
   - `GET /api/position-review/symbols/<symbol>/chart`
   - `GET /api/position-review/events/<event_id>/conditions`
@@ -207,9 +207,24 @@
   账户层面净资产 = 总资产 − 总负债；数据来自 `pm_credit_asset_snapshots` 的
   `total_asset / total_debt`。净值曲线与组合总览最新净资产读取该集合最近 200,000 条快照
   （按 `queried_at` 取最新 200,000 条后升序返回，≈最近约 50 个交易日，随写入速率浮动，
-  更早历史不展示）。曲线支持日/周/月多周期切换（默认日），按北京日历桶聚合取各周期末笔
-  快照、缺失区间不插值；交易发生的周期在图上标注交易点，悬浮展示该周期全部交易的时间、
-  标的、方向、数量、价格、金额与请求 ID。
+  更早历史不展示）。曲线支持日/周/月与窗口期 30日/60日/90日/半年/一年/两年切换（默认日）：
+  30/60 日按日桶、90日/半年按周桶、一年/两年按月桶，窗口以最新快照为锚往前截取、
+  缺失区间不插值；账户快照历史晚于窗口起点时页面顶部提示"仅覆盖可用区间"。
+  同图叠加基准曲线 = 上证综指ETF 510210（`quantaxis.index_day` 日线，右侧紫色虚线轴，
+  缺失分桶沿用上一收盘价），面板徽章显示区间涨跌幅与跑赢/跑输幅度；
+  交易发生的周期在图上标注交易点，悬浮展示该周期全部交易的时间、标的、方向、数量、
+  价格、金额与请求 ID。
+- 逐单策略复盘对买入的判定口径：公式量 = `quantity_for_amount(base_amount × multiplier)`
+  （首开为 `initial_amount`）；策略按阶段容量规则执行时，容量量由快照
+  `remaining_amount × capacity_ratio` 独立复算（与
+  `freshquant.strategy.guardian_buy_grid` 同口径），委托量等于复算容量量判 PASS
+  并附 `quantity_capacity_based`（首开取 `min(公式量, 容量量)`）。快照容量量与复算
+  不一致附 `capacity_snapshot_conflict`（以复算为准）；无法复算时附
+  `capacity_evidence_incomplete` 并降级为证据不足，不自证闭环。
+- TPSL 止盈卖单（`source=tpsl_takeprofit` / `scope_type=takeprofit_batch`）
+  复盘结论为 `NOT_APPLICABLE`（不进入 PASS/FAIL 合规率），悬浮框条件不再按
+  Guardian 模板渲染空值，改按触发快照 `guardian_sell_sources` 展示档位价、
+  分配策略与计划数量覆盖。
 - 标的复盘的“按标的展示图表”不再展示 K 线（K 线交易标识已由 `/kline-slim` 行情图承载），
   改为持仓成本价曲线：Y 轴为持仓成本价，X 轴从首个持仓或订单点开始；订单事件（含
   `rebuilt_open_order` 账本重建买入事件）仍以颜色/形状/边框编码并支持一次性展示全部
@@ -249,6 +264,10 @@
 - 持仓复盘页“标的复盘”成本价主图保留原结构，成本点构建跳过 `average_cost` 为 null/undefined/'' 的推导点（不产生 y=0 竖线）。
 - 组合总览聚焦持仓市值、剩余成本、浮盈、已实现盈亏、月度成交额与标的贡献 Top N；权益曲线名称与 `equity_basis` 跟随证据等级（`broker_total_asset` / `credit_snapshot_reconstructed` / `estimated`），缺失区间不插值。
 - 持仓成本口径：优先 entry/slice/allocation 账本剩余成本，`fees_included=false`；证据不足时降级为成交移动加权估算并在页面与 `data_quality.cost_basis=degraded` 明示。
+- 账本重建（flatten）entry 携带的券商均价快照会作为继承期初仓位的成本基准：首笔成交的
+  "持仓均价前后"与卖出已实现盈亏可计算（不再显示为空），并附
+  `cost_basis_inherited_snapshot` 数据质量告警说明该口径为券商快照估算；继承 entry
+  容量登记占满后，后续买入不再误配到继承 entry，按后续 entry/成交价加权。
 - ClickHouse Trace 只用于补充可选的信号、策略门禁和运行链证据，以及跳转到 `/runtime-observability`。持仓复盘接口不依赖 ClickHouse 才能返回成交和账本结果；Trace 不可用时由证据置信度和 `data_quality` 显示降级。
 
 ## 并行环境的默认口径

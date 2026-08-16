@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   buildFullMarkerTooltip,
   buildMarkerTooltip,
+  buildPortfolioBenchmarkSummary,
   buildPortfolioTradeTooltip,
   buildPortfolioEquityOption,
   buildSymbolCostChartOption,
@@ -168,6 +169,56 @@ test('buildPortfolioEquityOption splits net and total-asset modes with own y-axi
   assert.equal(net.yAxis.max, 'dataMax')
   assert.equal(asset.yAxis.min, 'dataMin')
   assert.equal(asset.yAxis.max, 'dataMax')
+})
+
+test('buildPortfolioEquityOption renders 510210 benchmark on second axis', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    series: [
+      { time: '2026-08-12', period_label: '2026-08-12', total_equity: 100000.0, net_value: 90000.0 },
+      { time: '2026-08-13', period_label: '2026-08-13', total_equity: 102000.0, net_value: 91800.0 },
+    ],
+    benchmark: {
+      code: '510210',
+      name: '上证综指ETF',
+      series: [
+        { period_label: '2026-08-12', close: 1.01 },
+        { period_label: '2026-08-13', close: 1.02 },
+      ],
+    },
+  }, 'net')
+  assert.ok(option)
+  assert.ok(Array.isArray(option.yAxis))
+  assert.equal(option.yAxis.length, 2)
+  const benchmark = option.series.find((item) => item.id === 'position-review-benchmark')
+  assert.ok(benchmark)
+  assert.equal(benchmark.yAxisIndex, 1)
+  assert.deepEqual(benchmark.data, [1.01, 1.02])
+  assert.ok(option.legend.data.includes('上证综指ETF 510210'))
+})
+
+test('buildPortfolioBenchmarkSummary computes beat spread over common span', () => {
+  const summary = buildPortfolioBenchmarkSummary({
+    period: '30d',
+    series: [
+      { net_value: 100000.0 },
+      { net_value: 106000.0 },
+    ],
+    benchmark: {
+      code: '510210',
+      name: '上证综指ETF',
+      series: [
+        { close: 1.0 },
+        { close: 1.02 },
+      ],
+    },
+  }, 'net')
+  assert.ok(summary)
+  assert.equal(summary.accountPct.toFixed(2), '6.00')
+  assert.equal(summary.benchmarkPct.toFixed(2), '2.00')
+  assert.equal(summary.spread.toFixed(2), '4.00')
+  assert.equal(summary.beat, true)
+  assert.equal(summary.benchmarkName, '上证综指ETF')
 })
 
 test('buildPortfolioTradeTooltip renders every trade at the point', () => {

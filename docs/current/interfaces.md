@@ -36,7 +36,7 @@ python -m freshquant.rear.api_server --port 5000
 - `GET /api/position-review/symbols`
 - `GET /api/position-review/symbols/<symbol>`
 - `GET /api/position-review/portfolio/summary`
-- `GET /api/position-review/portfolio/series`（`period=day|week|month`，默认 `day`）
+- `GET /api/position-review/portfolio/series`（`period=day|week|month|30d|60d|90d|6m|1y|2y`，默认 `day`）
 - `GET /api/position-review/portfolio/contributions`
 - `GET /api/position-review/symbols/<symbol>/chart`
 - `GET /api/position-review/events/<event_id>/conditions`
@@ -165,6 +165,16 @@ python -m freshquant.rear.api_server --port 5000
     - `credit_snapshot_reconstructed`：信用资产快照重建（`pm_credit_asset_snapshots`，按分钟聚合，缺失区间不插值）
     - `estimated`：仅当前快照/持仓的估算
   - 每个点返回 `total_equity / estimated_equity / cash / market_value / total_debt / net_external_flow / position_ratio / drawdown`
+  - `period` 支持窗口期 `30d / 60d / 90d / 6m / 1y / 2y`：30/60 日按日桶、
+    90 日/半年按周桶、一年/两年按月桶；窗口以最新快照为锚往前截取，缺失区间不插值。
+    账户快照历史晚于窗口起点时 `data_quality.window.covered=false` 并附
+    `equity_window_partial` 告警（早段不插值）
+  - 返回 `benchmark` 块：基准曲线 = 上证综指ETF 510210（`quantaxis.index_day`
+    日线，`basis=quantaxis_index_day`）。基准按权益曲线分桶对齐，缺失分桶沿用
+    上一收盘价（carry-forward），`covered_count` 只计真实覆盖分桶、
+    `carried_count` 计沿用分桶；`normalized` 以对齐后首个点位归一化，
+    供前端渲染区间涨跌幅与跑赢/跑输结论。基准不可用/未覆盖时 `available=false`
+    并附 `benchmark_unavailable` 告警，权益曲线不受影响
 - `/api/position-review/portfolio/contributions`
   - 返回标的贡献表（按 `total_pnl = realized + floating` 降序），支持 `top_n`（默认 10，上限 50）
 - `/api/position-review/symbols/<symbol>/chart`
@@ -179,6 +189,14 @@ python -m freshquant.rear.api_server --port 5000
   - 按 `event_id` 懒加载完整条件证据：`signal / trigger_snapshot / conditions / expression / condition_tree / strategy_version / config_snapshot_hash / evidence / data_quality`
   - 每个 condition 返回 `condition_key / label / actual_value / actual_display / operator / threshold_value / threshold_display / unit / passed / source / observed_at / evidence_id`
   - 历史阈值缺失时 `threshold_value=null` 且 `source=missing`，`data_quality.threshold_missing_count` 计数并在页面提示“历史阈值证据缺失”；当前配置不进入历史 condition snapshot
+  - 买入条件按触发快照区分：网格档位买入展示 `grid_level`；阶段容量买入
+    （`grid_level=null`、`hit_levels=[]`、有 `capacity_quantity`）展示
+    `capacity_quantity_match`（委托量 == 容量裁剪量），不再伪造网格档位不通过
+  - TPSL 止盈卖单（`source=tpsl_takeprofit` / `scope_type=takeprofit_batch`）
+    不按 Guardian 规则渲染：条件改为展示触发快照
+    `guardian_sell_sources` 的 `tier_price`（触发价 >= 止盈档位价）、
+    `allocation_policy`（止盈分配策略）与计划数量覆盖（`sellable_volume_cap`、
+    `expected_quantity_achieved`），避免 NOT_APPLICABLE 订单条件表整表空值
   - 找不到事件时返回 404
 - `/api/stock_data`、`/api/stock_data_v2`、`/api/stock_data_chanlun_structure`
   - 当前分钟周期参数兼容 `1min / 5min / 15min / 30min` 与 `1m / 5m / 15m / 30m`，进入服务前统一归一到前端/缠论服务使用的 `1m / 5m / 15m / 30m`

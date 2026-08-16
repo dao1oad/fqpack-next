@@ -20,6 +20,7 @@ from freshquant.position_review.chart_projection import (
     signal_type_registry_payload,
 )
 from freshquant.position_review.portfolio_projection import (
+    build_portfolio_benchmark,
     build_portfolio_contributions,
     build_portfolio_series,
     build_portfolio_summary,
@@ -1644,3 +1645,272 @@ def test_ledger_only_rebuild_has_one_order_event_and_no_legacy_fills():
     assert detail["data_quality"]["canonical_trade_source_label"] == (
         "当前订单账本（重建 + 真实订单）"
     )
+
+
+def test_build_conditions_buy_stage_capacity_uses_capacity_condition():
+    """阶段容量买入：无 grid_level/hit_levels 时展示容量一致性条件。"""
+
+    review = {
+        "time": "2026-08-12T09:32:23+08:00",
+        "expected": {"quantity": 100, "base_quantity": 300},
+        "actual": {"filled_quantity": 100},
+    }
+    request = {
+        "request_id": "buy_cap",
+        "price": 153.75,
+        "quantity": 100,
+        "strategy_context": {
+            "guardian_buy_grid": {
+                "path": "holding_add",
+                "source_price": 153.75,
+                "stage": "TP_TO_BUY-1",
+                "base_quantity": 300,
+                "capacity_quantity": 100,
+                "hit_levels": [],
+            }
+        },
+    }
+    payload = build_conditions(
+        review=review,
+        request=request,
+        runtime_event=None,
+        side="buy",
+    )
+    keys = [item["condition_key"] for item in payload["conditions"]]
+    assert "grid_level" not in keys
+    assert "capacity_quantity_match" in keys
+    capacity = next(
+        item
+        for item in payload["conditions"]
+        if item["condition_key"] == "capacity_quantity_match"
+    )
+    assert capacity["actual_value"] == 100
+    assert capacity["threshold_value"] == 100
+    assert capacity["passed"] is True
+    assert payload["data_quality"]["condition_snapshot_status"] == "complete"
+
+
+def test_build_conditions_takeprofit_sell_uses_trigger_snapshot():
+    """TPSL 止盈卖单按触发快照展示条件，而不是 Guardian 模板整表空值。"""
+
+    review = {
+        "time": "2026-08-11T13:11:57+08:00",
+        "verdict": "NOT_APPLICABLE",
+        "expected": {"quantity": None, "threshold_price": None},
+        "actual": {"filled_quantity": 9000},
+    }
+    request = {
+        "request_id": "sell_tp",
+        "source": "tpsl_takeprofit",
+        "scope_type": "takeprofit_batch",
+        "price": 22.93,
+        "quantity": 9000,
+        "strategy_context": {
+            "guardian_sell_sources": {
+                "allocation_policy": "takeprofit_ratio_v1",
+                "level": 1,
+                "tier_price": 22.93,
+                "entries": [{"entry_id": "entry_x", "quantity": 9000}],
+            }
+        },
+    }
+    payload = build_conditions(
+        review=review,
+        request=request,
+        runtime_event=None,
+        side="sell",
+    )
+    keys = [item["condition_key"] for item in payload["conditions"]]
+    assert "threshold_mode" not in keys
+    assert "allocation_policy" in keys
+    price_condition = next(
+        item
+        for item in payload["conditions"]
+        if item["condition_key"] == "signal_price_above_threshold"
+    )
+    assert price_condition["threshold_value"] == 22.93
+    assert price_condition["passed"] is True
+    quantity_condition = next(
+        item
+        for item in payload["conditions"]
+        if item["condition_key"] == "expected_quantity_achieved"
+    )
+    assert quantity_condition["threshold_value"] == 9000
+    assert quantity_condition["actual_value"] == 9000
+    assert quantity_condition["passed"] is True
+    assert payload["data_quality"]["condition_snapshot_status"] == "complete"
+
+
+def test_build_portfolio_series_windowed_periods_filter_and_bucket():
+    snapshots = [
+        {
+            "queried_at": f"2026-08-{day:02d}T03:00:00+00:00",
+            "total_asset": 1000.0 + day,
+            "total_debt": 0.0,
+            "market_value": 0.0,
+            "available_amount": 0.0,
+        }
+        for day in (1, 8, 15)
+    ]
+    snapshots.append(
+        {
+            "queried_at": "2026-07-17T03:00:00+00:00",
+            "total_asset": 500.0,
+            "total_debt": 0.0,
+            "market_value": 0.0,
+            "available_amount": 0.0,
+        }
+    )
+    payload = build_portfolio_series(
+        xt_assets=[],
+        credit_snapshots=snapshots,
+        period="30d",
+        generated_at="2026-08-16T00:00:00+00:00",
+    )
+    assert payload["period"] == "30d"
+    assert payload["period_label"] == "30日"
+    keys = [point["period_key"] for point in payload["series"]]
+    assert keys == ["2026-07-17", "2026-08-01", "2026-08-08", "2026-08-15"]
+    assert payload["data_quality"]["window"]["window_days"] == 30
+    assert payload["data_quality"]["window"]["covered"] is True
+
+
+def test_build_portfolio_series_window_partial_warning_when_history_short():
+    snapshots = [
+        {
+            "queried_at": "2026-08-01T03:00:00+00:00",
+            "total_asset": 1000.0,
+            "total_debt": 0.0,
+            "market_value": 0.0,
+            "available_amount": 0.0,
+        }
+    ]
+    payload = build_portfolio_series(
+        xt_assets=[],
+        credit_snapshots=snapshots,
+        period="2y",
+        generated_at="2026-08-16T00:00:00+00:00",
+    )
+    assert payload["data_quality"]["window"]["covered"] is False
+    codes = {item["code"] for item in payload["data_quality"]["warnings"]}
+    assert "equity_window_partial" in codes
+
+
+def test_build_portfolio_benchmark_aligns_buckets_and_carries_forward():
+    bars = [
+        {"date": "2026-07-01", "close": 1.0},
+        {"date": "2026-07-03", "close": 1.02},
+        {"date": "2026-07-06", "close": 1.04},
+    ]
+    series = [
+        {"period_key": "2026-07-01", "period_label": "2026-07-01"},
+        {"period_key": "2026-07-02", "period_label": "2026-07-02"},
+        {"period_key": "2026-07-03", "period_label": "2026-07-03"},
+        {"period_key": "2026-07-06", "period_label": "2026-07-06"},
+    ]
+    benchmark = build_portfolio_benchmark(
+        index_bars=bars,
+        series=series,
+        period="day",
+    )
+    assert benchmark["code"] == "510210"
+    assert [item["close"] for item in benchmark["series"]] == [
+        1.0,
+        1.0,
+        1.02,
+        1.04,
+    ]
+    assert benchmark["series"][0]["normalized"] == 1.0
+    assert benchmark["series"][-1]["normalized"] == 1.04
+    assert benchmark["covered_count"] == 3
+    assert benchmark["carried_count"] == 1
+
+
+def test_replay_cost_basis_seeds_inherited_flatten_cost_and_sorts_series():
+    entries = [
+        {
+            "entry_id": "entry_flatten",
+            "symbol": "300760",
+            "entry_type": "position_snapshot_flatten",
+            "entry_price": 180.548022,
+            "original_quantity": 5900,
+            "trade_time": _epoch("2026-08-09T03:26:40"),
+        }
+    ]
+    trades = [
+        {
+            "execution_key": "exec_buy",
+            "id": "exec_buy",
+            "symbol": "300760",
+            "side": "buy",
+            "quantity": 100,
+            "price": 153.8,
+            "trade_time": _epoch("2026-08-12T09:32:23"),
+            "request_id": "req_buy",
+        }
+    ]
+    result = replay_cost_basis(
+        symbol="300760",
+        canonical_trades=trades,
+        entries=entries,
+        slices=[],
+        allocations=[],
+        requests_by_id={},
+        initial_position_quantity=5900,
+        initial_position_source="derived_from_current_position_and_execution_history",
+    )
+    context = result["event_cost_context"]["exec_buy"]
+    assert context["average_cost_before"] == 180.548022
+    # 继承 entry 容量已登记占满，新买入不再误配到继承 entry，改按成交价
+    # 加权： (5900*180.548022 + 100*153.8) / 6000
+    assert round(context["average_cost_after"], 6) == 180.102222
+    times = [point.get("time") for point in result["cost_basis_series"]]
+    assert times == sorted(times)
+    derived = result["cost_basis_series"][0]
+    assert derived["point_type"] == "rebuilt_open"
+    assert derived["average_cost"] == 180.548022
+    warning_codes = {item["code"] for item in result["data_quality"]["warnings"]}
+    assert "cost_basis_inherited_snapshot" in warning_codes
+
+
+def test_portfolio_series_attaches_benchmark_from_loader():
+    class BenchmarkRepository:
+        def __init__(self):
+            self.credit = [
+                {
+                    "queried_at": "2026-08-12T03:00:00+00:00",
+                    "total_asset": 100000.0,
+                    "total_debt": 0.0,
+                    "market_value": 0.0,
+                    "available_amount": 0.0,
+                }
+            ]
+
+        def list_symbols(self):
+            return []
+
+        def list_xt_assets(self):
+            return []
+
+        def list_xt_positions(self, symbol=None):
+            return []
+
+        def list_credit_asset_snapshots(self, *, limit=200_000):
+            return self.credit
+
+        def list_index_day_bars(self, code, *, start_date=None):
+            assert code == "510210"
+            return [
+                {"date": "2026-08-11", "close": 1.0},
+                {"date": "2026-08-12", "close": 1.01},
+            ]
+
+    service = PositionReviewService(
+        repository=BenchmarkRepository(),
+        runtime_repository=None,
+        name_resolver=_noop_name,
+    )
+    payload = service.get_portfolio_series(period="30d")
+    assert payload["benchmark"]["available"] is True
+    assert payload["benchmark"]["code"] == "510210"
+    assert payload["benchmark"]["series"][-1]["close"] == 1.01

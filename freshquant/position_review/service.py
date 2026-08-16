@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from collections import defaultdict
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import RLock
 from time import monotonic
 from typing import Any
@@ -30,6 +31,7 @@ from freshquant.position_review.chart_projection import (
     signal_type_registry_payload,
 )
 from freshquant.position_review.portfolio_projection import (
+    build_portfolio_benchmark,
     build_portfolio_contributions,
     build_portfolio_series,
     build_portfolio_summary,
@@ -72,6 +74,7 @@ class PositionReviewService:
         repository=None,
         runtime_repository=None,
         name_resolver=None,
+        benchmark_loader=None,
         catalog_ttl_seconds=_DEFAULT_CATALOG_TTL_SECONDS,
         clock=None,
     ):
@@ -82,6 +85,7 @@ class PositionReviewService:
             else PositionReviewRuntimeRepository()
         )
         self.name_resolver = name_resolver or _resolve_instrument_name
+        self.benchmark_loader = benchmark_loader
         self.catalog_ttl_seconds = max(float(catalog_ttl_seconds or 0.0), 0.0)
         self._clock = clock or monotonic
         self._catalog_lock = RLock()
@@ -452,13 +456,125 @@ class PositionReviewService:
             self._build_portfolio_inputs(refresh=bool(refresh))
         )
         trade_events = _portfolio_trade_events(detail_by_symbol)
-        return build_portfolio_series(
+        payload = build_portfolio_series(
             xt_assets=xt_assets,
             credit_snapshots=credit_snapshots,
             trade_events=trade_events,
             period=period,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
+        payload["benchmark"] = self._build_portfolio_benchmark(
+            series=payload.get("series") or [],
+            period=str(payload.get("period") or "day"),
+        )
+        return payload
+
+    def _build_portfolio_benchmark(self, *, series, period) -> dict[str, Any]:
+        """Attach the benchmark curve (上证综指ETF 510210) to the equity payload.
+
+        Benchmark bars come from the QUANTAXIS ``index_day`` store through the
+        injected loader.  Failures degrade to an explicit unavailable block
+        instead of breaking the equity curve.
+        """
+
+        benchmark_code = str(
+            os.environ.get("FQ_POSITION_REVIEW_BENCHMARK_CODE") or "510210"
+        ).strip()
+        benchmark_name = str(
+            os.environ.get("FQ_POSITION_REVIEW_BENCHMARK_NAME") or "上证综指ETF"
+        ).strip()
+        empty = {
+            "code": benchmark_code,
+            "name": benchmark_name,
+            "basis": "quantaxis_index_day",
+            "available": False,
+            "series": [],
+            "point_count": 0,
+            "covered_count": 0,
+            "carried_count": 0,
+            "warnings": [],
+        }
+        if not series:
+            return empty
+        loader = self.benchmark_loader or getattr(
+            self.repository,
+            "list_index_day_bars",
+            None,
+        )
+        if loader is None:
+            return {
+                **empty,
+                "warnings": [
+                    {
+                        "code": "benchmark_unavailable",
+                        "message": "仓库未提供基准日线读取入口。",
+                    }
+                ],
+            }
+        first_key = str(series[0].get("period_key") or "").strip()
+        try:
+            if len(first_key) >= 10:
+                anchor_date = first_key[:10]
+            elif len(first_key) >= 7:
+                anchor_date = f"{first_key[:7]}-01"
+            else:
+                anchor_date = first_key
+            start_dt = datetime.fromisoformat(
+                f"{anchor_date}T00:00:00+08:00"
+            ) - timedelta(days=14)
+            bars = loader(
+                benchmark_code,
+                start_date=start_dt.date().isoformat(),
+            )
+        except (ValueError, TypeError) as exc:
+            return {
+                **empty,
+                "warnings": [
+                    {
+                        "code": "benchmark_start_unresolvable",
+                        "message": f"无法解析基准窗口起点：{exc}",
+                    }
+                ],
+            }
+        except Exception as exc:
+            return {
+                **empty,
+                "warnings": [
+                    {
+                        "code": "benchmark_unavailable",
+                        "message": f"基准日线加载失败：{exc}",
+                    }
+                ],
+            }
+        try:
+            benchmark = build_portfolio_benchmark(
+                index_bars=bars,
+                series=series,
+                period=period,
+                code=benchmark_code,
+                name=benchmark_name,
+            )
+        except Exception as exc:
+            return {
+                **empty,
+                "warnings": [
+                    {
+                        "code": "benchmark_unavailable",
+                        "message": f"基准对齐失败：{exc}",
+                    }
+                ],
+            }
+        benchmark["available"] = True
+        if not benchmark.get("covered_count"):
+            benchmark["available"] = False
+            benchmark["warnings"] = [
+                {
+                    "code": "benchmark_unavailable",
+                    "message": "基准日线未覆盖账户曲线所在窗口。",
+                },
+                *(benchmark.get("warnings") or []),
+            ]
+        return benchmark
 
     def get_portfolio_contributions(self, *, refresh=False, top_n=10) -> dict[str, Any]:
         detail_by_symbol, cost_by_symbol, position_by_symbol, _, _ = (

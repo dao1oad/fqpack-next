@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 
 import { positionReviewApi } from '../../api/positionReviewApi.js'
 import {
+  buildPortfolioBenchmarkSummary,
   buildPortfolioEquityOption,
   normalizePortfolioContributions,
   normalizePortfolioSummary,
@@ -19,10 +20,27 @@ const loading = ref(false)
 const error = ref('')
 const equityPeriod = ref('day')
 const equityMode = ref('net')
+const equityPeriodOptions = [
+  { value: 'day', label: '日' },
+  { value: 'week', label: '周' },
+  { value: 'month', label: '月' },
+  { value: '30d', label: '30日' },
+  { value: '60d', label: '60日' },
+  { value: '90d', label: '90日' },
+  { value: '6m', label: '半年' },
+  { value: '1y', label: '一年' },
+  { value: '2y', label: '两年' },
+]
 
 const normalizedSummary = computed(() => normalizePortfolioSummary(summary.value || {}))
 const normalizedContributions = computed(() => normalizePortfolioContributions(contributions.value || {}))
 const equityOption = computed(() => buildPortfolioEquityOption(series.value || {}, equityMode.value))
+const benchmarkSummary = computed(() => buildPortfolioBenchmarkSummary(series.value || {}, equityMode.value))
+const windowCoverage = computed(() => {
+  const windowInfo = series.value?.data_quality?.window
+  if (!windowInfo || windowInfo.covered !== false) return null
+  return windowInfo
+})
 
 const equityBasisLabel = computed(() => {
   const basis = normalizedSummary.value.equityBasis
@@ -168,6 +186,18 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
           <div class="portfolio-overview__panel-title">
             {{ equityMode === 'asset' ? '账户总资产曲线' : '账户净资产曲线（QMT 口径）' }}
           </div>
+          <div
+            v-if="benchmarkSummary"
+            class="portfolio-overview__benchmark-chip"
+            :class="{ 'portfolio-overview__benchmark-chip--beat': benchmarkSummary.beat }"
+          >
+            区间 {{ equityMode === 'asset' ? '总资产' : '净资产' }}
+            {{ benchmarkSummary.accountPct >= 0 ? '+' : '' }}{{ benchmarkSummary.accountPct.toFixed(2) }}%
+            vs {{ benchmarkSummary.benchmarkName }}
+            {{ benchmarkSummary.benchmarkPct >= 0 ? '+' : '' }}{{ benchmarkSummary.benchmarkPct.toFixed(2) }}%
+            · {{ benchmarkSummary.beat ? '跑赢' : '跑输' }}
+            {{ Math.abs(benchmarkSummary.spread).toFixed(2) }}pp
+          </div>
           <div class="portfolio-overview__mode-switch">
             <button
               type="button"
@@ -190,7 +220,7 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
         <div class="portfolio-overview__hero-toolbar">
           <div class="portfolio-overview__period-switch">
             <button
-              v-for="option in [{ value: 'day', label: '日' }, { value: 'week', label: '周' }, { value: 'month', label: '月' }]"
+              v-for="option in equityPeriodOptions"
               :key="option.value"
               type="button"
               class="portfolio-overview__period-btn"
@@ -203,11 +233,19 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
           <p class="portfolio-overview__panel-note">
             {{
               equityMode === 'asset'
-                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；Y 轴按总资产区间自适应（min/max），波动更明显。'
-                : '净资产 = 总资产 − 总负债；Y 轴从净资产区间内放大（min/max 自适应），波动更明显；交易发生的周期标注交易点。'
+                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；Y 轴按总资产区间自适应（min/max），波动更明显；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
+                : '净资产 = 总资产 − 总负债；Y 轴从净资产区间内放大（min/max 自适应），波动更明显；交易发生的周期标注交易点；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
             }}
           </p>
         </div>
+        <el-alert
+          v-if="windowCoverage"
+          class="portfolio-overview__window-alert"
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="`请求窗口 ${windowCoverage.window_days} 天，但账户快照历史晚于窗口起点；曲线仅覆盖可用区间，早段不做插值。`"
+        />
         <PositionReviewChart
           class="portfolio-overview__hero-chart"
           :option="equityOption || {}"
@@ -463,8 +501,32 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   gap: 8px;
 }
 
+.portfolio-overview__benchmark-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  color: #7c3aed;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.portfolio-overview__benchmark-chip--beat {
+  color: #16a34a;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.portfolio-overview__window-alert {
+  margin: 0;
+}
+
 .portfolio-overview__period-switch {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
