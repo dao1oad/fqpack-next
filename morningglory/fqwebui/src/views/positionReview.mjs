@@ -1165,6 +1165,10 @@ const prfmtPctText = (value) => (
 )
 
 export const buildPortfolioTradeTooltip = (point = {}) => {
+  return `<div class="prt">${prbuildTradesCardHtml(point)}</div>`
+}
+
+const prbuildTradesCardHtml = (point = {}) => {
   const trades = prtoArray(point.trades)
   if (!trades.length) return '<div class="prt-muted">该周期内没有交易</div>'
   const buyAmount = trades
@@ -1202,7 +1206,7 @@ export const buildPortfolioTradeTooltip = (point = {}) => {
     <span class="prt-label">当日成交</span>
     <span class="prt-value">买入 ${prfmtAmount(buyAmount)} 元 · 卖出 ${prfmtAmount(sellAmount)} 元</span>
   </div>`
-  return `<div class="prt">${header}${summary}${rows}</div>`
+  return `${header}${summary}${rows}`
 }
 
 const prfirstFinite = (values) => values.find((value) => value != null)
@@ -1256,6 +1260,9 @@ const prportfolioBenchmarkTooltip = (
       ? '—'
       : `<span class="prt-spread-${spread >= 0 ? 'up' : 'down'}">${spread >= 0 ? '+' : ''}${spread.toFixed(2)}pp ${spread >= 0 ? '跑赢' : '跑输'}</span>`],
   ]
+  const tradesSection = (prtoArray(point.trades).length)
+    ? `<div class="prt-section"><div class="prt-section-title">当日成交明细</div>${prbuildTradesCardHtml(point)}</div>`
+    : ''
   return `<div class="prt">
     <div class="prt-header"><span class="prt-id">${prescapeTooltipHtml(label)}</span></div>
     ${rows.map(([label, value]) => `
@@ -1263,6 +1270,7 @@ const prportfolioBenchmarkTooltip = (
         <span class="prt-label">${prescapeTooltipHtml(label)}</span>
         <span class="prt-value">${value}</span>
       </div>`).join('')}
+    ${tradesSection}
   </div>`
 }
 
@@ -1292,6 +1300,9 @@ const prportfolioAccountTooltip = (
     ['现金', prfmtAmount(prtoFiniteNumber(point.cash))],
     ['总负债', prfmtAmount(prtoFiniteNumber(point.total_debt))],
   ]
+  const tradesSection = (prtoArray(point.trades).length)
+    ? `<div class="prt-section"><div class="prt-section-title">当日成交明细</div>${prbuildTradesCardHtml(point)}</div>`
+    : ''
   return `<div class="prt">
     <div class="prt-header"><span class="prt-id">${prescapeTooltipHtml(label)}</span></div>
     ${rows.map(([label, value]) => `
@@ -1299,6 +1310,7 @@ const prportfolioAccountTooltip = (
         <span class="prt-label">${prescapeTooltipHtml(label)}</span>
         <span class="prt-value">${value}</span>
       </div>`).join('')}
+    ${tradesSection}
   </div>`
 }
 
@@ -1410,13 +1422,6 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
         animation: false,
         z: 10,
         itemStyle: { color: '#fbbf24', borderColor: '#111827', borderWidth: 1 },
-        tooltip: {
-          show: true,
-          className: 'prt-tooltip',
-          confine: true,
-          extraCssText: PR_TOOLTIP_CSS,
-          formatter: (params) => buildPortfolioTradeTooltip(params?.data?.point || {}),
-        },
         data: tradeSeriesData,
       }]
     : []
@@ -1459,6 +1464,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
     animation: false,
     tooltip: {
       trigger: 'axis',
+      triggerOn: 'mousemove',
       className: 'prt-tooltip',
       confine: true,
       extraCssText: PR_TOOLTIP_CSS,

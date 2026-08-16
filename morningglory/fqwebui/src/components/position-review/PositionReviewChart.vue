@@ -21,7 +21,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['chart-click', 'chart-hover'])
+const emit = defineEmits(['chart-click', 'chart-hover', 'chart-blank-click'])
 
 const chartRef = ref(null)
 let chartInstance = null
@@ -40,6 +40,12 @@ const ensureChart = () => {
     chartInstance = echarts.init(chartRef.value)
     chartInstance.on('click', (params) => {
       emit('chart-click', params)
+    })
+    chartInstance.getZr().on('click', (event) => {
+      // ECharts 'click' 仅在图形元素上触发；zrender 层 target 为空 = 点击空白。
+      if (!event.target) {
+        emit('chart-blank-click')
+      }
     })
     chartInstance.on('mouseover', (params) => {
       emit('chart-hover', params)
