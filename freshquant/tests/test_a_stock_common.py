@@ -142,6 +142,14 @@ class FakeSignalCollection:
                 return doc
         return None
 
+    def update_one(self, query: dict, update: dict):
+        doc = self.find_one(query)
+        if doc is None:
+            return SimpleNamespace(acknowledged=False)
+        for key, value in update.get("$set", {}).items():
+            doc[key] = value
+        return SimpleNamespace(acknowledged=True)
+
     def find_one_and_update(self, query: dict, update: dict, upsert: bool = False):
         if self.raise_duplicate_once:
             self.raise_duplicate_once = False
@@ -321,6 +329,64 @@ def test_save_a_stock_signal_duplicate_key_skips_on_signal(monkeypatch):
 
     assert len(fake_db.stock_signals.docs) == 1
     assert calls == []
+
+
+def test_save_a_stock_signal_persists_strategy_trace_linkage(monkeypatch):
+    """策略在 on_signal 内标注的 trace_id / intent_id 回写到信号文档。
+
+    订单请求与信号共享同一 trace/intent 关联键，复盘读模型才能把订单
+    关联回触发信号（根因修复：此前该键只存在于订单侧）。
+    """
+
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    def on_signal(signal):
+        signal["trace_id"] = "trc_link"
+        signal["intent_id"] = "int_link"
+
+    a_stock_common.save_a_stock_signal(
+        "sz000001",
+        "000001",
+        "5m",
+        "V反上涨",
+        datetime.now(),
+        10.0,
+        9.0,
+        "BUY_LONG",
+        tags=[],
+        strategy=SimpleNamespace(on_signal=on_signal),
+    )
+
+    assert len(fake_db.stock_signals.docs) == 1
+    saved = fake_db.stock_signals.docs[0]
+    assert saved["trace_id"] == "trc_link"
+    assert saved["intent_id"] == "int_link"
+
+
+def test_save_a_stock_signal_skips_linkage_writeback_when_absent(monkeypatch):
+    """策略未标注关联键时，不向信号文档写入 trace_id / intent_id。"""
+
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    a_stock_common.save_a_stock_signal(
+        "sz000001",
+        "000001",
+        "5m",
+        "V反上涨",
+        datetime.now(),
+        10.0,
+        9.0,
+        "BUY_LONG",
+        tags=[],
+        strategy=SimpleNamespace(on_signal=lambda signal: None),
+    )
+
+    assert len(fake_db.stock_signals.docs) == 1
+    saved = fake_db.stock_signals.docs[0]
+    assert "trace_id" not in saved
+    assert "intent_id" not in saved
 
 
 def test_dedupe_stock_signals_keeps_smallest_id_per_group(monkeypatch):

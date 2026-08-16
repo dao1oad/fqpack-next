@@ -3372,6 +3372,27 @@ def _index_direct_timeline_signals(signals):
     return index
 
 
+def _strategy_context_signal_times(request):
+    """Extract writer-recorded trigger-signal times from a request.
+
+    Guardian 买入请求的 ``strategy_context.guardian_buy_grid.signal_time``
+    是触发信号 fire_time 的显式溯源记录（非相邻推断）。返回归一化后的
+    epoch 秒列表；缺失或无法解析时返回空列表。
+    """
+
+    context = (request or {}).get("strategy_context")
+    if not isinstance(context, dict):
+        return []
+    timestamps = []
+    for section in context.values():
+        if not isinstance(section, dict):
+            continue
+        timestamp = _timestamp(section.get("signal_time"))
+        if timestamp > 0:
+            timestamps.append(timestamp)
+    return timestamps
+
+
 def _timeline_group_signal_links(group, *, request):
     keys = []
     internal_order_id = str(group.get("internal_order_id") or "").strip()
@@ -3384,6 +3405,16 @@ def _timeline_group_signal_links(group, *, request):
         value = str((request or {}).get(field) or "").strip()
         if value:
             keys.append((key_type, value))
+    # Guardian 买入请求在 strategy_context 中显式记录触发信号的
+    # fire_time（signal_time）。历史信号文档没有 trace/intent 关联键，
+    # 该溯源键是订单 ↔ 信号唯一的显式关联依据；键值限定标的，避免
+    # 跨标的同时刻信号误配。
+    symbol = _normalize_symbol(
+        (request or {}).get("symbol") or ((group.get("order") or {}).get("symbol"))
+    )
+    if symbol:
+        for timestamp in _strategy_context_signal_times(request):
+            keys.append(("signal_time", f"{symbol}:{timestamp}"))
     return list(dict.fromkeys(keys))
 
 
@@ -3401,7 +3432,13 @@ def _index_timeline_group_links(groups):
 
 def _timeline_signal_is_compatible_with_group(signal, *, group_keys):
     signal_keys = _timeline_signal_links(signal)
-    for key_type in ("internal_order", "request", "trace", "intent"):
+    for key_type in (
+        "internal_order",
+        "request",
+        "trace",
+        "intent",
+        "signal_time",
+    ):
         signal_values = {
             value for candidate_type, value in signal_keys if candidate_type == key_type
         }
@@ -3436,6 +3473,7 @@ def _direct_timeline_signal_for_group(
         "request": 1,
         "trace": 2,
         "intent": 3,
+        "signal_time": 4,
     }
     for candidate in candidates.values():
         if not _timeline_signal_is_compatible_with_group(candidate, group_keys=keys):
@@ -3460,7 +3498,12 @@ def _direct_timeline_signal_for_group(
             item[2] for item in direct_candidates if item[0] == best_rank
         ]
         if len(best_candidates) == 1:
-            return _serialize_timeline_signal(best_candidates[0]), "direct"
+            association = (
+                "signal_time"
+                if best_rank == rank_by_key_type["signal_time"]
+                else "direct"
+            )
+            return _serialize_timeline_signal(best_candidates[0]), association
         return None, "ambiguous"
     return None, "ambiguous" if ranked_candidates else "none"
 
@@ -3480,6 +3523,10 @@ def _timeline_signal_links(signal):
             value = str(signal.get(field) or "").strip()
             if value:
                 links.append((key_type, value))
+    code = _normalize_symbol(signal.get("code"))
+    fire_timestamp = _timestamp(signal.get("fire_time"))
+    if code and fire_timestamp > 0:
+        links.append(("signal_time", f"{code}:{fire_timestamp}"))
     return list(dict.fromkeys(links))
 
 
@@ -3489,7 +3536,11 @@ def _timeline_signal_id(signal):
         return raw_id
     material = "|".join(
         [
-            *[f"{kind}:{value}" for kind, value in _timeline_signal_links(signal)],
+            *[
+                f"{kind}:{value}"
+                for kind, value in _timeline_signal_links(signal)
+                if kind != "signal_time"
+            ],
             str(signal.get("fire_time") or signal.get("occurred_at") or ""),
             str(signal.get("position") or signal.get("side") or ""),
             str(signal.get("price") or ""),
@@ -3552,6 +3603,10 @@ def _review_signal_keys(review, request):
         keys.append(("trace", trace_id))
     if intent_id:
         keys.append(("intent", intent_id))
+    symbol = _normalize_symbol((request or {}).get("symbol") or review.get("symbol"))
+    if symbol:
+        for timestamp in _strategy_context_signal_times(request):
+            keys.append(("signal_time", f"{symbol}:{timestamp}"))
     return keys
 
 
@@ -3559,8 +3614,9 @@ def _direct_review_signal(review, request, signals):
     """Resolve the single directly-linked signal for one review.
 
     Same strong-association rule as the timeline: only explicit
-    request / trace / intent keys match; no time-neighbour inference.
-    Ambiguous or missing matches return None.
+    request / trace / intent keys match, plus the writer-recorded
+    ``strategy_context.*.signal_time`` provenance key（标的 + fire_time
+    精确相等，非相邻推断）; ambiguous or missing matches return None.
     """
 
     index = _index_direct_timeline_signals(signals)

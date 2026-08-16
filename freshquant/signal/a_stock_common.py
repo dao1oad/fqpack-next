@@ -191,22 +191,34 @@ def save_a_stock_signal(
         datetime.now() - timedelta(minutes=60)
     ):
         if strategy is not None:
-            strategy.on_signal(
-                {
-                    "symbol": symbol,
-                    "code": code,
-                    "name": name,
-                    "period": period,
-                    "fire_time": fire_time,
-                    "price": price,
-                    "stop_lose_price": stop_lose_price,
-                    "position": position,
-                    "remark": remark,
-                    "tags": tags,
-                    "zsdata": zsdata,
-                    "fills": fills,
-                }
-            )
+            signal_payload = {
+                "symbol": symbol,
+                "code": code,
+                "name": name,
+                "period": period,
+                "fire_time": fire_time,
+                "price": price,
+                "stop_lose_price": stop_lose_price,
+                "position": position,
+                "remark": remark,
+                "tags": tags,
+                "zsdata": zsdata,
+                "fills": fills,
+            }
+            strategy.on_signal(signal_payload)
+            # 信号-订单强关联回写：策略在 on_signal 内生成 trace_id /
+            # intent_id（与订单请求一致），回写到刚入库的信号文档，供
+            # 复盘读模型按显式键把订单关联回触发信号。策略未标注时不写。
+            linkage_updates = {
+                field: signal_payload.get(field)
+                for field in ("trace_id", "intent_id")
+                if str(signal_payload.get(field) or "").strip()
+            }
+            if linkage_updates:
+                DBfreshquant["stock_signals"].update_one(
+                    signal_filter,
+                    {"$set": linkage_updates},
+                )
 
 
 def save_a_stock_factor(sse, symbol, code, dt, factor, value):
