@@ -967,7 +967,7 @@ def replay_cost_basis(
             if before_quantity <= 0:
                 cycle_counter += 1
                 current_cycle_id = f"{symbol}:cycle:{cycle_counter}"
-            entry = None
+            entry: dict[str, Any] | None = None
             for candidate_id, candidate in entry_by_id.items():
                 if _matches_entry(
                     candidate,
