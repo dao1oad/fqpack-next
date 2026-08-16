@@ -222,6 +222,8 @@ class PositionReviewRepository:
         self,
         *,
         limit: int = 200_000,
+        start_after=None,
+        fields=None,
     ) -> list[dict[str, Any]]:
         """Read-only credit/asset snapshot series for equity reconstruction.
 
@@ -229,6 +231,9 @@ class PositionReviewRepository:
         order (descending query capped at ``limit``, then reversed) so the
         series window keeps tracking the newest data once the collection grows
         past ``limit`` documents.
+        ``start_after`` 限定 ``queried_at >= start_after``（窗口起点过滤，
+        长窗口不再被 ``limit`` 截断）；``fields`` 做字段投影以降低长窗口
+        读取的内存占用（不传则返回完整文档）。
         """
 
         collection = _optional_collection(
@@ -237,11 +242,40 @@ class PositionReviewRepository:
         )
         if collection is None:
             return []
+        query: dict[str, Any] = {}
+        if start_after:
+            query["queried_at"] = {"$gte": str(start_after)}
+        projection = None
+        if fields:
+            projection = {field: 1 for field in fields}
+            projection["_id"] = 0
+        cursor = (
+            collection.find(query, projection) if projection else collection.find(query)
+        )
         documents = _documents(
-            collection.find({}).sort("queried_at", -1).limit(max(int(limit or 0), 0))
+            cursor.sort("queried_at", -1).limit(max(int(limit or 0), 0))
         )
         documents.reverse()
         return documents
+
+    def latest_credit_snapshot_time(self) -> str | None:
+        """Latest ``queried_at`` in ``pm_credit_asset_snapshots`` (窗口锚点)。"""
+
+        collection = _optional_collection(
+            self.position_database,
+            "pm_credit_asset_snapshots",
+        )
+        if collection is None:
+            return None
+        document = collection.find_one(
+            {},
+            {"queried_at": 1, "_id": 0},
+            sort=[("queried_at", -1)],
+        )
+        if not document:
+            return None
+        value = str((document or {}).get("queried_at") or "").strip()
+        return value or None
 
     def load_catalog_bundles(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
         """Read every catalog collection once and group the snapshot in memory."""

@@ -385,7 +385,9 @@ class FakeBuySellRepository:
             }
         ]
 
-    def list_credit_asset_snapshots(self, *, limit=200_000):
+    def list_credit_asset_snapshots(
+        self, *, limit=200_000, start_after=None, fields=None
+    ):
         return []
 
 
@@ -729,7 +731,9 @@ class FakeFlattenRebuildRepository:
     def list_xt_assets(self):
         return []
 
-    def list_credit_asset_snapshots(self, *, limit=200_000):
+    def list_credit_asset_snapshots(
+        self, *, limit=200_000, start_after=None, fields=None
+    ):
         return []
 
 
@@ -1278,18 +1282,22 @@ def test_build_portfolio_series_credit_rebuild_net_value_default_day():
     assert series["data_quality"]["net_value_formula"] == (
         "net_value = total_asset - total_debt"
     )
-    # 三条分钟快照同属北京 2026-07-21，聚合为一个日点（保留末笔）。
-    assert len(series["series"]) == 1
+    # 三条快照北京时区为 20:17:46 / 20:17:47 / 21:00，聚合为两个
+    # 5 分钟桶（20:15 与 21:00，各保留末笔）。
+    assert len(series["series"]) == 2
     point = series["series"][0]
-    assert point["period_key"] == "2026-07-21"
-    assert point["total_asset"] == 5200000.0
-    assert point["net_value"] == round(5200000.0 - 1637725.17, 2)
-    assert point["estimated_equity"] == point["net_value"]
-    assert point["trade_count"] == 1
-    assert point["trades"][0]["symbol"] == "002262"
+    assert point["period_key"] == "2026-07-21 20:15"
+    assert point["total_asset"] == 5196064.04
+    assert point["net_value"] == round(5196064.04 - 1637725.17, 2)
+    assert point["trade_count"] == 0
+    last = series["series"][1]
+    assert last["period_key"] == "2026-07-21 21:00"
+    assert last["total_asset"] == 5200000.0
+    assert last["trade_count"] == 1
+    assert last["trades"][0]["symbol"] == "002262"
 
 
-def test_build_portfolio_series_period_week_and_month_buckets():
+def test_build_portfolio_series_period_week_and_month_are_windows_with_day_buckets():
     snapshots = [
         {"queried_at": "2026-07-20T03:00:00+00:00", "total_asset": 1000.0},
         {"queried_at": "2026-07-21T03:00:00+00:00", "total_asset": 1100.0},
@@ -1306,27 +1314,34 @@ def test_build_portfolio_series_period_week_and_month_buckets():
         period="month",
         generated_at="2026-08-08T00:00:00+00:00",
     )
+    # month = 30 天窗口，5 分钟粒度：窗口起点 07-02，全部四个 5 分钟桶保留。
+    assert month["period_label"] == "月"
     assert [point["period_key"] for point in month["series"]] == [
-        "2026-07",
-        "2026-08",
+        "2026-07-20 11:00",
+        "2026-07-21 11:00",
+        "2026-07-22 11:00",
+        "2026-08-01 11:00",
     ]
-    assert month["series"][0]["total_asset"] == 1200.0
+    assert month["data_quality"]["window"]["window_days"] == 30
     week = build_portfolio_series(
         xt_assets=[],
         credit_snapshots=snapshots,
         period="week",
         generated_at="2026-08-08T00:00:00+00:00",
     )
+    # week = 7 天窗口：窗口起点 07-25，只剩 08-01 一个桶。
     keys = [point["period_key"] for point in week["series"]]
-    assert keys == ["2026-07-20", "2026-07-27"]
-    assert week["series"][0]["total_asset"] == 1200.0
+    assert keys == ["2026-08-01 11:00"]
+    assert week["data_quality"]["window"]["window_days"] == 7
     day = build_portfolio_series(
         xt_assets=[],
         credit_snapshots=snapshots,
         period="day",
         generated_at="2026-08-08T00:00:00+00:00",
     )
-    assert len(day["series"]) == 4
+    # day = 1 天窗口：只有 08-01。
+    assert [point["period_key"] for point in day["series"]] == ["2026-08-01 11:00"]
+    assert day["data_quality"]["window"]["window_days"] == 1
 
 
 def test_build_portfolio_series_rejects_invalid_period():
@@ -1770,7 +1785,12 @@ def test_build_portfolio_series_windowed_periods_filter_and_bucket():
     assert payload["period"] == "30d"
     assert payload["period_label"] == "30日"
     keys = [point["period_key"] for point in payload["series"]]
-    assert keys == ["2026-07-17", "2026-08-01", "2026-08-08", "2026-08-15"]
+    assert keys == [
+        "2026-07-17 11:00",
+        "2026-08-01 11:00",
+        "2026-08-08 11:00",
+        "2026-08-15 11:00",
+    ]
     assert payload["data_quality"]["window"]["window_days"] == 30
     assert payload["data_quality"]["window"]["covered"] is True
 
@@ -1895,8 +1915,19 @@ def test_portfolio_series_attaches_benchmark_from_loader():
         def list_xt_positions(self, symbol=None):
             return []
 
-        def list_credit_asset_snapshots(self, *, limit=200_000):
-            return self.credit
+        def list_credit_asset_snapshots(
+            self, *, limit=200_000, start_after=None, fields=None
+        ):
+            if not start_after:
+                return self.credit
+            return [
+                item
+                for item in self.credit
+                if str(item.get("queried_at") or "") >= str(start_after)
+            ]
+
+        def latest_credit_snapshot_time(self):
+            return self.credit[-1]["queried_at"]
 
         def list_index_day_bars(self, code, *, start_date=None):
             assert code == "510210"
