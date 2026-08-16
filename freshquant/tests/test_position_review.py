@@ -2484,3 +2484,257 @@ def test_takeprofit_sell_is_not_reviewed_as_guardian_sell():
     assert reviews[0]["verdict"] == "NOT_APPLICABLE"
     assert "tpsl_takeprofit_request" in reviews[0]["reason_codes"]
     assert reviews[0]["execution_status"] == "filled"
+
+
+class FakeGuardianBuyReviewRepository:
+    """300760 做T买入（guardian_buy_grid）最小证据集：请求带 signal_time
+    溯源键，信号文档不带 trace/intent（复刻历史存量数据形态）。"""
+
+    def __init__(self):
+        self.symbol = "300760"
+        self.requests = [
+            {
+                "request_id": "req_buy_grid",
+                "action": "buy",
+                "source": "strategy",
+                "trace_id": "trc_buy_grid",
+                "intent_id": "int_buy_grid",
+                "symbol": self.symbol,
+                "price": 153.75,
+                "quantity": 100,
+                "strategy_context": {
+                    "guardian_buy_grid": {
+                        "path": "holding_add",
+                        "signal_time": "2026-08-12T09:32:00+08:00",
+                        "base_amount": 50000,
+                    }
+                },
+                "created_at": "2026-08-12T01:32:23+00:00",
+            }
+        ]
+        self.orders = [
+            {
+                "internal_order_id": "ord_buy_grid",
+                "request_id": "req_buy_grid",
+                "broker_order_id": "1209008129",
+                "symbol": self.symbol,
+                "side": "buy",
+                "state": "FILLED",
+                "submitted_at": "2026-08-12T09:32:23",
+            }
+        ]
+        self.xt_trades = []
+        self.fills = [
+            {
+                "execution_fill_id": "fill_buy_grid",
+                "request_id": "req_buy_grid",
+                "internal_order_id": "ord_buy_grid",
+                "broker_trade_id": "trade_buy_grid",
+                "symbol": self.symbol,
+                "side": "buy",
+                "quantity": 100,
+                "price": 153.8,
+                "trade_time": _epoch("2026-08-12T09:32:25"),
+            }
+        ]
+        self.trade_facts = [
+            {
+                "trade_fact_id": "fact_buy_grid",
+                "internal_order_id": "ord_buy_grid",
+                "broker_trade_id": "trade_buy_grid",
+                "symbol": self.symbol,
+                "side": "buy",
+                "quantity": 100,
+                "price": 153.8,
+                "trade_time": _epoch("2026-08-12T09:32:25"),
+            }
+        ]
+        self.entries = []
+        self.slices = []
+        self.signals = [
+            {
+                "code": self.symbol,
+                "name": "迈瑞医疗",
+                "position": "BUY_LONG",
+                "price": 153.75,
+                "remark": "看涨背驰",
+                "strategy": "Guardian",
+                "fire_time": datetime.fromisoformat("2026-08-12T01:32:00+00:00"),
+            }
+        ]
+
+    def list_symbols(self):
+        return [self.symbol]
+
+    def list_xt_trades(self, symbol=None):
+        return deepcopy(self.xt_trades)
+
+    def list_xt_positions(self, symbol=None):
+        return []
+
+    def list_xt_assets(self):
+        return []
+
+    def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
+        return []
+
+    def list_credit_asset_daily_buckets(self, *, start_after=None):
+        return []
+
+    def latest_credit_snapshot_time(self):
+        return None
+
+    def list_stock_signals(self, symbol=None):
+        return deepcopy(self.signals)
+
+    def list_order_requests(self, symbol=None):
+        return deepcopy(self.requests)
+
+    def list_orders(self, symbol=None, *, request_ids=None):
+        return deepcopy(self.orders)
+
+    def list_execution_fills(self, symbol, *, request_ids=None):
+        return deepcopy(self.fills)
+
+    def list_trade_facts(self, symbol, *, internal_order_ids=None):
+        return deepcopy(self.trade_facts)
+
+    def list_position_entries(self, symbol):
+        return deepcopy(self.entries)
+
+    def list_entry_slices(self, symbol):
+        return deepcopy(self.slices)
+
+    def list_exit_allocations(self, *, entry_ids, trade_fact_ids=None):
+        return []
+
+    def list_pm_decisions(self, symbol):
+        return []
+
+
+class FakeEmptyGuardianRuntimeRepository:
+    def list_guardian_events(self, symbol):
+        return {"available": True, "error": None, "items": []}
+
+
+def _build_guardian_buy_projection(service, symbol="300760"):
+    bundle = service._load_symbol_bundle(symbol)
+    detail = service._build_detail(symbol, bundle)
+    timeline = _build_order_timeline_projection(
+        symbol=symbol,
+        name=(detail.get("symbol") or {}).get("name"),
+        bundle=bundle,
+        canonical_trades=detail.get("executions") or [],
+        reviews=detail.get("reviews") or [],
+        initial_position_quantity=(detail.get("summary") or {}).get(
+            "initial_position_quantity"
+        ),
+        initial_position_source=(detail.get("summary") or {}).get(
+            "initial_position_source"
+        ),
+        start_time=None,
+        end_time=None,
+    )
+    return timeline, detail
+
+
+def test_guardian_buy_signal_time_links_signal_without_trace():
+    """订单仅以 strategy_context.signal_time 溯源时，仍能关联触发信号。"""
+
+    service = PositionReviewService(
+        repository=FakeGuardianBuyReviewRepository(),
+        runtime_repository=FakeEmptyGuardianRuntimeRepository(),
+        name_resolver=lambda symbol: "迈瑞医疗",
+    )
+    timeline, detail = _build_guardian_buy_projection(service)
+
+    events = [
+        event
+        for event in timeline["events"]
+        if event.get("internal_order_id") == "ord_buy_grid"
+    ]
+    assert len(events) == 1
+    event = events[0]
+    assert event["signal"]["remark"] == "看涨背驰"
+    assert event["signal"]["label"] == "Guardian"
+    assert event["signal"]["price"] == 153.75
+    assert event["signal"]["side"] == "buy"
+    assert event["data_quality"]["signal_association"] == "signal_time"
+
+    reviews = {item["request_id"]: item for item in detail["reviews"]}
+    assert reviews["req_buy_grid"]["signal"]["remark"] == "看涨背驰"
+    assert reviews["req_buy_grid"]["signal"]["strategy"] == "Guardian"
+
+
+def test_guardian_buy_signal_time_ambiguous_when_same_time_signals_share_key():
+    """同标的同时刻两条信号共用 signal_time 键 → 保守不关联（ambiguous）。"""
+
+    repository = FakeGuardianBuyReviewRepository()
+    repository.signals.append(
+        {
+            "code": repository.symbol,
+            "name": "迈瑞医疗",
+            "position": "SELL_SHORT",
+            "price": 153.75,
+            "remark": "V反下跌",
+            "strategy": "Guardian",
+            "fire_time": datetime.fromisoformat("2026-08-12T01:32:00+00:00"),
+        }
+    )
+    service = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeEmptyGuardianRuntimeRepository(),
+        name_resolver=lambda symbol: "迈瑞医疗",
+    )
+    timeline, detail = _build_guardian_buy_projection(service)
+
+    events = [
+        event
+        for event in timeline["events"]
+        if event.get("internal_order_id") == "ord_buy_grid"
+    ]
+    assert len(events) == 1
+    event = events[0]
+    assert event["signal"] is None
+    assert event["data_quality"]["signal_association"] == "ambiguous"
+    assert any(
+        warning.get("code") == "direct_signal_association_ambiguous"
+        for warning in (event.get("data_quality") or {}).get("warnings") or []
+    )
+    reviews = {item["request_id"]: item for item in detail["reviews"]}
+    assert reviews["req_buy_grid"]["signal"] is None
+
+
+def test_guardian_buy_signal_time_scoped_to_symbol():
+    """同时刻的其他标的信号不因 signal_time 键误配到本标的订单。"""
+
+    repository = FakeGuardianBuyReviewRepository()
+    repository.signals = [
+        {
+            "code": "300999",
+            "name": "其他标的",
+            "position": "BUY_LONG",
+            "price": 10.0,
+            "remark": "看涨背驰",
+            "strategy": "Guardian",
+            "fire_time": datetime.fromisoformat("2026-08-12T01:32:00+00:00"),
+        }
+    ]
+    service = PositionReviewService(
+        repository=repository,
+        runtime_repository=FakeEmptyGuardianRuntimeRepository(),
+        name_resolver=lambda symbol: "迈瑞医疗",
+    )
+    timeline, detail = _build_guardian_buy_projection(service)
+
+    events = [
+        event
+        for event in timeline["events"]
+        if event.get("internal_order_id") == "ord_buy_grid"
+    ]
+    assert len(events) == 1
+    event = events[0]
+    assert event["signal"] is None
+    assert event["data_quality"]["signal_association"] == "none"
+    reviews = {item["request_id"]: item for item in detail["reviews"]}
+    assert reviews["req_buy_grid"]["signal"] is None

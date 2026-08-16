@@ -133,6 +133,7 @@ PositionReview 读模型（E2，步骤 9）：`positionReview.mjs` 与
 - partial 只允许明确展示已完成 partition，不能冒充 final；跨资产统计仍由 CLX finalizer 的完整 batch 提供
 - `/daily-screening` 基本面评价产物（`/data/clx-evaluator/**`）不混入 Kline CLX marker 图层；marker 只消费 CLX 日线选股信号服务
 - 信号仅在后端给出明确关联时显示；无关联信号不依据时间或价格补配
+- 明确关联键含订单请求 `strategy_context.guardian_buy_grid.signal_time` 的写入方溯源记录（标的 + fire_time 精确相等）；该键由写链路记录，不属于时间/价格推断
 - 同一策略请求无法把应有量可靠分给多个订单时，数量轨显示证据不足而非重复的策略数量；同秒跨订单的仓位先后无法证实时也明确标记为不确定
 
 ## 排障

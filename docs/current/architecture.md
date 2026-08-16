@@ -253,7 +253,8 @@ buy 先解析归属后聚类，禁止跨账本聚合。
 - `/position-review` 是只读工作台，覆盖所有存在可信历史成交的标的；当前持仓和已清仓标的不采用不同的成交真值口径。
 - 复盘以策略请求或订单为判定单位；同一订单的逐笔成交只作为实际成交数量、价格和执行过程的下钻证据。
 - 订单级时间线只输出聚合订单事件和连续 `position_series`：每个事件保留策略应有量、实际成交总量、加权成交均价、仓位前后值与数据质量；KlineSlim 不展示逐笔 fill。
-- 信号到订单的可视关联只接受明确的 `request_id / internal_order_id / trace_id / intent_id` 键；缺少强关联时返回空信号并保留证据不足语义，不通过时间邻近推断。
+- 信号到订单的可视关联只接受明确的 `request_id / internal_order_id / trace_id / intent_id` 键，以及订单请求 `strategy_context` 中写入方记录的 `signal_time` 溯源键（标的 + fire_time 精确相等，非相邻推断）；缺少强关联时返回空信号并保留证据不足语义，不通过时间邻近推断。
+- 信号入库时，策略在 `on_signal` 内生成的 `trace_id / intent_id` 会回写到 `stock_signals` 文档，使后续订单通过强键直接关联回触发信号；存量信号（无 trace/intent）依靠 `signal_time` 溯源键关联，无需数据迁移。
 - 订单判定固定为四态：
   - `PASS`：现有证据能够确认实际行为符合策略逻辑。
   - `FAIL`：现有证据能够确认实际行为偏离策略逻辑。
