@@ -1138,9 +1138,8 @@ const prnetValueOf = (point) => (
 const prformatPeriodTick = (label, period) => {
   const text = prtoText(label)
   if (!text) return ''
-  if (period === 'month' || period === '1y' || period === '2y') return text
-  if (period === 'week') return text.slice(5)
-  return text.slice(5)
+  // 所有窗口统一按日桶展示，标签为 YYYY-MM-DD，横轴显示 MM-DD。
+  return text.length >= 10 ? text.slice(5) : text
 }
 
 const prtradeSideText = (side) => (side === 'sell' ? '卖出' : '买入')

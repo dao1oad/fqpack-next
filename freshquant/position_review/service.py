@@ -35,6 +35,7 @@ from freshquant.position_review.portfolio_projection import (
     build_portfolio_contributions,
     build_portfolio_series,
     build_portfolio_summary,
+    period_window_days,
 )
 from freshquant.position_review.replay import (
     VERDICTS,
@@ -452,15 +453,16 @@ class PositionReviewService:
         refresh=False,
         period="day",
     ) -> dict[str, Any]:
-        detail_by_symbol, _, _, xt_assets, credit_snapshots = (
+        normalized_period = str(period or "day").strip().lower()
+        detail_by_symbol, _, _, xt_assets, _catalog_credit = (
             self._build_portfolio_inputs(refresh=bool(refresh))
         )
         trade_events = _portfolio_trade_events(detail_by_symbol)
         payload = build_portfolio_series(
             xt_assets=xt_assets,
-            credit_snapshots=credit_snapshots,
+            credit_snapshots=self._window_credit_snapshots(normalized_period),
             trade_events=trade_events,
-            period=period,
+            period=normalized_period,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
         payload["benchmark"] = self._build_portfolio_benchmark(
@@ -468,6 +470,44 @@ class PositionReviewService:
             period=str(payload.get("period") or "day"),
         )
         return payload
+
+    def _window_credit_snapshots(self, period: str) -> list[dict[str, Any]]:
+        """按窗口起点读取信用快照（解除 200k 上限对长窗口的截断）。
+
+        窗口锚点 = 集合最新 ``queried_at``；读取范围为
+        ``queried_at >= anchor - window_days``，并投影曲线所需字段以
+        控制内存。仓库不支持新参数时回退为无参读取（测试桩兼容）。
+        """
+
+        window_days = period_window_days(period)
+        if window_days is None:
+            return []
+        latest = getattr(self.repository, "latest_credit_snapshot_time", None)
+        if latest is None:
+            return []
+        latest_time = latest()
+        if not latest_time:
+            return []
+        anchor = _timestamp(latest_time)
+        if anchor <= 0:
+            return []
+        start_iso = _epoch_iso(int(anchor - window_days * 86_400))
+        if not start_iso:
+            return []
+        try:
+            return self.repository.list_credit_asset_snapshots(
+                start_after=start_iso,
+                limit=2_000_000,
+                fields=[
+                    "queried_at",
+                    "total_asset",
+                    "market_value",
+                    "total_debt",
+                    "available_amount",
+                ],
+            )
+        except TypeError:
+            return self.repository.list_credit_asset_snapshots()
 
     def _build_portfolio_benchmark(self, *, series, period) -> dict[str, Any]:
         """Attach the benchmark curve (上证综指ETF 510210) to the equity payload.
@@ -901,7 +941,18 @@ class PositionReviewService:
                 continue
             cost_by_symbol[symbol] = _broker_estimate_cost(position)
         xt_assets = self.repository.list_xt_assets()
-        credit_snapshots = self.repository.list_credit_asset_snapshots(limit=200_000)
+        # 组合总览只需要最新一条信用快照；净值曲线按窗口在
+        # get_portfolio_series 单独读取，catalog 无需承载全量历史。
+        credit_snapshots = self.repository.list_credit_asset_snapshots(
+            limit=10_000,
+            fields=[
+                "queried_at",
+                "total_asset",
+                "market_value",
+                "total_debt",
+                "available_amount",
+            ],
+        )
         return {
             "rows": rows,
             "detail_by_symbol": detail_by_symbol,

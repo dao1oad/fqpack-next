@@ -18,7 +18,7 @@ const series = ref(null)
 const contributions = ref(null)
 const loading = ref(false)
 const error = ref('')
-const equityPeriod = ref('day')
+const equityPeriod = ref('30d')
 const equityMode = ref('net')
 const equityPeriodOptions = [
   { value: 'day', label: '日' },
@@ -233,8 +233,8 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
           <p class="portfolio-overview__panel-note">
             {{
               equityMode === 'asset'
-                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；Y 轴按总资产区间自适应（min/max），波动更明显；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
-                : '净资产 = 总资产 − 总负债；Y 轴从净资产区间内放大（min/max 自适应），波动更明显；交易发生的周期标注交易点；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
+                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；切换的是时间窗口（跨度），曲线始终按日展示；窗口早于可用历史的区间不插值；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
+                : '净资产 = 总资产 − 总负债；切换的是时间窗口（跨度），曲线始终按日展示；窗口早于可用历史的区间不插值；交易发生的日期标注交易点；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
             }}
           </p>
         </div>
