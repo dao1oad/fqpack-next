@@ -20,7 +20,7 @@ test('position review is exposed immediately after position management in header
   const pageMetaSource = await readFile(new URL('./pageMeta.mjs', import.meta.url), 'utf8')
   assert.match(
     pageMetaSource.replace(/\r/g, ''),
-    /\['klineSlim', 'positionManagement', 'positionReview', 'stockPositionList', 'runtime', 'opsConsole'\]/,
+    /\['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'\]/,
   )
 })
 

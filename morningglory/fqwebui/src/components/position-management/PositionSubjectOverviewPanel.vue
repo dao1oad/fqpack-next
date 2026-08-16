@@ -79,7 +79,8 @@
                 {{ formatQuantityWithUnit(row.position_quantity) }}
               </span>
               <span class="position-subject-metric-stack__secondary workbench-code">
-                底 {{ formatQuantityWithUnit(row.position_base_quantity) }} · T {{ formatQuantityWithUnit(row.position_t_quantity) }}
+                底 {{ formatQuantityWithUnit(row.position_base_quantity) }} ·
+                <span class="position-subject-t-quantity">T {{ formatQuantityWithUnit(row.position_t_quantity) }}</span>
               </span>
               <span class="position-subject-metric-stack__secondary workbench-code">
                 {{ formatWanAmount(row.position_amount) }}
@@ -485,6 +486,11 @@ const saveConfigBundleForSymbol = async (symbol) => {
   color: #21405e;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.position-subject-t-quantity {
+  color: #f59e0b;
+  font-weight: 600;
 }
 
 .position-subject-trigger-line {

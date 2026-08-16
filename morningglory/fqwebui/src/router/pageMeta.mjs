@@ -27,12 +27,6 @@ export const HEADER_NAV_TARGETS = {
     buttonType: 'primary',
     size: 'small',
   },
-  stockPositionList: {
-    label: '持仓列表',
-    path: '/stock-position-list',
-    buttonType: 'default',
-    size: 'small',
-  },
   runtime: {
     label: '运行观测',
     path: '/runtime-observability',
@@ -103,7 +97,7 @@ export const HEADER_NAV_TARGETS = {
 
 export const HEADER_NAV_GROUPS = [
   ['systemSettings'],
-  ['klineSlim', 'positionManagement', 'positionReview', 'stockPositionList', 'runtime', 'opsConsole'],
+  ['klineSlim', 'positionManagement', 'positionReview', 'runtime', 'opsConsole'],
   ['gantt', 'dailyScreening', 'clxEvaluation'],
   ['stock', 'pool'],
   ['tradingGuide'],
@@ -122,7 +116,6 @@ export const ROUTE_TITLES_BY_NAME = {
   'gantt-stocks': '板块趋势',
   'position-management': '仓位管理',
   'position-review': '持仓复盘',
-  'stock-position-list': '持仓列表',
   'runtime-observability': '运行观测',
   'ops-console': '运维',
   'system-settings': '系统设置',

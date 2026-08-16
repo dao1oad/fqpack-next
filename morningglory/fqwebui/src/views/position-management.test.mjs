@@ -523,6 +523,8 @@ test('PositionManagement.vue hoists subject workbench state while keeping recent
   assert.match(subjectOverviewPanelSource, /ensureSubjectDetailsForPage/)
   assert.match(subjectOverviewPanelSource, /label="检查结果"/)
   assert.match(subjectOverviewPanelSource, /label="持仓"/)
+  assert.match(subjectOverviewPanelSource, /position-subject-t-quantity/)
+  assert.match(subjectOverviewPanelSource, /#f59e0b/)
   assert.match(subjectOverviewPanelSource, /label="订单状态"/)
   assert.match(subjectOverviewPanelSource, /label="Guardian 层级触发"/)
   assert.match(subjectOverviewPanelSource, /label="止盈层级触发"/)
