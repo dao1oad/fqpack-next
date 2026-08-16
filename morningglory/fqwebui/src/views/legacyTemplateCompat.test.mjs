@@ -30,7 +30,6 @@ test('Element Plus el-link underline props use string enums instead of deprecate
     read('../components/StockPools.vue'),
     read('../components/StockPrePools.vue'),
     read('./FuturePositionList.vue'),
-    read('./StockPositionList.vue'),
   ])
 
   for (const content of files) {

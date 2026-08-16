@@ -57,7 +57,6 @@ test('query pages use named policies instead of staleTime and refetch magic numb
   const expectedPoliciesByFile = [
     ['views/SignalList.vue', 'pollingNormal'],
     ['views/ModelSignalList.vue', 'pollingNormal'],
-    ['views/StockPositionList.vue', 'pollingNormal'],
     ['views/js/kline-big.js', 'pollingFast'],
     ['views/js/multi-period.js', 'pollingFast'],
     ['components/StockPools.vue', 'pollingSlow'],

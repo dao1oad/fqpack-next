@@ -15,7 +15,6 @@ const GanttUnifiedStocks = () => import('../views/GanttUnifiedStocks.vue')
 const DailyScreening = () => import('../views/DailyScreening.vue')
 const PositionManagement = () => import('../views/PositionManagement.vue')
 const PositionReview = () => import('../views/PositionReview.vue')
-const StockPositionList = () => import('../views/StockPositionList.vue')
 const RuntimeObservability = () => import('../views/RuntimeObservability.vue')
 const OpsConsole = () => import('../views/OpsConsole.vue')
 const SystemSettings = () => import('../views/SystemSettings.vue')
@@ -101,11 +100,6 @@ const routes = [
     path: '/position-review',
     name: 'position-review',
     component: PositionReview
-  }),
-  withRouteTitle({
-    path: '/stock-position-list',
-    name: 'stock-position-list',
-    component: StockPositionList
   }),
   withRouteTitle({
     path: '/runtime-observability',
