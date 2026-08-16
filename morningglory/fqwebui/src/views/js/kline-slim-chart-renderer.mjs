@@ -16,7 +16,7 @@ import {
   getPriceGuideLegendName
 } from './subject-price-guides.mjs'
 import { parseTimestampMs } from '../../tool/beijingTime.mjs'
-import { buildFullMarkerTooltip } from '../positionReview.mjs'
+import { buildFullMarkerTooltip, PR_TOOLTIP_CSS } from '../positionReview.mjs'
 import {
   aggregateClxMarkersByBar,
   anchorClxMarkersToBars,
@@ -1272,7 +1272,7 @@ function buildOrderReviewChartMarkerSeries(layer) {
       show: true,
       className: 'prt-tooltip',
       confine: true,
-      extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+      extraCssText: PR_TOOLTIP_CSS,
       formatter: buildOrderReviewChartTooltipFormatter,
     },
   }

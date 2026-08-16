@@ -2007,15 +2007,27 @@ def test_portfolio_trade_events_attach_order_signal_details():
                 "time": "2026-08-11T10:00:00+08:00",
                 "account_partition": "partition_a",
                 "association_quality": "high",
-            }
+            },
+            {
+                "request_id": None,
+                "side": "buy",
+                "quantity": 50,
+                "price": 150.0,
+                "time": "2026-08-11T10:05:00+08:00",
+                "account_partition": "unknown",
+                "association_quality": None,
+            },
         ],
     }
 
     events = _portfolio_trade_events({"300760": detail})
 
-    assert len(events) == 1
+    assert len(events) == 2
     assert events[0]["symbol"] == "300760"
     assert events[0]["name"] == "迈瑞医疗"
     assert events[0]["signal_type"] == "buy_v_reverse"
     assert events[0]["signal_label"] == "反转买点"
     assert events[0]["request_id"] == "req_buy_1"
+    # 无复盘匹配的成交：显式"证据缺失"，不猜测信号。
+    assert events[1]["signal_type"] == "unknown"
+    assert events[1]["signal_label"] == signal_meta("unknown")["label"]

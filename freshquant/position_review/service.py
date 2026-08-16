@@ -93,6 +93,8 @@ class PositionReviewService:
         self._catalog_lock = RLock()
         self._catalog_cache: dict[str, Any] | None = None
         self._catalog_generation = 0
+        self._trade_dates_cache: tuple[float, set[str] | None] | None = None
+        self._trade_dates_cache_ttl = 600.0
 
     def get_summary(self, *, refresh=False) -> dict[str, Any]:
         rows, snapshot = self._get_catalog_snapshot(refresh=bool(refresh))
@@ -489,13 +491,21 @@ class PositionReviewService:
     def _trade_dates(self) -> set[str] | None:
         """读取交易日集合；仓库不支持/读取失败时返回 None（降级不过滤）。"""
 
+        now = self._clock()
+        if (
+            self._trade_dates_cache is not None
+            and now - self._trade_dates_cache[0] <= self._trade_dates_cache_ttl
+        ):
+            return self._trade_dates_cache[1]
         loader = getattr(self.repository, "list_trade_dates", None)
         if loader is None:
             return None
         try:
-            return loader()
+            dates = loader()
         except Exception:
-            return None
+            dates = None
+        self._trade_dates_cache = (now, dates)
+        return dates
 
     def _window_credit_snapshots(self, period: str) -> list[dict[str, Any]]:
         """按窗口起点读取信用快照的日聚合桶（服务器端聚合）。
@@ -3891,11 +3901,16 @@ def _portfolio_trade_events(detail_by_symbol):
             review = reviews_by_request.get(
                 str(execution.get("request_id") or "").strip()
             )
-            signal_type = resolve_signal_type(
-                request=(review or {}).get("request"),
-                signal=(review or {}).get("signal"),
-                side=side,
-            )
+            if review is None:
+                # 无复盘匹配的成交（外部/人工单）：不猜测信号类型，显式
+                # 标"证据缺失"，避免把无证据的买单误标为反转买点。
+                signal_type = "unknown"
+            else:
+                signal_type = resolve_signal_type(
+                    request=review.get("request"),
+                    signal=review.get("signal"),
+                    side=side,
+                )
             signal_label = signal_meta(signal_type)["label"]
             events.append(
                 {
