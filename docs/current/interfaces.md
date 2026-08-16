@@ -157,7 +157,13 @@ python -m freshquant.rear.api_server --port 5000
   - ClickHouse Trace 只作为可选补充证据，不是接口返回成交数量或持仓解释的前置条件
 - `/api/position-review/portfolio/summary`
   - 返回组合总览 KPI：`total_asset / market_value / remaining_cost / floating_pnl / realized_pnl / position_ratio / cash`
-  - 同时返回 `monthly_turnover`、四态 `verdict_counts`、`signal_type_counts`、`reviewable / pass_rate` 与 `data_quality.equity_basis / cost_basis`
+  - `net_value` 口径 = 总资产 − 总负债（QMT 口径）：券商快照自带 `total_debt` 时
+    `net_value_source=broker_asset_minus_debt`；券商快照无负债字段（信用账户）时
+    KPI 整体切换最新信用资产快照口径（`equity_basis / net_value_source = credit_snapshot_reconstructed`，
+    总资产/净资产/现金同源保证算术自洽）；信用快照也缺负债时降级
+    `credit_asset_fallback`（net=asset）或 `broker_total_asset`
+  - 同时返回 `monthly_turnover`、四态 `verdict_counts`、`signal_type_counts`、
+    `reviewable / pass_rate` 与 `data_quality.equity_basis / net_value_source / cost_basis`
   - `market_value` 覆盖全部持仓快照（券商真值）；`remaining_cost / floating_pnl` 对每个持仓标的优先使用 entry/slice/allocation 账本成本，证据不足时回退券商均价并在 `data_quality.cost_basis=degraded` 明示
 - `/api/position-review/portfolio/series`
   - 返回权益曲线，名称与 `equity_basis` 跟随证据等级：

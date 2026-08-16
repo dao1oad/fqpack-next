@@ -1224,6 +1224,64 @@ def test_build_portfolio_summary_falls_back_to_credit_snapshot_when_xt_assets_ze
     assert summary["kpis"]["cash"] == 5000.9
 
 
+def test_build_portfolio_summary_net_value_subtracts_debt_from_credit_when_broker_lacks_it():
+    """券商快照无负债字段（信用账户）：净资产 = 信用快照总资产 − 总负债。"""
+
+    summary = build_portfolio_summary(
+        catalog_rows=[],
+        detail_by_symbol={},
+        cost_by_symbol={},
+        position_by_symbol={},
+        xt_assets=[
+            {
+                "cash": 3199.44,
+                "market_value": 5247677.6,
+                "total_asset": 5250877.04,
+                "updated_at": "2026-08-16T05:00:00+00:00",
+            }
+        ],
+        credit_snapshots=[
+            {
+                "queried_at": "2026-08-16T05:00:01+00:00",
+                "total_asset": 5250877.04,
+                "market_value": 5247677.6,
+                "total_debt": 1676436.7,
+                "available_amount": 3199.44,
+            }
+        ],
+        generated_at="2026-08-16T06:00:00+00:00",
+    )
+    # 券商快照无负债字段：KPI 整体切换信用口径（同源、算术自洽）。
+    assert summary["data_quality"]["equity_basis"] == "credit_snapshot_reconstructed"
+    assert (
+        summary["data_quality"]["net_value_source"] == "credit_snapshot_reconstructed"
+    )
+    assert summary["kpis"]["total_asset"] == 5250877.04
+    assert summary["kpis"]["net_value"] == round(5250877.04 - 1676436.7, 2)
+    assert summary["kpis"]["cash"] == 3199.44
+
+
+def test_build_portfolio_summary_net_value_subtracts_broker_debt_when_present():
+    summary = build_portfolio_summary(
+        catalog_rows=[],
+        detail_by_symbol={},
+        cost_by_symbol={},
+        position_by_symbol={},
+        xt_assets=[
+            {
+                "cash": 1000.0,
+                "market_value": 9000.0,
+                "total_asset": 10000.0,
+                "total_debt": 2000.0,
+                "updated_at": "2026-08-16T05:00:00+00:00",
+            }
+        ],
+        generated_at="2026-08-16T06:00:00+00:00",
+    )
+    assert summary["data_quality"]["net_value_source"] == "broker_asset_minus_debt"
+    assert summary["kpis"]["net_value"] == 8000.0
+
+
 def test_build_portfolio_series_credit_rebuild_net_value_default_30d():
     series = build_portfolio_series(
         xt_assets=[],

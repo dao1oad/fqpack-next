@@ -276,6 +276,7 @@ def build_portfolio_summary(
     current_net_value = None
     cash = None
     equity_basis = "estimated"
+    net_value_source = "estimated"
     latest_broker = None
     if xt_assets:
         latest_broker = sorted(
@@ -291,9 +292,35 @@ def build_portfolio_summary(
     ):
         latest = latest_broker
         current_asset = _float(latest.get("total_asset"))
-        current_net_value = current_asset
+        current_net_value = _round(current_asset)
+        net_value_source = "broker_total_asset"
         cash = _float(latest.get("cash"))
         equity_basis = "broker_total_asset"
+        broker_debt = _float(latest.get("total_debt"))
+        if broker_debt is not None:
+            # 券商快照自带负债（防御性分支；当前 FqXtAsset 不含该字段）：
+            # 净资产 = 总资产 − 总负债（QMT 口径）。
+            current_net_value = _round(current_asset - broker_debt)
+            net_value_source = "broker_asset_minus_debt"
+        elif credit_snapshots:
+            # 券商快照无负债字段（信用账户）：KPI 整体切换到最新信用资产
+            # 快照口径（总资产/净资产/现金同源），保证
+            # "净资产 = 总资产 − 总负债"算术自洽。
+            latest_credit = sorted(
+                credit_snapshots,
+                key=lambda item: str(item.get("queried_at") or ""),
+            )[-1]
+            credit_asset = _float(latest_credit.get("total_asset"))
+            credit_debt = _float(latest_credit.get("total_debt"))
+            if credit_asset is not None and credit_debt is not None:
+                current_asset = credit_asset
+                current_net_value = _round(credit_asset - credit_debt)
+                net_value_source = "credit_snapshot_reconstructed"
+                cash = _float(latest_credit.get("available_amount"))
+                equity_basis = "credit_snapshot_reconstructed"
+            else:
+                # 信用快照字段缺失：券商口径降级（net = 总资产）。
+                net_value_source = "broker_total_asset"
     elif credit_snapshots:
         latest_credit = sorted(
             credit_snapshots,
@@ -309,6 +336,10 @@ def build_portfolio_summary(
         )
         cash = _float(latest_credit.get("available_amount"))
         equity_basis = "credit_snapshot_reconstructed"
+        if total_debt is None:
+            net_value_source = "credit_asset_fallback"
+        else:
+            net_value_source = "credit_snapshot_reconstructed"
 
     position_ratio = (
         round(market_value / current_asset, 6)
@@ -340,6 +371,7 @@ def build_portfolio_summary(
         ),
         "data_quality": {
             "equity_basis": equity_basis,
+            "net_value_source": net_value_source,
             "cost_basis": ("full" if degraded_cost_symbols == 0 else "degraded"),
             "degraded_cost_symbol_count": degraded_cost_symbols,
             "estimated_cost_symbol_count": estimated_cost_symbols,
@@ -401,6 +433,7 @@ def build_portfolio_series(
         total_asset = _float(item.get("total_asset"))
         if time_text is None or total_asset is None:
             continue
+        total_debt = _float(item.get("total_debt"))
         broker_points.append(
             {
                 "time": time_text,
@@ -408,7 +441,11 @@ def build_portfolio_series(
                 "cash": _round(item.get("cash")),
                 "market_value": _round(item.get("market_value")),
                 "estimated_equity": None,
-                "net_value": _round(total_asset),
+                "net_value": (
+                    _round(total_asset - total_debt)
+                    if total_debt is not None
+                    else _round(total_asset)
+                ),
             }
         )
 
