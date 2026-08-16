@@ -22,9 +22,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 _BEIJING_TZ = timezone(timedelta(hours=8))
-# 左上角选择器是「时间窗口」而不是 K 线式展示周期：所有选项都按日桶
-# 展示，value = (窗口天数, 展示名)。窗口按最近一笔快照往前截取，
-# 缺失区间不插值。
+# 左上角选择器是「时间窗口」（看多长的跨度），曲线固定按 5 分钟粒度
+# 展示：value = (窗口天数, 展示名)。窗口按最近一笔快照往前截取，
+# 缺失区间不插值；5 分钟桶取该桶末笔快照。
 _PERIOD_WINDOWS: dict[str, tuple[int, str]] = {
     "day": (1, "日"),
     "week": (7, "周"),
@@ -97,19 +97,19 @@ def _beijing_datetime(value) -> datetime | None:
 
 
 def _period_bucket_key(time_text: str, period: str) -> tuple[str, str] | None:
-    """Return (bucket_key, period_label) for a Beijing calendar-day bucket.
+    """Return (bucket_key, period_label) for a Beijing 5-minute bucket.
 
-    Buckets follow Beijing time so trading days and calendar days match the
-    account's local calendar.  ``period`` 参数保留兼容（统一按日桶）。
+    Buckets follow Beijing time.  ``period`` 参数保留兼容（所有窗口统一
+    5 分钟粒度）。
     """
 
     parsed = _beijing_datetime(time_text)
     if parsed is None:
         return None
-    return (
-        parsed.strftime("%Y-%m-%d"),
-        parsed.strftime("%Y-%m-%d"),
-    )
+    minute = (parsed.minute // 5) * 5
+    bucket = parsed.replace(minute=minute, second=0, microsecond=0)
+    label = bucket.strftime("%Y-%m-%d %H:%M")
+    return (label, label)
 
 
 def _verdict_counts(reviews_by_request: dict[str, dict[str, Any]]) -> dict[str, int]:
@@ -388,8 +388,8 @@ def build_portfolio_series(
     ``total_debt``, so each point reports ``net_value = total_asset -
     total_debt``.  ``period`` 是时间窗口（``day``=1天 / ``week``=7天 /
     ``month``=30天 / ``30d``/``60d``/``90d``/``6m``/``1y``/``2y``），
-    所有窗口统一按北京日历日桶展示，每个日桶保留末笔快照。交易发生在
-    哪个日桶就挂到哪个点，供 UI 渲染交易点与悬浮明细。
+    所有窗口统一按 5 分钟粒度展示（北京时区，每桶保留末笔快照）。
+    交易发生在哪个 5 分钟桶就挂到哪个点，供 UI 渲染交易点与悬浮明细。
     """
 
     normalized_period = str(period or "day").strip().lower()
@@ -428,9 +428,13 @@ def build_portfolio_series(
             time_text = _iso_time(item.get("queried_at"))
             if time_text is None:
                 continue
-            # High-frequency credit snapshots are aggregated to minute
-            # buckets; missing minutes are never interpolated.
-            key = time_text[:16]
+            # 高频快照先按北京时区聚合到分钟（queried_at 为 UTC，必须
+            # 显式转北京时间再取分钟键，否则 5 分钟桶会整体偏移 8 小时）；
+            # 缺失分钟不插值。
+            parsed = _beijing_datetime(time_text)
+            if parsed is None:
+                continue
+            key = parsed.strftime("%Y-%m-%d %H:%M")
             total_asset = _float(item.get("total_asset"))
             market_value = _float(item.get("market_value"))
             total_debt = _float(item.get("total_debt"))
@@ -443,7 +447,7 @@ def build_portfolio_series(
                     else _round(total_asset)
                 )
                 by_second[key] = {
-                    "time": key,
+                    "time": parsed.isoformat(),
                     "total_asset": _round(total_asset),
                     "total_equity": _round(total_asset),
                     "market_value": _round(market_value),
@@ -551,6 +555,7 @@ def build_portfolio_series(
             "point_count": len(series),
             "window": {
                 "period": normalized_period,
+                "granularity": "5min",
                 "window_days": window_days,
                 "window_start": (
                     window_start.isoformat() if window_start is not None else None
@@ -635,25 +640,23 @@ def build_portfolio_benchmark(
 ) -> dict[str, Any]:
     """Align benchmark daily bars onto the equity series buckets.
 
-    Each equity bucket takes the last observed benchmark close on or before
-    the bucket date; buckets without a fresh bar carry the previous close
-    forward (benchmark "as of" value).  ``covered_count`` only counts buckets
-    with an observed bar, ``carried_count`` counts carry-forward buckets.
+    Each equity bucket (5-minute) takes the benchmark daily close of the same
+    trading day; buckets on a day without a fresh bar carry the previous
+    close forward (benchmark "as of" value).  ``covered_count`` only counts
+    buckets with an observed bar, ``carried_count`` counts carry-forward
+    buckets.
     ``normalized`` rebases the aligned series to the first available point so
     the UI can render period returns and the beat/miss spread against the
     account curve.
     """
 
-    buckets: dict[str, float] = {}
+    daily_closes: dict[str, float] = {}
     for bar in index_bars or []:
         date = str((bar or {}).get("date") or "").strip()
         close = _float((bar or {}).get("close"))
         if not date or close is None:
             continue
-        bucket = _period_bucket_key(f"{date}T00:00:00+08:00", "day")
-        if bucket is None:
-            continue
-        buckets[bucket[0]] = close
+        daily_closes[date[:10]] = close
 
     aligned = []
     last_close: float | None = None
@@ -661,7 +664,7 @@ def build_portfolio_benchmark(
     carried_count = 0
     for point in series or []:
         key = str(point.get("period_key") or "").strip()
-        close = buckets.get(key)
+        close = daily_closes.get(key[:10])
         if close is None:
             close = last_close
             if close is not None:

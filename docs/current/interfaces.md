@@ -167,8 +167,8 @@ python -m freshquant.rear.api_server --port 5000
   - 每个点返回 `total_equity / estimated_equity / cash / market_value / total_debt / net_external_flow / position_ratio / drawdown`
   - `period` 是时间窗口而不是 K 线式展示周期：`day`=1 天 / `week`=7 天 /
     `month`=30 天 / `30d`=30 天 / `60d`=60 天 / `90d`=90 天 / `6m`=183 天 /
-    `1y`=365 天 / `2y`=730 天；**所有窗口统一按北京日历日桶展示**，窗口以
-    最新快照为锚往前截取，缺失区间不插值
+    `1y`=365 天 / `2y`=730 天；**所有窗口统一按 5 分钟粒度展示**（北京时区
+    5 分钟桶取末笔快照），窗口以最新快照为锚往前截取，缺失区间不插值
   - 信用快照按窗口起点过滤读取（`queried_at >= 锚点 - 窗口天数`，字段投影，
     上限 2,000,000 条），长窗口不再被固定 200,000 条读取上限截断；
     账户快照历史晚于窗口起点时 `data_quality.window.covered=false` 并附
