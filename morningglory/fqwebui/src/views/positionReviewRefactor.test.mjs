@@ -300,16 +300,89 @@ test('buildPortfolioBenchmarkSummary computes beat spread over common span', () 
 
 test('buildPortfolioTradeTooltip renders every trade at the point', () => {
   const html = buildPortfolioTradeTooltip({
+    period_label: '2026-07-21',
     trades: [
-      { time: '2026-07-21T13:00+08:00', symbol: '002262', name: '恩华药业', side: 'buy', quantity: 4000, price: 10.26, amount: 41040.0 },
-      { time: '2026-07-21T13:05+08:00', symbol: '512000', name: '券商ETF', side: 'sell', quantity: 1000, price: 0.57, amount: 570.0 },
+      { time: '2026-07-21T13:00+08:00', symbol: '002262', name: '恩华药业', side: 'buy', quantity: 4000, price: 10.26, amount: 41040.0, request_id: 'req_buy_1', association_quality: 'high', account_partition: 'partition_a' },
+      { time: '2026-07-21T13:05+08:00', symbol: '512000', name: '券商ETF', side: 'sell', quantity: 1000, price: 0.57, amount: 570.0, request_id: 'req_sell_2', association_quality: 'high', account_partition: 'partition_a' },
     ],
   })
-  assert.match(html, /2 笔成交/)
+  assert.match(html, /2026-07-21 · 2 笔/)
+  assert.match(html, /当日成交/)
+  assert.match(html, /买入 41,040 元/)
+  assert.match(html, /卖出 570 元/)
   assert.match(html, /002262/)
   assert.match(html, /买入/)
   assert.match(html, /卖出/)
   assert.match(html, /41,040/)
+  assert.match(html, /请求 req_buy_1/)
+  assert.match(html, /关联 high/)
+  assert.match(html, /分区 partition_a/)
+})
+
+test('portfolio tooltip formatters render asset snapshot with dark theme', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    series: [
+      {
+        time: '2026-08-12', period_label: '2026-08-12',
+        total_equity: 100000.0, net_value: 90000.0,
+        market_value: 80000.0, cash: 12000.0, total_debt: 8000.0,
+      },
+      {
+        time: '2026-08-13', period_label: '2026-08-13',
+        total_equity: 102000.0, net_value: 91800.0,
+        market_value: 81000.0, cash: 13000.0, total_debt: 8200.0,
+      },
+    ],
+    benchmark: {
+      code: '510210',
+      name: '上证综指ETF',
+      series: [
+        { period_label: '2026-08-12', close: 1.01 },
+        { period_label: '2026-08-13', close: 1.02 },
+      ],
+    },
+  }, 'net')
+  assert.ok(option)
+  assert.match(option.tooltip.extraCssText, /#0f172a/)
+  const html = option.tooltip.formatter([
+    { seriesType: 'line', seriesName: '账户净资产', dataIndex: 1 },
+  ])
+  assert.match(html, /账户净资产/)
+  assert.match(html, /较前一交易日/)
+  assert.match(html, /持仓市值/)
+  assert.match(html, /81,000/)
+  assert.match(html, /现金/)
+  assert.match(html, /13,000/)
+  assert.match(html, /总负债/)
+  assert.match(html, /8,200/)
+  assert.match(html, /上证综指ETF/)
+  assert.match(html, /相对基准/)
+  assert.match(html, /跑赢/)
+})
+
+test('portfolio account-only tooltip renders snapshot without benchmark', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    series: [
+      {
+        time: '2026-08-12', period_label: '2026-08-12',
+        total_equity: 100000.0, net_value: 90000.0,
+        market_value: 80000.0, cash: 12000.0, total_debt: 8000.0,
+      },
+    ],
+  }, 'net')
+  assert.ok(option)
+  assert.match(option.tooltip.extraCssText, /#0f172a/)
+  const html = option.tooltip.formatter([
+    { seriesType: 'line', seriesName: '账户净资产', dataIndex: 0 },
+  ])
+  assert.match(html, /账户净资产/)
+  assert.match(html, /持仓市值/)
+  assert.match(html, /80,000/)
+  assert.match(html, /现金/)
+  assert.match(html, /总负债/)
+  assert.doesNotMatch(html, /相对基准/)
 })
 
 test('buildSymbolCostChartOption renders cost line and order markers without kline', () => {
