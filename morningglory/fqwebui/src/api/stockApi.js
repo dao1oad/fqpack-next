@@ -94,14 +94,6 @@ export const stockApi = {
       method: 'get'
     })
   },
-  // 查询持仓列表
-  getPositionList ({ page = 1, size = 10 }) {
-    const url = `/api/get_stock_position_list?page=${page}&size=${size}`
-    return http({
-      url,
-      method: 'get'
-    })
-  },
   getHoldingPositionList () {
     return http({
       url: '/api/get_stock_position_list',

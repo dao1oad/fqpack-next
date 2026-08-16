@@ -33,6 +33,11 @@ const routes = [
     path: '/',
     redirect: '/stock-control'
   },
+  {
+    // 已下线页面的兼容深链：直接重定向到首页。
+    path: '/stock-position-list',
+    redirect: '/'
+  },
   withRouteTitle({
     path: '/stock-control',
     name: 'stock-control',

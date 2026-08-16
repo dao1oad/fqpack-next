@@ -1144,7 +1144,7 @@ const prformatPeriodTick = (label, period) => {
 
 const prtradeSideText = (side) => (side === 'sell' ? '卖出' : '买入')
 
-const PR_TOOLTIP_CSS = (
+export const PR_TOOLTIP_CSS = (
   'max-width:560px;max-height:420px;overflow:auto;'
   + 'background:#0f172a;border:1px solid #334155;border-radius:10px;'
   + 'box-shadow:0 8px 24px rgba(0,0,0,0.45);padding:10px 12px;'
@@ -1176,7 +1176,12 @@ const prbuildTradesCardHtml = (point = {}) => {
   const orders = new Map()
   for (const trade of trades) {
     const side = trade.side === 'sell' ? 'sell' : 'buy'
-    const key = `${trade.symbol}|${trade.request_id || trade.broker_trade_id || ''}|${side}`
+    const hasOrderId = Boolean(trade.request_id || trade.broker_trade_id)
+    // 请求/券商委托 ID 双空的成交不可跨成交合并（可能属不同订单），
+    // 按成交自身分键，避免信号串行与过度聚合。
+    const key = hasOrderId
+      ? `${trade.symbol}|${trade.request_id || trade.broker_trade_id}|${side}`
+      : `${trade.symbol}|${side}|fill:${prtoText(trade.time)}:${prtoText(trade.broker_trade_id)}:${trades.indexOf(trade)}`
     if (!orders.has(key)) {
       orders.set(key, { side, list: [] })
     }
@@ -1186,6 +1191,12 @@ const prbuildTradesCardHtml = (point = {}) => {
     const first = list[0] || {}
     const quantity = list.reduce((sum, trade) => sum + (Number(trade.quantity) || 0), 0)
     const amount = list.reduce((sum, trade) => sum + (Number(trade.amount) || 0), 0)
+    const prhasPrice = (trade) => (
+      trade.price != null && trade.price !== '' && Number.isFinite(Number(trade.price))
+    )
+    const pricedQuantity = list
+      .filter(prhasPrice)
+      .reduce((sum, trade) => sum + (Number(trade.quantity) || 0), 0)
     const costSum = list.reduce(
       (sum, trade) => sum + (Number(trade.price) || 0) * (Number(trade.quantity) || 0),
       0,
@@ -1199,7 +1210,7 @@ const prbuildTradesCardHtml = (point = {}) => {
       fill_count: list.length,
       quantity,
       amount,
-      weighted_price: quantity ? costSum / quantity : null,
+      weighted_price: pricedQuantity ? costSum / pricedQuantity : null,
       time: times[0] || '',
       signal_label: prtoText(
         list.find((trade) => prtoText(trade.signal_label))?.signal_label,
@@ -1266,6 +1277,13 @@ const prlastFinite = (values) => {
   return null
 }
 
+const prpreviousFinite = (values, index) => {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (values[cursor] != null) return values[cursor]
+  }
+  return null
+}
+
 const prwindowPct = (value, base) => (
   value == null || !base ? null : (value / base - 1) * 100
 )
@@ -1278,6 +1296,7 @@ const prportfolioBenchmarkTooltip = (
   benchmarkName,
   benchmarkData,
   series,
+  equityBasis,
 ) => {
   const items = Array.isArray(params) ? params : [params]
   const index = items.find((item) => item && item.dataIndex != null)?.dataIndex ?? 0
@@ -1292,7 +1311,7 @@ const prportfolioBenchmarkTooltip = (
   const spread = accountPct == null || benchmarkPct == null
     ? null
     : accountPct - benchmarkPct
-  const prevAccount = index > 0 ? accountData[index - 1] : null
+  const prevAccount = prpreviousFinite(accountData, index)
   const dayDelta = accountValue != null && prevAccount != null
     ? accountValue - prevAccount
     : null
@@ -1302,7 +1321,10 @@ const prportfolioBenchmarkTooltip = (
     ['较前一交易日', `${prfmtSigned(dayDelta)}（${prfmtPctText(dayPct)}）`],
     ['持仓市值', prfmtAmount(prtoFiniteNumber(point.market_value))],
     ['现金', prfmtAmount(prtoFiniteNumber(point.cash))],
-    ['总负债', prfmtAmount(prtoFiniteNumber(point.total_debt))],
+    // 券商总资产口径无负债字段：不展示"总负债"行，避免恒为 —。
+    ...(equityBasis === 'broker_total_asset'
+      ? []
+      : [['总负债', prfmtAmount(prtoFiniteNumber(point.total_debt))]]),
     [benchmarkName, `${prfmtAmount(benchmarkValue)}（区间 ${prfmtPctText(benchmarkPct)}）`],
     ['相对基准', spread == null
       ? '—'
@@ -1328,6 +1350,7 @@ const prportfolioAccountTooltip = (
   accountName,
   accountData,
   series,
+  equityBasis,
 ) => {
   const items = Array.isArray(params) ? params : [params]
   const index = items.find((item) => item && item.dataIndex != null)?.dataIndex ?? 0
@@ -1336,7 +1359,7 @@ const prportfolioAccountTooltip = (
   const accountValue = accountData[index]
   const accountBase = prfirstFinite(accountData)
   const accountPct = prwindowPct(accountValue, accountBase)
-  const prevAccount = index > 0 ? accountData[index - 1] : null
+  const prevAccount = prpreviousFinite(accountData, index)
   const dayDelta = accountValue != null && prevAccount != null
     ? accountValue - prevAccount
     : null
@@ -1346,7 +1369,9 @@ const prportfolioAccountTooltip = (
     ['较前一交易日', `${prfmtSigned(dayDelta)}（${prfmtPctText(dayPct)}）`],
     ['持仓市值', prfmtAmount(prtoFiniteNumber(point.market_value))],
     ['现金', prfmtAmount(prtoFiniteNumber(point.cash))],
-    ['总负债', prfmtAmount(prtoFiniteNumber(point.total_debt))],
+    ...(equityBasis === 'broker_total_asset'
+      ? []
+      : [['总负债', prfmtAmount(prtoFiniteNumber(point.total_debt))]]),
   ]
   const tradesSection = (prtoArray(point.trades).length)
     ? `<div class="prt-section"><div class="prt-section-title">当日成交明细</div>${prbuildTradesCardHtml(point)}</div>`
@@ -1391,13 +1416,19 @@ export const buildPortfolioBenchmarkSummary = (payload = {}, mode = 'net') => {
   }
 }
 
-export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
+export const buildPortfolioEquityOption = (
+  payload = {},
+  mode = 'net',
+  options = {},
+) => {
   const series = prtoArray(payload.series)
   if (!series.length) {
     return null
   }
   const period = prtoText(payload.period) || 'day'
   const equityMode = mode === 'asset' ? 'asset' : 'net'
+  const equityBasis = prtoText(payload.equity_basis)
+  const tooltipEnabled = options.tooltipEnabled !== false
   const labels = series.map((item) => prformatPeriodTick(item.period_label || item.time, period))
   const primarySeries = []
   const primaryData = []
@@ -1511,6 +1542,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
     backgroundColor: 'transparent',
     animation: false,
     tooltip: {
+      show: tooltipEnabled,
       trigger: 'axis',
       triggerOn: 'mousemove',
       className: 'prt-tooltip',
@@ -1526,6 +1558,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
               benchmarkName,
               benchmarkData,
               series,
+              equityBasis,
             ),
           }
         : {
@@ -1535,6 +1568,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
               primarySeries[0].name,
               primaryData,
               series,
+              equityBasis,
             ),
           }),
     },

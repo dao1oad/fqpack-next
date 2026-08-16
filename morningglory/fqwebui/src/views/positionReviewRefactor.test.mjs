@@ -256,6 +256,31 @@ test('benchmark option renders via ECharts SSR without axis errors', () => {
   chart.dispose()
 })
 
+test('account-only option renders via ECharts SSR', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    series: [
+      { time: '2026-08-12', period_label: '2026-08-12', total_equity: 100000.0, net_value: 90000.0, market_value: 80000.0, cash: 12000.0 },
+    ],
+  }, 'net')
+  assert.ok(option)
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 800, height: 400 })
+  assert.doesNotThrow(() => chart.setOption(option))
+  const svg = chart.renderToSVGString()
+  assert.ok(svg.length > 0)
+  chart.dispose()
+})
+
+test('buildPortfolioEquityOption supports disabling tooltip while pinned card is open', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    series: [
+      { time: '2026-08-12', period_label: '2026-08-12', total_equity: 100000.0, net_value: 90000.0 },
+    ],
+  }, 'net', { tooltipEnabled: false })
+  assert.equal(option.tooltip.show, false)
+})
+
 test('buildPortfolioEquityOption line series use lttb sampling for large windows', () => {
   const option = buildPortfolioEquityOption({
     period: '2y',
@@ -308,22 +333,37 @@ test('buildPortfolioTradeTooltip aggregates fills per order and summarizes buy/s
     trades: [
       { time: '2026-07-21T13:00+08:00', symbol: '300760', name: '迈瑞医疗', side: 'buy', quantity: 100, price: 153.8, amount: 15380.0, request_id: 'req_buy_1', signal_label: '反转买点', association_quality: 'high', account_partition: 'partition_a' },
       { time: '2026-07-21T13:01+08:00', symbol: '300760', name: '迈瑞医疗', side: 'buy', quantity: 200, price: 153.9, amount: 30780.0, request_id: 'req_buy_1', signal_label: '反转买点', association_quality: 'high', account_partition: 'partition_a' },
+      { time: '2026-07-21T13:02+08:00', symbol: '300760', name: '迈瑞医疗', side: 'buy', quantity: 100, price: null, amount: null, request_id: 'req_buy_1', signal_label: '反转买点', association_quality: 'high', account_partition: 'partition_a' },
       { time: '2026-07-21T14:00+08:00', symbol: '002262', name: '恩华药业', side: 'sell', quantity: 1000, price: 0.57, amount: 570.0, request_id: 'req_sell_2', signal_label: '止盈卖点', association_quality: 'high', account_partition: 'partition_a' },
     ],
   })
   assert.match(html, /2026-07-21 · 2 笔订单/)
   assert.match(html, /当日汇总/)
-  assert.match(html, /买入 1 笔订单 · 合计 46,160 元（300 股）/)
+  assert.match(html, /买入 1 笔订单 · 合计 46,160 元（400 股）/)
   assert.match(html, /卖出 1 笔订单 · 合计 570 元（1,000 股）/)
-  assert.match(html, /成交 300 股/)
+  assert.match(html, /成交 400 股/)
+  // 无价格成交不计入加权均价分母（成本合计 46,160 / 300 股）。
   assert.match(html, /均价 153\.87 元/)
-  assert.match(html, /2 笔/)
+  assert.match(html, /3 笔/)
   assert.doesNotMatch(html, /153\.8 元/)
   assert.match(html, /请求 req_buy_1/)
   assert.match(html, /信号 反转买点/)
   assert.match(html, /信号 止盈卖点/)
   assert.match(html, /关联 high/)
   assert.match(html, /分区 partition_a/)
+})
+
+test('buildPortfolioTradeTooltip does not merge fills without order ids', () => {
+  const html = buildPortfolioTradeTooltip({
+    period_label: '2026-07-21',
+    trades: [
+      { time: '2026-07-21T13:00+08:00', symbol: '300760', name: '迈瑞医疗', side: 'buy', quantity: 100, price: 153.8, amount: 15380.0 },
+      { time: '2026-07-21T13:01+08:00', symbol: '300760', name: '迈瑞医疗', side: 'buy', quantity: 100, price: 153.8, amount: 15380.0 },
+    ],
+  })
+  // 双空 ID 的成交不跨成交合并：两笔各成一行。
+  assert.match(html, /2026-07-21 · 2 笔订单/)
+  assert.match(html, /买入 2 笔订单/)
 })
 
 test('portfolio tooltip formatters render asset snapshot with dark theme', () => {
@@ -398,6 +438,25 @@ test('portfolio account-only tooltip renders snapshot without benchmark', () => 
   assert.match(html, /现金/)
   assert.match(html, /总负债/)
   assert.doesNotMatch(html, /相对基准/)
+})
+
+test('broker asset basis hides debt row in tooltip', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    equity_basis: 'broker_total_asset',
+    series: [
+      {
+        time: '2026-08-12', period_label: '2026-08-12',
+        total_equity: 100000.0, net_value: 100000.0,
+        market_value: 90000.0, cash: 10000.0,
+      },
+    ],
+  }, 'asset')
+  assert.ok(option)
+  const html = option.tooltip.formatter([
+    { seriesType: 'line', seriesName: '总资产', dataIndex: 0 },
+  ])
+  assert.doesNotMatch(html, /总负债/)
 })
 
 test('buildSymbolCostChartOption renders cost line and order markers without kline', () => {

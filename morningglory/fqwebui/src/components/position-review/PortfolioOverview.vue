@@ -33,7 +33,11 @@ const equityPeriodOptions = [
 
 const normalizedSummary = computed(() => normalizePortfolioSummary(summary.value || {}))
 const normalizedContributions = computed(() => normalizePortfolioContributions(contributions.value || {}))
-const equityOption = computed(() => buildPortfolioEquityOption(series.value || {}, equityMode.value))
+const equityOption = computed(() => buildPortfolioEquityOption(
+  series.value || {},
+  equityMode.value,
+  { tooltipEnabled: !pinnedTrade.value },
+))
 const benchmarkSummary = computed(() => buildPortfolioBenchmarkSummary(series.value || {}, equityMode.value))
 const windowCoverage = computed(() => {
   const windowInfo = series.value?.data_quality?.window
@@ -285,7 +289,10 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
             ×
           </button>
           <!-- eslint-disable-next-line vue/no-v-html -->
-          <div v-html="tradeCardHtml"></div>
+          <div
+            class="portfolio-overview__trade-card-body"
+            v-html="tradeCardHtml"
+          ></div>
         </div>
       </div>
 
@@ -477,6 +484,11 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   max-height: 420px;
   overflow: auto;
   padding: 10px 12px;
+  pointer-events: none;
+}
+
+.portfolio-overview__trade-card-body {
+  pointer-events: auto;
 }
 
 .portfolio-overview__trade-card-close {
@@ -492,6 +504,7 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .portfolio-overview__trade-card-close:hover {
