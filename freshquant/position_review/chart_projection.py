@@ -817,12 +817,12 @@ def replay_cost_basis(
     # 而不是在 UI 上显示为空。
     inherited_entry = None
     inherited_entry_cost = None
-    for entry in entries or []:
-        if not _entry_is_flatten_snapshot(entry):
+    for candidate_entry in entries or []:
+        if not _entry_is_flatten_snapshot(candidate_entry):
             continue
-        price = _entry_unit_cost(entry)
+        price = _entry_unit_cost(candidate_entry)
         if price is not None and price > 0:
-            inherited_entry = entry
+            inherited_entry = candidate_entry
             inherited_entry_cost = price
             break
     if running_quantity > 0 and inherited_entry_cost is not None:
