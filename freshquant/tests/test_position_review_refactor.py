@@ -25,7 +25,10 @@ from freshquant.position_review.portfolio_projection import (
     build_portfolio_series,
     build_portfolio_summary,
 )
-from freshquant.position_review.service import PositionReviewService
+from freshquant.position_review.service import (
+    PositionReviewService,
+    _portfolio_trade_events,
+)
 from freshquant.rear.position_review.routes import position_review_bp
 
 _TZ = ZoneInfo("Asia/Shanghai")
@@ -1983,3 +1986,36 @@ def test_portfolio_series_attaches_benchmark_from_loader():
     assert BenchmarkRepository.observed_start_after[-1].endswith("+00:00")
     warning_codes = {item["code"] for item in payload["data_quality"]["warnings"]}
     assert "trade_calendar_unavailable" in warning_codes
+
+
+def test_portfolio_trade_events_attach_order_signal_details():
+    detail = {
+        "symbol": {"name": "迈瑞医疗"},
+        "reviews": [
+            {
+                "request_id": "req_buy_1",
+                "request": {"source": "strategy"},
+                "signal": None,
+            }
+        ],
+        "executions": [
+            {
+                "request_id": "req_buy_1",
+                "side": "buy",
+                "quantity": 100,
+                "price": 153.8,
+                "time": "2026-08-11T10:00:00+08:00",
+                "account_partition": "partition_a",
+                "association_quality": "high",
+            }
+        ],
+    }
+
+    events = _portfolio_trade_events({"300760": detail})
+
+    assert len(events) == 1
+    assert events[0]["symbol"] == "300760"
+    assert events[0]["name"] == "迈瑞医疗"
+    assert events[0]["signal_type"] == "buy_v_reverse"
+    assert events[0]["signal_label"] == "反转买点"
+    assert events[0]["request_id"] == "req_buy_1"

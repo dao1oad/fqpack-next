@@ -302,23 +302,26 @@ test('buildPortfolioBenchmarkSummary computes beat spread over common span', () 
   assert.equal(summary.benchmarkName, '上证综指ETF')
 })
 
-test('buildPortfolioTradeTooltip renders every trade at the point', () => {
+test('buildPortfolioTradeTooltip aggregates fills per order and summarizes buy/sell', () => {
   const html = buildPortfolioTradeTooltip({
     period_label: '2026-07-21',
     trades: [
-      { time: '2026-07-21T13:00+08:00', symbol: '002262', name: '恩华药业', side: 'buy', quantity: 4000, price: 10.26, amount: 41040.0, request_id: 'req_buy_1', association_quality: 'high', account_partition: 'partition_a' },
-      { time: '2026-07-21T13:05+08:00', symbol: '512000', name: '券商ETF', side: 'sell', quantity: 1000, price: 0.57, amount: 570.0, request_id: 'req_sell_2', association_quality: 'high', account_partition: 'partition_a' },
+      { time: '2026-07-21T13:00+08:00', symbol: '300760', name: '迈瑞医疗', side: 'buy', quantity: 100, price: 153.8, amount: 15380.0, request_id: 'req_buy_1', signal_label: '反转买点', association_quality: 'high', account_partition: 'partition_a' },
+      { time: '2026-07-21T13:01+08:00', symbol: '300760', name: '迈瑞医疗', side: 'buy', quantity: 200, price: 153.9, amount: 30780.0, request_id: 'req_buy_1', signal_label: '反转买点', association_quality: 'high', account_partition: 'partition_a' },
+      { time: '2026-07-21T14:00+08:00', symbol: '002262', name: '恩华药业', side: 'sell', quantity: 1000, price: 0.57, amount: 570.0, request_id: 'req_sell_2', signal_label: '止盈卖点', association_quality: 'high', account_partition: 'partition_a' },
     ],
   })
-  assert.match(html, /2026-07-21 · 2 笔/)
-  assert.match(html, /当日成交/)
-  assert.match(html, /买入 41,040 元/)
-  assert.match(html, /卖出 570 元/)
-  assert.match(html, /002262/)
-  assert.match(html, /买入/)
-  assert.match(html, /卖出/)
-  assert.match(html, /41,040/)
+  assert.match(html, /2026-07-21 · 2 笔订单/)
+  assert.match(html, /当日汇总/)
+  assert.match(html, /买入 1 笔订单 · 合计 46,160 元（300 股）/)
+  assert.match(html, /卖出 1 笔订单 · 合计 570 元（1,000 股）/)
+  assert.match(html, /成交 300 股/)
+  assert.match(html, /均价 153\.87 元/)
+  assert.match(html, /2 笔/)
+  assert.doesNotMatch(html, /153\.8 元/)
   assert.match(html, /请求 req_buy_1/)
+  assert.match(html, /信号 反转买点/)
+  assert.match(html, /信号 止盈卖点/)
   assert.match(html, /关联 high/)
   assert.match(html, /分区 partition_a/)
 })

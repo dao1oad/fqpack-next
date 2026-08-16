@@ -1171,40 +1171,88 @@ export const buildPortfolioTradeTooltip = (point = {}) => {
 const prbuildTradesCardHtml = (point = {}) => {
   const trades = prtoArray(point.trades)
   if (!trades.length) return '<div class="prt-muted">该周期内没有交易</div>'
-  const buyAmount = trades
-    .filter((trade) => trade.side !== 'sell')
-    .reduce((sum, trade) => sum + (Number(trade.amount) || 0), 0)
-  const sellAmount = trades
-    .filter((trade) => trade.side === 'sell')
-    .reduce((sum, trade) => sum + (Number(trade.amount) || 0), 0)
-  const rows = trades.map((trade) => {
-    const amount = prfmtAmount(trade.amount)
-    const timeText = prtoText(trade.time)
+  // 按订单（标的 × 请求 × 方向）聚合：一笔订单可能有多笔成交，只展示
+  // 最终成交聚合（数量/加权均价/金额/笔数）+ 触发信号详情。
+  const orders = new Map()
+  for (const trade of trades) {
+    const side = trade.side === 'sell' ? 'sell' : 'buy'
+    const key = `${trade.symbol}|${trade.request_id || trade.broker_trade_id || ''}|${side}`
+    if (!orders.has(key)) {
+      orders.set(key, { side, list: [] })
+    }
+    orders.get(key).list.push(trade)
+  }
+  const orderList = [...orders.values()].map(({ side, list }) => {
+    const first = list[0] || {}
+    const quantity = list.reduce((sum, trade) => sum + (Number(trade.quantity) || 0), 0)
+    const amount = list.reduce((sum, trade) => sum + (Number(trade.amount) || 0), 0)
+    const costSum = list.reduce(
+      (sum, trade) => sum + (Number(trade.price) || 0) * (Number(trade.quantity) || 0),
+      0,
+    )
+    const times = list.map((trade) => prtoText(trade.time)).filter(Boolean).sort()
+    return {
+      side,
+      symbol: prtoText(first.symbol),
+      name: prtoText(first.name) || prtoText(first.symbol),
+      request_id: prtoText(first.request_id),
+      fill_count: list.length,
+      quantity,
+      amount,
+      weighted_price: quantity ? costSum / quantity : null,
+      time: times[0] || '',
+      signal_label: prtoText(
+        list.find((trade) => prtoText(trade.signal_label))?.signal_label,
+      ),
+      association_quality: prtoText(first.association_quality),
+      account_partition: prtoText(first.account_partition),
+    }
+  }).sort((left, right) => left.time.localeCompare(right.time))
+
+  const buys = orderList.filter((order) => order.side === 'buy')
+  const sells = orderList.filter((order) => order.side === 'sell')
+  const sumOf = (ordersList, field) => (
+    ordersList.reduce((sum, order) => sum + (Number(order[field]) || 0), 0)
+  )
+  const buyAmount = sumOf(buys, 'amount')
+  const sellAmount = sumOf(sells, 'amount')
+  const buyQuantity = sumOf(buys, 'quantity')
+  const sellQuantity = sumOf(sells, 'quantity')
+
+  const rows = orderList.map((order) => {
+    const timeText = prtoText(order.time)
     const timeOfDay = timeText.length >= 16 ? timeText.slice(11, 16) : timeText
     const meta = [
-      trade.request_id ? `请求 ${trade.request_id}` : null,
-      trade.association_quality ? `关联 ${trade.association_quality}` : null,
-      trade.account_partition ? `分区 ${trade.account_partition}` : null,
+      order.request_id ? `请求 ${order.request_id}` : null,
+      order.signal_label ? `信号 ${order.signal_label}` : null,
+      order.association_quality ? `关联 ${order.association_quality}` : null,
+      order.account_partition && order.account_partition !== 'unknown'
+        ? `分区 ${order.account_partition}`
+        : null,
     ].filter(Boolean).join(' · ')
     return `<div class="prt-row prt-trade-row">
       <span class="prt-label">${prescapeTooltipHtml(timeOfDay || '—')}</span>
       <span class="prt-value">
-        <span class="prt-side prt-side-${trade.side === 'sell' ? 'sell' : 'buy'}">${prtradeSideText(trade.side)}</span>
-        ${prescapeTooltipHtml(trade.symbol)} ${prescapeTooltipHtml(trade.name || '')}
-        · ${prtooltipValue(trade.quantity)} 股
-        · ${prtooltipValue(trade.price)} 元
-        · ${amount} 元
+        <span class="prt-side prt-side-${order.side === 'sell' ? 'sell' : 'buy'}">${prtradeSideText(order.side)}</span>
+        ${prescapeTooltipHtml(order.name)} ${prescapeTooltipHtml(order.symbol)}
+        · 成交 ${prfmtAmount(order.quantity)} 股
+        · 均价 ${prfmtAmount(order.weighted_price)} 元
+        · 金额 ${prfmtAmount(order.amount)} 元
+        · ${order.fill_count} 笔
         <span class="prt-meta">${prescapeTooltipHtml(meta)}</span>
       </span>
     </div>`
   }).join('')
   const header = `<div class="prt-header">
     <span class="prt-side prt-side-buy">交易</span>
-    <span class="prt-id">${prescapeTooltipHtml(point.period_label || point.time || '')} · ${trades.length} 笔</span>
+    <span class="prt-id">${prescapeTooltipHtml(point.period_label || point.time || '')} · ${orderList.length} 笔订单</span>
   </div>`
   const summary = `<div class="prt-row">
-    <span class="prt-label">当日成交</span>
-    <span class="prt-value">买入 ${prfmtAmount(buyAmount)} 元 · 卖出 ${prfmtAmount(sellAmount)} 元</span>
+    <span class="prt-label">当日汇总</span>
+    <span class="prt-value">
+      买入 ${buys.length} 笔订单 · 合计 ${prfmtAmount(buyAmount)} 元（${prfmtAmount(buyQuantity)} 股）
+      <br>卖出 ${sells.length} 笔订单 · 合计 ${prfmtAmount(sellAmount)} 元（${prfmtAmount(sellQuantity)} 股）
+    </span>
   </div>`
   return `${header}${summary}${rows}`
 }
