@@ -197,6 +197,28 @@ test('buildPortfolioEquityOption renders 510210 benchmark on second axis', () =>
   assert.ok(option.legend.data.includes('上证综指ETF 510210'))
 })
 
+test('buildPortfolioEquityOption line series use lttb sampling for large windows', () => {
+  const option = buildPortfolioEquityOption({
+    period: '2y',
+    series: [
+      { time: '2026-08-12 09:30', period_label: '2026-08-12 09:30', total_equity: 100000.0, net_value: 90000.0 },
+      { time: '2026-08-12 09:35', period_label: '2026-08-12 09:35', total_equity: 100100.0, net_value: 90100.0 },
+    ],
+    benchmark: {
+      code: '510210',
+      name: '上证综指ETF',
+      series: [
+        { period_label: '2026-08-12 09:30', close: 1.01 },
+        { period_label: '2026-08-12 09:35', close: 1.02 },
+      ],
+    },
+  }, 'net')
+  assert.ok(option)
+  const lines = option.series.filter((item) => item.type === 'line')
+  assert.equal(lines.length, 2)
+  assert.ok(lines.every((item) => item.sampling === 'lttb'))
+})
+
 test('buildPortfolioBenchmarkSummary computes beat spread over common span', () => {
   const summary = buildPortfolioBenchmarkSummary({
     period: '30d',
