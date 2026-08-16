@@ -22,7 +22,25 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 _BEIJING_TZ = timezone(timedelta(hours=8))
-_PERIODS = ("day", "week", "month")
+# 窗口期：value = (bucket 粒度, 窗口天数, 展示名)。30/60 日按日桶，
+# 90 日/半年按周桶，一年/两年按月桶；窗口按最近一笔快照往前截取，
+# 缺失区间不插值。
+_WINDOWED_PERIODS: dict[str, tuple[str, int, str]] = {
+    "30d": ("day", 30, "30日"),
+    "60d": ("day", 60, "60日"),
+    "90d": ("week", 90, "90日"),
+    "6m": ("week", 183, "半年"),
+    "1y": ("month", 365, "一年"),
+    "2y": ("month", 730, "两年"),
+}
+_PERIODS = ("day", "week", "month") + tuple(_WINDOWED_PERIODS)
+
+
+def _bucket_granularity(period: str) -> str:
+    """窗口期映射到实际分桶粒度（day/week/month）。"""
+
+    windowed = _WINDOWED_PERIODS.get(str(period or "").strip().lower())
+    return windowed[0] if windowed else str(period or "day").strip().lower()
 
 
 def _int(value) -> int:
@@ -465,16 +483,75 @@ def build_portfolio_series(
         equity_basis = "estimated"
         label = "账户净资产（证据不足）"
 
+    window_days = None
+    window_start = None
+    window_covered = True
+    windowed = _WINDOWED_PERIODS.get(normalized_period)
+    if windowed:
+        window_days = windowed[1]
+        anchor = None
+        for point in raw_series:
+            parsed = _beijing_datetime(point.get("time"))
+            if parsed is not None and (anchor is None or parsed > anchor):
+                anchor = parsed
+        if anchor is None:
+            anchor = _beijing_datetime(generated_at) or datetime.now(_BEIJING_TZ)
+        window_start = anchor - timedelta(days=window_days)
+        raw_series = [
+            point
+            for point in raw_series
+            if (
+                (parsed := _beijing_datetime(point.get("time"))) is not None
+                and parsed >= window_start
+            )
+        ]
+        first_point_time = min(
+            (
+                parsed
+                for point in raw_series
+                if (parsed := _beijing_datetime(point.get("time"))) is not None
+            ),
+            default=None,
+        )
+        window_covered = bool(
+            first_point_time is not None
+            and first_point_time <= window_start + timedelta(days=1)
+        )
+
     series = _bucket_series(
         raw_series,
         trade_events=trade_events,
-        period=normalized_period,
+        period=_bucket_granularity(normalized_period),
     )
     period_label = {
         "day": "日",
         "week": "周",
         "month": "月",
-    }.get(normalized_period, "日")
+    }.get(normalized_period)
+    if period_label is None:
+        period_label = _WINDOWED_PERIODS.get(normalized_period, ("day", 0, "日"))[2]
+
+    warnings = []
+    if equity_basis != "broker_total_asset":
+        warnings.append(
+            {
+                "code": "equity_evidence_limited",
+                "message": (
+                    "缺少券商历史总资产快照，权益曲线为信用资产快照重建口径，"
+                    "缺失区间不插值。"
+                ),
+            }
+        )
+    if window_days is not None and not window_covered:
+        warnings.append(
+            {
+                "code": "equity_window_partial",
+                "message": (
+                    f"请求窗口 {window_days} 天，但账户快照历史晚于窗口起点，"
+                    "曲线仅覆盖可用区间，早段不做插值。"
+                ),
+            }
+        )
 
     return {
         "label": label,
@@ -487,6 +564,17 @@ def build_portfolio_series(
             "equity_basis": equity_basis,
             "interpolated": False,
             "point_count": len(series),
+            "window": {
+                "period": normalized_period,
+                "window_days": window_days,
+                "window_start": (
+                    window_start.isoformat() if window_start is not None else None
+                ),
+                "covered": window_covered,
+                "available_from": (
+                    series[0].get("time") if series else None
+                ),
+            },
             "net_value_formula": "net_value = total_asset - total_debt",
             "qmt_reference": (
                 "单位净值=(基金资产总值-基金负债)/基金总份额；账户净资产=总资产-总负债"
@@ -494,19 +582,7 @@ def build_portfolio_series(
             "trade_point_count": sum(
                 len(point.get("trades") or []) for point in series
             ),
-            "warnings": (
-                [
-                    {
-                        "code": "equity_evidence_limited",
-                        "message": (
-                            "缺少券商历史总资产快照，权益曲线为信用资产快照重建口径，"
-                            "缺失区间不插值。"
-                        ),
-                    }
-                ]
-                if equity_basis != "broker_total_asset"
-                else []
-            ),
+            "warnings": warnings,
         },
     }
 
@@ -564,6 +640,92 @@ def _bucket_series(
         point["trade_count"] = len(trades)
         result.append(point)
     return result
+
+
+def build_portfolio_benchmark(
+    *,
+    index_bars: list[dict[str, Any]],
+    series: list[dict[str, Any]],
+    period: str,
+    code: str = "510210",
+    name: str = "上证综指ETF",
+) -> dict[str, Any]:
+    """Align benchmark daily bars onto the equity series buckets.
+
+    Each equity bucket takes the last observed benchmark close on or before
+    the bucket date; buckets without a fresh bar carry the previous close
+    forward (benchmark "as of" value).  ``covered_count`` only counts buckets
+    with an observed bar, ``carried_count`` counts carry-forward buckets.
+    ``normalized`` rebases the aligned series to the first available point so
+    the UI can render period returns and the beat/miss spread against the
+    account curve.
+    """
+
+    buckets: dict[str, float] = {}
+    granularity = _bucket_granularity(str(period or "day").strip().lower())
+    for bar in index_bars or []:
+        date = str((bar or {}).get("date") or "").strip()
+        close = _float((bar or {}).get("close"))
+        if not date or close is None:
+            continue
+        bucket = _period_bucket_key(f"{date}T00:00:00+08:00", granularity)
+        if bucket is None:
+            continue
+        buckets[bucket[0]] = close
+
+    aligned = []
+    last_close = None
+    observed_count = 0
+    carried_count = 0
+    for point in series or []:
+        key = str(point.get("period_key") or "").strip()
+        close = buckets.get(key)
+        if close is None:
+            close = last_close
+            if close is not None:
+                carried_count += 1
+        else:
+            observed_count += 1
+            last_close = close
+        aligned.append(
+            {
+                "period_key": key,
+                "period_label": point.get("period_label"),
+                "close": _round(close),
+            }
+        )
+    first_close = next(
+        (item.get("close") for item in aligned if item.get("close") is not None),
+        None,
+    )
+    for item in aligned:
+        item["normalized"] = (
+            round(item["close"] / first_close, 6)
+            if first_close and item.get("close") is not None
+            else None
+        )
+    covered = observed_count
+    warnings = []
+    if aligned and covered < len(aligned):
+        warnings.append(
+            {
+                "code": "benchmark_partial",
+                "message": (
+                    f"基准日线仅覆盖 {covered}/{len(aligned)} 个账户分桶，"
+                    "缺失分桶沿用上一收盘价（carry-forward）。"
+                ),
+            }
+        )
+    return {
+        "code": code,
+        "name": name,
+        "basis": "quantaxis_index_day",
+        "series": aligned,
+        "point_count": len(aligned),
+        "covered_count": covered,
+        "carried_count": carried_count,
+        "warnings": warnings,
+    }
 
 
 def build_portfolio_contributions(

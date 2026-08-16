@@ -28,7 +28,10 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from freshquant.order_management.ledger_resolver import normalize_ledger_intent
+from freshquant.order_management.ledger_resolver import (
+    is_takeprofit_request,
+    normalize_ledger_intent,
+)
 from freshquant.position_review.replay import (
     reconstruct_inventory,
 )
@@ -324,7 +327,7 @@ def build_condition_summary(
     normalized_side = str(side or "").strip().lower()
     if normalized_side == "buy":
         return {
-            "count": 2,
+            "count": 3,
             "condition_snapshot_status": "complete",
             "threshold_missing_count": 0,
         }
@@ -797,7 +800,6 @@ def replay_cost_basis(
     }
 
     shares: list[dict[str, Any]] = []
-    # Inherited opening position: cost unknown, tracked separately.
     running_quantity = _int(initial_position_quantity)
     realized_pnl = 0.0
     ledger_buy_missing: list[str] = []
@@ -809,6 +811,39 @@ def replay_cost_basis(
     if running_quantity > 0:
         cycle_counter += 1
         current_cycle_id = f"{symbol}:cycle:{cycle_counter}"
+
+    # 账本重建（flatten）entry 携带券商当前持仓均价快照：用它为继承期初仓位
+    # 建立成本基准，使首笔成交的「持仓均价前后」与卖出已实现盈亏可计算，
+    # 而不是在 UI 上显示为空。
+    inherited_entry = None
+    inherited_entry_cost = None
+    for entry in entries or []:
+        if not _entry_is_flatten_snapshot(entry):
+            continue
+        price = _entry_unit_cost(entry)
+        if price is not None and price > 0:
+            inherited_entry = entry
+            inherited_entry_cost = price
+            break
+    if running_quantity > 0 and inherited_entry_cost is not None:
+        inherited_entry_id = (
+            str((inherited_entry or {}).get("entry_id") or "").strip() or None
+        )
+        if inherited_entry_id:
+            assigned_by_entry[inherited_entry_id] += running_quantity
+        shares.append(
+            {
+                "entry_id": inherited_entry_id,
+                "quantity": running_quantity,
+                "cost": inherited_entry_cost,
+                "time": _epoch_iso(
+                    _int((inherited_entry or {}).get("trade_time"))
+                    or _int((inherited_entry or {}).get("created_at"))
+                    or 0
+                ),
+                "source": "broker_snapshot_estimate",
+            }
+        )
 
     def _average_cost() -> float | None:
         total_quantity = sum(_int(share["quantity"]) for share in shares)
@@ -891,14 +926,19 @@ def replay_cost_basis(
         return consumed_realized
 
     if initial_position_quantity > 0:
+        initial_average_cost = _average_cost()
         series.append(
             {
                 "time": (
                     _epoch_iso(max(trades[0]["trade_time"] - 1, 1)) if trades else None
                 ),
                 "position_quantity": running_quantity,
-                "remaining_cost": None,
-                "average_cost": None,
+                "remaining_cost": (
+                    _round(running_quantity * initial_average_cost, 2)
+                    if initial_average_cost is not None
+                    else None
+                ),
+                "average_cost": _round(initial_average_cost, 6),
                 "realized_pnl": 0.0,
                 "point_type": "derived_initial",
                 "cost_basis_source": (
@@ -1030,6 +1070,9 @@ def replay_cost_basis(
             }
         )
 
+    # flatten 重建点的时间早于规范成交，按时间排序保证成本曲线时间轴单调。
+    series.sort(key=lambda item: str(item.get("time") or ""))
+
     total_quantity = sum(_int(share["quantity"]) for share in shares)
     cost_basis_quality = (
         "full" if ledger_available and not ledger_buy_missing else "degraded"
@@ -1064,6 +1107,18 @@ def replay_cost_basis(
                     "部分买入缺少 entry/slice 成本证据，相关买入份额使用成交价估算。"
                 ),
                 "buy_share_count": len(ledger_buy_missing),
+            }
+        )
+    if inherited_entry_cost is not None and initial_position_quantity > 0:
+        warnings.append(
+            {
+                "code": "cost_basis_inherited_snapshot",
+                "message": (
+                    "继承期初仓位成本采用账本重建 entry 的券商均价快照估算，"
+                    "相关已实现盈亏为该口径下的估算值，非逐笔成交成本真值。"
+                ),
+                "inherited_quantity": initial_position_quantity,
+                "inherited_average_cost": inherited_entry_cost,
             }
         )
     data_quality = {
@@ -1272,70 +1327,166 @@ def build_conditions(
 
     threshold_price = _float(expected.get("threshold_price"))
     signal_price = _float(request.get("price"))
+    takeprofit_sell = side == "sell" and is_takeprofit_request(request)
+    takeprofit_entries_total = None
     if side == "sell":
-        conditions.append(
-            _condition(
-                condition_key="signal_price_above_threshold",
-                label="触发价格 >= 历史阈值",
-                actual_value=_round(signal_price, 6),
-                operator=">=",
-                threshold_value=_round(threshold_price, 6),
-                passed=(
-                    bool(
-                        threshold_price is not None
-                        and signal_price is not None
-                        and signal_price >= threshold_price
-                    )
-                    if threshold_price is not None
-                    else None
-                ),
-                source=source if threshold_price is not None else "missing",
-                observed_at=observed_at,
-                evidence_id=evidence_id,
-                unit="price",
+        if takeprofit_sell:
+            # TPSL 止盈卖单不按 Guardian 规则复盘；条件证据改为展示触发快照
+            # （档位价 / 分配策略 / 计划数量），避免条件表整表空值。
+            sell_sources = request.get("strategy_context") or {}
+            sell_sources = (
+                sell_sources.get("guardian_sell_sources")
+                if isinstance(sell_sources, dict)
+                else None
             )
-        )
-        mode = expected.get("threshold_mode")
-        conditions.append(
-            _condition(
-                condition_key="threshold_mode",
-                label="历史阈值模式",
-                actual_value=mode,
-                operator="in",
-                threshold_value=(
-                    ["percent", "atr"] if mode in {"percent", "atr"} else None
-                ),
-                passed=mode in {"percent", "atr"},
-                source="runtime_event" if runtime_available else "request_snapshot",
-                observed_at=observed_at,
-                evidence_id=evidence_id,
-                unit="mode",
+            tier_price = _float((sell_sources or {}).get("tier_price"))
+            allocation_policy = (
+                str((sell_sources or {}).get("allocation_policy") or "").strip()
+                or None
             )
-        )
-        can_use_volume = _int(expected.get("can_use_volume")) or None
-        requested_quantity = _request_quantity(request)
-        conditions.append(
-            _condition(
-                condition_key="sellable_volume_cap",
-                label="可卖数量上限",
-                actual_value=can_use_volume,
-                operator="<=",
-                threshold_value=requested_quantity,
-                passed=(
-                    (
-                        can_use_volume is not None
-                        and requested_quantity is not None
-                        and can_use_volume >= requested_quantity
-                    )
-                    if can_use_volume is not None
-                    else None
-                ),
-                source="runtime_event" if runtime_available else "missing",
-                observed_at=observed_at,
-                evidence_id=evidence_id,
-                unit="quantity",
+            takeprofit_entries_total = sum(
+                _int(item.get("quantity"))
+                for item in ((sell_sources or {}).get("entries") or [])
+            ) or None
+            conditions.append(
+                _condition(
+                    condition_key="signal_price_above_threshold",
+                    label="触发价格 >= 止盈档位价",
+                    actual_value=_round(signal_price, 6),
+                    operator=">=",
+                    threshold_value=_round(tier_price, 6),
+                    passed=(
+                        bool(
+                            tier_price is not None
+                            and signal_price is not None
+                            and signal_price >= tier_price
+                        )
+                        if tier_price is not None
+                        else None
+                    ),
+                    source=(
+                        "request_snapshot" if tier_price is not None else "missing"
+                    ),
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="price",
+                )
             )
-        )
+            conditions.append(
+                _condition(
+                    condition_key="allocation_policy",
+                    label="止盈分配策略",
+                    actual_value=allocation_policy,
+                    operator="in",
+                    threshold_value=(
+                        ["takeprofit_ratio_v1"]
+                        if allocation_policy is not None
+                        else None
+                    ),
+                    passed=(
+                        allocation_policy in {"takeprofit_ratio_v1"}
+                        if allocation_policy is not None
+                        else None
+                    ),
+                    source="request_snapshot",
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="policy",
+                )
+            )
+            requested_quantity = _request_quantity(request)
+            conditions.append(
+                _condition(
+                    condition_key="sellable_volume_cap",
+                    label="止盈计划数量覆盖委托",
+                    actual_value=takeprofit_entries_total,
+                    operator="<=",
+                    threshold_value=requested_quantity,
+                    passed=(
+                        (
+                            takeprofit_entries_total is not None
+                            and requested_quantity is not None
+                            and takeprofit_entries_total >= requested_quantity
+                        )
+                        if takeprofit_entries_total is not None
+                        else None
+                    ),
+                    source=(
+                        "request_snapshot"
+                        if takeprofit_entries_total is not None
+                        else "missing"
+                    ),
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="quantity",
+                )
+            )
+        else:
+            conditions.append(
+                _condition(
+                    condition_key="signal_price_above_threshold",
+                    label="触发价格 >= 历史阈值",
+                    actual_value=_round(signal_price, 6),
+                    operator=">=",
+                    threshold_value=_round(threshold_price, 6),
+                    passed=(
+                        bool(
+                            threshold_price is not None
+                            and signal_price is not None
+                            and signal_price >= threshold_price
+                        )
+                        if threshold_price is not None
+                        else None
+                    ),
+                    source=source if threshold_price is not None else "missing",
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="price",
+                )
+            )
+            mode = expected.get("threshold_mode")
+            conditions.append(
+                _condition(
+                    condition_key="threshold_mode",
+                    label="历史阈值模式",
+                    actual_value=mode,
+                    operator="in",
+                    threshold_value=(
+                        ["percent", "atr"] if mode in {"percent", "atr"} else None
+                    ),
+                    passed=mode in {"percent", "atr"},
+                    source=(
+                        "runtime_event" if runtime_available else "request_snapshot"
+                    ),
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="mode",
+                )
+            )
+            can_use_volume = _int(expected.get("can_use_volume")) or None
+            requested_quantity = _request_quantity(request)
+            conditions.append(
+                _condition(
+                    condition_key="sellable_volume_cap",
+                    label="可卖数量上限",
+                    actual_value=can_use_volume,
+                    operator="<=",
+                    threshold_value=requested_quantity,
+                    passed=(
+                        (
+                            can_use_volume is not None
+                            and requested_quantity is not None
+                            and can_use_volume >= requested_quantity
+                        )
+                        if can_use_volume is not None
+                        else None
+                    ),
+                    source="runtime_event" if runtime_available else "missing",
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="quantity",
+                )
+            )
     elif side == "buy":
         buy_grid = request.get("strategy_context") or {}
         buy_grid = (
@@ -1365,22 +1516,74 @@ def build_conditions(
             )
         )
         grid_level = (buy_grid or {}).get("grid_level")
-        conditions.append(
-            _condition(
-                condition_key="grid_level",
-                label="买入网格档位",
-                actual_value=grid_level,
-                operator="in",
-                threshold_value=["1", "2", "3"] if grid_level is not None else None,
-                passed=grid_level is not None,
-                source="request_snapshot" if buy_grid else "missing",
-                observed_at=observed_at,
-                evidence_id=evidence_id,
-                unit="level",
+        hit_levels = list((buy_grid or {}).get("hit_levels") or [])
+        capacity_quantity = (
+            _int(expected.get("capacity_quantity"))
+            or _int((buy_grid or {}).get("capacity_quantity"))
+        ) or None
+        if grid_level is not None or hit_levels:
+            conditions.append(
+                _condition(
+                    condition_key="grid_level",
+                    label="买入网格档位",
+                    actual_value=(grid_level or hit_levels[-1]),
+                    operator="in",
+                    threshold_value=(
+                        ["1", "2", "3"]
+                        if (grid_level is not None or hit_levels)
+                        else None
+                    ),
+                    passed=grid_level is not None or bool(hit_levels),
+                    source="request_snapshot" if buy_grid else "missing",
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="level",
+                )
             )
-        )
+        elif capacity_quantity is not None:
+            # 阶段容量买入（grid_level 为空、hit_levels 为空）：展示容量裁剪量
+            # 与委托量的一致性，而不是伪造网格档位不通过。
+            requested_quantity = _request_quantity(request)
+            conditions.append(
+                _condition(
+                    condition_key="capacity_quantity_match",
+                    label="委托数量与阶段容量裁剪量一致",
+                    actual_value=requested_quantity,
+                    operator="==",
+                    threshold_value=capacity_quantity,
+                    passed=(
+                        bool(
+                            requested_quantity is not None
+                            and requested_quantity == capacity_quantity
+                        )
+                        if requested_quantity is not None
+                        else None
+                    ),
+                    source="request_snapshot",
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="quantity",
+                )
+            )
+        else:
+            conditions.append(
+                _condition(
+                    condition_key="grid_level",
+                    label="买入网格档位",
+                    actual_value=None,
+                    operator="in",
+                    threshold_value=None,
+                    passed=False,
+                    source="request_snapshot" if buy_grid else "missing",
+                    observed_at=observed_at,
+                    evidence_id=evidence_id,
+                    unit="level",
+                )
+            )
 
     expected_quantity = _expected_quantity(review)
+    if takeprofit_sell and expected_quantity is None:
+        expected_quantity = takeprofit_entries_total
     filled_quantity = _int(actual.get("filled_quantity")) or None
     conditions.append(
         _condition(

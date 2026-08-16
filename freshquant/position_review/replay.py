@@ -474,17 +474,20 @@ def _review_one_request(
 def _review_guardian_buy(*, request, context, expected, reason_codes):
     source_price = _positive_float(context.get("source_price"))
     path = str(context.get("path") or "").strip().lower()
-    if path == "new_open" or (not path and context.get("initial_amount") is not None):
+    new_open = path == "new_open" or (
+        not path and context.get("initial_amount") is not None
+    )
+    if new_open:
         initial_amount = _positive_float(context.get("initial_amount"))
         if initial_amount is None or source_price is None:
             reason_codes.append("buy_snapshot_incomplete")
             return "INSUFFICIENT_EVIDENCE"
-        expected_quantity = quantity_for_amount(
+        base_quantity = quantity_for_amount(
             initial_amount, source_price, code=str(context.get("symbol") or "")
         )
         expected.update(
             {
-                "quantity": int(expected_quantity),
+                "quantity": int(base_quantity),
                 "formula": "quantity_for_amount(initial_amount, source_price)",
                 "initial_amount": initial_amount,
                 "source_price": source_price,
@@ -498,14 +501,14 @@ def _review_guardian_buy(*, request, context, expected, reason_codes):
         if base_amount is None or multiplier is None or source_price is None:
             reason_codes.append("buy_snapshot_incomplete")
             return "INSUFFICIENT_EVIDENCE"
-        expected_quantity = quantity_for_amount(
+        base_quantity = quantity_for_amount(
             base_amount * multiplier,
             source_price,
             code=str(context.get("symbol") or ""),
         )
         expected.update(
             {
-                "quantity": int(expected_quantity),
+                "quantity": int(base_quantity),
                 "formula": "quantity_for_amount(base_amount * multiplier, source_price)",
                 "base_amount": base_amount,
                 "multiplier": multiplier,
@@ -514,7 +517,106 @@ def _review_guardian_buy(*, request, context, expected, reason_codes):
                 "path": path or "holding_add",
             }
         )
-    if expected_quantity != _int(request.get("quantity")):
+
+    requested = _int(request.get("quantity"))
+    # 容量量独立复算（不与快照 capacity_quantity 自证）：
+    # 做T/回补路径 quantity = amount_to_quantity(remaining_amount × ratio)，
+    # 首开路径 quantity = min(base, amount_to_quantity(remaining × 1.0))。
+    # 复算口径与 freshquant.strategy.guardian_buy_grid 一致。
+    remaining_amount = _positive_float(context.get("remaining_amount"))
+    capacity_ratio = _positive_float(context.get("capacity_ratio"))
+    snapshot_capacity = _int(context.get("capacity_quantity"))
+    snapshot_capacity = snapshot_capacity if snapshot_capacity > 0 else None
+    recomputed_capacity = None
+    if (
+        remaining_amount is not None
+        and capacity_ratio is not None
+        and source_price is not None
+    ):
+        recomputed_capacity = int(
+            quantity_for_amount(
+                remaining_amount * capacity_ratio,
+                source_price,
+                code=str(context.get("symbol") or ""),
+            )
+        )
+    capacity_context = {
+        "base_quantity": int(base_quantity),
+        "capacity_quantity": (
+            recomputed_capacity
+            if recomputed_capacity is not None
+            else snapshot_capacity
+        ),
+        "capacity_recomputed": recomputed_capacity is not None,
+        "capacity_ratio": capacity_ratio,
+        "remaining_amount": remaining_amount,
+        "stage": context.get("stage"),
+        "hit_levels": list(context.get("hit_levels") or []),
+    }
+    if (
+        snapshot_capacity is not None
+        and recomputed_capacity is not None
+        and snapshot_capacity != recomputed_capacity
+    ):
+        _append_once(reason_codes, "capacity_snapshot_conflict")
+
+    capacity_ref = recomputed_capacity if recomputed_capacity is not None else snapshot_capacity
+    if new_open and capacity_ref is not None:
+        if recomputed_capacity is None:
+            # 首开容量量无法独立复算：委托等于公式量仍可验收，委托等于快照
+            # 容量量则降级为证据不足，避免快照自证闭环。
+            expected.update(
+                {
+                    **capacity_context,
+                    "quantity": int(base_quantity),
+                }
+            )
+            if requested == int(base_quantity):
+                return "PASS"
+            if requested == capacity_ref:
+                _append_once(reason_codes, "capacity_evidence_incomplete")
+                return "INSUFFICIENT_EVIDENCE"
+            reason_codes.append("requested_quantity_mismatch")
+            return "FAIL"
+        effective_quantity = min(int(base_quantity), capacity_ref)
+        expected.update(
+            {
+                **capacity_context,
+                "quantity": effective_quantity,
+            }
+        )
+        if requested == effective_quantity:
+            if effective_quantity != int(base_quantity):
+                _append_once(reason_codes, "quantity_capacity_based")
+            return "PASS"
+        reason_codes.append("requested_quantity_mismatch")
+        return "FAIL"
+    if not new_open and capacity_ref is not None:
+        if recomputed_capacity is None:
+            # 快照容量量无法独立复算：不自证闭环，降级为证据不足。
+            expected.update(
+                {
+                    **capacity_context,
+                    "quantity": capacity_ref,
+                }
+            )
+            _append_once(reason_codes, "capacity_evidence_incomplete")
+            if requested == int(base_quantity):
+                return "PASS"
+            return "INSUFFICIENT_EVIDENCE"
+        expected.update(
+            {
+                **capacity_context,
+                "quantity": capacity_ref,
+            }
+        )
+        if requested == capacity_ref:
+            if capacity_ref != int(base_quantity):
+                _append_once(reason_codes, "quantity_capacity_based")
+            return "PASS"
+        reason_codes.append("requested_quantity_mismatch")
+        return "FAIL"
+    if requested != int(base_quantity):
         reason_codes.append("requested_quantity_mismatch")
         return "FAIL"
     return "PASS"

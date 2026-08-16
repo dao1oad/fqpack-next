@@ -1813,6 +1813,197 @@ def test_guardian_buy_snapshot_quantity_is_independently_recomputed():
     assert reviews[0]["verdict"] == "PASS"
 
 
+def test_guardian_buy_capacity_capped_quantity_matches_request_is_pass():
+    # 阶段容量买入：容量量由 remaining_amount × capacity_ratio 独立复算，
+    # 委托量等于复算容量量时应判 PASS 而不是「策略异常」。
+    request = {
+        "request_id": "req_cap",
+        "symbol": "002262",
+        "action": "buy",
+        "quantity": 100,
+        "price": 153.75,
+        "created_at": "2026-08-12T01:32:23+00:00",
+        "strategy_context": {
+            "guardian_buy_grid": {
+                "base_amount": 50000,
+                "multiplier": 1,
+                "source_price": 153.75,
+                "grid_level": None,
+                "hit_levels": [],
+                "path": "holding_add",
+                "stage": "TP_TO_BUY-1",
+                "base_quantity": 300,
+                "capacity_quantity": 100,
+                "capacity_ratio": 0.327,
+                "remaining_amount": 92875,
+            }
+        },
+    }
+
+    review = review_requests(
+        symbol="002262",
+        requests=[request],
+        orders_by_request={},
+        canonical_trades=[],
+        inventory=[],
+        threshold_ratios={},
+    )[0]
+
+    assert review["verdict"] == "PASS"
+    assert "quantity_capacity_based" in review["reason_codes"]
+    assert review["expected"]["quantity"] == 100
+    assert review["expected"]["base_quantity"] == 300
+    assert review["expected"]["capacity_quantity"] == 100
+    assert review["expected"]["capacity_recomputed"] is True
+    assert review["expected"]["stage"] == "TP_TO_BUY-1"
+    assert review["quantities"]["expected"] == 100
+    assert review["quantities"]["delta"] == 0
+
+
+def test_guardian_buy_capacity_quantity_mismatch_still_fails():
+    request = {
+        "request_id": "req_cap_bad",
+        "symbol": "002262",
+        "action": "buy",
+        "quantity": 200,
+        "price": 153.75,
+        "created_at": "2026-08-12T01:32:23+00:00",
+        "strategy_context": {
+            "guardian_buy_grid": {
+                "base_amount": 50000,
+                "multiplier": 1,
+                "source_price": 153.75,
+                "path": "holding_add",
+                "base_quantity": 300,
+                "capacity_quantity": 100,
+                "capacity_ratio": 1.0,
+                "remaining_amount": 92875,
+            }
+        },
+    }
+
+    review = review_requests(
+        symbol="002262",
+        requests=[request],
+        orders_by_request={},
+        canonical_trades=[],
+        inventory=[],
+        threshold_ratios={},
+    )[0]
+
+    assert review["verdict"] == "FAIL"
+    assert "requested_quantity_mismatch" in review["reason_codes"]
+
+
+def test_guardian_buy_new_open_takes_min_of_base_and_capacity():
+    # 首开最终量 = min(base_quantity, capacity_quantity)；容量充足时委托等于
+    # 公式量同样 PASS（容量直比不得制造假 FAIL）。
+    request = {
+        "request_id": "req_new_open_cap",
+        "symbol": "002262",
+        "action": "buy",
+        "quantity": 4800,
+        "price": 20.76,
+        "created_at": "2026-05-18T02:14:00+00:00",
+        "strategy_context": {
+            "guardian_buy_grid": {
+                "initial_amount": 100000,
+                "source_price": 20.76,
+                "path": "new_open",
+                "base_quantity": 4800,
+                "capacity_quantity": 5000,
+                "capacity_ratio": 1.0,
+                "remaining_amount": 103800,
+            }
+        },
+    }
+
+    review = review_requests(
+        symbol="002262",
+        requests=[request],
+        orders_by_request={},
+        canonical_trades=[],
+        inventory=[],
+        threshold_ratios={},
+    )[0]
+
+    assert review["verdict"] == "PASS"
+    assert review["expected"]["quantity"] == 4800
+    assert review["expected"]["base_quantity"] == 4800
+    assert review["expected"]["capacity_quantity"] == 5000
+    assert "quantity_capacity_based" not in review["reason_codes"]
+
+
+def test_guardian_buy_capacity_snapshot_conflict_marks_reason_but_uses_recompute():
+    request = {
+        "request_id": "req_cap_conflict",
+        "symbol": "002262",
+        "action": "buy",
+        "quantity": 100,
+        "price": 153.75,
+        "created_at": "2026-08-12T01:32:23+00:00",
+        "strategy_context": {
+            "guardian_buy_grid": {
+                "base_amount": 50000,
+                "multiplier": 1,
+                "source_price": 153.75,
+                "path": "holding_add",
+                "base_quantity": 300,
+                "capacity_quantity": 999,
+                "capacity_ratio": 1.0,
+                "remaining_amount": 15375,
+            }
+        },
+    }
+
+    review = review_requests(
+        symbol="002262",
+        requests=[request],
+        orders_by_request={},
+        canonical_trades=[],
+        inventory=[],
+        threshold_ratios={},
+    )[0]
+
+    assert review["verdict"] == "PASS"
+    assert "capacity_snapshot_conflict" in review["reason_codes"]
+    assert "quantity_capacity_based" in review["reason_codes"]
+    assert review["expected"]["capacity_quantity"] == 100
+
+
+def test_guardian_buy_capacity_snapshot_without_recompute_degrades_evidence():
+    request = {
+        "request_id": "req_cap_unverifiable",
+        "symbol": "002262",
+        "action": "buy",
+        "quantity": 100,
+        "price": 153.75,
+        "created_at": "2026-08-12T01:32:23+00:00",
+        "strategy_context": {
+            "guardian_buy_grid": {
+                "base_amount": 50000,
+                "multiplier": 1,
+                "source_price": 153.75,
+                "path": "holding_add",
+                "base_quantity": 300,
+                "capacity_quantity": 100,
+            }
+        },
+    }
+
+    review = review_requests(
+        symbol="002262",
+        requests=[request],
+        orders_by_request={},
+        canonical_trades=[],
+        inventory=[],
+        threshold_ratios={},
+    )[0]
+
+    assert review["verdict"] == "INSUFFICIENT_EVIDENCE"
+    assert "capacity_evidence_incomplete" in review["reason_codes"]
+
+
 def test_guardian_new_open_uses_initial_amount_without_grid_multiplier():
     request = {
         "request_id": "req_new_open",

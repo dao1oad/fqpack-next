@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from freshquant.db import DBfreshquant
+from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.order_management.db import DBOrderManagement
 from freshquant.order_management.execution_archive import (
     build_account_partition,
@@ -27,6 +27,7 @@ class PositionReviewRepository:
         business_database=None,
         order_database=None,
         position_database=None,
+        quantaxis_database=None,
     ):
         self.business_database = (
             business_database if business_database is not None else DBfreshquant
@@ -37,6 +38,20 @@ class PositionReviewRepository:
         self.position_database = (
             position_database if position_database is not None else DBPositionManagement
         )
+        self.quantaxis_database = (
+            quantaxis_database if quantaxis_database is not None else DBQuantAxis
+        )
+
+    def list_index_day_bars(self, code, *, start_date=None):
+        """Read-only benchmark daily bars from the QUANTAXIS index_day store."""
+
+        collection = _optional_collection(self.quantaxis_database, "index_day")
+        if collection is None:
+            return []
+        query: dict[str, Any] = {"code": str(code or "").strip()}
+        if start_date:
+            query["date"] = {"$gte": str(start_date)}
+        return _documents(collection.find(query).sort("date", 1))
 
     def list_symbols(self) -> list[str]:
         # The review catalog is the current order ledger: symbols that have a

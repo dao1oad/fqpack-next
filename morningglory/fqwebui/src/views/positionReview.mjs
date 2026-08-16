@@ -431,6 +431,9 @@ export const POSITION_REVIEW_REASON_LABELS = Object.freeze({
   canonical_trade_missing: '未找到对应的真实成交',
   buy_snapshot_incomplete: '买入计算所需的历史快照不完整',
   requested_quantity_mismatch: '请求数量与策略应有量不一致',
+  quantity_capacity_based: '请求数量按阶段容量规则执行（与公式量不同）',
+  capacity_snapshot_conflict: '容量快照量与独立复算结果不一致',
+  capacity_evidence_incomplete: '容量证据不足，无法独立复算容量量',
   inventory_evidence_missing: '缺少可卖持仓来源证据',
   historical_threshold_unavailable: '缺少当时的卖出阈值证据',
   historical_threshold_mode_ambiguous: '历史阈值模式无法确定（百分比/ATR结果不一致）',
@@ -1135,7 +1138,7 @@ const prnetValueOf = (point) => (
 const prformatPeriodTick = (label, period) => {
   const text = prtoText(label)
   if (!text) return ''
-  if (period === 'month') return text
+  if (period === 'month' || period === '1y' || period === '2y') return text
   if (period === 'week') return text.slice(5)
   return text.slice(5)
 }
@@ -1167,6 +1170,82 @@ export const buildPortfolioTradeTooltip = (point = {}) => {
   return `<div class="prt">${header}${rows}</div>`
 }
 
+const prfirstFinite = (values) => values.find((value) => value != null)
+
+const prlastFinite = (values) => {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (values[index] != null) return values[index]
+  }
+  return null
+}
+
+const prwindowPct = (value, base) => (
+  value == null || !base ? null : (value / base - 1) * 100
+)
+
+const prportfolioBenchmarkTooltip = (
+  params,
+  labels,
+  accountName,
+  accountData,
+  benchmarkName,
+  benchmarkData,
+) => {
+  const items = Array.isArray(params) ? params : [params]
+  const index = items.find((item) => item && item.dataIndex != null)?.dataIndex
+  const label = labels[index ?? 0] || ''
+  const accountValue = accountData[index ?? 0]
+  const benchmarkValue = benchmarkData[index ?? 0]
+  const accountBase = prfirstFinite(accountData)
+  const benchmarkBase = prfirstFinite(benchmarkData)
+  const accountPct = prwindowPct(accountValue, accountBase)
+  const benchmarkPct = prwindowPct(benchmarkValue, benchmarkBase)
+  const fmtValue = (value) => (
+    value == null ? '—' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 3 })
+  )
+  const fmtPct = (value) => (value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`)
+  return `<div class="prt">
+    <div class="prt-header"><span class="prt-id">${prescapeTooltipHtml(label)}</span></div>
+    <div class="prt-row">
+      <span class="prt-label">${prescapeTooltipHtml(accountName)}</span>
+      <span class="prt-value">${fmtValue(accountValue)}（${fmtPct(accountPct)}）</span>
+    </div>
+    <div class="prt-row">
+      <span class="prt-label">${prescapeTooltipHtml(benchmarkName)}</span>
+      <span class="prt-value">${fmtValue(benchmarkValue)}（${fmtPct(benchmarkPct)}）</span>
+    </div>
+  </div>`
+}
+
+export const buildPortfolioBenchmarkSummary = (payload = {}, mode = 'net') => {
+  const series = prtoArray(payload.series)
+  const benchmarkSeries = prtoArray(payload.benchmark?.series)
+  if (!series.length || !benchmarkSeries.length) return null
+  const accountValues = series.map((item) => (
+    mode === 'asset'
+      ? prtoFiniteNumber(item.total_equity)
+      : (prtoFiniteNumber(item.net_value) ?? prtoFiniteNumber(item.estimated_equity))
+  ))
+  const benchmarkValues = benchmarkSeries.map((item) => prtoFiniteNumber(item.close))
+  const accountBase = prfirstFinite(accountValues)
+  const benchmarkBase = prfirstFinite(benchmarkValues)
+  const accountLast = prlastFinite(accountValues)
+  const benchmarkLast = prlastFinite(benchmarkValues)
+  if (!accountBase || !benchmarkBase || accountLast == null || benchmarkLast == null) {
+    return null
+  }
+  const accountPct = (accountLast / accountBase - 1) * 100
+  const benchmarkPct = (benchmarkLast / benchmarkBase - 1) * 100
+  const spread = accountPct - benchmarkPct
+  return {
+    accountPct,
+    benchmarkPct,
+    spread,
+    beat: spread >= 0,
+    benchmarkName: prtoText(payload.benchmark?.name) || '上证综指ETF',
+  }
+}
+
 export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
   const series = prtoArray(payload.series)
   if (!series.length) {
@@ -1176,27 +1255,38 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
   const equityMode = mode === 'asset' ? 'asset' : 'net'
   const labels = series.map((item) => prformatPeriodTick(item.period_label || item.time, period))
   const primarySeries = []
+  const primaryData = []
   if (equityMode === 'asset') {
+    const data = series.map((item) => item.total_equity)
+    primaryData.push(...data)
     primarySeries.push({
       name: '总资产',
       type: 'line',
       showSymbol: false,
       smooth: false,
       lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
-      data: series.map((item) => item.total_equity),
+      data,
     })
   } else {
+    const data = series.map((item) => (
+      prtoFiniteNumber(item.net_value) ?? prtoFiniteNumber(item.estimated_equity)
+    ))
+    primaryData.push(...data)
     primarySeries.push({
       name: '账户净资产',
       type: 'line',
       showSymbol: false,
       smooth: false,
       lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
-      data: series.map((item) => (
-        prtoFiniteNumber(item.net_value) ?? prtoFiniteNumber(item.estimated_equity)
-      )),
+      data,
     })
   }
+  const benchmarkPayload = payload.benchmark || {}
+  const benchmarkName = prtoText(benchmarkPayload.name) || '上证综指ETF'
+  const benchmarkData = prtoArray(benchmarkPayload.series).map((item) => (
+    prtoFiniteNumber(item.close)
+  ))
+  const hasBenchmark = benchmarkData.some((value) => value != null)
   const tradeSeriesData = equityMode === 'net'
     ? series
         .map((point, index) => {
@@ -1233,18 +1323,58 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
         data: tradeSeriesData,
       }]
     : []
+  const benchmarkLine = hasBenchmark
+    ? [{
+        id: 'position-review-benchmark',
+        name: `${benchmarkName} ${prtoText(benchmarkPayload.code) || '510210'}`,
+        type: 'line',
+        yAxisIndex: 1,
+        showSymbol: false,
+        smooth: false,
+        lineStyle: { color: '#7c3aed', width: 1.6, type: 'dashed' },
+        data: benchmarkData,
+      }]
+    : []
+  const primaryYAxis = {
+    type: 'value',
+    scale: true,
+    min: 'dataMin',
+    max: 'dataMax',
+    splitNumber: 6,
+    axisLabel: {
+      color: '#6b7280',
+      formatter: (value) => `${(Number(value) / 10000).toFixed(2)}万`,
+    },
+    splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
+  }
   return {
     backgroundColor: 'transparent',
     animation: false,
     tooltip: {
       trigger: 'axis',
-      valueFormatter: (value) => (value == null ? '—' : Number(value).toLocaleString('zh-CN')),
+      ...(hasBenchmark
+        ? {
+            formatter: (params) => prportfolioBenchmarkTooltip(
+              params,
+              labels,
+              primarySeries[0].name,
+              primaryData,
+              benchmarkName,
+              benchmarkData,
+            ),
+          }
+        : {
+            valueFormatter: (value) => (
+              value == null ? '—' : Number(value).toLocaleString('zh-CN')
+            ),
+          }),
     },
     legend: {
       top: 4,
       textStyle: { color: positionReviewChartColors.text },
       data: [
         ...(primarySeries.length ? [primarySeries[0].name] : []),
+        ...(hasBenchmark ? [`${benchmarkName} ${prtoText(benchmarkPayload.code) || '510210'}`] : []),
         ...(tradeSeries.length ? ['交易点'] : []),
       ],
     },
@@ -1255,19 +1385,21 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
       axisLabel: { color: '#6b7280' },
       axisLine: { lineStyle: { color: '#d1d5db' } },
     },
-    yAxis: {
-      type: 'value',
-      scale: true,
-      min: 'dataMin',
-      max: 'dataMax',
-      splitNumber: 6,
-      axisLabel: {
-        color: '#6b7280',
-        formatter: (value) => `${(Number(value) / 10000).toFixed(2)}万`,
-      },
-      splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
-    },
-    series: [...primarySeries, ...tradeSeries],
+    yAxis: hasBenchmark
+      ? [
+          primaryYAxis,
+          {
+            type: 'value',
+            scale: true,
+            min: 'dataMin',
+            max: 'dataMax',
+            splitNumber: 6,
+            axisLabel: { color: '#8b5cf6', formatter: (value) => Number(value).toFixed(3) },
+            splitLine: { show: false },
+          },
+        ]
+      : primaryYAxis,
+    series: [...primarySeries, ...benchmarkLine, ...tradeSeries],
   }
 }
 
