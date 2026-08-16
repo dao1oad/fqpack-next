@@ -1359,6 +1359,32 @@ def test_build_portfolio_series_rejects_invalid_period():
         pass
 
 
+def test_build_portfolio_series_filters_non_trading_days():
+    snapshots = [
+        {"queried_at": "2026-07-17T03:00:00+00:00", "total_asset": 1000.0},
+        {"queried_at": "2026-07-18T03:00:00+00:00", "total_asset": 1100.0},
+        {"queried_at": "2026-07-20T03:00:00+00:00", "total_asset": 1200.0},
+        {"queried_at": "2026-05-01T03:00:00+00:00", "total_asset": 1300.0},
+    ]
+    for item in snapshots:
+        item.setdefault("total_debt", 0.0)
+
+    payload = build_portfolio_series(
+        xt_assets=[],
+        credit_snapshots=snapshots,
+        trade_dates={"2026-07-17", "2026-07-20"},
+        period="6m",
+        generated_at="2026-08-08T00:00:00+00:00",
+    )
+
+    # 07-18 为周六、05-01 为劳动节休市日，均不在交易日集合中，被过滤。
+    assert [point["period_key"] for point in payload["series"]] == [
+        "2026-07-17",
+        "2026-07-20",
+    ]
+    assert payload["data_quality"]["window"]["trading_day_filtered"] is True
+
+
 def test_build_portfolio_contributions_sorts_by_total_pnl():
     base = {
         "symbol": {"code": "", "name": ""},
@@ -1955,3 +1981,5 @@ def test_portfolio_series_attaches_benchmark_from_loader():
     # $gte 比较会排除窗口头部 8 小时（Devin 验收 P1-1 回归）。
     assert BenchmarkRepository.observed_start_after
     assert BenchmarkRepository.observed_start_after[-1].endswith("+00:00")
+    warning_codes = {item["code"] for item in payload["data_quality"]["warnings"]}
+    assert "trade_calendar_unavailable" in warning_codes

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as echarts from 'echarts'
 
 import {
   buildFullMarkerTooltip,
@@ -188,13 +189,67 @@ test('buildPortfolioEquityOption renders 510210 benchmark on second axis', () =>
     },
   }, 'net')
   assert.ok(option)
-  assert.ok(Array.isArray(option.yAxis))
-  assert.equal(option.yAxis.length, 2)
+  // 两条曲线归一化到同一 Y 轴（起点=100）便于对比。
+  assert.equal(typeof option.yAxis, 'object')
+  assert.equal(option.yAxis.name, '起点=100')
   const benchmark = option.series.find((item) => item.id === 'position-review-benchmark')
   assert.ok(benchmark)
-  assert.equal(benchmark.yAxisIndex, 1)
-  assert.deepEqual(benchmark.data, [1.01, 1.02])
+  assert.equal(benchmark.yAxisIndex, undefined)
+  assert.deepEqual(benchmark.data, [100, 100.9901])
+  const account = option.series[0]
+  assert.deepEqual(account.data, [100, 102])
   assert.ok(option.legend.data.includes('上证综指ETF 510210'))
+})
+
+test('buildPortfolioEquityOption normalizes trade scatter onto benchmark axis', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    series: [
+      {
+        time: '2026-08-12', period_label: '2026-08-12',
+        total_equity: 100000.0, net_value: 90000.0,
+        trades: [{ time: '2026-08-12T10:00+08:00', symbol: '300760', side: 'buy', quantity: 100, price: 153.0 }],
+        trade_count: 1,
+      },
+      { time: '2026-08-13', period_label: '2026-08-13', total_equity: 102000.0, net_value: 91800.0 },
+    ],
+    benchmark: {
+      code: '510210',
+      name: '上证综指ETF',
+      series: [
+        { period_label: '2026-08-12', close: 1.01 },
+        { period_label: '2026-08-13', close: 1.02 },
+      ],
+    },
+  }, 'net')
+  assert.ok(option)
+  const scatter = option.series.find((item) => item.id === 'position-review-portfolio-trades')
+  assert.ok(scatter)
+  assert.equal(scatter.data[0].value[1], 100)
+})
+
+test('benchmark option renders via ECharts SSR without axis errors', () => {
+  const option = buildPortfolioEquityOption({
+    period: '30d',
+    series: [
+      { time: '2026-08-12', period_label: '2026-08-12', total_equity: 100000.0, net_value: 90000.0 },
+      { time: '2026-08-13', period_label: '2026-08-13', total_equity: 102000.0, net_value: 91800.0 },
+    ],
+    benchmark: {
+      code: '510210',
+      name: '上证综指ETF',
+      series: [
+        { period_label: '2026-08-12', close: 1.01 },
+        { period_label: '2026-08-13', close: 1.02 },
+      ],
+    },
+  }, 'net')
+  assert.ok(option)
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 800, height: 400 })
+  assert.doesNotThrow(() => chart.setOption(option))
+  const svg = chart.renderToSVGString()
+  assert.ok(svg.length > 0)
+  chart.dispose()
 })
 
 test('buildPortfolioEquityOption line series use lttb sampling for large windows', () => {

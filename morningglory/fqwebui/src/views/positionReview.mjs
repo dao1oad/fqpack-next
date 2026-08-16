@@ -1288,13 +1288,23 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
     prtoFiniteNumber(item.close)
   ))
   const hasBenchmark = benchmarkData.some((value) => value != null)
+  const accountBase = prfirstFinite(primaryData)
+  const benchmarkBase = prfirstFinite(benchmarkData)
+  const prnormalizeTo100 = (value, base) => (
+    value == null || !base ? null : Number(((value / base) * 100).toFixed(4))
+  )
   const tradeSeriesData = equityMode === 'net'
     ? series
         .map((point, index) => {
           const trades = prtoArray(point.trades)
           if (!trades.length) return null
           return {
-            value: [index, prnetValueOf(point)],
+            value: [
+              index,
+              hasBenchmark
+                ? prnormalizeTo100(prnetValueOf(point), accountBase)
+                : prnetValueOf(point),
+            ],
             point,
             trades,
             count: trades.length,
@@ -1329,7 +1339,6 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
         id: 'position-review-benchmark',
         name: `${benchmarkName} ${prtoText(benchmarkPayload.code) || '510210'}`,
         type: 'line',
-        yAxisIndex: 1,
         showSymbol: false,
         smooth: false,
         sampling: 'lttb',
@@ -1337,6 +1346,12 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
         data: benchmarkData,
       }]
     : []
+  // 有基准时两条曲线归一化到同一 Y 轴（各自可见区间首点=100），才能直接
+  // 对比是否跑赢；无基准时保持原始金额轴。
+  if (hasBenchmark) {
+    primarySeries[0].data = primaryData.map((value) => prnormalizeTo100(value, accountBase))
+    benchmarkLine[0].data = benchmarkData.map((value) => prnormalizeTo100(value, benchmarkBase))
+  }
   const primaryYAxis = {
     type: 'value',
     scale: true,
@@ -1345,7 +1360,11 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
     splitNumber: 6,
     axisLabel: {
       color: '#6b7280',
-      formatter: (value) => `${(Number(value) / 10000).toFixed(2)}万`,
+      formatter: (value) => (
+        hasBenchmark
+          ? Number(value).toFixed(1)
+          : `${(Number(value) / 10000).toFixed(2)}万`
+      ),
     },
     splitLine: { lineStyle: { color: positionReviewChartColors.grid } },
   }
@@ -1388,18 +1407,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
       axisLine: { lineStyle: { color: '#d1d5db' } },
     },
     yAxis: hasBenchmark
-      ? [
-          primaryYAxis,
-          {
-            type: 'value',
-            scale: true,
-            min: 'dataMin',
-            max: 'dataMax',
-            splitNumber: 6,
-            axisLabel: { color: '#8b5cf6', formatter: (value) => Number(value).toFixed(3) },
-            splitLine: { show: false },
-          },
-        ]
+      ? { ...primaryYAxis, name: '起点=100' }
       : primaryYAxis,
     series: [...primarySeries, ...benchmarkLine, ...tradeSeries],
   }

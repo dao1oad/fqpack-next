@@ -458,18 +458,43 @@ class PositionReviewService:
             self._build_portfolio_inputs(refresh=bool(refresh))
         )
         trade_events = _portfolio_trade_events(detail_by_symbol)
+        trade_dates = self._trade_dates()
         payload = build_portfolio_series(
             xt_assets=xt_assets,
             credit_snapshots=self._window_credit_snapshots(normalized_period),
             trade_events=trade_events,
+            trade_dates=trade_dates,
             period=normalized_period,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
+        if trade_dates is None:
+            payload.setdefault("data_quality", {})
+            payload["data_quality"]["warnings"] = [
+                *(payload["data_quality"].get("warnings") or []),
+                {
+                    "code": "trade_calendar_unavailable",
+                    "message": (
+                        "交易日历缓存不可用或已过期，曲线退化为按日历日展示，"
+                        "可能包含非交易日。"
+                    ),
+                },
+            ]
         payload["benchmark"] = self._build_portfolio_benchmark(
             series=payload.get("series") or [],
             period=str(payload.get("period") or "30d"),
         )
         return payload
+
+    def _trade_dates(self) -> set[str] | None:
+        """读取交易日集合；仓库不支持/读取失败时返回 None（降级不过滤）。"""
+
+        loader = getattr(self.repository, "list_trade_dates", None)
+        if loader is None:
+            return None
+        try:
+            return loader()
+        except Exception:
+            return None
 
     def _window_credit_snapshots(self, period: str) -> list[dict[str, Any]]:
         """按窗口起点读取信用快照的日聚合桶（服务器端聚合）。

@@ -167,8 +167,11 @@ python -m freshquant.rear.api_server --port 5000
   - 每个点只返回曲线消费字段：`time / period_key / period_label / total_equity / net_value / estimated_equity / trades / trade_count`
   - `period` 是时间窗口而不是 K 线式展示周期：`30d`=30 天 / `60d`=60 天 /
     `90d`=90 天 / `6m`=183 天 / `1y`=365 天 / `2y`=730 天；**曲线按日采样**
-    （北京日历日桶取当日末笔快照，快照仅交易时段产生，桶即交易日，X 轴
-    不含非交易日），窗口以最新快照为锚往前截取，缺失区间不插值
+    （北京日历日桶取当日末笔快照），并按 `trade_calendar_cache`
+    （market=cn_a/source=sina）过滤非交易日（快照为全天候采样，周末/节假日
+    同样有桶），X 轴仅交易日；窗口以最新快照为锚往前截取，缺失区间不插值。
+    交易日历不可用/过期时 `data_quality.window.trading_day_filtered=false` 并附
+    `trade_calendar_unavailable` 告警
   - 信用快照按窗口起点过滤读取（`queried_at >= 锚点 - 窗口天数`，字段投影，
     上限 2,000,000 条），长窗口不再被固定 200,000 条读取上限截断；
     账户快照历史晚于窗口起点时 `data_quality.window.covered=false` 并附
@@ -177,7 +180,8 @@ python -m freshquant.rear.api_server --port 5000
     日线，`basis=quantaxis_index_day`）。基准按权益曲线分桶对齐，缺失分桶沿用
     上一收盘价（carry-forward），`covered_count` 只计真实覆盖分桶、
     `carried_count` 计沿用分桶；`normalized` 以对齐后首个点位归一化，
-    供前端渲染区间涨跌幅与跑赢/跑输结论。基准不可用/未覆盖时 `available=false`
+    作比对参考；前端按可见区间首交易日自行归一化渲染到同一 Y 轴（首点=100，
+    半年/一年/两年窗口首日即 2026-04-07）并给出跑赢/跑输结论。基准不可用/未覆盖时 `available=false`
     并附 `benchmark_unavailable` 告警，权益曲线不受影响
 - `/api/position-review/portfolio/contributions`
   - 返回标的贡献表（按 `total_pnl = realized + floating` 降序），支持 `top_n`（默认 10，上限 50）

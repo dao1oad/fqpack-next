@@ -368,6 +368,7 @@ def build_portfolio_series(
     xt_assets: list[dict[str, Any]],
     credit_snapshots: list[dict[str, Any]],
     trade_events: list[dict[str, Any]] | None = None,
+    trade_dates: set[str] | None = None,
     period: str = "30d",
     generated_at: str,
 ) -> dict[str, Any]:
@@ -384,7 +385,8 @@ def build_portfolio_series(
     ``total_debt``, so each point reports ``net_value = total_asset -
     total_debt``.  ``period`` 是时间窗口（``30d``/``60d``/``90d``/
     ``6m``/``1y``/``2y``），曲线按日采样展示（北京日历日桶取当日末笔
-    快照，快照仅交易时段产生，因此桶即交易日）。交易发生在哪个交易日
+    快照）。``trade_dates`` 提供交易日集合时，非交易日桶被过滤（复用
+    ``trade_calendar_cache`` cn_a/sina 交易日历）。交易发生在哪个交易日
     就挂到哪个点，供 UI 渲染交易点与悬浮明细。
     """
 
@@ -490,6 +492,12 @@ def build_portfolio_series(
         trade_events=trade_events,
         period="day",
     )
+    if trade_dates is not None:
+        series = [
+            point
+            for point in series
+            if str(point.get("period_key") or "") in trade_dates
+        ]
     period_label = _PERIOD_WINDOWS.get(normalized_period, (30, "30日"))[1]
 
     warnings = []
@@ -528,6 +536,7 @@ def build_portfolio_series(
             "window": {
                 "period": normalized_period,
                 "granularity": "1d",
+                "trading_day_filtered": trade_dates is not None,
                 "window_days": window_days,
                 "window_start": (
                     window_start.isoformat() if window_start is not None else None
