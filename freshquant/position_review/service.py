@@ -472,11 +472,12 @@ class PositionReviewService:
         return payload
 
     def _window_credit_snapshots(self, period: str) -> list[dict[str, Any]]:
-        """按窗口起点读取信用快照（解除 200k 上限对长窗口的截断）。
+        """按窗口起点读取信用快照的 5 分钟聚合桶（服务器端聚合）。
 
         窗口锚点 = 集合最新 ``queried_at``；读取范围为
-        ``queried_at >= anchor - window_days``，并投影曲线所需字段以
-        控制内存。仓库不支持新参数时回退为无参读取（测试桩兼容）。
+        ``queried_at >= anchor - window_days``，由 Mongo ``$dateTrunc``
+        按北京时区 5 分钟分桶取末笔，返回约 3 万个桶文档而不是 57 万条
+        原始快照。
         """
 
         window_days = period_window_days(period)
@@ -491,23 +492,13 @@ class PositionReviewService:
         anchor = _timestamp(latest_time)
         if anchor <= 0:
             return []
-        start_iso = _epoch_iso(int(anchor - window_days * 86_400))
-        if not start_iso:
-            return []
-        try:
-            return self.repository.list_credit_asset_snapshots(
-                start_after=start_iso,
-                limit=2_000_000,
-                fields=[
-                    "queried_at",
-                    "total_asset",
-                    "market_value",
-                    "total_debt",
-                    "available_amount",
-                ],
-            )
-        except TypeError:
-            return self.repository.list_credit_asset_snapshots()
+        # 窗口起点必须与存储的 queried_at 同构（UTC +00:00），否则字符串
+        # $gte 比较会按 +08:00 字面值排序，窗口头部 8 小时被错误排除。
+        start_iso = datetime.fromtimestamp(
+            int(anchor - window_days * 86_400),
+            tz=timezone.utc,
+        ).isoformat()
+        return self.repository.list_credit_asset_5m_buckets(start_after=start_iso)
 
     def _build_portfolio_benchmark(self, *, series, period) -> dict[str, Any]:
         """Attach the benchmark curve (上证综指ETF 510210) to the equity payload.

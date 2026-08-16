@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import defaultdict
 from typing import Any
@@ -16,6 +17,8 @@ from freshquant.order_management.execution_archive import (
 )
 from freshquant.position_management.db import DBPositionManagement
 from freshquant.util.code import normalize_to_base_code
+
+logger = logging.getLogger(__name__)
 
 
 class PositionReviewRepository:
@@ -41,6 +44,32 @@ class PositionReviewRepository:
         self.quantaxis_database = (
             quantaxis_database if quantaxis_database is not None else DBQuantAxis
         )
+        self.ensure_credit_snapshot_indexes()
+
+    def ensure_credit_snapshot_indexes(self):
+        """Ensure ``queried_at`` index for window-scoped reads (idempotent).
+
+        无索引时窗口过滤读会全表扫描 57 万条原始快照；索引创建幂等且
+        后台执行，测试桩（无 create_index 的 dict 集合）自动跳过。
+        """
+
+        collection = _optional_collection(
+            self.position_database,
+            "pm_credit_asset_snapshots",
+        )
+        if collection is None or not hasattr(collection, "create_index"):
+            return
+        try:
+            collection.create_index(
+                [("queried_at", 1)],
+                name="queried_at_1",
+                background=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "ensure credit snapshot queried_at index failed: %s",
+                exc,
+            )
 
     def list_index_day_bars(self, code, *, start_date=None):
         """Read-only benchmark daily bars from the QUANTAXIS index_day store."""
@@ -222,7 +251,6 @@ class PositionReviewRepository:
         self,
         *,
         limit: int = 200_000,
-        start_after=None,
         fields=None,
     ) -> list[dict[str, Any]]:
         """Read-only credit/asset snapshot series for equity reconstruction.
@@ -231,9 +259,8 @@ class PositionReviewRepository:
         order (descending query capped at ``limit``, then reversed) so the
         series window keeps tracking the newest data once the collection grows
         past ``limit`` documents.
-        ``start_after`` 限定 ``queried_at >= start_after``（窗口起点过滤，
-        长窗口不再被 ``limit`` 截断）；``fields`` 做字段投影以降低长窗口
-        读取的内存占用（不传则返回完整文档）。
+        ``fields`` 做字段投影以降低读取的内存占用（不传则返回完整文档）。
+        长窗口的 5 分钟聚合请用 ``list_credit_asset_5m_buckets``。
         """
 
         collection = _optional_collection(
@@ -242,16 +269,11 @@ class PositionReviewRepository:
         )
         if collection is None:
             return []
-        query: dict[str, Any] = {}
-        if start_after:
-            query["queried_at"] = {"$gte": str(start_after)}
         projection = None
         if fields:
             projection = {field: 1 for field in fields}
             projection["_id"] = 0
-        cursor = (
-            collection.find(query, projection) if projection else collection.find(query)
-        )
+        cursor = collection.find({}, projection) if projection else collection.find({})
         documents = _documents(
             cursor.sort("queried_at", -1).limit(max(int(limit or 0), 0))
         )
@@ -276,6 +298,69 @@ class PositionReviewRepository:
             return None
         value = str((document or {}).get("queried_at") or "").strip()
         return value or None
+
+    def list_credit_asset_5m_buckets(
+        self,
+        *,
+        start_after=None,
+    ) -> list[dict[str, Any]]:
+        """Server-side 5-minute bucket aggregation of credit snapshots.
+
+        MongoDB 8 的 ``$dateTrunc`` 按北京时区 5 分钟分桶、桶内取末笔
+        （``$last``），查询侧只返回约 3 万个桶文档而不是 57 万条原始快照。
+        返回与原始快照同构的文档列表，附加 ``bucket_time``（北京 5 分钟
+        桶边界的 BSON Date）。
+        """
+
+        collection = _optional_collection(
+            self.position_database,
+            "pm_credit_asset_snapshots",
+        )
+        if collection is None:
+            return []
+        match = {"queried_at": {"$gte": str(start_after)}} if start_after else {}
+        pipeline = [
+            {"$match": match},
+            {"$sort": {"queried_at": 1}},
+            {
+                "$group": {
+                    "_id": {
+                        "$dateTrunc": {
+                            "date": {
+                                "$dateFromString": {
+                                    "dateString": {"$substr": ["$queried_at", 0, 19]},
+                                    "format": "%Y-%m-%dT%H:%M:%S",
+                                    "onError": None,
+                                }
+                            },
+                            "unit": "minute",
+                            "binSize": 5,
+                            "timezone": "Asia/Shanghai",
+                        }
+                    },
+                    "queried_at": {"$last": "$queried_at"},
+                    "total_asset": {"$last": "$total_asset"},
+                    "market_value": {"$last": "$market_value"},
+                    "total_debt": {"$last": "$total_debt"},
+                    "available_amount": {"$last": "$available_amount"},
+                }
+            },
+            {"$sort": {"_id": 1}},
+            {"$match": {"_id": {"$ne": None}}},
+            {
+                "$project": {
+                    "_id": 0,
+                    "bucket_time": "$_id",
+                    "queried_at": 1,
+                    "total_asset": 1,
+                    "market_value": 1,
+                    "total_debt": 1,
+                    "available_amount": 1,
+                }
+            },
+        ]
+        cursor = collection.aggregate(pipeline, allowDiskUse=True)
+        return _documents(cursor)
 
     def load_catalog_bundles(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
         """Read every catalog collection once and group the snapshot in memory."""

@@ -262,9 +262,10 @@ class FakePositionReviewRepository:
     def list_xt_assets(self):
         return []
 
-    def list_credit_asset_snapshots(
-        self, *, limit=200_000, start_after=None, fields=None
-    ):
+    def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
+        return []
+
+    def list_credit_asset_5m_buckets(self, *, start_after=None):
         return []
 
     def latest_credit_snapshot_time(self):
@@ -1463,9 +1464,7 @@ def test_portfolio_endpoints_share_one_snapshot_build():
                 }
             ]
 
-        def list_credit_asset_snapshots(
-            self, *, limit=200_000, start_after=None, fields=None
-        ):
+        def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
             return []
 
     repository = CountingRepository()
@@ -1522,9 +1521,7 @@ def test_portfolio_refresh_rerereads_snapshot_sources():
         def list_xt_assets(self):
             return []
 
-        def list_credit_asset_snapshots(
-            self, *, limit=200_000, start_after=None, fields=None
-        ):
+        def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
             return []
 
     repository = CountingRepository()
@@ -1563,9 +1560,7 @@ def test_catalog_hit_path_reuses_credit_snapshots_by_reference():
         def list_xt_assets(self):
             return []
 
-        def list_credit_asset_snapshots(
-            self, *, limit=200_000, start_after=None, fields=None
-        ):
+        def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
             self.credit_reads += 1
             return self.credit
 
@@ -1664,9 +1659,7 @@ def test_catalog_uses_one_batch_snapshot_and_one_global_runtime_scan():
         def list_xt_assets(self):
             return []
 
-        def list_credit_asset_snapshots(
-            self, *, limit=200_000, start_after=None, fields=None
-        ):
+        def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
             return []
 
         def __getattr__(self, name):
