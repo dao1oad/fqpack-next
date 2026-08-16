@@ -1263,6 +1263,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
       type: 'line',
       showSymbol: false,
       smooth: false,
+      sampling: 'lttb',
       lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
       data,
     })
@@ -1276,6 +1277,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
       type: 'line',
       showSymbol: false,
       smooth: false,
+      sampling: 'lttb',
       lineStyle: { color: positionReviewChartColors.equity, width: 1.8 },
       data,
     })
@@ -1330,6 +1332,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
         yAxisIndex: 1,
         showSymbol: false,
         smooth: false,
+        sampling: 'lttb',
         lineStyle: { color: '#7c3aed', width: 1.6, type: 'dashed' },
         data: benchmarkData,
       }]
