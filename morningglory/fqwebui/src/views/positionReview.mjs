@@ -1144,29 +1144,65 @@ const prformatPeriodTick = (label, period) => {
 
 const prtradeSideText = (side) => (side === 'sell' ? '卖出' : '买入')
 
+const PR_TOOLTIP_CSS = (
+  'max-width:560px;max-height:420px;overflow:auto;'
+  + 'background:#0f172a;border:1px solid #334155;border-radius:10px;'
+  + 'box-shadow:0 8px 24px rgba(0,0,0,0.45);padding:10px 12px;'
+)
+
+const prfmtAmount = (value) => (
+  value == null ? '—' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+)
+
+const prfmtSigned = (value) => (
+  value == null
+    ? '—'
+    : `${value >= 0 ? '+' : ''}${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
+)
+
+const prfmtPctText = (value) => (
+  value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+)
+
 export const buildPortfolioTradeTooltip = (point = {}) => {
   const trades = prtoArray(point.trades)
   if (!trades.length) return '<div class="prt-muted">该周期内没有交易</div>'
+  const buyAmount = trades
+    .filter((trade) => trade.side !== 'sell')
+    .reduce((sum, trade) => sum + (Number(trade.amount) || 0), 0)
+  const sellAmount = trades
+    .filter((trade) => trade.side === 'sell')
+    .reduce((sum, trade) => sum + (Number(trade.amount) || 0), 0)
   const rows = trades.map((trade) => {
-    const amount = trade.amount == null
-      ? '—'
-      : Number(trade.amount).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-    return `<div class="prt-row">
-      <span class="prt-label">${prescapeTooltipHtml(trade.time || '—')}</span>
+    const amount = prfmtAmount(trade.amount)
+    const timeText = prtoText(trade.time)
+    const timeOfDay = timeText.length >= 16 ? timeText.slice(11, 16) : timeText
+    const meta = [
+      trade.request_id ? `请求 ${trade.request_id}` : null,
+      trade.association_quality ? `关联 ${trade.association_quality}` : null,
+      trade.account_partition ? `分区 ${trade.account_partition}` : null,
+    ].filter(Boolean).join(' · ')
+    return `<div class="prt-row prt-trade-row">
+      <span class="prt-label">${prescapeTooltipHtml(timeOfDay || '—')}</span>
       <span class="prt-value">
         <span class="prt-side prt-side-${trade.side === 'sell' ? 'sell' : 'buy'}">${prtradeSideText(trade.side)}</span>
         ${prescapeTooltipHtml(trade.symbol)} ${prescapeTooltipHtml(trade.name || '')}
         · ${prtooltipValue(trade.quantity)} 股
         · ${prtooltipValue(trade.price)} 元
         · ${amount} 元
+        <span class="prt-meta">${prescapeTooltipHtml(meta)}</span>
       </span>
     </div>`
   }).join('')
   const header = `<div class="prt-header">
     <span class="prt-side prt-side-buy">交易</span>
-    <span class="prt-id">${trades.length} 笔成交</span>
+    <span class="prt-id">${prescapeTooltipHtml(point.period_label || point.time || '')} · ${trades.length} 笔</span>
   </div>`
-  return `<div class="prt">${header}${rows}</div>`
+  const summary = `<div class="prt-row">
+    <span class="prt-label">当日成交</span>
+    <span class="prt-value">买入 ${prfmtAmount(buyAmount)} 元 · 卖出 ${prfmtAmount(sellAmount)} 元</span>
+  </div>`
+  return `<div class="prt">${header}${summary}${rows}</div>`
 }
 
 const prfirstFinite = (values) => values.find((value) => value != null)
@@ -1189,30 +1225,80 @@ const prportfolioBenchmarkTooltip = (
   accountData,
   benchmarkName,
   benchmarkData,
+  series,
 ) => {
   const items = Array.isArray(params) ? params : [params]
-  const index = items.find((item) => item && item.dataIndex != null)?.dataIndex
-  const label = labels[index ?? 0] || ''
-  const accountValue = accountData[index ?? 0]
-  const benchmarkValue = benchmarkData[index ?? 0]
+  const index = items.find((item) => item && item.dataIndex != null)?.dataIndex ?? 0
+  const label = labels[index] || ''
+  const point = series[index] || {}
+  const accountValue = accountData[index]
+  const benchmarkValue = benchmarkData[index]
   const accountBase = prfirstFinite(accountData)
   const benchmarkBase = prfirstFinite(benchmarkData)
   const accountPct = prwindowPct(accountValue, accountBase)
   const benchmarkPct = prwindowPct(benchmarkValue, benchmarkBase)
-  const fmtValue = (value) => (
-    value == null ? '—' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 3 })
-  )
-  const fmtPct = (value) => (value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`)
+  const spread = accountPct == null || benchmarkPct == null
+    ? null
+    : accountPct - benchmarkPct
+  const prevAccount = index > 0 ? accountData[index - 1] : null
+  const dayDelta = accountValue != null && prevAccount != null
+    ? accountValue - prevAccount
+    : null
+  const dayPct = dayDelta != null && prevAccount ? (dayDelta / prevAccount) * 100 : null
+  const rows = [
+    [accountName, `${prfmtAmount(accountValue)}（区间 ${prfmtPctText(accountPct)}）`],
+    ['较前一交易日', `${prfmtSigned(dayDelta)}（${prfmtPctText(dayPct)}）`],
+    ['持仓市值', prfmtAmount(prtoFiniteNumber(point.market_value))],
+    ['现金', prfmtAmount(prtoFiniteNumber(point.cash))],
+    ['总负债', prfmtAmount(prtoFiniteNumber(point.total_debt))],
+    [benchmarkName, `${prfmtAmount(benchmarkValue)}（区间 ${prfmtPctText(benchmarkPct)}）`],
+    ['相对基准', spread == null
+      ? '—'
+      : `<span class="prt-spread-${spread >= 0 ? 'up' : 'down'}">${spread >= 0 ? '+' : ''}${spread.toFixed(2)}pp ${spread >= 0 ? '跑赢' : '跑输'}</span>`],
+  ]
   return `<div class="prt">
     <div class="prt-header"><span class="prt-id">${prescapeTooltipHtml(label)}</span></div>
-    <div class="prt-row">
-      <span class="prt-label">${prescapeTooltipHtml(accountName)}</span>
-      <span class="prt-value">${fmtValue(accountValue)}（${fmtPct(accountPct)}）</span>
-    </div>
-    <div class="prt-row">
-      <span class="prt-label">${prescapeTooltipHtml(benchmarkName)}</span>
-      <span class="prt-value">${fmtValue(benchmarkValue)}（${fmtPct(benchmarkPct)}）</span>
-    </div>
+    ${rows.map(([label, value]) => `
+      <div class="prt-row">
+        <span class="prt-label">${prescapeTooltipHtml(label)}</span>
+        <span class="prt-value">${value}</span>
+      </div>`).join('')}
+  </div>`
+}
+
+const prportfolioAccountTooltip = (
+  params,
+  labels,
+  accountName,
+  accountData,
+  series,
+) => {
+  const items = Array.isArray(params) ? params : [params]
+  const index = items.find((item) => item && item.dataIndex != null)?.dataIndex ?? 0
+  const label = labels[index] || ''
+  const point = series[index] || {}
+  const accountValue = accountData[index]
+  const accountBase = prfirstFinite(accountData)
+  const accountPct = prwindowPct(accountValue, accountBase)
+  const prevAccount = index > 0 ? accountData[index - 1] : null
+  const dayDelta = accountValue != null && prevAccount != null
+    ? accountValue - prevAccount
+    : null
+  const dayPct = dayDelta != null && prevAccount ? (dayDelta / prevAccount) * 100 : null
+  const rows = [
+    [accountName, `${prfmtAmount(accountValue)}（区间 ${prfmtPctText(accountPct)}）`],
+    ['较前一交易日', `${prfmtSigned(dayDelta)}（${prfmtPctText(dayPct)}）`],
+    ['持仓市值', prfmtAmount(prtoFiniteNumber(point.market_value))],
+    ['现金', prfmtAmount(prtoFiniteNumber(point.cash))],
+    ['总负债', prfmtAmount(prtoFiniteNumber(point.total_debt))],
+  ]
+  return `<div class="prt">
+    <div class="prt-header"><span class="prt-id">${prescapeTooltipHtml(label)}</span></div>
+    ${rows.map(([label, value]) => `
+      <div class="prt-row">
+        <span class="prt-label">${prescapeTooltipHtml(label)}</span>
+        <span class="prt-value">${value}</span>
+      </div>`).join('')}
   </div>`
 }
 
@@ -1328,7 +1414,7 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
           show: true,
           className: 'prt-tooltip',
           confine: true,
-          extraCssText: 'max-width:520px;max-height:320px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          extraCssText: PR_TOOLTIP_CSS,
           formatter: (params) => buildPortfolioTradeTooltip(params?.data?.point || {}),
         },
         data: tradeSeriesData,
@@ -1373,6 +1459,9 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
     animation: false,
     tooltip: {
       trigger: 'axis',
+      className: 'prt-tooltip',
+      confine: true,
+      extraCssText: PR_TOOLTIP_CSS,
       ...(hasBenchmark
         ? {
             formatter: (params) => prportfolioBenchmarkTooltip(
@@ -1382,11 +1471,16 @@ export const buildPortfolioEquityOption = (payload = {}, mode = 'net') => {
               primaryData,
               benchmarkName,
               benchmarkData,
+              series,
             ),
           }
         : {
-            valueFormatter: (value) => (
-              value == null ? '—' : Number(value).toLocaleString('zh-CN')
+            formatter: (params) => prportfolioAccountTooltip(
+              params,
+              labels,
+              primarySeries[0].name,
+              primaryData,
+              series,
             ),
           }),
     },
@@ -1603,7 +1697,7 @@ export const buildSymbolReviewChartOption = ({
           show: true,
           className: 'prt-tooltip',
           confine: true,
-          extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          extraCssText: PR_TOOLTIP_CSS,
           formatter: (params) => {
             const event = params?.data?.event
             if (!event) return ''
@@ -1839,7 +1933,7 @@ export const buildSymbolCostChartOption = ({
           show: true,
           className: 'prt-tooltip',
           confine: true,
-          extraCssText: 'max-width:520px;overflow:auto;background:rgba(17,24,39,0.96);border:1px solid rgba(255,255,255,0.14);border-radius:8px;',
+          extraCssText: PR_TOOLTIP_CSS,
           formatter: (params) => {
             const event = params?.data?.event
             if (!event) return ''
