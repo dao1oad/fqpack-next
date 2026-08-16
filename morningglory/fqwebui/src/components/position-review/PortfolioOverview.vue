@@ -21,9 +21,6 @@ const error = ref('')
 const equityPeriod = ref('30d')
 const equityMode = ref('net')
 const equityPeriodOptions = [
-  { value: 'day', label: '日' },
-  { value: 'week', label: '周' },
-  { value: 'month', label: '月' },
   { value: '30d', label: '30日' },
   { value: '60d', label: '60日' },
   { value: '90d', label: '90日' },
@@ -233,8 +230,8 @@ defineExpose({ reload: () => loadPortfolio({ force: true }) })
           <p class="portfolio-overview__panel-note">
             {{
               equityMode === 'asset'
-                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；切换的是时间窗口（跨度），曲线固定按 5 分钟粒度展示；窗口早于可用历史的区间不插值；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
-                : '净资产 = 总资产 − 总负债；切换的是时间窗口（跨度），曲线固定按 5 分钟粒度展示；窗口早于可用历史的区间不插值；交易发生的 5 分钟桶标注交易点；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
+                ? '总资产 = 现金 + 证券市值 + 其他资产 − 负债；切换的是时间窗口（跨度），曲线按日采样、X 轴仅交易日（点间直接连线，无周末横线）；窗口早于可用历史的区间不插值；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
+                : '净资产 = 总资产 − 总负债；切换的是时间窗口（跨度），曲线按日采样、X 轴仅交易日（点间直接连线，无周末横线）；窗口早于可用历史的区间不插值；交易日有成交标注交易点；紫色虚线 = 上证综指ETF 510210（右侧轴）。'
             }}
           </p>
         </div>

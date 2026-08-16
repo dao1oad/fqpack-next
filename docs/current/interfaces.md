@@ -36,7 +36,7 @@ python -m freshquant.rear.api_server --port 5000
 - `GET /api/position-review/symbols`
 - `GET /api/position-review/symbols/<symbol>`
 - `GET /api/position-review/portfolio/summary`
-- `GET /api/position-review/portfolio/series`（`period=day|week|month|30d|60d|90d|6m|1y|2y`，默认 `day`）
+- `GET /api/position-review/portfolio/series`（`period=30d|60d|90d|6m|1y|2y`，默认 `30d`）
 - `GET /api/position-review/portfolio/contributions`
 - `GET /api/position-review/symbols/<symbol>/chart`
 - `GET /api/position-review/events/<event_id>/conditions`
@@ -165,10 +165,10 @@ python -m freshquant.rear.api_server --port 5000
     - `credit_snapshot_reconstructed`：信用资产快照重建（`pm_credit_asset_snapshots`，按分钟聚合，缺失区间不插值）
     - `estimated`：仅当前快照/持仓的估算
   - 每个点只返回曲线消费字段：`time / period_key / period_label / total_equity / net_value / estimated_equity / trades / trade_count`
-  - `period` 是时间窗口而不是 K 线式展示周期：`day`=1 天 / `week`=7 天 /
-    `month`=30 天 / `30d`=30 天 / `60d`=60 天 / `90d`=90 天 / `6m`=183 天 /
-    `1y`=365 天 / `2y`=730 天；**所有窗口统一按 5 分钟粒度展示**（北京时区
-    5 分钟桶取末笔快照），窗口以最新快照为锚往前截取，缺失区间不插值
+  - `period` 是时间窗口而不是 K 线式展示周期：`30d`=30 天 / `60d`=60 天 /
+    `90d`=90 天 / `6m`=183 天 / `1y`=365 天 / `2y`=730 天；**曲线按日采样**
+    （北京日历日桶取当日末笔快照，快照仅交易时段产生，桶即交易日，X 轴
+    不含非交易日），窗口以最新快照为锚往前截取，缺失区间不插值
   - 信用快照按窗口起点过滤读取（`queried_at >= 锚点 - 窗口天数`，字段投影，
     上限 2,000,000 条），长窗口不再被固定 200,000 条读取上限截断；
     账户快照历史晚于窗口起点时 `data_quality.window.covered=false` 并附
