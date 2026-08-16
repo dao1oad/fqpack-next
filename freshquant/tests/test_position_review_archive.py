@@ -625,6 +625,63 @@ def test_list_credit_asset_snapshots_default_limit_matches_production_caller():
     assert signature.parameters["limit"].default == 200_000
 
 
+class AggregateCollection:
+    """只实现 aggregate 的最小集合桩（验证服务器端聚合管道接线）。"""
+
+    def __init__(self, documents):
+        self.documents = documents
+        self.last_pipeline = None
+        self.last_allow_disk_use = None
+
+    def aggregate(self, pipeline, allowDiskUse=False):
+        self.last_pipeline = pipeline
+        self.last_allow_disk_use = allowDiskUse
+        return iter(dict(item) for item in self.documents)
+
+
+def test_list_credit_asset_5m_buckets_uses_server_side_pipeline():
+    collection = AggregateCollection(
+        [
+            {
+                "bucket_time": datetime(2026, 8, 12, 1, 35, tzinfo=timezone.utc),
+                "queried_at": "2026-08-12T09:35:00+00:00",
+                "total_asset": 100.0,
+                "market_value": 50.0,
+                "total_debt": 10.0,
+                "available_amount": 1.0,
+            }
+        ]
+    )
+    repository = PositionReviewRepository(
+        business_database=MemoryDatabase(),
+        order_database=MemoryDatabase(),
+        position_database=MemoryDatabase({"pm_credit_asset_snapshots": collection}),
+    )
+
+    buckets = repository.list_credit_asset_5m_buckets(
+        start_after="2026-08-01T00:00:00+00:00"
+    )
+
+    assert len(buckets) == 1
+    assert buckets[0]["queried_at"] == "2026-08-12T09:35:00+00:00"
+    assert buckets[0]["bucket_time"] == collection.documents[0]["bucket_time"]
+    assert collection.last_allow_disk_use is True
+    pipeline = collection.last_pipeline
+    assert pipeline[0] == {
+        "$match": {"queried_at": {"$gte": "2026-08-01T00:00:00+00:00"}}
+    }
+    group_stage = pipeline[2]
+    assert "$dateTrunc" in str(group_stage)
+    assert group_stage["$group"]["queried_at"] == {"$last": "$queried_at"}
+    # 畸形 queried_at 显式失败为 null 并过滤，不整管道报错。
+    assert (
+        group_stage["$group"]["_id"]["$dateTrunc"]["date"]["$dateFromString"]["onError"]
+        is None
+    )
+    assert {"$match": {"_id": {"$ne": None}}} in pipeline
+    assert pipeline[-1]["$project"]["_id"] == 0
+
+
 def test_xt_trades_do_not_override_om_ledger_fills():
     business = MemoryDatabase(
         {

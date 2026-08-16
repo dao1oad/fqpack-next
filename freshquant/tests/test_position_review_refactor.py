@@ -385,9 +385,7 @@ class FakeBuySellRepository:
             }
         ]
 
-    def list_credit_asset_snapshots(
-        self, *, limit=200_000, start_after=None, fields=None
-    ):
+    def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
         return []
 
 
@@ -731,9 +729,7 @@ class FakeFlattenRebuildRepository:
     def list_xt_assets(self):
         return []
 
-    def list_credit_asset_snapshots(
-        self, *, limit=200_000, start_after=None, fields=None
-    ):
+    def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
         return []
 
 
@@ -1895,6 +1891,8 @@ def test_replay_cost_basis_seeds_inherited_flatten_cost_and_sorts_series():
 
 def test_portfolio_series_attaches_benchmark_from_loader():
     class BenchmarkRepository:
+        observed_start_after = []
+
         def __init__(self):
             self.credit = [
                 {
@@ -1915,9 +1913,11 @@ def test_portfolio_series_attaches_benchmark_from_loader():
         def list_xt_positions(self, symbol=None):
             return []
 
-        def list_credit_asset_snapshots(
-            self, *, limit=200_000, start_after=None, fields=None
-        ):
+        def list_credit_asset_snapshots(self, *, limit=200_000, fields=None):
+            return self.credit
+
+        def list_credit_asset_5m_buckets(self, *, start_after=None):
+            BenchmarkRepository.observed_start_after.append(start_after)
             if not start_after:
                 return self.credit
             return [
@@ -1945,3 +1945,7 @@ def test_portfolio_series_attaches_benchmark_from_loader():
     assert payload["benchmark"]["available"] is True
     assert payload["benchmark"]["code"] == "510210"
     assert payload["benchmark"]["series"][-1]["close"] == 1.01
+    # 窗口起点必须与存储的 queried_at 同构（UTC +00:00），否则字符串
+    # $gte 比较会排除窗口头部 8 小时（Devin 验收 P1-1 回归）。
+    assert BenchmarkRepository.observed_start_after
+    assert BenchmarkRepository.observed_start_after[-1].endswith("+00:00")
