@@ -164,7 +164,7 @@ python -m freshquant.rear.api_server --port 5000
     - `broker_total_asset`：券商历史总资产快照（`xt_assets`）
     - `credit_snapshot_reconstructed`：信用资产快照重建（`pm_credit_asset_snapshots`，按分钟聚合，缺失区间不插值）
     - `estimated`：仅当前快照/持仓的估算
-  - 每个点返回 `total_equity / estimated_equity / cash / market_value / total_debt / net_external_flow / position_ratio / drawdown`
+  - 每个点只返回曲线消费字段：`time / period_key / period_label / total_equity / net_value / estimated_equity / trades / trade_count`
   - `period` 是时间窗口而不是 K 线式展示周期：`day`=1 天 / `week`=7 天 /
     `month`=30 天 / `30d`=30 天 / `60d`=60 天 / `90d`=90 天 / `6m`=183 天 /
     `1y`=365 天 / `2y`=730 天；**所有窗口统一按 5 分钟粒度展示**（北京时区

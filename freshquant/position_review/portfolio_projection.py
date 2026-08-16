@@ -409,15 +409,8 @@ def build_portfolio_series(
             {
                 "time": time_text,
                 "total_equity": _round(total_asset),
-                "cash": _round(item.get("cash")),
-                "market_value": _round(item.get("market_value")),
                 "estimated_equity": None,
                 "net_value": _round(total_asset),
-                "net_external_flow": None,
-                "position_ratio": _round(item.get("position_pct")),
-                "drawdown": None,
-                "equity_basis": "broker_total_asset",
-                "data_quality": {"source": "xt_assets"},
             }
         )
 
@@ -436,9 +429,7 @@ def build_portfolio_series(
                 continue
             key = parsed.strftime("%Y-%m-%d %H:%M")
             total_asset = _float(item.get("total_asset"))
-            market_value = _float(item.get("market_value"))
             total_debt = _float(item.get("total_debt"))
-            available = _float(item.get("available_amount"))
             existing = by_second.get(key)
             if existing is None:
                 net_value = (
@@ -448,22 +439,9 @@ def build_portfolio_series(
                 )
                 by_second[key] = {
                     "time": parsed.isoformat(),
-                    "total_asset": _round(total_asset),
                     "total_equity": _round(total_asset),
-                    "market_value": _round(market_value),
-                    "total_debt": _round(total_debt),
-                    "cash": _round(available),
                     "estimated_equity": net_value,
                     "net_value": net_value,
-                    "net_external_flow": None,
-                    "position_ratio": (
-                        round(market_value / total_asset, 6)
-                        if total_asset and market_value is not None
-                        else None
-                    ),
-                    "drawdown": None,
-                    "equity_basis": "credit_snapshot_reconstructed",
-                    "data_quality": {"source": "pm_credit_asset_snapshots"},
                 }
         credit_points = [by_second[key] for key in sorted(by_second) if by_second[key]]
 
