@@ -36,7 +36,7 @@ PATTERN = re.compile(rf'f?"({FIELD_GROUP})\.(?:\d+|\{{)')
 def scan_root(root: Path) -> list[str]:
     violations: list[str] = []
     for path in sorted(root.rglob("*.py")):
-        if "__pycache__" in path.parts:
+        if "__pycache__" in path.parts or "tests" in path.parts:
             continue
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()

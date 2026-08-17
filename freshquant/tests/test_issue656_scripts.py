@@ -22,6 +22,8 @@ def _load_script(name: str):
         name.replace(".", "_"),
         REPO_ROOT / "script" / f"{name}.py",
     )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载 script/{name}.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
