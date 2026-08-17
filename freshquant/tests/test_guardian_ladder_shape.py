@@ -233,6 +233,60 @@ class TestLadderShapeGuardMongo:
         ladder = _ladder(ladder_db)
         assert ladder.get_state("512000")["buy_line_armed"] == [False, True, True]
 
+    def test_rearm_all_buy_lines_fixes_object_shape(self, ladder_db):
+        # 三形态×四操作：rearm（整数组写）对对象/缺失形状同样修复
+        ladder_db["guardian_buy_grid_states"].insert_one(
+            {
+                "code": "512000",
+                "buy_active": [True, True, True],
+                "buy_line_armed": {"0": False},
+            }
+        )
+        ladder = _ladder(ladder_db)
+        assert ladder.rearm_all_buy_lines("512000") is True
+        doc = ladder_db["guardian_buy_grid_states"].find_one({"code": "512000"})
+        assert doc["buy_line_armed"] == [True, True, True]
+
+    def test_set_buy_line_armed_on_missing_field_doc(self, ladder_db):
+        # set（API 透传）在缺字段文档上写整数组，形状修复为数组
+        ladder_db["guardian_buy_grid_states"].insert_one(
+            {"code": "600271", "buy_active": [True, True, True]}
+        )
+        ladder = _ladder(ladder_db)
+        result = ladder.set_buy_line_armed(code="600271", values=[False, True, True])
+        assert result["buy_line_armed"] == [False, True, True]
+        doc = ladder_db["guardian_buy_grid_states"].find_one({"code": "600271"})
+        assert doc["buy_line_armed"] == [False, True, True]
+
+    def test_cas_normalize_concurrent_only_one_wins(self, ladder_db):
+        # P1-①：两"进程"（两个 ladder 实例）同时归一缺失字段文档，
+        # 条件更新保证单写者，最终形状为数组且语义一致。
+        import threading
+
+        ladder_db["guardian_buy_grid_states"].insert_one(
+            {"code": "512000", "buy_active": [True, True, True]}
+        )
+        first = _ladder(ladder_db)
+        second = _ladder(ladder_db)
+        barrier = threading.Barrier(2)
+        results = []
+
+        def _worker(instance):
+            barrier.wait(timeout=5)
+            results.append(instance._normalize_buy_line_armed_shape("512000"))
+
+        threads = [
+            threading.Thread(target=_worker, args=(first,)),
+            threading.Thread(target=_worker, args=(second,)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        assert results == [True, True]
+        doc = ladder_db["guardian_buy_grid_states"].find_one({"code": "512000"})
+        assert doc["buy_line_armed"] == [True, True, True]
+
 
 @pytest.mark.skipif(not MONGO_AVAILABLE, reason="需要本机 Mongo（CI mongo service）")
 class TestUpsertStateDefaultDocumentMongo:
