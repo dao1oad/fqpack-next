@@ -17,9 +17,15 @@ function createStubChart() {
   const chartHandlers = new Map()
   const zrHandlers = new Map()
   let option = null
+  let domInside = true
+  const dispatchedActions = []
   return {
     chartHandlers,
     zrHandlers,
+    dispatchedActions,
+    setDomInside(value) {
+      domInside = value
+    },
     on(event, handler) {
       chartHandlers.set(event, handler)
     },
@@ -46,7 +52,15 @@ function createStubChart() {
     clear() {
       option = null
     },
+    getDom() {
+      return {
+        contains() {
+          return domInside
+        },
+      }
+    },
     dispatchAction(action) {
+      dispatchedActions.push(action)
       if (action?.type === 'dataZoom') {
         chartHandlers.get('datazoom')?.({
           start: action.start,
@@ -72,6 +86,25 @@ function createStubChart() {
         },
       }
     },
+  }
+}
+
+function installDocumentStub() {
+  const original = globalThis.document
+  const stub = {
+    listeners: new Map(),
+    addEventListener(type, handler) {
+      this.listeners.set(type, handler)
+    },
+    removeEventListener(type, handler) {
+      if (this.listeners.get(type) === handler) {
+        this.listeners.delete(type)
+      }
+    },
+  }
+  globalThis.document = stub
+  return () => {
+    globalThis.document = original
   }
 }
 
@@ -412,4 +445,88 @@ test('controller drag callback keeps three-decimal guide prices', () => {
   assert.equal(dragCalls.length > 0, true)
   assert.equal(dragCalls.at(-1).price, expectedPrice)
   assert.notEqual(dragCalls.at(-1).price, Number(expectedPrice.toFixed(2)))
+})
+
+test('controller hides tooltip when clicking blank chart area', () => {
+  const chart = createStubChart()
+  const restore = installDocumentStub()
+  try {
+    const controller = createKlineSlimChartController({ chart })
+    controller.applyScene(buildScene())
+    chart.dispatchedActions.length = 0
+    chart.zrHandlers.get('click')?.({})
+    assert.ok(chart.dispatchedActions.some((action) => action.type === 'hideTip'))
+  } finally {
+    restore()
+  }
+})
+
+test('controller keeps tooltip when clicking a chart element', () => {
+  const chart = createStubChart()
+  const restore = installDocumentStub()
+  try {
+    const controller = createKlineSlimChartController({ chart })
+    controller.applyScene(buildScene())
+    chart.dispatchedActions.length = 0
+    chart.zrHandlers.get('click')?.({ target: {} })
+    assert.equal(
+      chart.dispatchedActions.some((action) => action.type === 'hideTip'),
+      false,
+    )
+  } finally {
+    restore()
+  }
+})
+
+test('controller hides tooltip when clicking outside the chart container', () => {
+  const chart = createStubChart()
+  const restore = installDocumentStub()
+  try {
+    createKlineSlimChartController({ chart })
+    chart.setDomInside(false)
+    globalThis.document.listeners.get('click')?.({ target: {} })
+    assert.ok(chart.dispatchedActions.some((action) => action.type === 'hideTip'))
+  } finally {
+    restore()
+  }
+})
+
+test('controller keeps tooltip when clicking inside the chart container', () => {
+  const chart = createStubChart()
+  const restore = installDocumentStub()
+  try {
+    createKlineSlimChartController({ chart })
+    chart.setDomInside(true)
+    globalThis.document.listeners.get('click')?.({ target: {} })
+    assert.equal(
+      chart.dispatchedActions.some((action) => action.type === 'hideTip'),
+      false,
+    )
+  } finally {
+    restore()
+  }
+})
+
+test('controller hides stale tooltip when applying a new scene', () => {
+  const chart = createStubChart()
+  const restore = installDocumentStub()
+  try {
+    const controller = createKlineSlimChartController({ chart })
+    controller.applyScene(buildScene())
+    assert.ok(chart.dispatchedActions.some((action) => action.type === 'hideTip'))
+  } finally {
+    restore()
+  }
+})
+
+test('controller removes document click listener on dispose', () => {
+  const chart = createStubChart()
+  const restore = installDocumentStub()
+  try {
+    const controller = createKlineSlimChartController({ chart })
+    controller.dispose()
+    assert.equal(globalThis.document.listeners.has('click'), false)
+  } finally {
+    restore()
+  }
 })

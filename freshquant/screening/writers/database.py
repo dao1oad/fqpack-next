@@ -40,6 +40,7 @@ class DatabaseOutput:
                 position=result.position,
                 tags=result.tags,
                 strategy=strategy,
+                signal_type=result.signal_type,
             )
         except Exception as e:
             logger.error(f"保存信号失败 {result.symbol}: {e}")

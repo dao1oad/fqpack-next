@@ -488,6 +488,34 @@ export function createKlineSlimChartController({
     onClxMarkerSelect?.(group)
   }
 
+  // 悬浮框固定显示（enterable + alwaysShowContent）下的关闭语义：
+  // - 点击图表空白（zr 事件无 target）→ 关闭
+  // - 点击图表容器外部 → 关闭
+  // - 点击 marker / tooltip 内部 / 其他图形元素 → 保持（marker 由 ECharts
+  //   click 触发切换新内容）
+  const handleZrClick = (event) => {
+    if (!chart || !currentScene) {
+      return
+    }
+    if (event?.target) {
+      return
+    }
+    chart.dispatchAction?.({ type: 'hideTip' })
+  }
+
+  const handleDocumentClick = (event) => {
+    if (!chart) {
+      return
+    }
+    const dom = chart.getDom?.()
+    if (!dom) {
+      return
+    }
+    if (!dom.contains(event?.target)) {
+      chart.dispatchAction?.({ type: 'hideTip' })
+    }
+  }
+
   const handleDataZoom = (event) => {
     syncViewport(event)
   }
@@ -696,6 +724,8 @@ export function createKlineSlimChartController({
     chart.getZr?.().on('mousedown', handleMouseDown)
     chart.getZr?.().on('mouseup', handleMouseUp)
     chart.getZr?.().on('mousewheel', handleMouseWheel)
+    chart.getZr?.().on('click', handleZrClick)
+    globalThis.document?.addEventListener?.('click', handleDocumentClick)
   }
 
   return {
@@ -703,6 +733,7 @@ export function createKlineSlimChartController({
       if (!chart || !scene) {
         return
       }
+      chart.dispatchAction?.({ type: 'hideTip' })
 
       const shouldResetCrosshair =
         resetViewport || !currentScene || currentScene.sceneScopeId !== scene.sceneScopeId
@@ -726,6 +757,7 @@ export function createKlineSlimChartController({
       crosshair = null
       draggingPriceGuide = null
       draggingViewport = null
+      chart?.dispatchAction?.({ type: 'hideTip' })
       chart?.clear?.()
     },
     syncCrosshair() {
@@ -788,6 +820,8 @@ export function createKlineSlimChartController({
       chart.getZr?.().off('mousedown', handleMouseDown)
       chart.getZr?.().off('mouseup', handleMouseUp)
       chart.getZr?.().off('mousewheel', handleMouseWheel)
+      chart.getZr?.().off('click', handleZrClick)
+      globalThis.document?.removeEventListener?.('click', handleDocumentClick)
     }
   }
 }
