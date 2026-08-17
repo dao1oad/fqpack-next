@@ -18,6 +18,7 @@ LadderState 统一管理 3 条买入线（``guardian_buy_grid_states.buy_line_ar
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -35,16 +36,62 @@ DEFAULT_BUY_ACTIVE = [False, False, False]
 EVENT_COLLECTION = "guardian_ladder_events"
 EVENT_TTL_INDEX_NAME = "ttl_guardian_ladder_events"
 EVENT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 天
+_ARMED_SHAPE_ALERT_INTERVAL_SECONDS = 300.0
+_armed_shape_alert_last: dict[tuple[str, str], float] = {}
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _coerce_buy_line_armed(value: Any) -> list[bool]:
+def _coerce_buy_line_armed(value: Any, *, code: str = "") -> list[bool]:
+    """买入线 armed 状态归一（Issue #656 fail-accurate）。
+
+    - 长度 3 数组 → 原样归一；
+    - 对象形状（历史点路径写入 bug 产物）→ 按现值归一（下标缺失按 True）；
+    - 字段缺失 / 其他形状 → 回退缺省全武装（默认武装是产品语义），
+      并发限频告警（进程内内存节流，热路径零 IO）。
+    """
+
     if isinstance(value, list) and len(value) == 3:
         return [bool(value[0]), bool(value[1]), bool(value[2])]
+    if isinstance(value, dict):
+        normalized = []
+        for index in range(3):
+            raw = value.get(str(index))
+            if raw is None:
+                raw = value.get(index)
+            normalized.append(True if raw is None else bool(raw))
+        _alert_buy_line_armed_shape(code, "object_shape")
+        return normalized
+    if value is None:
+        _alert_buy_line_armed_shape(code, "missing_field")
+    else:
+        _alert_buy_line_armed_shape(code, "invalid_shape")
     return list(DEFAULT_BUY_LINE_ARMED)
+
+
+def _alert_buy_line_armed_shape(code: str, category: str) -> None:
+    """形状异常限频告警：按 (code, 类别) 每 5 分钟最多一条日志。"""
+
+    now = time.monotonic()
+    key = (code or "", category)
+    last = _armed_shape_alert_last.get(key)
+    if last is not None and now - last < _ARMED_SHAPE_ALERT_INTERVAL_SECONDS:
+        return
+    _armed_shape_alert_last[key] = now
+    logger.warning(
+        "guardian_buy_grid_states.buy_line_armed 形状异常 "
+        "(code={}, category={}, fallback=default_armed)",
+        code or "-",
+        category,
+    )
+
+
+def _reset_armed_shape_alert_throttle() -> None:
+    """测试辅助：清空限频状态。"""
+
+    _armed_shape_alert_last.clear()
 
 
 def _normalize_level(value: Any) -> int | None:
@@ -65,9 +112,15 @@ class GuardianLadderState:
         tp_database=None,
         events_database=None,
     ):
-        self.buy_grid_database = buy_grid_database or DBfreshquant
-        self.tp_database = tp_database or DBOrderManagement
-        self.events_database = events_database or DBfreshquant
+        # 显式 is None 判断：pymongo Database 不实现 __bool__（直接 or 会抛
+        # NotImplementedError），且与注入测试库的路径保持一致。
+        self.buy_grid_database = (
+            buy_grid_database if buy_grid_database is not None else DBfreshquant
+        )
+        self.tp_database = tp_database if tp_database is not None else DBOrderManagement
+        self.events_database = (
+            events_database if events_database is not None else DBfreshquant
+        )
         self._events_indexes_ready = False
 
     # ------------------------------------------------------------------
@@ -176,7 +229,10 @@ class GuardianLadderState:
             }
         return {
             "code": normalize_to_base_code(raw.get("code") or code),
-            "buy_line_armed": _coerce_buy_line_armed(raw.get("buy_line_armed")),
+            "buy_line_armed": _coerce_buy_line_armed(
+                raw.get("buy_line_armed"),
+                code=normalize_to_base_code(raw.get("code") or code),
+            ),
             "buy_active": (
                 list(raw["buy_active"])
                 if isinstance(raw.get("buy_active"), list)
@@ -271,18 +327,7 @@ class GuardianLadderState:
             event_key=event_key,
         ):
             return False
-        self._ensure_buy_grid_state_document(normalized_code)
-        self._buy_grid_state_collection().update_one(
-            {"code": normalized_code},
-            {
-                "$set": {
-                    f"buy_line_armed.{index}": True,
-                    "updated_at": _now_iso(),
-                    "updated_by": "guardian_ladder",
-                }
-            },
-        )
-        return True
+        return self._reopen_buy_line_at(normalized_code, index)
 
     def rearm_all_buy_lines(self, code) -> bool:
         """全开买入线（止盈成交联动 / reset 语义）。"""
@@ -305,7 +350,7 @@ class GuardianLadderState:
         """字段级写回买入线 armed 状态（API POST 透传）。"""
 
         normalized_code = normalize_to_base_code(code)
-        resolved = _coerce_buy_line_armed(values)
+        resolved = _coerce_buy_line_armed(values, code=normalized_code)
         self._ensure_buy_grid_state_document(normalized_code)
         self._buy_grid_state_collection().update_one(
             {"code": normalized_code},
@@ -320,20 +365,95 @@ class GuardianLadderState:
         return self.get_state(normalized_code)
 
     def _close_buy_lines(self, code, index) -> bool:
-        """关 BUY-0..index（条件更新：触发档当前 armed 或字段缺失）。"""
+        """关 BUY-0..index（Issue #656：$type:array 形状守卫 + 一次性 CAS 归一）。
 
-        closures = {f"buy_line_armed.{i}": False for i in range(int(index) + 1)}
-        result = self._buy_grid_state_collection().update_one(
-            {
-                "code": code,
-                "$or": [
-                    {"buy_line_armed": {"$exists": False}},
-                    {f"buy_line_armed.{int(index)}": True},
-                ],
-            },
+        仅当 ``buy_line_armed`` 为数组且触发档当前 armed 时关闭；形状异常
+        （缺失/对象）先 CAS 归一为数组，再重试一次原关闭（各最多 1 次）。
+        仍未匹配返回 False（= ladder_conflict 语义，调用方以新 intent_id
+        作为新事件键推进，A5 口径）。
+        """
+
+        closures = {
+            f"buy_line_armed.{i}": False  # noqa: guarded-array-dotted
+            for i in range(int(index) + 1)
+        }
+        collection = self._buy_grid_state_collection()
+        query = {
+            "code": code,
+            "buy_line_armed": {"$type": "array"},
+            f"buy_line_armed.{int(index)}": True,  # noqa: guarded-array-dotted
+        }
+        update_payload = {
+            "$set": {
+                **closures,
+                "updated_at": _now_iso(),
+                "updated_by": "guardian_ladder",
+            }
+        }
+        result = collection.update_one(query, update_payload)
+        if result.matched_count == 1:
+            return True
+        if not self._normalize_buy_line_armed_shape(code):
+            return False
+        retry = collection.update_one(query, update_payload)
+        return retry.matched_count == 1
+
+    def _reopen_buy_line_at(self, code, index) -> bool:
+        """重开 BUY-N（零成交终态 / 提交失败补偿，幂等）。
+
+        Issue #656 P0-①：形状异常时 CAS 归一后必须重试置 True——重开的终态
+        必须 armed=True，不得「视为已由他方处理」直接返回，否则偶发形状
+        竞态会让买入线静默永闭。
+        """
+
+        collection = self._buy_grid_state_collection()
+        query = {"code": code, "buy_line_armed": {"$type": "array"}}
+        update_payload = {
+            "$set": {
+                f"buy_line_armed.{index}": True,  # noqa: guarded-array-dotted
+                "updated_at": _now_iso(),
+                "updated_by": "guardian_ladder",
+            }
+        }
+        result = collection.update_one(query, update_payload)
+        if result.matched_count == 1:
+            return True
+        if not self._normalize_buy_line_armed_shape(code):
+            return False
+        retry = collection.update_one(query, update_payload)
+        return retry.matched_count == 1
+
+    def _normalize_buy_line_armed_shape(self, code) -> bool:
+        """缺失/对象形状 → 长度 3 数组（一次性 CAS 条件更新，保证单写者）。
+
+        归一保留当前值（对象按现值、缺失按缺省全武装）；并发下若他方已
+        归一为数组，条件更新不匹配，重读校验形状后按数组返回 True（幂等）。
+        """
+
+        collection = self._buy_grid_state_collection()
+        doc = collection.find_one({"code": code})
+        if doc is None:
+            self._ensure_buy_grid_state_document(code)
+            return True
+        current = doc.get("buy_line_armed")
+        if isinstance(current, list) and len(current) == 3:
+            return True
+        normalized = list(DEFAULT_BUY_LINE_ARMED)
+        if isinstance(current, dict):
+            for position in range(3):
+                raw = current.get(str(position))
+                if raw is None:
+                    raw = current.get(position)
+                if raw is not None:
+                    normalized[position] = bool(raw)
+            shape_query = {"code": code, "buy_line_armed": {"$type": "object"}}
+        else:
+            shape_query = {"code": code, "buy_line_armed": {"$exists": False}}
+        result = collection.update_one(
+            shape_query,
             {
                 "$set": {
-                    **closures,
+                    "buy_line_armed": normalized,
                     "updated_at": _now_iso(),
                     "updated_by": "guardian_ladder",
                 }
@@ -341,23 +461,9 @@ class GuardianLadderState:
         )
         if result.matched_count == 1:
             return True
-        # 文档整体缺失：缺省态（全 armed）新建后关闭。
-        if self._buy_grid_state_collection().find_one({"code": code}) is None:
-            self._ensure_buy_grid_state_document(code)
-            self._buy_grid_state_collection().update_one(
-                {"code": code},
-                {
-                    "$set": {
-                        **closures,
-                        "updated_at": _now_iso(),
-                        "updated_by": "guardian_ladder",
-                    }
-                },
-            )
-            return True
-        # 档位已被其他进程关闭 → 冲突：事件键已 claim，本轮放弃；
-        # 调用方以新事件键（新 intent_id）推进，同键不重复处理（A5 口径）。
-        return False
+        after = collection.find_one({"code": code})
+        current_after = (after or {}).get("buy_line_armed")
+        return isinstance(current_after, list) and len(current_after) == 3
 
     def _ensure_buy_grid_state_document(self, code) -> None:
         self._buy_grid_state_collection().update_one(
@@ -367,6 +473,10 @@ class GuardianLadderState:
                     "code": code,
                     "buy_line_armed": list(DEFAULT_BUY_LINE_ARMED),
                     "buy_active": list(DEFAULT_BUY_ACTIVE),
+                    "last_hit_level": None,
+                    "last_hit_price": None,
+                    "last_hit_signal_time": None,
+                    "last_reset_reason": None,
                     "updated_at": _now_iso(),
                     "updated_by": "guardian_ladder",
                 }

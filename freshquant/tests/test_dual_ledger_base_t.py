@@ -90,6 +90,14 @@ def _matches(document, query):
             if bool(expected["$exists"]) != (actual is not None):
                 return False
             continue
+        if isinstance(expected, dict) and "$type" in expected:
+            actual = _get_path(document, key)
+            type_name = expected["$type"]
+            if type_name == "array" and not isinstance(actual, list):
+                return False
+            if type_name == "object" and not isinstance(actual, dict):
+                return False
+            continue
         if isinstance(expected, dict) and "$ne" in expected:
             if _get_path(document, key) == expected["$ne"]:
                 return False

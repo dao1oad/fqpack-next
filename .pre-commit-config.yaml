@@ -39,3 +39,11 @@ repos:
     hooks:
       - id: isort
         args: [--profile, black, --filter-files]
+  - repo: local
+    hooks:
+      - id: check-mongo-array-dotted-set
+        name: check-mongo-array-dotted-set
+        entry: python script/check_mongo_array_dotted_set.py
+        language: system
+        files: ^freshquant/.*\.py$
+        pass_filenames: false
