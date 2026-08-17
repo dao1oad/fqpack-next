@@ -164,6 +164,78 @@ def fetch_docker_containers() -> dict[str, Any]:
         }
 
 
+def fetch_guardian_shape_anomalies() -> dict[str, Any]:
+    """Issue #656：只读检查阶梯状态集合形状（失败降级，不阻断快照主链）。
+
+    - ``guardian_buy_grid_states.buy_line_armed`` / ``buy_active`` 必须为
+      长度 3 数组；
+    - ``om_takeprofit_states.armed_levels`` 必须为字典。
+
+    Mongo 不可达 / 包缺失时返回 ok=False（页面按降级显示，不把缺失当健康）。
+    """
+    try:
+        import pymongo  # noqa: F401
+
+        from freshquant.bootstrap_config import bootstrap_config
+    except Exception as exc:  # pragma: no cover - 防御降级
+        return {"ok": False, "error": f"形状检查初始化失败: {exc}", "anomalies": []}
+    try:
+        client = pymongo.MongoClient(
+            host=bootstrap_config.mongodb.host,
+            port=bootstrap_config.mongodb.port,
+            serverSelectionTimeoutMS=3000,
+        )
+        anomalies: list[dict[str, Any]] = []
+        buy_db = client[bootstrap_config.mongodb.db]
+        for doc in buy_db["guardian_buy_grid_states"].find(
+            {}, {"code": 1, "buy_line_armed": 1, "buy_active": 1}
+        ):
+            code = str(doc.get("code") or "")
+            armed = doc.get("buy_line_armed")
+            active = doc.get("buy_active")
+            if not (isinstance(armed, list) and len(armed) == 3):
+                anomalies.append(
+                    {
+                        "collection": "guardian_buy_grid_states",
+                        "code": code,
+                        "field": "buy_line_armed",
+                        "shape": type(armed).__name__,
+                    }
+                )
+            if active is not None and not (
+                isinstance(active, list) and len(active) == 3
+            ):
+                anomalies.append(
+                    {
+                        "collection": "guardian_buy_grid_states",
+                        "code": code,
+                        "field": "buy_active",
+                        "shape": type(active).__name__,
+                    }
+                )
+        om_db_name = (
+            getattr(bootstrap_config.order_management, "mongo_database", None)
+            or "freshquant_order_management"
+        )
+        for doc in client[om_db_name]["om_takeprofit_states"].find(
+            {}, {"symbol": 1, "armed_levels": 1}
+        ):
+            levels = doc.get("armed_levels")
+            if levels is not None and not isinstance(levels, dict):
+                anomalies.append(
+                    {
+                        "collection": "om_takeprofit_states",
+                        "code": str(doc.get("symbol") or ""),
+                        "field": "armed_levels",
+                        "shape": type(levels).__name__,
+                    }
+                )
+        client.close()
+        return {"ok": True, "error": None, "anomalies": anomalies}
+    except Exception as exc:  # pragma: no cover - 防御降级
+        return {"ok": False, "error": f"Mongo 形状检查失败: {exc}", "anomalies": []}
+
+
 def _parse_compose_labels(raw: Any) -> tuple[str | None, str | None]:
     """从 docker ps Labels 字段（k=v,k=v 字符串）解析 compose project/service。"""
     if not isinstance(raw, str) or not raw.strip():
@@ -192,6 +264,7 @@ def build_snapshot(
 ) -> dict[str, Any]:
     supervisor = fetch_supervisor_programs(rpc_url)
     docker = fetch_docker_containers()
+    guardian_shapes = fetch_guardian_shape_anomalies()
     project_containers = [
         container
         for container in docker["containers"]
@@ -227,6 +300,11 @@ def build_snapshot(
             "expected_count": int(expected_docker),
             "compose_project": compose_project,
             "containers": project_containers,
+        },
+        "guardian_shapes": {
+            "ok": guardian_shapes["ok"],
+            "error": guardian_shapes["error"],
+            "anomalies": guardian_shapes["anomalies"],
         },
     }
 

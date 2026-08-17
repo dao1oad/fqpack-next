@@ -53,9 +53,9 @@ def _iter_enabled_buy_configs(config_collection):
             {
                 "$or": [
                     {"enabled": True},
-                    {"buy_enabled.0": True},
-                    {"buy_enabled.1": True},
-                    {"buy_enabled.2": True},
+                    {"buy_enabled.0": True},  # noqa: array-dotted-query
+                    {"buy_enabled.1": True},  # noqa: array-dotted-query
+                    {"buy_enabled.2": True},  # noqa: array-dotted-query
                 ]
             },
             {"code": 1},

@@ -407,9 +407,24 @@ class GuardianBuyGridService:
             fields["last_hit_signal_time"] = last_hit_signal_time
         if last_reset_reason is not _UNSET:
             fields["last_reset_reason"] = last_reset_reason
+        # Issue #656 P0-②：创建路径用 $setOnInsert 补全默认字段，杜绝缺
+        # buy_line_armed 的半成品状态文档（512000 事故根因之一）。
+        # Mongo 限制：同一 update 内 $set 与 $setOnInsert 不得含同名字段
+        # （ConflictingUpdateOperators），故剔除 $set 已含的键。
+        set_on_insert: dict[str, Any] = {
+            "code": normalized,
+            "buy_line_armed": list(DEFAULT_BUY_LINE_ARMED),
+            "buy_active": list(MISSING_STATE_BUY_ACTIVE),
+            "last_hit_level": None,
+            "last_hit_price": None,
+            "last_hit_signal_time": None,
+            "last_reset_reason": None,
+        }
+        for key in [item for item in set_on_insert if item in fields]:
+            del set_on_insert[key]
         self._state_collection().update_one(
             {"code": normalized},
-            {"$set": fields},
+            {"$set": fields, "$setOnInsert": set_on_insert},
             upsert=True,
         )
         result = self.get_state(normalized)
@@ -1147,10 +1162,14 @@ class GuardianBuyGridService:
         }
 
     def _normalize_state(self, raw: dict[str, Any]) -> dict[str, Any]:
+        normalized_code = normalize_to_base_code(raw.get("code") or "")
         return {
-            "code": normalize_to_base_code(raw.get("code") or ""),
+            "code": normalized_code,
             "buy_active": _coerce_buy_active(raw.get("buy_active")),
-            "buy_line_armed": _coerce_buy_line_armed(raw.get("buy_line_armed")),
+            "buy_line_armed": _coerce_buy_line_armed(
+                raw.get("buy_line_armed"),
+                code=normalized_code,
+            ),
             "last_hit_level": raw.get("last_hit_level"),
             "last_hit_price": raw.get("last_hit_price"),
             "last_hit_signal_time": raw.get("last_hit_signal_time"),

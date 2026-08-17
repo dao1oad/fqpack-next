@@ -48,6 +48,22 @@ fail-closed。先解析归属后聚类，禁止跨账本聚合，聚合成员携
   - 事件冲突：事件键已 claim，同键不重复处理；tick 路径下一 tick 以新
     `intent_id` 作为新事件键重试；XT ingest 路径当前事件内以 terminal 键
     有限重试并记录告警（A5 口径）。
+- 买入线 armed 形状契约（Issue #656，512000 事故根治）：
+  - 写侧：`buy_line_armed.N` 点路径写一律带 `$type:"array"` 查询守卫；文档
+    存在但字段缺失/对象形状时先做一次性 CAS 归一（缺失按缺省全武装、
+    对象按现值，条件更新保证单写者），再重试原操作（各最多 1 次，仍未
+    匹配返回 False = ladder_conflict 语义）；`upsert_state` 创建路径以
+    `$setOnInsert` 补全默认字段，不再产生缺 `buy_line_armed` 的半成品文档；
+  - 读侧：`_coerce_buy_line_armed` fail-accurate——对象按现值归一、字段缺失
+    按缺省全武装并做进程内限频告警（每 code×类别 5 分钟最多一条日志，
+    tick 热路径零 IO）；
+  - 防护：`fqnext_ops_host_snapshot` 每 5 分钟只读检查状态集合形状
+    （`buy_line_armed`/`buy_active` 长度 3 数组、`armed_levels` 字典），
+    异常写入快照 `guardian_shapes` 字段（Mongo 失败降级不阻断主链）；
+    pre-commit 静态扫描 `script/check_mongo_array_dotted_set.py` 禁止数组
+    字段无标注点路径写；
+  - 数据修复：`script/fix_buy_line_armed_shapes.py`（preview / apply --yes /
+    verify 三阶段，幂等可重跑）；部署顺序硬约束 = 先部署新代码再修数据。
 - 幂等/并发契约（路线步骤 4，根④）：
   - `stock_signals` 建立唯一索引 `uq_stock_signals_signal_key`
     `(symbol, code, period, fire_time, position)`；建索引前自动清理历史重复
@@ -62,7 +78,7 @@ fail-closed。先解析归属后聚类，禁止跨账本聚合，聚合成员携
     `$set`（不再二次 update，消除竞态窗口）
 - rearm 门控：仅 base 买入事件（首开 + buy 线触发 + 手动加仓）全开止盈档；**T 买入不触发状态机**。
 - 配置校验：`TP1 > BUY-1`（及 BUY/TP 线序单调、caps 递增）倒挂 → fail-closed + 告警。
-- 状态存储：`guardian_buy_grid_states.buy_line_armed`（缺省 `[true,true,true]`）+ `om_takeprofit_states.armed_levels`；`guardian_buy_grid_state` GET/POST/reset 暴露并保留该两字段，reset 语义 = 回缺省态（安全方向：最坏多买一次，受 R/冷却/min_buy_amount 约束）。
+- 状态存储：`guardian_buy_grid_states.buy_line_armed`（长度 3 布尔数组，缺省 `[true,true,true]`）+ `om_takeprofit_states.armed_levels`（字典）；`guardian_buy_grid_state` GET/POST/reset 暴露并保留该两字段，reset 语义 = 回缺省态（安全方向：最坏多买一次，受 R/冷却/min_buy_amount 约束）。
 
 ### 做T买入（四段走廊金字塔）
 
