@@ -231,14 +231,11 @@ def resolve_signal_type(
     explicit_signal_type = _first_text((signal or {}).get("signal_type"))
     if explicit_signal_type:
         normalized = str(explicit_signal_type).strip().lower()
-        if (
-            normalized in SIGNAL_TYPE_REGISTRY
-            and normalized not in {"unknown", "manual"}
-        ):
-            if (
-                normalized_side == "buy"
-                and normalized in _REGISTERED_BUY_SIGNAL_TYPES
-            ):
+        if normalized in SIGNAL_TYPE_REGISTRY and normalized not in {
+            "unknown",
+            "manual",
+        }:
+            if normalized_side == "buy" and normalized in _REGISTERED_BUY_SIGNAL_TYPES:
                 return normalized
             if (
                 normalized_side == "sell"

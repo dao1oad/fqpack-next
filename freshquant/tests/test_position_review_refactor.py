@@ -891,7 +891,9 @@ def test_resolve_signal_type_legacy_remark_recovers_real_type():
         == "buy_v_reverse"
     )
     assert (
-        resolve_signal_type(request=request, signal={"remark": "回拉中枢上涨"}, side="buy")
+        resolve_signal_type(
+            request=request, signal={"remark": "回拉中枢上涨"}, side="buy"
+        )
         == "buy_zs_huila"
     )
 
