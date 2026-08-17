@@ -159,6 +159,9 @@ Guardian 自身不维护订单账本，但依赖以下状态：
   - enabled base-code 查询使用 60 秒进程缓存 TTL
 - `xt_positions`
 - `stock_signals`
+  - 信号文档落库包含原始 `signal_type`（如 `macd_bullish_divergence`），
+    Guardian 事件链保存时写入，供复盘读模型恢复真实信号类型（做T加仓订单
+    不再被一律标成 `buy_zs_huila`）；旧调用方不传时不写该字段。
 - Guardian buy grid 集合
   - `guardian_buy_grid_configs`
   - `guardian_buy_grid_states`

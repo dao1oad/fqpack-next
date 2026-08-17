@@ -28,6 +28,7 @@ from freshquant.position_review.portfolio_projection import (
 from freshquant.position_review.service import (
     PositionReviewService,
     _portfolio_trade_events,
+    _serialize_timeline_signal,
 )
 from freshquant.rear.position_review.routes import position_review_bp
 
@@ -798,6 +799,120 @@ def test_resolve_signal_type_sell_by_ledger_intent():
         resolve_signal_type(request=takeprofit, signal=None, side="sell")
         == "sell_takeprofit"
     )
+
+
+def test_resolve_signal_type_prefers_signal_raw_type_over_buy_grid():
+    """信号类型溯源：关联信号文档的原始 signal_type 优先于 buy_grid 推导。
+
+    600037 场景回归：holding_add + base_amount 不再一律标成 buy_zs_huila，
+    真实触发信号 macd_bullish_divergence（看涨背驰）直接透出。
+    """
+
+    request = {
+        "source": "strategy",
+        "strategy_context": {
+            "guardian_buy_grid": {
+                "path": "holding_add",
+                "base_amount": 20000.0,
+                "source_price": 6.93,
+            }
+        },
+    }
+    signal = {"remark": "看涨背驰", "signal_type": "macd_bullish_divergence"}
+    assert (
+        resolve_signal_type(request=request, signal=signal, side="buy")
+        == "macd_bullish_divergence"
+    )
+
+
+def test_resolve_signal_type_request_type_still_wins_over_signal_type():
+    """请求侧显式 signal_type 仍是最高优先级（先于信号文档溯源）。"""
+
+    request = {
+        "source": "strategy",
+        "signal_type": "buy_v_reverse",
+        "strategy_context": {
+            "guardian_buy_grid": {"path": "holding_add", "base_amount": 20000.0}
+        },
+    }
+    signal = {"remark": "看涨背驰", "signal_type": "macd_bullish_divergence"}
+    assert (
+        resolve_signal_type(request=request, signal=signal, side="buy")
+        == "buy_v_reverse"
+    )
+
+
+def test_resolve_signal_type_ignores_signal_type_with_wrong_side():
+    """卖侧订单不接受 buy 系 signal_type，维持既有卖侧推导（ledger 分流）。"""
+
+    request = {
+        "source": "strategy",
+        "ledger_intent": "t",
+        "strategy_context": {"guardian_sell_sources": {"submit_quantity": 100}},
+    }
+    signal = {"remark": "看涨背驰", "signal_type": "buy_v_reverse"}
+    assert (
+        resolve_signal_type(request=request, signal=signal, side="sell")
+        == "sell_takeprofit"
+    )
+
+
+def test_resolve_signal_type_falls_back_to_buy_grid_for_unknown_signal_type():
+    """未知/未注册 signal_type 被忽略，无 remark 证据时仍走 buy_grid 兜底。"""
+
+    request = {
+        "source": "strategy",
+        "strategy_context": {
+            "guardian_buy_grid": {"path": "holding_add", "base_amount": 20000.0}
+        },
+    }
+    signal = {"remark": None, "signal_type": "some_future_type"}
+    assert (
+        resolve_signal_type(request=request, signal=signal, side="buy")
+        == "buy_zs_huila"
+    )
+
+
+def test_resolve_signal_type_legacy_remark_recovers_real_type():
+    """旧信号无 signal_type 时，按中文 remark 恢复真实类型（关键词先于 buy_grid）。"""
+
+    request = {
+        "source": "strategy",
+        "strategy_context": {
+            "guardian_buy_grid": {"path": "holding_add", "base_amount": 20000.0}
+        },
+    }
+    assert (
+        resolve_signal_type(request=request, signal={"remark": "看涨背驰"}, side="buy")
+        == "macd_bullish_divergence"
+    )
+    assert (
+        resolve_signal_type(request=request, signal={"remark": "V反上涨"}, side="buy")
+        == "buy_v_reverse"
+    )
+    assert (
+        resolve_signal_type(request=request, signal={"remark": "回拉中枢上涨"}, side="buy")
+        == "buy_zs_huila"
+    )
+
+
+def test_serialize_timeline_signal_passes_through_signal_type():
+    """timeline 信号序列化透传原始 signal_type，复盘读模型统一受益。"""
+
+    serialized = _serialize_timeline_signal(
+        {
+            "code": "600037",
+            "fire_time": datetime.fromisoformat("2026-08-17T09:52:00+08:00"),
+            "position": "BUY_LONG",
+            "price": 6.93,
+            "remark": "看涨背驰",
+            "strategy": "Guardian",
+            "signal_type": "macd_bullish_divergence",
+        }
+    )
+    assert serialized["signal_type"] == "macd_bullish_divergence"
+    assert serialized["remark"] == "看涨背驰"
+    assert serialized["side"] == "buy"
 
 
 def test_cost_basis_replay_uses_entry_unit_cost_and_tracks_realized():

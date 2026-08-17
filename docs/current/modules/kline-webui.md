@@ -53,6 +53,11 @@
   - verdict 只以边框/透明度/`!` 编码：`FAIL` 深色加粗描边并显示 `!`，`INSUFFICIENT_EVIDENCE` 降透明度，`NOT_APPLICABLE` 低透明度空心
   - marker 锚定首次成交 bar 与订单加权成交均价；跨 bar fill 用同方向颜色细区间线表示成交跨度
   - hover 一次性展示全部信息（订单摘要、信号完整详情、全部条件阈值、成交、持仓影响、数据质量），conditions 懒加载并缓存；点击 marker 固定订单并进入 `/position-review` 右侧证据面板
+  - marker「信号类型」优先显示关联 Guardian 信号的原始 `signal_type`
+    （如 `macd_bullish_divergence`）；旧信号无 `signal_type` 时按 remark
+    关键词（背驰 / v反 / 回拉等）恢复，仍无证据时才按 buy_grid path 推导兜底
+  - 悬浮框固定显示（ECharts `enterable + alwaysShowContent`）：鼠标可移入
+    查看/滚动完整详情，点击悬浮框外部任意处才关闭；切换周期/标的时自动关闭
   - 不再在 K 线下方绘制策略应有量 / 实际成交量 / 连续持仓三轨附图；旧 `/timeline` 接口已移除
 
 PositionReview 读模型（E2，步骤 9）：`positionReview.mjs` 与

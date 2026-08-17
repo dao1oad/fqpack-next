@@ -149,6 +149,7 @@ def save_a_stock_signal(
     strategy=None,
     zsdata=None,
     fills=None,
+    signal_type=None,
 ):
     instrumentOne = query_instrument_info(code)
     category = fq_fetch_a_stock_category(code)
@@ -162,26 +163,29 @@ def save_a_stock_signal(
         "position": position,
     }
     ensure_stock_signals_unique_index()
+    set_fields = {
+        "symbol": symbol,
+        "code": code,
+        "name": name,
+        "period": period,
+        "remark": remark,
+        "fire_time": fire_time,
+        "price": price,
+        "stop_lose_price": stop_lose_price,
+        "position": position,
+        "tags": tags,
+        "category": category,
+        "strategy": "Guardian",
+        "is_holding": code in holdings,
+    }
+    # 原始信号类型（如 macd_bullish_divergence）随文档落库，供复盘读模型
+    # 恢复真实类型；旧调用方不传时不写该字段，不覆盖存量文档。
+    if signal_type is not None:
+        set_fields["signal_type"] = signal_type
     try:
         x = DBfreshquant["stock_signals"].find_one_and_update(
             signal_filter,
-            {
-                "$set": {
-                    "symbol": symbol,
-                    "code": code,
-                    "name": name,
-                    "period": period,
-                    "remark": remark,
-                    "fire_time": fire_time,
-                    "price": price,
-                    "stop_lose_price": stop_lose_price,
-                    "position": position,
-                    "tags": tags,
-                    "category": category,
-                    "strategy": "Guardian",
-                    "is_holding": code in holdings,
-                }
-            },
+            {"$set": set_fields},
             upsert=True,
         )
     except pymongo.errors.DuplicateKeyError:

@@ -133,6 +133,7 @@ def calculate_chanlun_signal(code_period_obj):
                 price,
                 stop_lose_price,
                 signal_dir_map[signal_type],
+                signal_type=signal_type,
             )
     except BaseException as e:
         logger.error("Error Occurred: {0}".format(traceback.format_exc()))

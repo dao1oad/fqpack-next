@@ -41,6 +41,20 @@ def test_guardian_monitor_disables_buy_zs_huila_signal():
     assert "if s.signal_type in DISABLED_GUARDIAN_SIGNAL_TYPES:" in content
 
 
+def test_guardian_monitor_saves_raw_signal_type_for_review_traceability():
+    """事件链保存信号时把原始 signal_type 一并落库。
+
+    复盘读模型依赖该字段显示真实信号类型（否则做T加仓订单会被一律标成
+    buy_zs_huila，与运行观测口径不一致）。
+    """
+
+    content = Path("freshquant/signal/astock/job/monitor_stock_zh_a_min.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "signal_type=s.signal_type" in content
+
+
 def test_query_must_pool_codes_cache_expires_after_one_minute(monkeypatch):
     records = [
         {

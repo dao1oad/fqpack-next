@@ -148,6 +148,59 @@ test('order review chart keeps a single K-line grid and renders price-layer mark
   assert.equal(sell.mark, true)
 })
 
+test('order review chart tooltip is sticky (enterable + alwaysShowContent)', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: makeMainData(),
+    currentPeriod: '5m',
+    visiblePeriods: ['5m'],
+    orderReviewChart: makeReviewChart(),
+    orderReviewChartVisible: true,
+  })
+  const viewport = deriveViewportStateForScene({
+    scene,
+    viewport: { xRange: { start: 0, end: 100 }, yRange: null },
+  })
+  const option = buildKlineSlimChartOption({ scene, viewport })
+
+  // 悬浮框固定显示：可移入查看/滚动，点击外部才关闭（controller 负责 hideTip）。
+  assert.equal(option.tooltip.show, true)
+  assert.equal(option.tooltip.enterable, true)
+  assert.equal(option.tooltip.alwaysShowContent, true)
+})
+
+test('CLX signal tooltip also inherits sticky top-level tooltip options', () => {
+  const scene = buildKlineSlimChartScene({
+    mainData: makeMainData(),
+    currentPeriod: '5m',
+    visiblePeriods: ['5m'],
+    clxVisible: true,
+    clxSignalHistory: {
+      profileId: 'production_v1',
+      algorithmVersion: 'v1',
+      dataVersion: 'v1',
+      markers: [
+        {
+          id: 'clx-1',
+          modelKey: 'S0001',
+          conditionKey: 'cond-1',
+          direction: 'buy',
+          price: 10.05,
+          triggerDate: '2026-03-16',
+        },
+      ],
+    },
+  })
+  const viewport = deriveViewportStateForScene({
+    scene,
+    viewport: { xRange: { start: 0, end: 100 }, yRange: null },
+  })
+  const option = buildKlineSlimChartOption({ scene, viewport })
+
+  assert.equal(option.tooltip.show, true)
+  assert.equal(option.tooltip.enterable, true)
+  assert.equal(option.tooltip.alwaysShowContent, true)
+})
+
 test('order review chart without events keeps the single K-line grid', () => {
   const scene = buildKlineSlimChartScene({
     mainData: makeMainData(),

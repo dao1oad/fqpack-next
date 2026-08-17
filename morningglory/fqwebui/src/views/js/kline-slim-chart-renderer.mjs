@@ -1769,6 +1769,9 @@ export function buildKlineSlimChartOption({
       show: orderReviewVisible || clxSignalsVisible,
       trigger: 'item',
       triggerOn: orderReviewVisible || clxSignalsVisible ? 'mousemove|click' : 'none',
+      // 悬浮框固定显示：可移入查看/滚动，点击外部才关闭（controller 负责 hideTip）。
+      enterable: true,
+      alwaysShowContent: true,
     },
     grid: { left: '4%', right: '4%', top: 64, bottom: 64 },
     xAxis: primaryXAxis,

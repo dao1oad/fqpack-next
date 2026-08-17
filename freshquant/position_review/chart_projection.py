@@ -81,13 +81,21 @@ SIGNAL_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
 }
 
 _BUY_SIGNAL_KEYWORDS = (
-    ("macd_bullish_divergence", ("背离", "divergence", "macd")),
-    ("buy_v_reverse", ("反转", "reverse", "v_reverse", "底背")),
+    ("macd_bullish_divergence", ("背离", "背驰", "divergence", "macd")),
+    ("buy_v_reverse", ("反转", "reverse", "v_reverse", "v反", "底背")),
     ("buy_zs_huila", ("回拉", "huila")),
 )
 _SELL_SIGNAL_KEYWORDS = (
     ("sell_takeprofit", ("止盈", "takeprofit", "take_profit", "回拉中枢")),
 )
+
+# 与 SIGNAL_TYPE_REGISTRY 中「真实信号可携带」的类型集合。signal.signal_type
+# 显式溯源只在 side 一致时采用；卖侧 Guardian 原始类型（sell_zs_huila 等）
+# 不在 registry，维持既有推导口径（非目标）。
+_REGISTERED_BUY_SIGNAL_TYPES = frozenset(
+    {"buy_v_reverse", "buy_zs_huila", "macd_bullish_divergence"}
+)
+_REGISTERED_SELL_SIGNAL_TYPES = frozenset({"sell_takeprofit"})
 
 
 def signal_type_registry_payload() -> dict[str, dict[str, Any]]:
@@ -218,16 +226,38 @@ def resolve_signal_type(
             return normalized
 
     normalized_side = str(side or "").strip().lower()
+    # 关联信号文档的原始 signal_type（save_a_stock_signal 落库）优先于
+    # buy_grid 推导；仅接受 registry 内且与 side 一致的类型。
+    explicit_signal_type = _first_text((signal or {}).get("signal_type"))
+    if explicit_signal_type:
+        normalized = str(explicit_signal_type).strip().lower()
+        if (
+            normalized in SIGNAL_TYPE_REGISTRY
+            and normalized not in {"unknown", "manual"}
+        ):
+            if (
+                normalized_side == "buy"
+                and normalized in _REGISTERED_BUY_SIGNAL_TYPES
+            ):
+                return normalized
+            if (
+                normalized_side == "sell"
+                and normalized in _REGISTERED_SELL_SIGNAL_TYPES
+            ):
+                return normalized
+
     if normalized_side == "buy":
+        # 旧信号无 signal_type 时按 remark 恢复真实类型（关键词扫描先于
+        # buy_grid 推导，避免做T加仓订单被一律标成 buy_zs_huila）。
+        for signal_type, keywords in _BUY_SIGNAL_KEYWORDS:
+            if any(kw in text.lower() for text in remarks if text for kw in keywords):
+                return signal_type
         if buy_grid:
             path = str((buy_grid or {}).get("path") or "").strip().lower()
             if path == "new_open":
                 return "buy_v_reverse"
             if path in {"holding_add", ""} and buy_grid.get("base_amount") is not None:
                 return "buy_zs_huila"
-        for signal_type, keywords in _BUY_SIGNAL_KEYWORDS:
-            if any(kw in text.lower() for text in remarks if text for kw in keywords):
-                return signal_type
         return "buy_v_reverse"
 
     if normalized_side == "sell":

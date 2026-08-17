@@ -3579,7 +3579,7 @@ def _serialize_timeline_signal(signal):
         signal.get("requested_quantity"),
         signal.get("volume"),
     )
-    return {
+    serialized = {
         "id": _timeline_signal_id(signal),
         "occurred_at": occurred_at,
         "time": occurred_at,
@@ -3590,6 +3590,10 @@ def _serialize_timeline_signal(signal):
         "strategy": strategy,
         "remark": str(signal.get("remark") or "").strip() or None,
     }
+    signal_type = _first_timeline_text(signal.get("signal_type")) or None
+    if signal_type:
+        serialized["signal_type"] = signal_type
+    return serialized
 
 
 def _review_signal_keys(review, request):

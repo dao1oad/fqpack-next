@@ -389,6 +389,60 @@ def test_save_a_stock_signal_skips_linkage_writeback_when_absent(monkeypatch):
     assert "intent_id" not in saved
 
 
+def test_save_a_stock_signal_persists_raw_signal_type(monkeypatch):
+    """原始 signal_type（如 macd_bullish_divergence）随信号文档落库。
+
+    复盘读模型依赖该字段恢复真实信号类型，否则做T加仓订单会被 buy_grid
+    推导一律标成 buy_zs_huila（与运行观测的真实信号不一致）。
+    """
+
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    a_stock_common.save_a_stock_signal(
+        "sh600037",
+        "600037",
+        "1m",
+        "看涨背驰",
+        datetime.now(),
+        6.93,
+        6.0,
+        "BUY_LONG",
+        tags=[],
+        strategy=SimpleNamespace(on_signal=lambda signal: None),
+        signal_type="macd_bullish_divergence",
+    )
+
+    assert len(fake_db.stock_signals.docs) == 1
+    saved = fake_db.stock_signals.docs[0]
+    assert saved["remark"] == "看涨背驰"
+    assert saved["signal_type"] == "macd_bullish_divergence"
+
+
+def test_save_a_stock_signal_omits_signal_type_when_not_provided(monkeypatch):
+    """旧调用方不传 signal_type 时，不写入该字段（不覆盖存量文档语义）。"""
+
+    fake_db = FakeDB()
+    a_stock_common = _import_a_stock_common_with_stubs(monkeypatch, fake_db)
+
+    a_stock_common.save_a_stock_signal(
+        "sz000001",
+        "000001",
+        "5m",
+        "V反上涨",
+        datetime.now(),
+        10.0,
+        9.0,
+        "BUY_LONG",
+        tags=[],
+        strategy=SimpleNamespace(on_signal=lambda signal: None),
+    )
+
+    assert len(fake_db.stock_signals.docs) == 1
+    saved = fake_db.stock_signals.docs[0]
+    assert "signal_type" not in saved
+
+
 def test_dedupe_stock_signals_keeps_smallest_id_per_group(monkeypatch):
     """A9：历史重复清理保留每组 _id 最小的一条。"""
 

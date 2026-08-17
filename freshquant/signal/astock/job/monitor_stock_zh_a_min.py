@@ -215,6 +215,7 @@ def monitor_stock_zh_a_min_event_driven() -> None:
                     strategy=strategy,
                     zsdata=data.get("zsdata"),
                     fills=fills if period_backend == "1min" else None,
+                    signal_type=s.signal_type,
                 )
         except Exception:
             logger.error(traceback.format_exc())
