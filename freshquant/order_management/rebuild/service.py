@@ -397,17 +397,8 @@ def _rebuild_position_entries(
         if broker_order.get("side") != "buy":
             continue
         broker_order_key = broker_order.get("broker_order_key")
-        accepted_buy_fills = []
-        for execution_fill in fills_by_broker_order_key.get(broker_order_key) or []:
-            if not _is_board_lot_quantity(
-                execution_fill.get("quantity"),
-                code=execution_fill.get("symbol"),
-            ):
-                ingest_rejection_documents.append(
-                    _build_ingest_rejection_from_execution_fill(execution_fill)
-                )
-                continue
-            accepted_buy_fills.append(execution_fill)
+        # Issue #659：成交回报零股全量入账（委托整手与成交零股正交）。
+        accepted_buy_fills = list(fills_by_broker_order_key.get(broker_order_key) or [])
         if not accepted_buy_fills:
             continue
 
@@ -432,14 +423,6 @@ def _rebuild_position_entries(
 
     for execution_fill in execution_fills:
         if execution_fill.get("side") != "sell":
-            continue
-        if not _is_board_lot_quantity(
-            execution_fill.get("quantity"),
-            code=execution_fill.get("symbol"),
-        ):
-            ingest_rejection_documents.append(
-                _build_ingest_rejection_from_execution_fill(execution_fill)
-            )
             continue
         sell_trade_fact = _build_trade_fact_from_execution_fill(execution_fill)
         replay_events.append(

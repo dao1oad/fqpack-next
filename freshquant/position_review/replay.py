@@ -778,12 +778,17 @@ def _review_guardian_sell(
         else None
     )
     if can_use_volume is not None:
-        from freshquant.order_management.sell_constraints import floor_to_board_lot
-
-        expected_quantity = floor_to_board_lot(
-            min(raw_expected_quantity, can_use_volume),
-            code=str(context.get("symbol") or ""),
+        # Issue #659：期望卖出数量与提交侧同口径（含清仓零股分支），
+        # 避免复盘把零股清仓误报为数量不一致。
+        from freshquant.order_management.sell_constraints import (
+            resolve_sell_submission_quantity,
         )
+
+        expected_quantity = resolve_sell_submission_quantity(
+            requested_quantity=raw_expected_quantity,
+            can_use_volume=can_use_volume,
+            code=str(context.get("symbol") or ""),
+        )["quantity"]
     elif raw_expected_quantity > 0:
         snapshot_raw = _int(context.get("requested_quantity"))
         snapshot_submit = _int(context.get("submit_quantity"))
@@ -858,7 +863,8 @@ def _review_guardian_sell(
             "per_slice_thresholds": list(selected.get("threshold_evidence") or []),
             "formula": (
                 "per-slice price >= replayed percent/ATR threshold; "
-                "sum slices meeting their own threshold; floor to board lot"
+                "sum slices meeting their own threshold; "
+                "resolve_sell_submission_quantity (含清仓零股)"
             ),
         }
     )

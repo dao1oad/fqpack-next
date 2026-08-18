@@ -1380,7 +1380,8 @@ def test_repeated_callback_does_not_duplicate_trade_fact_or_projection():
     assert len(repository.list_open_entry_slices(symbol="000001")) == 4
 
 
-def test_non_board_lot_trade_report_is_rejected_from_entry_ledger():
+def test_non_board_lot_trade_report_enters_entry_ledger():
+    # Issue #659：成交回报零股全量入账（委托整手与成交零股正交）。
     repository, ingest_service = _bootstrap_service()
 
     result = ingest_service.ingest_trade_report(
@@ -1395,13 +1396,13 @@ def test_non_board_lot_trade_report_is_rejected_from_entry_ledger():
 
     assert len(repository.trade_facts) == 1
     assert len(repository.execution_fills) == 1
-    assert repository.position_entries == []
-    assert repository.entry_slices == []
+    assert len(repository.position_entries) == 1
+    assert repository.position_entries[0]["original_quantity"] == 18
+    assert len(repository.entry_slices) == 1
     assert repository.buy_lots == []
-    assert len(repository.ingest_rejections) == 1
-    assert repository.ingest_rejections[0]["reason_code"] == "non_board_lot_quantity"
-    assert result["position_entry"] is None
-    assert result["projections"]["open_buy_fills"] == []
+    assert repository.ingest_rejections == []
+    assert result["position_entry"] is not None
+    assert len(result["projections"]["open_buy_fills"]) == 1
 
 
 def test_multiple_buy_trade_reports_for_same_order_update_one_position_entry():

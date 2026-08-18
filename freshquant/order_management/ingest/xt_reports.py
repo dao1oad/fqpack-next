@@ -176,193 +176,173 @@ class OrderManagementXtIngestService:
                 }
 
             if trade_fact["side"] == "buy":
-                if not _is_board_lot_quantity(
-                    trade_fact.get("quantity"), code=trade_fact.get("symbol")
-                ):
-                    _record_ingest_rejection(
-                        self.repository,
-                        trade_fact=trade_fact,
-                        reason_code="non_board_lot_quantity",
+                # Issue #659：成交回报零股全量入账（委托整手与成交零股正交）。
+                # 根①写侧收敛（路线步骤 5）：ingest 单写 V2 主账本，
+                # 不再双写 legacy 三账本（om_buy_lots/om_lot_slices/
+                # om_sell_allocations）。legacy 镜像删除批次 = 6b
+                # （Issue #605），触发条件 = 观察期连续 5 个交易日零差异。
+                position_entry, entry_slices = _upsert_broker_position_entry(
+                    repository=self.repository,
+                    trade_fact=trade_fact,
+                    lot_amount=lot_amount,
+                    grid_interval=grid_interval_lookup(symbol, trade_fact),
+                )
+                if position_entry is not None:
+                    self.repository.replace_entry_slices_for_entry(
+                        position_entry["entry_id"],
+                        entry_slices,
                     )
-                else:
-                    # 根①写侧收敛（路线步骤 5）：ingest 单写 V2 主账本，
-                    # 不再双写 legacy 三账本（om_buy_lots/om_lot_slices/
-                    # om_sell_allocations）。legacy 镜像删除批次 = 6b
-                    # （Issue #605），触发条件 = 观察期连续 5 个交易日零差异。
-                    position_entry, entry_slices = _upsert_broker_position_entry(
-                        repository=self.repository,
-                        trade_fact=trade_fact,
-                        lot_amount=lot_amount,
-                        grid_interval=grid_interval_lookup(symbol, trade_fact),
+                # #582 fail-closed：找不到 broker order 聚合时不生成 entry，
+                # 不触发买入投影/阶梯复位（交由 reconcile gap 自愈 + 告警）。
+                holdings_changed = position_entry is not None
+                if holdings_changed:
+                    self._notify_new_buy_trade(
+                        symbol=symbol,
+                        price=trade_fact["price"],
+                        position_type=position_type_of(
+                            (position_entry or {}).get("position_type")
+                        ),
                     )
-                    if position_entry is not None:
-                        self.repository.replace_entry_slices_for_entry(
-                            position_entry["entry_id"],
-                            entry_slices,
-                        )
-                    # #582 fail-closed：找不到 broker order 聚合时不生成 entry，
-                    # 不触发买入投影/阶梯复位（交由 reconcile gap 自愈 + 告警）。
-                    holdings_changed = position_entry is not None
-                    if holdings_changed:
-                        self._notify_new_buy_trade(
-                            symbol=symbol,
-                            price=trade_fact["price"],
-                            position_type=position_type_of(
-                                (position_entry or {}).get("position_type")
-                            ),
-                        )
-                        ladder_payload = {
-                            "position_type": position_type_of(
-                                (position_entry or {}).get("position_type")
-                            ),
-                            "tpsl_rearm": "base",
-                        }
+                    ladder_payload = {
+                        "position_type": position_type_of(
+                            (position_entry or {}).get("position_type")
+                        ),
+                        "tpsl_rearm": "base",
+                    }
             elif trade_fact["side"] == "sell":
-                if not _is_board_lot_quantity(
-                    trade_fact.get("quantity"), code=trade_fact.get("symbol")
-                ):
-                    _record_ingest_rejection(
-                        self.repository,
-                        trade_fact=trade_fact,
-                        reason_code="non_board_lot_quantity",
+                # Issue #659：成交回报零股全量入账（委托整手与成交零股正交）。
+                with self._sell_allocation_lock(symbol):
+                    v2_allocation_degraded = False
+                    allocation_degraded_reason = ""
+                    entries = self.repository.list_position_entries(symbol=symbol)
+                    open_entry_slices = self.repository.list_open_entry_slices(
+                        symbol=symbol
                     )
-                else:
-                    with self._sell_allocation_lock(symbol):
-                        v2_allocation_degraded = False
-                        allocation_degraded_reason = ""
-                        entries = self.repository.list_position_entries(symbol=symbol)
-                        open_entry_slices = self.repository.list_open_entry_slices(
-                            symbol=symbol
+                    if entries and open_entry_slices:
+                        source_plan, request_id, internal_order_id = (
+                            _resolve_trade_guardian_sell_source_plan(
+                                repository=self.repository,
+                                report=report,
+                                execution_fill=execution_fill,
+                                trade_fact=trade_fact,
+                            )
                         )
-                        if entries and open_entry_slices:
-                            source_plan, request_id, internal_order_id = (
-                                _resolve_trade_guardian_sell_source_plan(
-                                    repository=self.repository,
-                                    report=report,
-                                    execution_fill=execution_fill,
-                                    trade_fact=trade_fact,
+                        already_allocated = _sum_request_sell_allocations(
+                            self.repository,
+                            request_id=request_id,
+                            internal_order_id=internal_order_id,
+                        )
+                        try:
+                            exit_allocations = (
+                                allocate_sell_to_entry_slices_with_budget(
+                                    entries=entries,
+                                    open_slices=open_entry_slices,
+                                    sell_trade_fact=trade_fact,
+                                    source_plan=source_plan,
+                                    already_allocated_by_slice=already_allocated[
+                                        "by_slice"
+                                    ],
+                                    already_allocated_by_entry=already_allocated[
+                                        "by_entry"
+                                    ],
+                                    request_id=request_id,
+                                    internal_order_id=internal_order_id,
                                 )
                             )
-                            already_allocated = _sum_request_sell_allocations(
+                        except SellAllocationPlanExhaustedError as exc:
+                            v2_allocation_degraded = True
+                            allocation_degraded_reason = str(exc)
+                            exit_allocations = []
+                            _record_ingest_rejection(
+                                self.repository,
+                                trade_fact=trade_fact,
+                                reason_code="allocation_source_plan_exhausted",
+                            )
+                            self._emit_runtime(
+                                "sell_allocation",
+                                report,
+                                internal_order_id=internal_order_id
+                                or trade_fact.get("internal_order_id"),
+                                status="degraded",
+                                reason_code="allocation_source_plan_exhausted",
+                                extra_payload={
+                                    "request_id": request_id,
+                                    "internal_order_id": internal_order_id,
+                                    "side": "sell",
+                                    "quantity": trade_fact.get("quantity"),
+                                    "detail": allocation_degraded_reason,
+                                    "broker_trade_id": trade_fact.get(
+                                        "broker_trade_id"
+                                    ),
+                                },
+                            )
+                            logger.warning(
+                                "sell fill allocation plan exhausted: symbol={} broker_trade_id={} detail={}",
+                                symbol,
+                                trade_fact.get("broker_trade_id"),
+                                allocation_degraded_reason,
+                            )
+                        for item in entries:
+                            self.repository.replace_position_entry(item)
+                        touched_entry_ids = {
+                            item.get("entry_id")
+                            for item in open_entry_slices
+                            if item.get("entry_id")
+                        }
+                        for entry_id in touched_entry_ids:
+                            self.repository.replace_entry_slices_for_entry(
+                                entry_id,
+                                [
+                                    item
+                                    for item in open_entry_slices
+                                    if item.get("entry_id") == entry_id
+                                ],
+                            )
+                        if exit_allocations:
+                            self.repository.insert_exit_allocations(exit_allocations)
+                            takeprofit_level = _resolve_takeprofit_fill_level(
                                 self.repository,
                                 request_id=request_id,
                                 internal_order_id=internal_order_id,
+                                report=report,
+                                execution_fill=execution_fill,
+                                trade_fact=trade_fact,
                             )
-                            try:
-                                exit_allocations = (
-                                    allocate_sell_to_entry_slices_with_budget(
-                                        entries=entries,
-                                        open_slices=open_entry_slices,
-                                        sell_trade_fact=trade_fact,
-                                        source_plan=source_plan,
-                                        already_allocated_by_slice=already_allocated[
-                                            "by_slice"
-                                        ],
-                                        already_allocated_by_entry=already_allocated[
-                                            "by_entry"
-                                        ],
-                                        request_id=request_id,
-                                        internal_order_id=internal_order_id,
-                                    )
+                            if takeprofit_level is not None:
+                                ladder_result = _call_ladder_with_retry(
+                                    _get_ladder_state().on_takeprofit_fill,
+                                    code=symbol,
+                                    level=takeprofit_level,
+                                    event_key=(
+                                        internal_order_id
+                                        or str(trade_fact.get("internal_order_id"))
+                                        or f"tp_fill:{trade_fact.get('trade_fact_id')}"
+                                    ),
+                                    operation="takeprofit_fill",
+                                    symbol=symbol,
                                 )
-                            except SellAllocationPlanExhaustedError as exc:
-                                v2_allocation_degraded = True
-                                allocation_degraded_reason = str(exc)
-                                exit_allocations = []
-                                _record_ingest_rejection(
-                                    self.repository,
-                                    trade_fact=trade_fact,
-                                    reason_code="allocation_source_plan_exhausted",
-                                )
-                                self._emit_runtime(
-                                    "sell_allocation",
-                                    report,
-                                    internal_order_id=internal_order_id
-                                    or trade_fact.get("internal_order_id"),
-                                    status="degraded",
-                                    reason_code="allocation_source_plan_exhausted",
-                                    extra_payload={
-                                        "request_id": request_id,
-                                        "internal_order_id": internal_order_id,
-                                        "side": "sell",
-                                        "quantity": trade_fact.get("quantity"),
-                                        "detail": allocation_degraded_reason,
-                                        "broker_trade_id": trade_fact.get(
-                                            "broker_trade_id"
-                                        ),
-                                    },
-                                )
-                                logger.warning(
-                                    "sell fill allocation plan exhausted: symbol={} broker_trade_id={} detail={}",
-                                    symbol,
-                                    trade_fact.get("broker_trade_id"),
-                                    allocation_degraded_reason,
-                                )
-                            for item in entries:
-                                self.repository.replace_position_entry(item)
-                            touched_entry_ids = {
-                                item.get("entry_id")
-                                for item in open_entry_slices
-                                if item.get("entry_id")
-                            }
-                            for entry_id in touched_entry_ids:
-                                self.repository.replace_entry_slices_for_entry(
-                                    entry_id,
-                                    [
-                                        item
-                                        for item in open_entry_slices
-                                        if item.get("entry_id") == entry_id
-                                    ],
-                                )
-                            if exit_allocations:
-                                self.repository.insert_exit_allocations(
-                                    exit_allocations
-                                )
-                                takeprofit_level = _resolve_takeprofit_fill_level(
-                                    self.repository,
-                                    request_id=request_id,
-                                    internal_order_id=internal_order_id,
-                                    report=report,
-                                    execution_fill=execution_fill,
-                                    trade_fact=trade_fact,
-                                )
-                                if takeprofit_level is not None:
-                                    ladder_result = _call_ladder_with_retry(
-                                        _get_ladder_state().on_takeprofit_fill,
-                                        code=symbol,
-                                        level=takeprofit_level,
-                                        event_key=(
-                                            internal_order_id
-                                            or str(trade_fact.get("internal_order_id"))
-                                            or f"tp_fill:{trade_fact.get('trade_fact_id')}"
-                                        ),
-                                        operation="takeprofit_fill",
-                                        symbol=symbol,
-                                    )
-                                    ladder_payload = {
-                                        "kind": "takeprofit_fill",
-                                        "level": takeprofit_level,
-                                        "event_key": (
-                                            internal_order_id
-                                            or str(trade_fact.get("internal_order_id"))
-                                            or f"tp_fill:{trade_fact.get('trade_fact_id')}"
-                                        ),
-                                        "result": ladder_result,
-                                    }
-                            entry_slices = open_entry_slices
-                            holdings_changed = holdings_changed or bool(
-                                exit_allocations
-                            )
-                            if exit_allocations and takeprofit_level is None:
                                 ladder_payload = {
-                                    "kind": "external_sell",
-                                    "level": None,
+                                    "kind": "takeprofit_fill",
+                                    "level": takeprofit_level,
+                                    "event_key": (
+                                        internal_order_id
+                                        or str(trade_fact.get("internal_order_id"))
+                                        or f"tp_fill:{trade_fact.get('trade_fact_id')}"
+                                    ),
+                                    "result": ladder_result,
                                 }
-                        # 根①写侧收敛（路线步骤 5）：卖出分配单写 V2
-                        # om_exit_allocations；legacy om_sell_allocations
-                        # 不再由 ingest 维护（删除批次 = 6b）。
-                    if holdings_changed:
-                        self._reset_guardian_buy_grid_after_sell(symbol)
+                        entry_slices = open_entry_slices
+                        holdings_changed = holdings_changed or bool(exit_allocations)
+                        if exit_allocations and takeprofit_level is None:
+                            ladder_payload = {
+                                "kind": "external_sell",
+                                "level": None,
+                            }
+                    # 根①写侧收敛（路线步骤 5）：卖出分配单写 V2
+                    # om_exit_allocations；legacy om_sell_allocations
+                    # 不再由 ingest 维护（删除批次 = 6b）。
+                if holdings_changed:
+                    self._reset_guardian_buy_grid_after_sell(symbol)
 
             projections = _build_entry_projections(symbol, repository=self.repository)
             if holdings_changed:
@@ -831,14 +811,6 @@ def _resolve_lot_amount(symbol):
 
     stock_code = fq_util_code_append_market_code_suffix(symbol, upper_case=True)
     return get_trade_amount(stock_code)
-
-
-def _is_board_lot_quantity(quantity, *, code=""):
-    # 根⑤：整手规则统一走 trading.board_lot。
-
-    from freshquant.trading.board_lot import is_board_lot_quantity
-
-    return is_board_lot_quantity(quantity, code=code)
 
 
 def _record_ingest_rejection(repository, *, trade_fact, reason_code):
