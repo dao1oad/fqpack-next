@@ -59,6 +59,12 @@ def resolve_sell_submission_quantity(*, requested_quantity, can_use_volume, code
     quantity_cap = min(raw_quantity, sell_cap)
     submit_quantity = floor_to_board_lot(quantity_cap, code=code)
 
+    # Issue #659：清仓零股——floor 后为 0 且请求量覆盖全部可用量时，
+    # 允许把零股尾部一次性卖出（A 股规则允许剩余不足一手清仓；
+    # 一手口径按 resolve_board_lot(code)，STAR=200）。
+    if submit_quantity <= 0 and quantity_cap > 0 and quantity_cap == sell_cap:
+        submit_quantity = quantity_cap
+
     if raw_quantity <= 0:
         return {
             "status": "blocked",

@@ -554,7 +554,10 @@ print('resolutions', repo.list_reconciliation_resolutions(symbol=symbol))
 
 ## Order Ledger V2 rebuild 后出现 odd-lot 拒绝
 
-现象：
+> Issue #659（2026-08-18）起：成交回报零股全量入账，`non_board_lot_quantity`
+> 拒绝不再产生。本节保留历史现象描述与存量数据修复方式。
+
+现象（历史口径）：
 
 - 某 symbol 在页面中没有生成 `position_entry`
 - `PositionManagement` 或 `TPSL` 显示对账异常
@@ -572,9 +575,13 @@ print(repo.list_reconciliation_resolutions())
 
 处理：
 
-- odd-lot 当前只保留在 `execution_fill / ingest_rejection` 审计层，不会进入 `position_entry / entry_slice`
-- 若券商当前仓位仍存在合法 board-lot 差额，系统会通过 `auto_open_entry / auto_close_allocation` 收敛
-- 若差额本身仍不是 `100` 股整数倍，当前口径是继续保留 `REJECTED gap`，不要手工伪造 entry
+- 新代码下 odd-lot 成交事实直接进入 `position_entry / entry_slice`；
+- 存量被拒数据：`python script/repair_odd_lot_fill_ledger.py --mode preview`
+  核对差异 → 非交易时段 `--mode apply --yes`（自动停写面 → ledger rebuild
+  全量重放 + backup-db → 恢复写面）→ `--mode verify`；
+- 若券商当前仓位仍存在合法 board-lot 差额，系统会通过
+  `auto_open_entry / auto_close_allocation` 收敛；
+- 无 fill 证据的推断差额维持 fail-closed `REJECTED gap` 口径，不臆造成交。
 
 ## Dagster 容器持续重启
 

@@ -1255,7 +1255,8 @@ def test_rebuild_service_rejects_non_board_lot_xt_positions_delta():
     assert rejection["reason_code"] == "non_board_lot_quantity"
 
 
-def test_rebuild_service_keeps_odd_lot_execution_fill_only_as_ingest_rejection():
+def test_rebuild_service_ingests_odd_lot_execution_fill():
+    # Issue #659：rebuild 与运行态一致——成交回报零股全量入账。
     service = _get_rebuild_service_class()(
         lot_amount_lookup=lambda _symbol: 3000,
         grid_interval_lookup=lambda _symbol, _trade_fact: 1.03,
@@ -1288,19 +1289,17 @@ def test_rebuild_service_keeps_odd_lot_execution_fill_only_as_ingest_rejection()
 
     assert result["broker_orders"] == 1
     assert result["execution_fills"] == 1
-    assert result["position_entries"] == 0
-    assert result["entry_slices"] == 0
+    assert result["position_entries"] == 1
+    assert result["entry_slices"] == 1
     assert result["exit_allocations"] == 0
-    assert result["ingest_rejections"] == 1
+    assert result["ingest_rejections"] == 0
 
     execution_fill = result["execution_fill_documents"][0]
-    rejection = result["ingest_rejection_documents"][0]
 
     assert execution_fill["broker_trade_id"] == "T-ODD-83001"
-    assert rejection["broker_trade_id"] == "T-ODD-83001"
-    assert rejection["symbol"] == "000001"
-    assert rejection["quantity"] == 150
-    assert rejection["reason_code"] == "non_board_lot_quantity"
+    entry = result["position_entry_documents"][0]
+    assert entry["symbol"] == "000001"
+    assert entry["original_quantity"] == 150
 
 
 def test_rebuild_service_auto_closes_entries_when_xt_positions_are_smaller_than_ledger():

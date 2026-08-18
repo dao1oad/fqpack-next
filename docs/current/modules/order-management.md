@@ -589,12 +589,20 @@ flatten 模式执行时的归档/清理边界：
 
 ## Board Lot 规则
 
-系统当前把普通 A 股 `100` 股整数倍视为硬约束：
+整手约束只作用于**委托下单侧**（Issue #659 修正口径）：
 
-- odd-lot XT 回报会写 `om_execution_fills / om_trade_facts` 审计事实
-- odd-lot 不会生成 `position_entry / entry_slice / exit_allocation`
-- odd-lot 会写入 `om_ingest_rejections.reason_code=non_board_lot_quantity`
-- 手工导入与手工 reset 直接拒绝 odd-lot 数量
+- 策略/手工/TP 下单仍要求整手（普通 A 股 100、STAR 200，统一走
+  `trading.board_lot`）；
+- 成交回报（fills）是成交事实，**零股全量进入 V2 账本**
+  （`position_entry / entry_slice / exit_allocation`），不再写入
+  `om_ingest_rejections.non_board_lot_quantity`；
+- 卖出提交在「floor 后为 0 且请求量覆盖全部可用量」时允许零股清仓
+  （剩余不足一手一次性卖出，`sell_constraints.resolve_sell_submission_quantity`）；
+- 手工导入与手工 reset 仍直接拒绝 odd-lot 数量；
+- 有意残留口径：无 fill 证据的推断差额（reconcile 的 `_is_board_lot_delta`
+  与 rebuild 的 xt_positions 推断路径）维持 fail-closed REJECTED，不臆造成交；
+- 存量零股数据修复：`script/repair_odd_lot_fill_ledger.py`
+  （preview / apply / verify，apply = rebuild replay 全量重放）。
 
 ## 读模型口径
 
