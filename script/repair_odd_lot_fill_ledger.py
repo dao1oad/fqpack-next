@@ -156,6 +156,7 @@ def _ctl(*args: str) -> None:
     print(result.stdout or "")
     if result.returncode != 0:
         print(result.stderr or "", file=sys.stderr)
+        raise RuntimeError(f"host runtime ctl failed: {' '.join(args)}")
 
 
 def main() -> int:
@@ -180,15 +181,19 @@ def main() -> int:
                 print("apply 需要显式 --yes 确认（先 preview 核对差异；")
                 print("apply 会执行全量 ledger rebuild，请确认在非交易时段操作）")
                 return 1
+            # P1 兜底：停写面失败即中止（写入面存活时禁止 rebuild）；
+            # rebuild 无论成败都必须恢复写面（try/finally）。
             _ctl("-Mode", "StopSurfaces", "-DeploymentSurface", "order_management,tpsl")
-            _run_rebuild()
-            _ctl(
-                "-Mode",
-                "EnsureServiceAndRestartSurfaces",
-                "-DeploymentSurface",
-                "order_management,tpsl",
-                "-BridgeIfServiceUnavailable",
-            )
+            try:
+                _run_rebuild()
+            finally:
+                _ctl(
+                    "-Mode",
+                    "EnsureServiceAndRestartSurfaces",
+                    "-DeploymentSurface",
+                    "order_management,tpsl",
+                    "-BridgeIfServiceUnavailable",
+                )
             audit = {
                 "operation": "odd_lot_fill_ledger_repair",
                 "created_at": datetime.now(timezone.utc).isoformat(),

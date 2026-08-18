@@ -863,7 +863,8 @@ def _review_guardian_sell(
             "per_slice_thresholds": list(selected.get("threshold_evidence") or []),
             "formula": (
                 "per-slice price >= replayed percent/ATR threshold; "
-                "sum slices meeting their own threshold; floor to board lot"
+                "sum slices meeting their own threshold; "
+                "resolve_sell_submission_quantity (含清仓零股)"
             ),
         }
     )
