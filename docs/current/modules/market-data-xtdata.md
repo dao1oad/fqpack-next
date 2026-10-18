@@ -169,7 +169,7 @@ consumer 入库成功后会把当天（Asia/Shanghai）命中标的**覆盖写**
 - producer 心跳当前额外暴露：
   - `tick_quote_pending_batches`
   - `tick_quote_dropped_batches`
-- `xtdata_adj_refresh_worker` 若在启动或日内计划刷新时遇到可重试的 XTData 连接失败，当前会退避后重建新的 refresh service / XTData client 再继续同步。
+- `xtdata_adj_refresh_worker` 若在启动或日内计划刷新时遇到可重试的 XTData 连接失败，当前按 5→60 秒退避重试并复用同一 refresh service / client；`xtdata.connect()` 重连间隔不低于 10 分钟；非交易日跳过同步。历史 QMT `down_queue_win_*` 会话文件由每日 07:20 计划任务清理（保留最新 2 组、删除超过 24 小时的文件）。
 - `fqnext_xtdata_qfq_worker` 默认每 60 秒轮询盘后 ready marker；可用 `worker --once` 单轮执行，用 `status --strict`、`audit`、`build`、`rollback` 做运维检查。正式 post-deploy verify 会执行严格 status，不能只以进程存在代替数据 ready。
 - 默认日更回看 60 个实际交易日；更早的 XTData 历史修订通过 `build --full` 在 inactive slot 做同截止日全 scope 重算并清除 universe 外残留 code，自动执行频率需在全市场容量 gate 后确定。
 - `audit --mode structure` 是 Mongo 快速结构审计，并要求 `source_exclusions[]` 中的 code 在对应 slot 没有因子残留；full-scope audit 会把 slot metadata 的全部 exclusion code 并入检查，即使 code 已离开当前 universe 或被 ETF filter 排除，`--code` 只检查请求与当前 universe/exclusions 的交集。所有 mode 都从同一 XTData client 读取 `OpenDate` / `IsTrading` 以保持 coverage 一致，`--mode tail` / `--mode full` 还会重新读取 XTData source bars 并验证递推恒等式。excluded code 在 source audit 中始终按完整 BFQ 区间复核，只有重现 metadata 中相同 reason 才通过；缺少 expected history、source 恢复、gap 可证明或 reason 改变均结构化报告 `stale_source_exclusion/rebuild_required`，继续收集其他 code 后令 audit 失败。正式全市场 gate 使用 `--mode full`。

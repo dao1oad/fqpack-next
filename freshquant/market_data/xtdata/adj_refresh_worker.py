@@ -15,6 +15,7 @@ from freshquant.market_data.xtdata.adj_refresh_service import (
     AdjRefreshService,
     _is_retryable_xtdata_error,
 )
+from freshquant.trading.dt import query_current_trade_date
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 logger = logging.getLogger(__name__)
@@ -34,27 +35,34 @@ def run_forever(
     scheduled_minute=20,
     retry_delay_seconds=5.0,
     retry_delay_max_seconds=60.0,
+    is_trading_day_fn=None,
 ):
-    refresh_service_factory = AdjRefreshService if service is None else None
     refresh_service = service or _build_default_service_with_retry(
-        refresh_service_factory,
+        AdjRefreshService,
         sleep_fn=sleep_fn,
         retry_delay_seconds=retry_delay_seconds,
         retry_delay_max_seconds=retry_delay_max_seconds,
     )
     now_provider = now_provider or _shanghai_now
+    is_trading_day_fn = is_trading_day_fn or _default_is_trading_day
     startup_time = now_provider()
 
-    refresh_service = _sync_once_with_xt_retry(
-        refresh_service,
-        refresh_service_factory=refresh_service_factory,
-        sleep_fn=sleep_fn,
-        retry_delay_seconds=retry_delay_seconds,
-        retry_delay_max_seconds=retry_delay_max_seconds,
-    )
     last_scheduled_date = None
     if _is_schedule_due(startup_time, scheduled_hour, scheduled_minute):
         last_scheduled_date = startup_time.date()
+
+    if is_trading_day_fn(startup_time):
+        refresh_service = _sync_once_with_xt_retry(
+            refresh_service,
+            sleep_fn=sleep_fn,
+            retry_delay_seconds=retry_delay_seconds,
+            retry_delay_max_seconds=retry_delay_max_seconds,
+        )
+    else:
+        logger.info(
+            "skip xtdata adj refresh on non-trading day %s",
+            startup_time.date().isoformat(),
+        )
 
     while True:
         current_time = now_provider()
@@ -64,14 +72,19 @@ def run_forever(
             scheduled_hour,
             scheduled_minute,
         ):
-            refresh_service = _sync_once_with_xt_retry(
-                refresh_service,
-                refresh_service_factory=refresh_service_factory,
-                sleep_fn=sleep_fn,
-                retry_delay_seconds=retry_delay_seconds,
-                retry_delay_max_seconds=retry_delay_max_seconds,
-            )
             last_scheduled_date = current_time.date()
+            if is_trading_day_fn(current_time):
+                refresh_service = _sync_once_with_xt_retry(
+                    refresh_service,
+                    sleep_fn=sleep_fn,
+                    retry_delay_seconds=retry_delay_seconds,
+                    retry_delay_max_seconds=retry_delay_max_seconds,
+                )
+            else:
+                logger.info(
+                    "skip scheduled xtdata adj refresh on non-trading day %s",
+                    current_time.date().isoformat(),
+                )
         sleep_fn(interval_seconds)
 
 
@@ -131,10 +144,19 @@ def _shanghai_now():
     return datetime.now(SHANGHAI_TZ)
 
 
+def _default_is_trading_day(now_dt):
+    try:
+        return query_current_trade_date() == now_dt.date()
+    except Exception:
+        logger.warning(
+            "trade calendar unavailable; assuming trading day", exc_info=True
+        )
+        return True
+
+
 def _sync_once_with_xt_retry(
     refresh_service,
     *,
-    refresh_service_factory,
     sleep_fn,
     retry_delay_seconds,
     retry_delay_max_seconds,
@@ -164,8 +186,6 @@ def _sync_once_with_xt_retry(
             )
             sleep_fn(delay_seconds)
             delay_seconds = min(delay_seconds * 2, retry_delay_max_seconds)
-            if refresh_service_factory is not None:
-                refresh_service = refresh_service_factory()
             continue
         return refresh_service
 

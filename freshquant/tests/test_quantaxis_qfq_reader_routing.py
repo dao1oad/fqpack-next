@@ -48,22 +48,22 @@ TEMPORARY_DIRECT_ADJUSTMENT_COLLECTION_ALLOWLIST = {
     ),
     (
         "freshquant/market_data/xtdata/adj_refresh_service.py",
-        109,
+        110,
         "literal:stock_adj",
     ): "PR2a transitional legacy anchor evidence",
     (
         "freshquant/market_data/xtdata/adj_refresh_service.py",
-        109,
+        110,
         "literal:etf_adj",
     ): "PR2a transitional legacy anchor evidence",
     (
         "freshquant/market_data/xtdata/adj_refresh_service.py",
-        141,
+        142,
         "literal:stock_adj_intraday",
     ): "snapshot-bound intraday override writer",
     (
         "freshquant/market_data/xtdata/adj_refresh_service.py",
-        141,
+        142,
         "literal:etf_adj_intraday",
     ): "snapshot-bound intraday override writer",
     ("freshquant/market_data/xtdata/qfq.py", 32, "literal:stock_adj_qfq_a"): (
