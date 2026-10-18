@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -151,18 +152,36 @@ class AdjRefreshRepository:
 
 
 class XtDataAdjRefreshClient:
-    def __init__(self, xtdata_module=None, port: int | None = None):
+    def __init__(
+        self,
+        xtdata_module=None,
+        port: int | None = None,
+        reconnect_min_interval_s: float = 600.0,
+    ):
         if xtdata_module is None:
             from xtquant import xtdata as xtdata_module  # type: ignore
 
         self.xtdata = xtdata_module
         self.port = int(port or bootstrap_config.xtdata.port or 58610)
+        self.reconnect_min_interval_s = max(float(reconnect_min_interval_s), 0.0)
         self._connected = False
+        self._last_connect_at = 0.0
 
     def _ensure_connected(self) -> None:
         if self._connected:
             return
+        now = time.monotonic()
+        if (
+            self.reconnect_min_interval_s > 0
+            and self._last_connect_at > 0
+            and (now - self._last_connect_at) < self.reconnect_min_interval_s
+        ):
+            # Reuse the existing global xtdata session instead of churning a new
+            # QMT down_queue session on every retry.
+            self._connected = True
+            return
         self.xtdata.connect(port=self.port)
+        self._last_connect_at = time.monotonic()
         self._connected = True
 
     def _call_xtdata(self, operation):

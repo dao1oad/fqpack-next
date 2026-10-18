@@ -1,9 +1,13 @@
+import time
 from datetime import date, datetime, timezone
 
 import pytest
 
 from freshquant.data.qfq_reader import QFQDataNotReadyError
-from freshquant.market_data.xtdata.adj_refresh_service import AdjRefreshService
+from freshquant.market_data.xtdata.adj_refresh_service import (
+    AdjRefreshService,
+    XtDataAdjRefreshClient,
+)
 from freshquant.market_data.xtdata.adj_refresh_worker import (
     main,
     run_forever,
@@ -371,24 +375,26 @@ def test_worker_run_forever_syncs_on_startup_then_at_schedule():
             now_provider=fake_now,
             scheduled_hour=9,
             scheduled_minute=20,
+            is_trading_day_fn=lambda now: True,
         )
 
     assert service.calls == 2
     assert sleep_calls == [30]
 
 
-def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
+def test_worker_run_forever_reuses_default_service_after_retryable_xt_errors(
     monkeypatch,
 ):
-    failed_service = SequencedRefreshService(
-        [Exception("无法连接xtquant服务，请检查QMT是否开启")]
+    service = SequencedRefreshService(
+        [
+            Exception("无法连接xtquant服务，请检查QMT是否开启"),
+            {"count": 1},
+            {"count": 1},
+        ]
     )
-    recovered_service = SequencedRefreshService([{"count": 1}, {"count": 1}])
     built_services = []
-    services = iter([failed_service, recovered_service])
 
     def build_service():
-        service = next(services)
         built_services.append(service)
         return service
 
@@ -420,9 +426,69 @@ def test_worker_run_forever_rebuilds_default_service_after_retryable_xt_errors(
             now_provider=fake_now,
             scheduled_hour=9,
             scheduled_minute=20,
+            is_trading_day_fn=lambda now: True,
         )
 
-    assert built_services == [failed_service, recovered_service]
-    assert failed_service.calls == 1
-    assert recovered_service.calls == 2
+    assert built_services == [service]
+    assert service.calls == 3
     assert sleep_calls == [5.0, 30]
+
+
+def test_worker_run_forever_skips_non_trading_days():
+    service = FakeSyncService()
+    moments = iter(
+        [
+            datetime(2026, 3, 7, 9, 19, tzinfo=timezone.utc),
+            datetime(2026, 3, 7, 9, 20, tzinfo=timezone.utc),
+        ]
+    )
+    sleep_calls = []
+
+    def fake_now():
+        return next(moments)
+
+    def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_forever(
+            service=service,
+            interval_seconds=30,
+            sleep_fn=fake_sleep,
+            now_provider=fake_now,
+            scheduled_hour=9,
+            scheduled_minute=20,
+            is_trading_day_fn=lambda now: False,
+        )
+
+    assert service.calls == 0
+    assert sleep_calls == [30]
+
+
+def test_adj_refresh_client_rate_limits_reconnect_attempts():
+    class FakeXtData:
+        def __init__(self):
+            self.connects = 0
+
+        def connect(self, port=None):
+            self.connects += 1
+
+    fake_xtdata = FakeXtData()
+    client = XtDataAdjRefreshClient(
+        xtdata_module=fake_xtdata,
+        port=58610,
+        reconnect_min_interval_s=600,
+    )
+
+    assert client._call_xtdata(lambda: "ok") == "ok"
+    assert fake_xtdata.connects == 1
+
+    client._connected = False
+    assert client._call_xtdata(lambda: "ok") == "ok"
+    assert fake_xtdata.connects == 1
+
+    client._last_connect_at = time.monotonic() - 601
+    client._connected = False
+    assert client._call_xtdata(lambda: "ok") == "ok"
+    assert fake_xtdata.connects == 2

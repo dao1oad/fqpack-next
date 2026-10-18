@@ -420,7 +420,26 @@ stale knowledge（先 `--dry-run` 预演）。
     - `FRESHQUANT_REDIS__PORT=6380`
     - `FRESHQUANT_REDIS__DB=1`
   - 再执行 `powershell -ExecutionPolicy Bypass -File script/fqnext_host_runtime_ctl.ps1 -Mode EnsureServiceAndRestartSurfaces -DeploymentSurface market_data,guardian,position_management,tpsl,order_management -BridgeIfServiceUnavailable`
-  - 若 `fqnext_xtdata_adj_refresh_worker_err.log` 里是 `无法连接xtquant服务` / `QMT` 启动竞态，优先确认最新重启后是否已恢复；当前 adj refresh worker 会在进程内退避重试，并在可重试 XTData 失败后重建新的 refresh service / client。
+  - 若 `fqnext_xtdata_adj_refresh_worker_err.log` 里是 `无法连接xtquant服务` / `QMT` 启动竞态，优先确认最新重启后是否已恢复；adj refresh worker 现在按 5→60 秒退避重试、复用同一 client（`xtdata.connect()` 至少间隔 10 分钟），且非交易日跳过同步，不会再因重试创建大量 `down_queue` 会话。
+
+## XTData `down_queue` 会话文件堆积 / D 盘写满
+
+现象：
+
+- `D:\<QMT>\userdata_mini\down_queue_win_*` 数量快速增长（典型 57 个/小时），单文件约 36–72MB，D 盘余量快速下降。
+- `fqnext_xtdata_adj_refresh_worker_err.log` 出现大量 `无法连接xtquant服务，请检查QMT-投研版或QMT-极速版是否开启` 与 `retrying in 60.0 seconds`。
+- `XtMiniQmt_YYYYMMDD.log` 出现 `heartbeat timeout, ssid:...` / `file lock held, keep online`。
+
+根因：
+
+- 旧版 adj refresh worker 在可重试的 xtquant 连接失败后每 60 秒重建 service/client，每次 `xtdata.connect()` 都会让 QMT 新建一个 `down_queue_win_<epoch>` 会话文件；QMT 不会自动清理。周末/节假日的行情会话重建窗口最容易触发。
+
+处置：
+
+- 确认已部署当前版本（非交易日跳过 + 复用 client + `xtdata.connect()` 限频）。
+- 手工清理（保留最新 2 组、删除超过 24 小时的文件）：`powershell -NoProfile -ExecutionPolicy Bypass -File D:\fqpack\freshquant-2026.2.23\script\clean_xtdata_down_queue.ps1 -RetentionHours 24`。
+- 计划任务：100/116 每日 07:20 运行 `fqnext-clean-xtdata-down-queue`（SYSTEM、最高权限），日志在 `D:\fqdata\log\fqnext_clean_xtdata_down_queue.log`。
+- 清理后复查 D 盘余量；若 Docker vhdx 已膨胀，再在停机窗口评估数据盘压缩。
 
 ## `fqnext-supervisord-restart` 管理员桥接任务超时
 
