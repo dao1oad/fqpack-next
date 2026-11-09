@@ -628,8 +628,18 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
 
     monkeypatch.setattr(
         module,
-        "assert_stock_market_data_consistent",
-        lambda: {"audited_dates": ["2026-03-19"]},
+        "collect_stock_market_data_issues",
+        lambda: {"audited_dates": ["2026-03-19"], "issues": []},
+    )
+    monkeypatch.setattr(
+        module,
+        "repair_stock_market_data_gaps",
+        lambda report: {
+            "attempted_codes": [],
+            "attempts": 0,
+            "errors": [],
+            "skipped_reason": None,
+        },
     )
 
     monkeypatch.setattr(
@@ -677,11 +687,102 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
                 "integrity_audited_dates": ["2026-03-19"],
                 "stock_day_completed_at": "2026-03-19 16:00:00",
                 "stock_min_completed_at": "2026-03-19 16:05:00",
+                "repair": {
+                    "attempted_codes": [],
+                    "attempts": 0,
+                    "errors": [],
+                    "skipped_reason": None,
+                },
             },
         }
     ]
     assert payload["trade_date"] == "2026-03-19"
     assert payload["pipeline_key"] == "stock_postclose_ready"
+
+
+def test_stock_market_data_repair_retries_missing_day_and_min(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    calls = []
+
+    result = module.repair_stock_market_data_gaps(
+        {
+            "issues": [
+                {
+                    "missing_market_day": False,
+                    "missing_day": ["601179"],
+                    "missing_min": {"1min": ["601179"]},
+                }
+            ]
+        },
+        day_sync=lambda code: calls.append(("day", code)),
+        min_sync=lambda code: calls.append(("min", code)),
+    )
+
+    assert result["attempted_codes"] == ["601179"]
+    assert result["skipped_reason"] is None
+    assert calls == [("day", "601179"), ("min", "601179")]
+
+
+def test_stock_market_data_repair_skips_market_wide_gap(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+
+    result = module.repair_stock_market_data_gaps(
+        {
+            "issues": [
+                {
+                    "missing_market_day": True,
+                    "missing_day": [],
+                    "missing_min": {},
+                }
+            ]
+        },
+        day_sync=lambda code: pytest.fail("market-wide gap must not repair"),
+        min_sync=lambda code: pytest.fail("market-wide gap must not repair"),
+    )
+
+    assert result["skipped_reason"] == "missing_market_day"
+    assert result["attempted_codes"] == []
+
+
+def test_ensure_stock_postclose_ready_publishes_repair_marker(monkeypatch):
+    _import_market_data_module(monkeypatch)
+    repair_module = importlib.import_module("fqdagster.defs.assets.market_data_repair")
+    freshness_module = importlib.import_module(
+        "fqdagster.defs.assets.market_data_freshness"
+    )
+    markers_module = importlib.import_module("fqdagster.defs.postclose_markers")
+    calls = []
+
+    monkeypatch.setattr(
+        freshness_module,
+        "collect_stock_market_data_issues",
+        lambda **kwargs: {"issues": [], "audited_dates": ["2026-11-06"]},
+    )
+    monkeypatch.setattr(
+        markers_module,
+        "has_success_postclose_marker",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        markers_module,
+        "resolve_latest_completed_trade_date",
+        lambda: "2026-11-06",
+    )
+    monkeypatch.setattr(
+        markers_module,
+        "upsert_postclose_marker",
+        lambda pipeline_key, trade_date, **kwargs: calls.append(
+            (pipeline_key, trade_date, kwargs)
+        ),
+    )
+
+    result = repair_module.ensure_stock_postclose_ready()
+
+    assert result["status"] == "published"
+    assert result["trade_date"] == "2026-11-06"
+    assert calls[0][0] == "stock_postclose_ready"
+    assert calls[0][1] == "2026-11-06"
+    assert calls[0][2]["payload"]["repair_job"] is True
 
 
 def test_etf_postclose_ready_asset_writes_marker(monkeypatch):

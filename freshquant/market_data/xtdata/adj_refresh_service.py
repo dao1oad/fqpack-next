@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date, datetime, timezone
 from typing import Any
@@ -20,6 +21,8 @@ from freshquant.system_settings_contract import (
 )
 from freshquant.trading.dt import query_current_trade_date, query_prev_trade_date
 from freshquant.util.code import normalize_to_base_code
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_date_str(value: date | datetime | str | None) -> str | None:
@@ -296,6 +299,8 @@ class AdjRefreshService:
                 "count": 0,
                 "stock_count": 0,
                 "etf_count": 0,
+                "skipped_count": 0,
+                "skipped_kinds": {},
                 "trade_date": trade_date,
                 "base_anchor_date": base_anchor_date,
                 "updated_at": self.now_provider().isoformat(),
@@ -306,6 +311,8 @@ class AdjRefreshService:
             "count": 0,
             "stock_count": 0,
             "etf_count": 0,
+            "skipped_count": 0,
+            "skipped_kinds": {},
             "trade_date": trade_date,
             "base_anchor_date": base_anchor_date,
             "updated_at": updated_at,
@@ -331,8 +338,30 @@ class AdjRefreshService:
                 )
             snapshots[kind] = snapshot
 
+        stale_kinds: dict[str, str] = {}
+        for kind, snapshot in snapshots.items():
+            factor_asof = _normalize_date_str(snapshot.get("factor_asof"))
+            if not factor_asof or factor_asof < base_anchor_date:
+                reason = (
+                    f"active QFQ snapshot is behind previous trade date: "
+                    f"factor_asof={factor_asof}, base_anchor_date={base_anchor_date}"
+                )
+                stale_kinds[kind] = reason
+                logger.warning(
+                    "[xtdata_adj_refresh] skip %s overrides: %s", kind, reason
+                )
+                _emit_stale_snapshot_event(
+                    kind=kind,
+                    factor_asof=factor_asof,
+                    base_anchor_date=base_anchor_date,
+                )
+
         for code in codes:
             kind = "etf" if _is_index_like_code(code) else "stock"
+            if kind in stale_kinds:
+                result["skipped_count"] += 1
+                result["skipped_kinds"][kind] = stale_kinds[kind]
+                continue
             snapshot = snapshots[kind]
             snapshot_anchor_loader = getattr(
                 self.repository, "get_snapshot_anchor", None
@@ -392,6 +421,35 @@ class AdjRefreshService:
             result[f"{kind}_count"] += 1
 
         return result
+
+
+def _emit_stale_snapshot_event(
+    *, kind: str, factor_asof: str | None, base_anchor_date: str
+) -> None:
+    try:
+        from freshquant.runtime_observability.logger import RuntimeEventLogger
+
+        RuntimeEventLogger("xtdata_adj_refresh_worker").emit(
+            {
+                "component": "xtdata_adj_refresh_worker",
+                "node": "stale_snapshot",
+                "event_type": "error",
+                "status": "error",
+                "reason_code": "qfq_snapshot_stale",
+                "message": (
+                    "active QFQ snapshot is behind previous trade date; "
+                    "skip intraday override write"
+                ),
+                "is_issue": 1,
+                "payload": {
+                    "scope": kind,
+                    "factor_asof": factor_asof,
+                    "base_anchor_date": base_anchor_date,
+                },
+            }
+        )
+    except Exception:  # pragma: no cover - observability must not block refresh
+        logger.exception("[xtdata_adj_refresh] failed to emit stale snapshot event")
 
 
 def refresh_adj_overrides_once(

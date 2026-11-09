@@ -280,11 +280,53 @@ def test_stock_data_realtime_today_qfq_gap_uses_previous_trade_date(
         "source": "history",
         "endDate": "2026-07-31",
         "barCount": 5,
+        "data_quality": {
+            "status": "degraded",
+            "reason": "qfq_intraday_override_missing",
+            "fallback_end_date": "2026-07-31",
+        },
     }
     assert calls == [
         ("sz300127", "15m", None, 5),
         ("sz300127", "15m", "2026-07-31", 5),
     ]
+
+
+def test_stock_data_realtime_recent_multi_day_gap_stays_503(monkeypatch, stock_routes):
+    class FakeDatetime:
+        @staticmethod
+        def now():
+            return real_datetime(2026, 8, 3, 10, 30)
+
+    calls = []
+
+    def fail(*_args, **_kwargs):
+        calls.append(_args)
+        raise stock_routes.QFQDataNotReadyError(
+            "active QFQ snapshot is behind the requested bars",
+            scope="stock",
+            code="600104",
+            missing_dates=["2026-07-31", "2026-08-03"],
+        )
+
+    monkeypatch.setattr(stock_routes, "datetime", FakeDatetime)
+    monkeypatch.setattr(
+        stock_routes, "_get_realtime_stock_data_from_cache", lambda *args: None
+    )
+    monkeypatch.setattr(
+        stock_routes,
+        "fq_trading_fetch_trade_dates",
+        lambda *args, **kwargs: ["2026-07-30", "2026-07-31", "2026-08-03"],
+    )
+    monkeypatch.setattr(stock_routes, "get_data_v2", fail)
+
+    response = call_stock_data(
+        stock_routes, symbol="sh600104", period="1m", realtimeCache="1"
+    )
+
+    assert response.status_code == 503
+    assert response.get_json()["missing_dates"] == ["2026-07-31", "2026-08-03"]
+    assert len(calls) == 1
 
 
 def test_stock_data_realtime_historical_qfq_gap_falls_back_to_history(
@@ -332,6 +374,11 @@ def test_stock_data_realtime_historical_qfq_gap_falls_back_to_history(
         "source": "history",
         "endDate": "2026-07-31",
         "barCount": 20000,
+        "data_quality": {
+            "status": "degraded",
+            "reason": "qfq_intraday_override_missing",
+            "fallback_end_date": "2026-07-31",
+        },
     }
     assert calls == [
         ("sh512600", "1d", None, 20000),

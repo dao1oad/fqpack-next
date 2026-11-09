@@ -527,6 +527,30 @@ def test_stock_market_data_consistency_rejects_day_and_minute_holes():
         )
 
 
+def test_stock_market_data_collect_returns_gap_report_without_raising():
+    module = _load_module()
+    date = "2026-07-20"
+    day = FakeIntegrityCollection(find_documents=[_stock_day_document("000001", date)])
+    stock_list = FakeIntegrityCollection(distinct_values={"code": ["000001", "600519"]})
+    rows = [
+        {"_id": {"date": date, "code": code, "type": frequence}}
+        for code in ("000001", "600519")
+        for frequence in module.STOCK_MIN_FREQUENCIES
+    ]
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    report = module.collect_stock_market_data_issues(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date=date,
+        trade_dates_provider=lambda: [date],
+    )
+
+    assert report["missing_day_total"] == 1
+    assert report["issues"][0]["missing_day"] == ["600519"]
+
+
 def test_stock_market_data_consistency_rejects_fully_missing_trade_date():
     module = _load_module()
     dates = ["2026-07-17", "2026-07-20"]

@@ -800,7 +800,11 @@ Get-Content D:/fqdata/log/fqnext_xtdata_qfq_worker_err.log -Tail 200
 - 怀疑 XTData 修订发生在默认 60 个交易日回看窗口之前时，使用同一 active 截止日执行 `build --scope <stock|etf> --target-date YYYY-MM-DD --full`；该命令重算整个 inactive scope，且不接受早于 active `factor_asof` 的日期。
 - 回切前先确认另一槽为 `ready` 并单独执行 `audit --slot <a|b>`，然后使用 `rollback --scope <stock|etf>`；命令会先将仍需生效的 intraday override 重新绑定到目标 snapshot，再以 CAS 切换 marker，factor A/B 集合本身不改写。
 - Stock / ETF 在线 reader 每次请求重新解析 active slot；先核对 marker 的 `snapshot_id/factor_asof/source_exclusions`、请求日期覆盖和同 snapshot 的 intraday override。Redis Kline key/payload 与 StrategyConsumer 常驻窗口均绑定 effective adjustment version；marker 或 override 版本变化后应 miss/reload，不要复制旧版本 cache key。真实 Index 固定使用 BFQ，不读取 Stock / ETF 因子。
-- KlineSlim 普通行情图表调用 `/api/stock_data?realtimeCache=1` 且未带 `endDate` 时，若只因当前交易日 intraday override 尚未生成而返回 `missing_dates=[today]`，API 会自动用交易日历回退到最近可读的已完成交易日分钟线；如果显式指定了 `endDate`，或缺口不是当前交易日，仍按 `QFQ_DATA_NOT_READY/503` 排查并修复 QFQ 链路。
+- `stock_postclose_ready_asset` 在 15 日跨周期审计失败后，会先对缺失 code 做有界定向修复：最多 50 个 code、每 code 最多 2 次，通过 `QA_SU_save_single_stock_day` / `QA_SU_save_single_stock_min` 重取；修复后会重新审计，marker payload 的 `repair` 字段记录 attempted/errors/skipped_reason。修复后仍缺失则保持 fail-closed，不写假 success marker。
+- `stock_postclose_repair_job` 在交易日 17:30 与次日 08:30 运行，marker 已存在时 no-op；缺失时执行定向修复并补写 marker，QFQ worker 在 60 秒内消费。盘前 08:30 修复用于避免“上一交易日单票缺口”把当天全部股票实时链拖停。
+- KlineSlim 普通行情图表调用 `/api/stock_data?realtimeCache=1` 且未带 `endDate` 时，只有“仅当前交易日 intraday override 缺失”或“缺口全部在近期窗口之外的历史缺口”允许回退历史；回退响应带 `data_quality.status=degraded`。当前交易日 + 前一交易日的近期多日缺口直接返回 `QFQ_DATA_NOT_READY/503`，不再静默展示旧历史。
+- `adj_refresh_worker` 在 active QFQ snapshot 的 `factor_asof` 落后上一交易日时跳过 intraday override 写入，并 emit `qfq_snapshot_stale` runtime event，避免在 stale snapshot 上制造虚假覆盖。
+- `/api/ops/kline-health` 新增 `qfq_readiness` 段：同时检查 `stock/etf` active snapshot 是否追平盘后 marker，以及当前持仓/must_pool 的 1min realtime cache 覆盖率；持仓缓存缺失在交易时段直接报红。
 
 ## xt_account_sync worker 启动即 Fatal
 
