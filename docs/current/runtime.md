@@ -101,7 +101,7 @@
 - Dagster `stock_postclose_repair_job` 在交易日 `17:30` 与次日 `08:30` 各运行一次：若最新已完成交易日的 stock marker 已存在则 no-op；否则执行同一套缺口修复并补写 marker。QFQ worker 在 60 秒内消费新 marker，盘前修复可在开盘前推进 stock snapshot。
 - `stock_data?realtimeCache=1` 只允许“仅当前交易日 override 缺失”或“全部为近期窗口之外的历史缺口”回退；回退响应带 `data_quality.status=degraded`。近期多日缺口直接 503。
 - `adj_refresh_worker` 在 active stock/etf QFQ snapshot `factor_asof` 落后上一交易日时跳过 override 写入，并 emit `qfq_snapshot_stale` runtime event。
-- `/api/ops/kline-health` 的 `qfq_readiness` 段同时检查 active snapshot 追平 marker 与当前持仓/must_pool 的 1min realtime cache 覆盖率。
+- `/api/ops/kline-health` 的 `qfq_readiness` 段同时检查 active snapshot 追平 marker 与当前持仓/must_pool 的 1min realtime cache 覆盖率；同一 code 存在多个 adjustment-version key 时按最新 bar 日期判断，不把旧版本 key 误报为 stale。
 - 旧 `stock_xdxr`、`etf_xdxr`、`etf_adj` asset 仅保留为人工 legacy 运维入口；`stock_adj` / `etf_adj` 集合至少保留 7 个交易日且不再作为在线真值。
 - 真实 Index 当前固定读取 BFQ 日线/分钟线与 `index_realtime`，不读取 `stock_adj`、`etf_adj` 或 QFQ A/B 集合。
 - 首次 bootstrap 与历史 backfill 只通过人工 `qfq_worker build --scope <stock|etf> --target-date YYYY-MM-DD [--full]` 执行；正常 worker 遇到缺失 `qfq_ready` marker 返回 `bootstrap_required`，不自动构建全历史。
