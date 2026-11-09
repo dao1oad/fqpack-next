@@ -123,6 +123,58 @@ def test_sync_adj_refresh_once_writes_stock_and_etf_intraday_overrides():
     assert repository.saved_docs["etf"][0]["anchor_scale"] == pytest.approx(0.8)
 
 
+def test_sync_adj_refresh_skips_stale_stock_snapshot_and_keeps_etf():
+    repository = InMemoryAdjRefreshRepository(
+        base_adj_docs={
+            ("stock", "sz000001", "2026-03-08"): {"date": "2026-03-08", "adj": 2.0},
+            ("etf", "sh510050", "2026-03-08"): {"date": "2026-03-08", "adj": 1.5},
+        },
+        shadow_adj_docs={
+            (
+                "stock",
+                "sz000001",
+                "2026-03-08",
+                "stock_adj_qfq_a",
+            ): {"date": "2026-03-08", "adj": 2.0},
+            (
+                "etf",
+                "sh510050",
+                "2026-03-08",
+                "etf_adj_qfq_a",
+            ): {"date": "2026-03-08", "adj": 1.5},
+        },
+    )
+    market_client = FakeXtDataAdjClient(
+        {
+            ("sh510050", "2026-03-08"): {"front_close": 1.2, "raw_close": 1.0},
+        }
+    )
+
+    def snapshot_provider(kind):
+        snapshot = _active_snapshot(kind)
+        if kind == "stock":
+            snapshot["factor_asof"] = "2026-03-07"
+        return snapshot
+
+    service = AdjRefreshService(
+        repository=repository,
+        market_client=market_client,
+        code_loader=lambda: ["sz000001", "sh510050"],
+        trade_date_provider=lambda: date(2026, 3, 9),
+        prev_trade_date_provider=lambda: date(2026, 3, 8),
+        now_provider=lambda: datetime(2026, 3, 9, 1, 20, tzinfo=timezone.utc),
+        snapshot_provider=snapshot_provider,
+    )
+
+    result = service.sync_once()
+
+    assert result["count"] == 1
+    assert result["skipped_count"] == 1
+    assert "stock" in result["skipped_kinds"]
+    assert repository.saved_docs["stock"] == []
+    assert repository.saved_docs["etf"][0]["code"] == "510050"
+
+
 def test_sync_adj_refresh_once_uses_repository_anchor_date_for_xtdata_pair():
     repository = InMemoryAdjRefreshRepository(
         base_adj_docs={

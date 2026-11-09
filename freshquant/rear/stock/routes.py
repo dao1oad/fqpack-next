@@ -228,8 +228,38 @@ def _has_qfq_gap(error):
     return bool(missing_dates)
 
 
+def _should_fallback_to_history(error) -> bool:
+    """Allow only current-day-only or clearly historical QFQ gaps.
+
+    A recent multi-day gap means the active QFQ snapshot is stale. Serving an
+    older completed trade date in that case would silently hide a broken QFQ
+    chain, so the API must keep the structured 503 instead.
+    """
+
+    missing_dates = [
+        value
+        for value in (
+            _normalize_trade_date_key(item)
+            for item in getattr(error, "missing_dates", ())
+        )
+        if value
+    ]
+    if not missing_dates:
+        return False
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    if all(value == today for value in missing_dates):
+        return True
+
+    recent_dates = set(_recent_previous_trade_dates(before_key=today, limit=5))
+    if not recent_dates:
+        return False
+    recent_dates.add(today)
+    return not any(value in recent_dates for value in missing_dates)
+
+
 def _get_realtime_history_fallback(symbol, period, bar_count, error):
-    if not _has_qfq_gap(error):
+    if not _has_qfq_gap(error) or not _should_fallback_to_history(error):
         raise error
 
     for fallback_end_date in _recent_previous_trade_dates():
@@ -242,7 +272,7 @@ def _get_realtime_history_fallback(symbol, period, bar_count, error):
                 fallback_end_date,
                 error,
             )
-            return get_data_v2(symbol, period, fallback_end_date, bar_count=bar_count)
+            result = get_data_v2(symbol, period, fallback_end_date, bar_count=bar_count)
         except QFQDataNotReadyError as fallback_error:
             logging.warning(
                 "stock_data realtime history fallback not ready: symbol=%s "
@@ -253,6 +283,14 @@ def _get_realtime_history_fallback(symbol, period, bar_count, error):
                 fallback_error,
             )
             continue
+        if isinstance(result, dict):
+            result = dict(result)
+            result["data_quality"] = {
+                "status": "degraded",
+                "reason": "qfq_intraday_override_missing",
+                "fallback_end_date": fallback_end_date,
+            }
+        return result
     raise error
 
 

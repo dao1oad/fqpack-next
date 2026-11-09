@@ -48,6 +48,7 @@ KLINE_PROBE_MIN_INTERVAL_S = 60.0
 KLINE_503_WINDOW_S = 300.0
 KLINE_PROBE_SYMBOL = "sz000001"
 KLINE_PROBE_PERIOD = "5m"
+QFQ_READINESS_CACHE_TTL_S = 60.0
 HOST_SNAPSHOT_FILE = os.environ.get(
     "FQ_OPS_SNAPSHOT_FILE", "/freshquant/ops-snapshot/host-runtime.json"
 )
@@ -91,6 +92,7 @@ _probe_state: dict[str, Any] = {
     "last_result": None,
     "window": deque(),
 }
+_qfq_readiness_cache: dict[str, Any] = {"at": 0.0, "payload": None}
 
 
 def _now() -> datetime:
@@ -963,6 +965,169 @@ def _read_realtime_cache_sample() -> dict[str, Any]:
     }
 
 
+def _critical_monitor_codes() -> list[str]:
+    from freshquant.market_data.xtdata.pools import load_monitor_scope
+    from freshquant.market_data.xtdata.schema import normalize_prefixed_code
+
+    scope = load_monitor_scope(trading_mode=True, screening_mode=False)
+    base_codes: set[str] = set()
+    for codes in scope.values():
+        base_codes.update(str(code) for code in codes if str(code).strip())
+    return sorted(
+        {
+            normalize_prefixed_code(code).lower()
+            for code in base_codes
+            if normalize_prefixed_code(code)
+        }
+    )
+
+
+def _cache_coverage_for_codes(codes: list[str]) -> dict[str, Any]:
+    from freshquant.database.redis import redis_db
+
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+    missing: list[str] = []
+    stale: list[str] = []
+    for code in codes:
+        key = next(
+            iter(
+                redis_db.scan_iter(
+                    match=f"CACHE:KLINE:{code}:1min:*",
+                    count=100,
+                )
+            ),
+            None,
+        )
+        if not key:
+            missing.append(code)
+            continue
+        raw = redis_db.get(key)
+        if not raw:
+            missing.append(code)
+            continue
+        try:
+            payload = json.loads(raw if isinstance(raw, str) else "")
+            dates = payload.get("date") if isinstance(payload, dict) else None
+            last_date = str(dates[-1])[:10] if isinstance(dates, list) and dates else ""
+        except (TypeError, ValueError):
+            stale.append(code)
+            continue
+        if last_date != today:
+            stale.append(code)
+    covered = max(len(codes) - len(set(missing) | set(stale)), 0)
+    return {
+        "total": len(codes),
+        "covered": covered,
+        "missing": sorted(set(missing)),
+        "stale": sorted(set(stale)),
+    }
+
+
+def _tcp_reachable(host: str, port: int, *, timeout: float = 0.3) -> bool:
+    try:
+        with socket.create_connection((str(host), int(port)), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _build_qfq_readiness_segment(*, in_trading: bool) -> dict[str, Any]:
+    now_ts = time.time()
+    cached = _qfq_readiness_cache.get("payload")
+    if cached and now_ts - float(_qfq_readiness_cache.get("at") or 0.0) < (
+        QFQ_READINESS_CACHE_TTL_S
+    ):
+        return dict(cached)
+
+    segment: dict[str, Any]
+    if not _tcp_reachable(
+        bootstrap_config.mongodb.host, bootstrap_config.mongodb.port
+    ) or not _tcp_reachable(bootstrap_config.redis.host, bootstrap_config.redis.port):
+        segment = {
+            "label": "QFQ/缓存",
+            "status": "error",
+            "tone": "error",
+            "summary": "依赖不可达",
+            "detail": "Mongo/Redis 端口不可达，无法检查 QFQ readiness",
+            "log_component": "xtdata_adj_refresh_worker",
+            "last_issue_ts": None,
+            "probe": {"error": "mongodb_or_redis_unreachable"},
+        }
+        _qfq_readiness_cache.update({"at": now_ts, "payload": segment})
+        return dict(segment)
+
+    try:
+        from freshquant.market_data.xtdata.qfq_worker import qfq_readiness_status
+
+        readiness = qfq_readiness_status(scopes=("stock", "etf"))
+        critical_codes = _critical_monitor_codes()
+        coverage = _cache_coverage_for_codes(critical_codes)
+    except Exception as exc:  # pragma: no cover - 防御降级
+        segment = {
+            "label": "QFQ/缓存",
+            "status": "error",
+            "tone": "error",
+            "summary": "检查失败",
+            "detail": f"QFQ readiness 检查失败：{exc}",
+            "log_component": "xtdata_adj_refresh_worker",
+            "last_issue_ts": None,
+            "probe": {"error": str(exc)},
+        }
+        _qfq_readiness_cache.update({"at": now_ts, "payload": segment})
+        return dict(segment)
+
+    by_scope = readiness.get("by_scope") or {}
+    scope_bits = []
+    scope_error = False
+    for scope in ("stock", "etf"):
+        item = by_scope.get(scope) or {}
+        scope_status = str(item.get("status") or "missing")
+        factor_asof = str(item.get("factor_asof") or "-")
+        target_date = str(item.get("target_date") or "-")
+        scope_bits.append(f"{scope}={scope_status}/{factor_asof}->{target_date}")
+        if scope_status != "ready":
+            scope_error = True
+
+    missing = list(coverage.get("missing") or [])
+    stale = list(coverage.get("stale") or [])
+    coverage_total = int(coverage.get("total") or 0)
+    coverage_covered = int(coverage.get("covered") or 0)
+    coverage_bad = bool(missing or stale)
+    if scope_error:
+        status, tone, summary = "error", "error", "QFQ 未就绪"
+    elif coverage_bad and in_trading:
+        status, tone, summary = "error", "error", "持仓缓存缺失"
+    elif coverage_bad:
+        status, tone, summary = "warn", "warn", "缓存未覆盖"
+    elif coverage_total == 0:
+        status, tone, summary = "unknown", "unknown", "无监控标的"
+    else:
+        status, tone, summary = "ok", "ok", "正常"
+
+    detail = (
+        " ".join(scope_bits)
+        + f" cache={coverage_covered}/{coverage_total}"
+        + (f" missing={missing[:10]}" if missing else "")
+        + (f" stale={stale[:10]}" if stale else "")
+    )
+    segment = {
+        "label": "QFQ/缓存",
+        "status": status,
+        "tone": tone,
+        "summary": summary,
+        "detail": detail,
+        "log_component": "xtdata_adj_refresh_worker",
+        "last_issue_ts": None,
+        "probe": {
+            "ready": bool(readiness.get("ready")),
+            "by_scope": by_scope,
+            "cache_coverage": coverage,
+        },
+    }
+    _qfq_readiness_cache.update({"at": now_ts, "payload": segment})
+    return dict(segment)
+
+
 def _execute_kline_probe(now_ts: float) -> dict[str, Any]:
     try:
         result = _read_realtime_cache_sample()
@@ -1147,6 +1312,9 @@ def ops_kline_health():
         _component_by_name(components, "xt_producer"),
         _component_by_name(components, "xt_consumer"),
         session,
+    )
+    segments["qfq_readiness"] = _build_qfq_readiness_segment(
+        in_trading=session.get("session") in TRADING_SESSIONS
     )
     return jsonify(
         {

@@ -47,9 +47,11 @@ from .market_data_freshness import (
     assert_etf_day_fresh,
     assert_etf_min_fresh,
     assert_stock_day_fresh,
-    assert_stock_market_data_consistent,
     assert_stock_min_fresh,
+    collect_stock_market_data_issues,
+    format_stock_market_data_issues,
 )
+from .market_data_repair import repair_stock_market_data_gaps
 from .postclose_ready import refresh_quality_stock_universe_snapshot
 
 market_data_alert = signal("market_data_alert")
@@ -530,7 +532,24 @@ def stock_postclose_ready_asset(
         str(refresh_quality_stock_universe_snapshot.get("trade_date") or "")
         or resolve_latest_completed_trade_date()
     )
-    integrity = assert_stock_market_data_consistent()
+    integrity = collect_stock_market_data_issues()
+    repair = {
+        "attempted_codes": [],
+        "attempts": 0,
+        "errors": [],
+        "skipped_reason": None,
+    }
+    if integrity.get("issues"):
+        repair = repair_stock_market_data_gaps(integrity)
+        context.log.warning(
+            "stock market integrity gaps detected; repair attempted=%s skipped=%s",
+            repair.get("attempted_codes"),
+            repair.get("skipped_reason"),
+        )
+        if repair.get("attempted_codes"):
+            integrity = collect_stock_market_data_issues()
+    if integrity.get("issues"):
+        raise RuntimeError(format_stock_market_data_issues(integrity))
     context.log.info(f"stock market integrity check passed: {integrity}")
     payload = {
         "count": int(refresh_quality_stock_universe_snapshot.get("count") or 0),
@@ -540,6 +559,7 @@ def stock_postclose_ready_asset(
         "integrity_audited_dates": list(integrity.get("audited_dates") or []),
         "stock_day_completed_at": stock_day,
         "stock_min_completed_at": stock_min,
+        "repair": repair,
     }
     upsert_postclose_marker(
         "stock_postclose_ready",

@@ -17,7 +17,11 @@ import pandas as pd
 from loguru import logger
 
 from freshquant.analysis.fullcalc_wrapper import run_fullcalc
-from freshquant.data.qfq_reader import apply_qfq_to_bars, read_qfq_factor
+from freshquant.data.qfq_reader import (
+    QFQDataNotReadyError,
+    apply_qfq_to_bars,
+    read_qfq_factor,
+)
 from freshquant.db import DBfreshquant, DBQuantAxis
 from freshquant.market_data.xtdata.chanlun_payload import build_chanlun_payload
 from freshquant.market_data.xtdata.coalesce import CoalescingScheduler
@@ -379,6 +383,8 @@ class StrategyConsumer:
         self._futures: dict[tuple[str, str], Any] = {}
         self._last_bar_ts: dict[tuple[str, str], int] = {}
         self._known_codes: set[str] = set()
+        self._qfq_error_emitted_at: dict[str, float] = {}
+        self._qfq_error_cooldown_s = 300.0
 
         self._backfill_executor = ThreadPoolExecutor(max_workers=2)
         self._backfill_lock = threading.Lock()
@@ -1272,18 +1278,22 @@ class StrategyConsumer:
             logger.error(f"[Consumer] save realtime failed {code} {period}: {e}")
             return
 
-        bar_calc, adjustment_version = self._apply_qfq_to_bar(
-            kind=kind, code_prefixed=code, bar=bar_raw
-        )
-        window_versions = getattr(self, "_window_versions", None)
-        if window_versions is None:
-            window_versions = {}
-            self._window_versions = window_versions
-        previous_version = window_versions.get(code)
-        if previous_version and previous_version != adjustment_version:
-            self._warm_code_from_db(code=code)
-            return
-        window_versions[code] = adjustment_version
+        try:
+            bar_calc, adjustment_version = self._apply_qfq_to_bar(
+                kind=kind, code_prefixed=code, bar=bar_raw
+            )
+            window_versions = getattr(self, "_window_versions", None)
+            if window_versions is None:
+                window_versions = {}
+                self._window_versions = window_versions
+            previous_version = window_versions.get(code)
+            if previous_version and previous_version != adjustment_version:
+                self._warm_code_from_db(code=code)
+                return
+            window_versions[code] = adjustment_version
+        except QFQDataNotReadyError as exc:
+            self._emit_qfq_not_ready(code=code, period=period, error=exc)
+            raise
 
         key = (code, period)
 
@@ -1428,6 +1438,8 @@ class StrategyConsumer:
                 self.handle_bar_close(ev)
             except (KeyboardInterrupt, SystemExit):
                 raise
+            except QFQDataNotReadyError:
+                continue
             except Exception as e:
                 logger.error(f"[Consumer] loop error: {e}")
                 logger.debug(traceback.format_exc())
@@ -1437,6 +1449,34 @@ class StrategyConsumer:
             return bool(self.runtime_logger.emit(event))
         except Exception:
             return False
+
+    def _emit_qfq_not_ready(
+        self, *, code: str, period: str, error: QFQDataNotReadyError
+    ) -> None:
+        if not hasattr(self, "_qfq_error_emitted_at"):
+            self._qfq_error_emitted_at = {}
+        now_ts = time.time()
+        last_emit = float(self._qfq_error_emitted_at.get(code) or 0.0)
+        if now_ts - last_emit < float(getattr(self, "_qfq_error_cooldown_s", 300.0)):
+            return
+        self._qfq_error_emitted_at[code] = now_ts
+        self._emit_runtime(
+            {
+                "component": "xt_consumer",
+                "node": "qfq_not_ready",
+                "event_type": "error",
+                "status": "error",
+                "reason_code": "qfq_not_ready",
+                "symbol": code,
+                "message": str(error),
+                "is_issue": 1,
+                "payload": {
+                    "period": period,
+                    "scope": getattr(error, "scope", ""),
+                    "missing_dates": list(getattr(error, "missing_dates", ()) or ()),
+                },
+            }
+        )
 
 
 @click.command()

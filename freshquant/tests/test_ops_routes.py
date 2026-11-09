@@ -329,6 +329,36 @@ def test_ops_kline_health_segment_status(ops_app, monkeypatch):
     assert kline_api["status"] == "ok"
 
 
+def test_ops_kline_health_includes_qfq_readiness_segment(ops_app, monkeypatch):
+    service = _FakeOpsService(summary=_default_summary())
+    monkeypatch.setattr(ops_routes, "get_runtime_query_service", lambda: service)
+    monkeypatch.setattr(
+        ops_routes,
+        "_read_realtime_cache_sample",
+        lambda: {"status": "success", "realtime_cache": True, "detail": "命中"},
+    )
+    monkeypatch.setattr(
+        ops_routes,
+        "_build_qfq_readiness_segment",
+        lambda *, in_trading: {
+            "label": "QFQ/缓存",
+            "status": "ok",
+            "tone": "ok",
+            "summary": "正常",
+            "detail": "stock=ready/2026-11-06->2026-11-06",
+            "log_component": "xtdata_adj_refresh_worker",
+            "last_issue_ts": None,
+            "probe": {"ready": True},
+        },
+    )
+
+    response = ops_app.test_client().get("/api/ops/kline-health")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["segments"]["qfq_readiness"]["status"] == "ok"
+
+
 def test_ops_kline_health_probe_error_counts_503_window(ops_app, monkeypatch):
     service = _FakeOpsService(summary=_default_summary())
     monkeypatch.setattr(ops_routes, "get_runtime_query_service", lambda: service)

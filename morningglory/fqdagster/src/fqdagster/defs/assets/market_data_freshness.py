@@ -21,7 +21,7 @@ import datetime as dt
 from collections import Counter
 from datetime import datetime, timedelta
 from types import MappingProxyType
-from typing import Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 # 大盘蓝筹样本: 平安银行 / 浦发银行 / 贵州茅台
@@ -37,6 +37,7 @@ STOCK_MIN_FREQUENCIES: tuple[str, ...] = (
 )
 STOCK_INTEGRITY_LOOKBACK_TRADE_DAYS = 15
 STOCK_INTEGRITY_CODE_CHUNK_SIZE = 250
+STOCK_REPAIR_CANDIDATE_LIMIT = 100
 
 # ETF 全市场约 1675 只, 正常交易日 index_day 当日文档数约 1650。
 ETF_DAY_MIN_DOCS = 1000
@@ -420,7 +421,7 @@ def _default_stock_integrity_trade_dates() -> Sequence[object]:
     return list(tool_trade_date_hist_sina()["trade_date"])
 
 
-def assert_stock_market_data_consistent(
+def collect_stock_market_data_issues(
     day_collection=None,
     min_collection=None,
     stock_list_collection=None,
@@ -431,7 +432,7 @@ def assert_stock_market_data_consistent(
     code_chunk_size: int = STOCK_INTEGRITY_CODE_CHUNK_SIZE,
     trade_dates_provider: Callable[[], Sequence[object]] | None = None,
 ) -> dict:
-    """Cross-check recent stock daily bars against every minute frequency.
+    """Return recent stock daily/minute consistency issues without raising.
 
     ``stock_min`` is intentionally queried through its existing
     ``(code, time_stamp, date_stamp)`` index in bounded code chunks. This keeps
@@ -555,20 +556,17 @@ def assert_stock_market_data_consistent(
                 {
                     "date": trade_date,
                     "missing_market_day": missing_market_day,
-                    "missing_day": missing_day[:20],
+                    "missing_day": missing_day[:STOCK_REPAIR_CANDIDATE_LIMIT],
                     "missing_min": {
-                        key: value[:20] for key, value in missing_min.items()
+                        key: value[:STOCK_REPAIR_CANDIDATE_LIMIT]
+                        for key, value in missing_min.items()
                     },
+                    "missing_day_total": len(missing_day),
+                    "missing_min_total": sum(
+                        len(value) for value in missing_min.values()
+                    ),
                 }
             )
-
-    if issues:
-        raise RuntimeError(
-            "stock market integrity audit failed: "
-            f"missing_market_days={missing_market_day_total} "
-            f"missing_day={missing_day_total} missing_min={missing_min_total}; "
-            f"issues={issues[:5]}"
-        )
 
     return {
         "expected_trade_date": expected,
@@ -581,4 +579,46 @@ def assert_stock_market_data_consistent(
             trade_date: len(codes)
             for trade_date, codes in placeholder_codes_by_date.items()
         },
+        "issues": issues,
+        "missing_market_day_total": missing_market_day_total,
+        "missing_day_total": missing_day_total,
+        "missing_min_total": missing_min_total,
     }
+
+
+def format_stock_market_data_issues(report: Mapping[str, Any]) -> str:
+    return (
+        "stock market integrity audit failed: "
+        f"missing_market_days={report.get('missing_market_day_total', 0)} "
+        f"missing_day={report.get('missing_day_total', 0)} "
+        f"missing_min={report.get('missing_min_total', 0)}; "
+        f"issues={list(report.get('issues') or [])[:5]}"
+    )
+
+
+def assert_stock_market_data_consistent(
+    day_collection=None,
+    min_collection=None,
+    stock_list_collection=None,
+    *,
+    expected_trade_date: str | None = None,
+    lookback_trade_days: int = STOCK_INTEGRITY_LOOKBACK_TRADE_DAYS,
+    frequencies: Sequence[str] = STOCK_MIN_FREQUENCIES,
+    code_chunk_size: int = STOCK_INTEGRITY_CODE_CHUNK_SIZE,
+    trade_dates_provider: Callable[[], Sequence[object]] | None = None,
+) -> dict:
+    """Cross-check recent stock daily bars against every minute frequency."""
+
+    report = collect_stock_market_data_issues(
+        day_collection=day_collection,
+        min_collection=min_collection,
+        stock_list_collection=stock_list_collection,
+        expected_trade_date=expected_trade_date,
+        lookback_trade_days=lookback_trade_days,
+        frequencies=frequencies,
+        code_chunk_size=code_chunk_size,
+        trade_dates_provider=trade_dates_provider,
+    )
+    if report.get("issues"):
+        raise RuntimeError(format_stock_market_data_issues(report))
+    return report
