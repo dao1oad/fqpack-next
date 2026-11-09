@@ -359,6 +359,33 @@ def test_ops_kline_health_includes_qfq_readiness_segment(ops_app, monkeypatch):
     assert payload["segments"]["qfq_readiness"]["status"] == "ok"
 
 
+def test_cache_coverage_prefers_latest_adjustment_version(monkeypatch):
+    import freshquant.database.redis as redis_module
+
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+
+    class FakeRedis:
+        def scan_iter(self, *, match, count):
+            return iter(
+                [
+                    "CACHE:KLINE:sh600104:1min:old",
+                    "CACHE:KLINE:sh600104:1min:new",
+                ]
+            )
+
+        def get(self, key):
+            date = "2026-11-06" if key.endswith(":old") else today
+            return '{"date": ["%s 09:31"]}' % date
+
+    monkeypatch.setattr(redis_module, "redis_db", FakeRedis())
+
+    coverage = ops_routes._cache_coverage_for_codes(["sh600104"])
+
+    assert coverage["covered"] == 1
+    assert coverage["missing"] == []
+    assert coverage["stale"] == []
+
+
 def test_ops_kline_health_probe_error_counts_503_window(ops_app, monkeypatch):
     service = _FakeOpsService(summary=_default_summary())
     monkeypatch.setattr(ops_routes, "get_runtime_query_service", lambda: service)

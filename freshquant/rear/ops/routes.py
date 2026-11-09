@@ -989,30 +989,31 @@ def _cache_coverage_for_codes(codes: list[str]) -> dict[str, Any]:
     missing: list[str] = []
     stale: list[str] = []
     for code in codes:
-        key = next(
-            iter(
-                redis_db.scan_iter(
-                    match=f"CACHE:KLINE:{code}:1min:*",
-                    count=100,
-                )
-            ),
-            None,
+        keys = list(
+            redis_db.scan_iter(
+                match=f"CACHE:KLINE:{code}:1min:*",
+                count=100,
+            )
         )
-        if not key:
+        if not keys:
             missing.append(code)
             continue
-        raw = redis_db.get(key)
-        if not raw:
-            missing.append(code)
-            continue
-        try:
-            payload = json.loads(raw if isinstance(raw, str) else "")
-            dates = payload.get("date") if isinstance(payload, dict) else None
-            last_date = str(dates[-1])[:10] if isinstance(dates, list) and dates else ""
-        except (TypeError, ValueError):
-            stale.append(code)
-            continue
-        if last_date != today:
+        last_date = ""
+        for key in keys:
+            raw = redis_db.get(key)
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw if isinstance(raw, str) else "")
+                dates = payload.get("date") if isinstance(payload, dict) else None
+                candidate = (
+                    str(dates[-1])[:10] if isinstance(dates, list) and dates else ""
+                )
+            except (TypeError, ValueError):
+                continue
+            if candidate > last_date:
+                last_date = candidate
+        if not last_date or last_date != today:
             stale.append(code)
     covered = max(len(codes) - len(set(missing) | set(stale)), 0)
     return {
