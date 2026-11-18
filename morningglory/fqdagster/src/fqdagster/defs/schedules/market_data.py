@@ -5,6 +5,7 @@ and Index jobs use explicit whitelists so unrelated downstream assets cannot
 join a market-data run.
 """
 
+import os
 from typing import cast
 
 from dagster import (
@@ -43,6 +44,13 @@ BOUNDED_MARKET_JOB_TAGS = {
     "dagster/max_retries": "2",
     "dagster/max_runtime": "28800",
 }
+
+# Both production machines share one TDX egress IP. Keep the default 16:00
+# window, but allow the second machine to move its stock bulk job later so the
+# two stock_day/stock_min bursts never overlap.
+STOCK_DATA_CRON = (
+    os.environ.get("FQ_STOCK_DATA_CRON", "0 16 * * 1-5").strip() or "0 16 * * 1-5"
+)
 
 # Define market-data asset jobs.
 stock_data_job = define_asset_job(
@@ -97,7 +105,7 @@ stock_data_schedule = ScheduleDefinition(
     name="stock_data_schedule",
     description="股票收盘作业保存行情数据定时任务",
     job=stock_data_job,
-    cron_schedule="0 16 * * 1-5",
+    cron_schedule=STOCK_DATA_CRON,
     execution_timezone=TIME_ZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )

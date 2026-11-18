@@ -130,6 +130,51 @@ def assert_stock_day_fresh(
     }
 
 
+def assert_stock_day_coverage(
+    collection=None,
+    *,
+    expected_trade_date: str | None = None,
+    min_ratio: float = 0.98,
+) -> dict:
+    """Fail when the daily partition loses a material share of the universe.
+
+    The sample/count assertion above catches a whole-market failure, but a
+    partial write can still leave thousands of docs. Compare against the most
+    recent prior daily partition so a >2% loss fails before the asset is marked
+    successful. Suspensions and delistings are tolerated within the ratio.
+    """
+
+    coll = collection if collection is not None else _default_collection("stock_day")
+    expected = expected_trade_date or resolve_expected_trade_date()
+    current_count = int(coll.count_documents({"date": expected}))
+    previous = coll.find_one(
+        {"date": {"$lt": expected}},
+        {"_id": 0, "date": 1},
+        sort=[("date", -1)],
+    )
+    previous_date = str((previous or {}).get("date") or "")[:10]
+    previous_count = (
+        int(coll.count_documents({"date": previous_date})) if previous_date else 0
+    )
+    required_count = (
+        int(previous_count * max(float(min_ratio), 0.0)) if previous_count else 0
+    )
+    if previous_count and current_count < required_count:
+        raise RuntimeError(
+            "stock_day coverage collapsed: "
+            f"date={expected} current={current_count} "
+            f"previous={previous_count} ({previous_date}) "
+            f"required>={required_count}"
+        )
+    return {
+        "expected_trade_date": expected,
+        "current_count": current_count,
+        "previous_trade_date": previous_date,
+        "previous_count": previous_count,
+        "required_count": required_count,
+    }
+
+
 def assert_stock_min_fresh(
     collection=None,
     *,
@@ -430,6 +475,7 @@ def collect_stock_market_data_issues(
     lookback_trade_days: int = STOCK_INTEGRITY_LOOKBACK_TRADE_DAYS,
     frequencies: Sequence[str] = STOCK_MIN_FREQUENCIES,
     code_chunk_size: int = STOCK_INTEGRITY_CODE_CHUNK_SIZE,
+    candidate_limit: int | None = STOCK_REPAIR_CANDIDATE_LIMIT,
     trade_dates_provider: Callable[[], Sequence[object]] | None = None,
 ) -> dict:
     """Return recent stock daily/minute consistency issues without raising.
@@ -437,7 +483,8 @@ def collect_stock_market_data_issues(
     ``stock_min`` is intentionally queried through its existing
     ``(code, time_stamp, date_stamp)`` index in bounded code chunks. This keeps
     the audit proportional to the recent window instead of scanning the full
-    collection.
+    collection. ``candidate_limit=None`` returns the full missing-code lists
+    for repair; the default keeps marker/log payloads bounded for diagnostics.
     """
     day_coll = (
         day_collection
@@ -536,6 +583,13 @@ def collect_stock_market_data_issues(
     missing_market_day_total = 0
     missing_day_total = 0
     missing_min_total = 0
+
+    def _limited(values) -> list[str]:
+        ordered = sorted(values)
+        if candidate_limit is None:
+            return ordered
+        return ordered[: max(int(candidate_limit), 0)]
+
     for trade_date in audited_dates:
         day_codes = day_codes_by_date[trade_date]
         real_day_codes = day_codes - placeholder_codes_by_date[trade_date]
@@ -556,10 +610,9 @@ def collect_stock_market_data_issues(
                 {
                     "date": trade_date,
                     "missing_market_day": missing_market_day,
-                    "missing_day": missing_day[:STOCK_REPAIR_CANDIDATE_LIMIT],
+                    "missing_day": _limited(missing_day),
                     "missing_min": {
-                        key: value[:STOCK_REPAIR_CANDIDATE_LIMIT]
-                        for key, value in missing_min.items()
+                        key: _limited(value) for key, value in missing_min.items()
                     },
                     "missing_day_total": len(missing_day),
                     "missing_min_total": sum(
@@ -587,12 +640,27 @@ def collect_stock_market_data_issues(
 
 
 def format_stock_market_data_issues(report: Mapping[str, Any]) -> str:
+    samples = []
+    for issue in list(report.get("issues") or [])[:5]:
+        samples.append(
+            {
+                "date": issue.get("date"),
+                "missing_market_day": bool(issue.get("missing_market_day")),
+                "missing_day_total": issue.get("missing_day_total", 0),
+                "missing_day_sample": list(issue.get("missing_day") or [])[:10],
+                "missing_min_total": issue.get("missing_min_total", 0),
+                "missing_min_sample": {
+                    key: list(value)[:5]
+                    for key, value in (issue.get("missing_min") or {}).items()
+                },
+            }
+        )
     return (
         "stock market integrity audit failed: "
         f"missing_market_days={report.get('missing_market_day_total', 0)} "
         f"missing_day={report.get('missing_day_total', 0)} "
         f"missing_min={report.get('missing_min_total', 0)}; "
-        f"issues={list(report.get('issues') or [])[:5]}"
+        f"issues_sample={samples}"
     )
 
 

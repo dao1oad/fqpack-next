@@ -664,12 +664,13 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 - TDX 行情服务器列表由仓库内 `freshquant/gateway/tdx_ip_pool.json` 人工维护（`QUANTAXIS.QAUtil.QAIPPool` 加载，优先于 `~/.quantaxis/setting/*_ip.json` 缓存）；股票日线、分钟线与 ETF xdxr 都使用这份正式池，服务器批量失效时更新该 JSON 即可
 - 当前 `QATdx.ping` 已加 K 线接口探活并把连接超时放宽到 3 秒；`select_best_ip` 判定阈值同步放宽，坏 default 服务器会被自动淘汰重选
 - 当前股票日线/分钟线逐票抓取会在首选 host 返回异常、`None` 或源侧空响应时切换仓库 IP 池；旧 QASU 即使继续收集逐票错误，最终 ready asset 的跨集合审计也会阻断假成功 marker
-- 当前 Dagster `stock_day` / `stock_min` asset 落库后仍做基础新鲜度断言；`stock_postclose_ready_asset` 写 marker 前还会交叉审计最近 15 个交易日的当前股票日线与 `1min/5min/15min/30min/60min` 覆盖，任一确定性缺口都会 fail
+- 当前 Dagster `stock_day` 落库后会检查当日文档数相对上一交易日的覆盖率，低于 98% 直接失败；`stock_min` 依赖 `stock_day`，按当日日线 universe 检查 `1min/5min/15min/30min/60min` 五周期。`stock_postclose_ready_asset` 写 marker 前还会交叉审计最近 15 个交易日，任一确定性缺口都会 fail
+- 两机共用同一公网出口（生产为 `183.23.92.21`）。若两机在 16:00 同时跑 `stock_data_job`，后面的机器会触发 TDX per-IP 限流；TDX 对限流返回空 bars 而不是错误码，QASU 会静默跳过。正式口径用 `FQ_STOCK_DATA_CRON` 错峰：100 为 `0 17 * * 1-5`，116 保持 `0 16 * * 1-5`
 - 全市场交叉审计会豁免 OHLC 同值且成交量/额为 TDX 浮点哨兵的停牌占位日线；这类日期源侧没有分钟 bar，不要伪造数据
 - TDX 会在首个历史 bar 出现前把发行期证券放进 `stock_list`。QASU 对这类空结果打印 `ERROR CODE`；Dagster 仅在代码没有任何历史日线且仍为 TDX 发行期占位（或盘中当天 `N` 股）时豁免，已有历史或应有数据的代码仍会令任务失败
 - 当前默认 run launcher 不支持 crash resume，因此 run worker 崩溃后由 monitoring 将该 run 标记为失败；股票与 ETF 长任务通过 job tag 把单次最长运行时间设为 8 小时，并把自动失败重试限制为 2 次。容器重启后应确认失败 run 已结束、后续重试 run 的 compute log 继续增长，不能只看 UI 的 `STARTED`
 - 宿主机代理软件建议启用"绕过中国大陆"分流或在使用系统链路时关闭 TUN 模式；即使代理未关，修复后的选点/超时也能在慢链路下工作
-- 补缺口：直接在 Dagster UI 手动 launch 一次 `stock_data_job`（增量逻辑按"库内最后日期 → 今天"自动回补），完成后核对 `stock_day` / `stock_min` 的 `max(date)`
+- 补缺口：不要让两台机器同时 launch。单机执行 `ensure_stock_postclose_ready('YYYY-MM-DD')`（或对应 `stock_data_job`）；修复按全量缺失 code 分批遍历、每批后重新审计，最多 3 轮。完成后核对 marker coverage、`stock_day` / `stock_min` 的 `max(date)`，再等 `qfq_worker` 推进并重启 consumer
 
 ## ETF 日线启动时报 `IndexKeySpecsConflict`
 

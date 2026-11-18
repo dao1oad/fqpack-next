@@ -235,6 +235,36 @@ def test_stock_day_low_doc_count_raises():
         module.assert_stock_day_fresh(collection, expected_trade_date="2026-07-20")
 
 
+def test_stock_day_coverage_rejects_material_universe_loss():
+    module = _load_module()
+
+    class CoverageCollection:
+        def __init__(self, current_count: int, previous_count: int):
+            self.current_count = current_count
+            self.previous_count = previous_count
+
+        def count_documents(self, query):
+            if query.get("date") == "2026-07-20":
+                return self.current_count
+            return self.previous_count
+
+        def find_one(self, query, projection=None, sort=None):
+            return {"date": "2026-07-17"}
+
+    with pytest.raises(RuntimeError, match="coverage collapsed"):
+        module.assert_stock_day_coverage(
+            CoverageCollection(3734, 5224),
+            expected_trade_date="2026-07-20",
+        )
+
+    result = module.assert_stock_day_coverage(
+        CoverageCollection(5200, 5224),
+        expected_trade_date="2026-07-20",
+    )
+    assert result["current_count"] == 5200
+    assert result["required_count"] == 5119
+
+
 def test_stock_day_missing_sample_docs_counts_as_stale():
     module = _load_module()
     collection = FakeDayCollection({}, day_docs=0)
@@ -549,6 +579,41 @@ def test_stock_market_data_collect_returns_gap_report_without_raising():
 
     assert report["missing_day_total"] == 1
     assert report["issues"][0]["missing_day"] == ["600519"]
+
+
+def test_stock_market_data_collect_can_return_full_missing_lists():
+    module = _load_module()
+    date = "2026-07-20"
+    codes = [f"{index:06d}" for index in range(1, 121)]
+    day = FakeIntegrityCollection(find_documents=[_stock_day_document("000001", date)])
+    stock_list = FakeIntegrityCollection(distinct_values={"code": codes})
+    rows = [
+        {"_id": {"date": date, "code": code, "type": frequence}}
+        for code in codes
+        for frequence in module.STOCK_MIN_FREQUENCIES
+    ]
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    full_report = module.collect_stock_market_data_issues(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date=date,
+        lookback_trade_days=1,
+        candidate_limit=None,
+        trade_dates_provider=lambda: [date],
+    )
+    default_report = module.collect_stock_market_data_issues(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date=date,
+        lookback_trade_days=1,
+        trade_dates_provider=lambda: [date],
+    )
+
+    assert len(full_report["issues"][0]["missing_day"]) == 119
+    assert len(default_report["issues"][0]["missing_day"]) == 100
 
 
 def test_stock_market_data_consistency_rejects_fully_missing_trade_date():

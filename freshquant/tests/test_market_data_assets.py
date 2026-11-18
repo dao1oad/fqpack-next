@@ -553,9 +553,160 @@ def test_stock_assets_allow_run_when_all_failures_are_prelisting(monkeypatch):
         "assert_stock_day_fresh",
         lambda: {"expected_trade_date": "2026-07-20"},
     )
+    monkeypatch.setattr(
+        module,
+        "assert_stock_day_coverage",
+        lambda **_kwargs: {
+            "expected_trade_date": "2026-07-20",
+            "current_count": 2,
+            "previous_count": 2,
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "collect_stock_market_data_issues",
+        lambda **kwargs: {
+            "expected_trade_date": "2026-07-20",
+            "audited_dates": ["2026-07-20"],
+            "issues": [],
+            "day_codes": {"2026-07-20": 2},
+            "universe_codes": 2,
+        },
+    )
     result = module.stock_day(context, "2026-07-20 16:00:00")
 
     assert isinstance(result, str)
+
+
+def test_stock_day_repairs_all_missing_codes_before_success(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    context = SimpleNamespace(log=FakeLog())
+    missing = [f"{index:06d}" for index in range(1, 121)]
+    reports = [
+        {
+            "expected_trade_date": "2026-07-20",
+            "audited_dates": ["2026-07-20"],
+            "issues": [
+                {
+                    "date": "2026-07-20",
+                    "missing_market_day": False,
+                    "missing_day": missing,
+                    "missing_min": {},
+                    "missing_day_total": len(missing),
+                    "missing_min_total": 0,
+                }
+            ],
+            "day_codes": {"2026-07-20": 0},
+            "universe_codes": len(missing),
+        },
+        {
+            "expected_trade_date": "2026-07-20",
+            "audited_dates": ["2026-07-20"],
+            "issues": [],
+            "day_codes": {"2026-07-20": len(missing)},
+            "universe_codes": len(missing),
+        },
+    ]
+    collect_calls = []
+
+    def collect_issues(**kwargs):
+        collect_calls.append(kwargs)
+        return reports.pop(0)
+
+    monkeypatch.setattr(module, "QA_SU_save_stock_day", lambda *_: None)
+    monkeypatch.setattr(
+        module,
+        "assert_stock_day_fresh",
+        lambda: {"expected_trade_date": "2026-07-20"},
+    )
+    monkeypatch.setattr(
+        module,
+        "assert_stock_day_coverage",
+        lambda **_kwargs: {
+            "expected_trade_date": "2026-07-20",
+            "current_count": 120,
+            "previous_count": 120,
+        },
+    )
+    monkeypatch.setattr(module, "collect_stock_market_data_issues", collect_issues)
+
+    def repair_gaps(report, **_kwargs):
+        assert len(report["issues"][0]["missing_day"]) == 120
+        return {
+            "attempted_codes": missing,
+            "attempts": 2,
+            "errors": [],
+            "skipped_reason": None,
+            "candidate_count": 120,
+            "batch_count": 1,
+        }
+
+    monkeypatch.setattr(module, "repair_stock_market_data_gaps", repair_gaps)
+
+    result = module.stock_day(context, "2026-07-20 16:00:00")
+
+    assert isinstance(result, str)
+    assert len(collect_calls) == 2
+    assert all(call.get("candidate_limit") is None for call in collect_calls)
+
+
+def test_stock_min_rejects_incomplete_stock_day(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    context = SimpleNamespace(log=FakeLog())
+
+    monkeypatch.setattr(module, "QA_SU_save_stock_min", lambda *_: None)
+    monkeypatch.setattr(
+        module,
+        "assert_stock_min_fresh",
+        lambda: {"expected_trade_date": "2026-07-20"},
+    )
+    monkeypatch.setattr(
+        module,
+        "collect_stock_market_data_issues",
+        lambda **_kwargs: {
+            "issues": [
+                {
+                    "date": "2026-07-20",
+                    "missing_market_day": False,
+                    "missing_day": ["000001"],
+                    "missing_min": {},
+                    "missing_day_total": 1,
+                    "missing_min_total": 0,
+                }
+            ],
+            "day_codes": {"2026-07-20": 0},
+            "universe_codes": 1,
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="requires complete stock_day coverage"):
+        module.stock_min(context, "2026-07-20 16:00:00")
+
+
+def test_stock_market_data_repair_processes_more_than_50_codes(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    codes = [f"{index:06d}" for index in range(1, 121)]
+    seen = []
+
+    result = module.repair_stock_market_data_gaps(
+        {
+            "issues": [
+                {
+                    "missing_market_day": False,
+                    "missing_day": codes,
+                    "missing_min": {},
+                    "missing_day_total": len(codes),
+                    "missing_min_total": 0,
+                }
+            ]
+        },
+        day_sync=lambda code: seen.append(code),
+        min_sync=lambda _code: None,
+    )
+
+    assert seen == codes
+    assert result["candidate_count"] == len(codes)
+    assert result["skipped_reason"] is None
 
 
 def test_prelisting_qasu_failure_requires_no_existing_history(monkeypatch):
@@ -628,18 +779,16 @@ def test_stock_postclose_ready_asset_writes_marker(monkeypatch):
 
     monkeypatch.setattr(
         module,
-        "collect_stock_market_data_issues",
-        lambda: {"audited_dates": ["2026-03-19"], "issues": []},
-    )
-    monkeypatch.setattr(
-        module,
-        "repair_stock_market_data_gaps",
-        lambda report: {
-            "attempted_codes": [],
-            "attempts": 0,
-            "errors": [],
-            "skipped_reason": None,
-        },
+        "repair_stock_market_data_until_clean",
+        lambda **kwargs: (
+            {"audited_dates": ["2026-03-19"], "issues": []},
+            {
+                "attempted_codes": [],
+                "attempts": 0,
+                "errors": [],
+                "skipped_reason": None,
+            },
+        ),
     )
 
     monkeypatch.setattr(
@@ -747,16 +896,21 @@ def test_stock_market_data_repair_skips_market_wide_gap(monkeypatch):
 def test_ensure_stock_postclose_ready_publishes_repair_marker(monkeypatch):
     _import_market_data_module(monkeypatch)
     repair_module = importlib.import_module("fqdagster.defs.assets.market_data_repair")
-    freshness_module = importlib.import_module(
-        "fqdagster.defs.assets.market_data_freshness"
-    )
     markers_module = importlib.import_module("fqdagster.defs.postclose_markers")
     calls = []
 
     monkeypatch.setattr(
-        freshness_module,
-        "collect_stock_market_data_issues",
-        lambda **kwargs: {"issues": [], "audited_dates": ["2026-11-06"]},
+        repair_module,
+        "repair_stock_market_data_until_clean",
+        lambda **kwargs: (
+            {"issues": [], "audited_dates": ["2026-11-06"]},
+            {
+                "attempted_codes": [],
+                "attempts": 0,
+                "errors": [],
+                "skipped_reason": None,
+            },
+        ),
     )
     monkeypatch.setattr(
         markers_module,
@@ -783,6 +937,55 @@ def test_ensure_stock_postclose_ready_publishes_repair_marker(monkeypatch):
     assert calls[0][0] == "stock_postclose_ready"
     assert calls[0][1] == "2026-11-06"
     assert calls[0][2]["payload"]["repair_job"] is True
+
+
+def test_repair_stock_market_data_until_clean_reaudits_after_repair(monkeypatch):
+    _import_market_data_module(monkeypatch)
+    repair_module = importlib.import_module("fqdagster.defs.assets.market_data_repair")
+    freshness_module = importlib.import_module(
+        "fqdagster.defs.assets.market_data_freshness"
+    )
+    reports = [
+        {
+            "issues": [
+                {
+                    "missing_market_day": False,
+                    "missing_day": ["000001"],
+                    "missing_min": {},
+                }
+            ]
+        },
+        {"issues": []},
+    ]
+    calls = []
+
+    monkeypatch.setattr(
+        freshness_module,
+        "collect_stock_market_data_issues",
+        lambda **_kwargs: reports.pop(0),
+    )
+
+    def repair(report, **_kwargs):
+        calls.append(report)
+        return {
+            "attempted_codes": ["000001"],
+            "attempts": 2,
+            "errors": [],
+            "skipped_reason": None,
+            "candidate_count": 1,
+            "batch_count": 1,
+        }
+
+    monkeypatch.setattr(repair_module, "repair_stock_market_data_gaps", repair)
+
+    integrity, summary = repair_module.repair_stock_market_data_until_clean(
+        expected_trade_date="2026-07-20"
+    )
+
+    assert integrity["issues"] == []
+    assert summary["attempts"] == 1
+    assert summary["incomplete"] is False
+    assert len(calls) == 1
 
 
 def test_etf_postclose_ready_asset_writes_marker(monkeypatch):
