@@ -46,12 +46,16 @@ from ..postclose_markers import (
 from .market_data_freshness import (
     assert_etf_day_fresh,
     assert_etf_min_fresh,
+    assert_stock_day_coverage,
     assert_stock_day_fresh,
     assert_stock_min_fresh,
     collect_stock_market_data_issues,
     format_stock_market_data_issues,
 )
-from .market_data_repair import repair_stock_market_data_gaps
+from .market_data_repair import (
+    repair_stock_market_data_gaps,
+    repair_stock_market_data_until_clean,
+)
 from .postclose_ready import refresh_quality_stock_universe_snapshot
 
 market_data_alert = signal("market_data_alert")
@@ -148,6 +152,64 @@ def _run_qasu_stock_sync(sync_name: str, sync_function) -> None:
             f"{sync_name} sync failed for {len(failed_codes)} codes: "
             f"{failed_codes[:20]}"
         )
+
+
+def _report_for_issues(integrity: dict, issues: list[dict]) -> dict:
+    missing_day_total = sum(
+        int(issue.get("missing_day_total") or len(issue.get("missing_day") or []))
+        for issue in issues
+    )
+    missing_min_total = sum(
+        int(
+            issue.get("missing_min_total")
+            or sum(
+                len(codes or []) for codes in (issue.get("missing_min") or {}).values()
+            )
+        )
+        for issue in issues
+    )
+    return {
+        **integrity,
+        "issues": issues,
+        "missing_market_day_total": sum(
+            1 for issue in issues if issue.get("missing_market_day")
+        ),
+        "missing_day_total": missing_day_total,
+        "missing_min_total": missing_min_total,
+    }
+
+
+def _day_only_issues(integrity: dict) -> list[dict]:
+    issues = []
+    for issue in integrity.get("issues") or []:
+        missing_day = list(issue.get("missing_day") or [])
+        if not issue.get("missing_market_day") and not missing_day:
+            continue
+        issues.append({**issue, "missing_min": {}, "missing_min_total": 0})
+    return issues
+
+
+def _min_only_issues(integrity: dict) -> list[dict]:
+    issues = []
+    for issue in integrity.get("issues") or []:
+        missing_min = {
+            key: list(codes or [])
+            for key, codes in (issue.get("missing_min") or {}).items()
+            if codes
+        }
+        if not missing_min:
+            continue
+        issues.append(
+            {
+                **issue,
+                "missing_market_day": False,
+                "missing_day": [],
+                "missing_day_total": 0,
+                "missing_min": missing_min,
+                "missing_min_total": sum(len(codes) for codes in missing_min.values()),
+            }
+        )
+    return issues
 
 
 def _normalize_stock_block_docs(documents, source: str):
@@ -471,9 +533,48 @@ def stock_day(context: AssetExecutionContext, stock_list: str) -> str:
         f"Saving stock daily data, triggered after stock_list at {stock_list}"
     )
     _run_qasu_stock_sync("stock_day", QA_SU_save_stock_day)
-    # 采集入口会抛出逐票失败; 这里再断言库内数据已覆盖最新交易日。
     freshness = assert_stock_day_fresh()
-    context.log.info(f"stock_day freshness check passed: {freshness}")
+    expected_trade_date = str(freshness.get("expected_trade_date") or "")
+    coverage = assert_stock_day_coverage(
+        expected_trade_date=expected_trade_date,
+    )
+    context.log.info(f"stock_day coverage check passed: {coverage}")
+    integrity = collect_stock_market_data_issues(
+        expected_trade_date=expected_trade_date,
+        lookback_trade_days=1,
+        candidate_limit=None,
+    )
+    day_issues = _day_only_issues(integrity)
+    if day_issues:
+        repair = repair_stock_market_data_gaps(
+            _report_for_issues(integrity, day_issues),
+            batch_pause_s=0.25,
+            code_pause_s=0.05,
+        )
+        context.log.warning(
+            "stock_day coverage gaps detected; attempted=%s candidates=%s batches=%s",
+            len(repair.get("attempted_codes") or []),
+            repair.get("candidate_count"),
+            repair.get("batch_count"),
+        )
+        integrity = collect_stock_market_data_issues(
+            expected_trade_date=expected_trade_date,
+            lookback_trade_days=1,
+            candidate_limit=None,
+        )
+        day_issues = _day_only_issues(integrity)
+    if day_issues:
+        raise RuntimeError(
+            format_stock_market_data_issues(_report_for_issues(integrity, day_issues))
+        )
+    context.log.info(
+        "stock_day full coverage check passed: %s",
+        {
+            "expected_trade_date": expected_trade_date,
+            "day_codes": integrity.get("day_codes"),
+            "universe_codes": integrity.get("universe_codes"),
+        },
+    )
     market_data_alert.send(
         "dagster-asset",
         payload={
@@ -484,16 +585,57 @@ def stock_day(context: AssetExecutionContext, stock_list: str) -> str:
     return pendulum.now().format("YYYY-MM-DD HH:mm:ss")
 
 
-@asset(deps=[stock_list], group_name="stock_data")
-def stock_min(context: AssetExecutionContext, stock_list: str) -> str:
-    """Download and save stock minute data. Depends on stock_list."""
+@asset(deps=[stock_day], group_name="stock_data")
+def stock_min(context: AssetExecutionContext, stock_day: str) -> str:
+    """Download and save stock minute data. Depends on stock_day."""
     context.log.info(
-        f"Saving stock minute data, triggered after stock_list at {stock_list}"
+        f"Saving stock minute data, triggered after stock_day at {stock_day}"
     )
     _run_qasu_stock_sync("stock_min", QA_SU_save_stock_min)
-    # 与 stock_day 相同: 断言分钟线已覆盖最新交易日, 消灭假成功
     freshness = assert_stock_min_fresh()
-    context.log.info(f"stock_min freshness check passed: {freshness}")
+    expected_trade_date = str(freshness.get("expected_trade_date") or "")
+    integrity = collect_stock_market_data_issues(
+        expected_trade_date=expected_trade_date,
+        lookback_trade_days=1,
+        candidate_limit=None,
+    )
+    day_issues = _day_only_issues(integrity)
+    if day_issues:
+        raise RuntimeError(
+            "stock_min requires complete stock_day coverage: "
+            + format_stock_market_data_issues(_report_for_issues(integrity, day_issues))
+        )
+    min_issues = _min_only_issues(integrity)
+    if min_issues:
+        repair = repair_stock_market_data_gaps(
+            _report_for_issues(integrity, min_issues),
+            batch_pause_s=0.25,
+            code_pause_s=0.05,
+        )
+        context.log.warning(
+            "stock_min coverage gaps detected; attempted=%s candidates=%s batches=%s",
+            len(repair.get("attempted_codes") or []),
+            repair.get("candidate_count"),
+            repair.get("batch_count"),
+        )
+        integrity = collect_stock_market_data_issues(
+            expected_trade_date=expected_trade_date,
+            lookback_trade_days=1,
+            candidate_limit=None,
+        )
+        min_issues = _min_only_issues(integrity)
+    if min_issues:
+        raise RuntimeError(
+            format_stock_market_data_issues(_report_for_issues(integrity, min_issues))
+        )
+    context.log.info(
+        "stock_min full coverage check passed: %s",
+        {
+            "expected_trade_date": expected_trade_date,
+            "day_codes": integrity.get("day_codes"),
+            "universe_codes": integrity.get("universe_codes"),
+        },
+    )
     market_data_alert.send(
         "dagster-asset",
         payload={
@@ -532,22 +674,15 @@ def stock_postclose_ready_asset(
         str(refresh_quality_stock_universe_snapshot.get("trade_date") or "")
         or resolve_latest_completed_trade_date()
     )
-    integrity = collect_stock_market_data_issues()
-    repair = {
-        "attempted_codes": [],
-        "attempts": 0,
-        "errors": [],
-        "skipped_reason": None,
-    }
-    if integrity.get("issues"):
-        repair = repair_stock_market_data_gaps(integrity)
-        context.log.warning(
-            "stock market integrity gaps detected; repair attempted=%s skipped=%s",
-            repair.get("attempted_codes"),
-            repair.get("skipped_reason"),
-        )
-        if repair.get("attempted_codes"):
-            integrity = collect_stock_market_data_issues()
+    integrity, repair = repair_stock_market_data_until_clean(
+        expected_trade_date=trade_date,
+    )
+    context.log.warning(
+        "stock market integrity repair result: attempted=%s rounds=%s incomplete=%s",
+        len(repair.get("attempted_codes") or []),
+        repair.get("attempts"),
+        repair.get("incomplete"),
+    )
     if integrity.get("issues"):
         raise RuntimeError(format_stock_market_data_issues(integrity))
     context.log.info(f"stock market integrity check passed: {integrity}")

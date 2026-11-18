@@ -180,7 +180,7 @@ $enhua.data_quality.account_partitions
 
 正式 deploy 当前除了仓库代码，还依赖以下宿主机外部文件作为运行真值：
 
-- `D:/fqpack/config/fqnext.compose.env`：Docker 并行环境的正式 `env_file`，其中 `FRESHQUANT_TDX__HOME=/opt/tdx` 是 `fq_apiserver` 解析容器内通达信目录的 bootstrap 真值。不要再依赖仓库根 `.env` 作为 production compose 真值；`git clean -ffdx` 会清理 ignored `.env`。
+- `D:/fqpack/config/fqnext.compose.env`：Docker 并行环境的正式 `env_file`，其中 `FRESHQUANT_TDX__HOME=/opt/tdx` 是 `fq_apiserver` 解析容器内通达信目录的 bootstrap 真值。`FQ_STOCK_DATA_CRON` 控制股票收盘批量任务的 cron：100 设为 `0 17 * * 1-5`，116 保持默认 `0 16 * * 1-5`，避免两机共用 TDX 出口 IP 时同窗口限流。不要再依赖仓库根 `.env` 作为 production compose 真值；`git clean -ffdx` 会清理 ignored `.env`。
 - `D:/fqpack/config/envs.conf`：宿主机 Supervisor 运行环境真值。至少要显式提供 Mongo、Redis、TDX 地址，并把代理变量保持为空；当前 Redis 正式端口是 `127.0.0.1:6380`。
 - `D:/new_tdx`：CLX 固定分组与 ZXG/DM 同步的宿主机通达信目录；正式 workflow job env 或人工部署进程通过 `FQPACK_TDX_SYNC_DIR=D:/new_tdx` 把它挂载为 `fq_apiserver` 内的 `/opt/tdx`。
 - `D:/fqpack/supervisord/scripts/run_fqnext_supervisord_restart_task.ps1`：管理员桥接任务 `fqnext-supervisord-restart` 的外部脚本。仓库内 `script/run_fqnext_supervisord_restart_task.ps1` 变更后，要同步到这里。

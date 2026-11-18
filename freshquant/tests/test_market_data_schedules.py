@@ -100,6 +100,16 @@ def test_stock_and_etf_jobs_bound_runtime_and_failed_run_retries(monkeypatch):
     }
 
 
+def test_stock_data_schedule_uses_machine_cron_override(monkeypatch):
+    _prepare_schedule_import(monkeypatch)
+    monkeypatch.setenv("FQ_STOCK_DATA_CRON", "0 17 * * 1-5")
+
+    module = importlib.import_module("fqdagster.defs.schedules.market_data")
+
+    assert module.stock_data_schedule.cron_schedule == "0 17 * * 1-5"
+    assert module.etf_data_schedule.cron_schedule == "0 16 * * 1-5"
+
+
 def test_dagster_instance_disables_resume_for_default_run_launcher():
     repo_root = Path(__file__).resolve().parents[2]
     config_path = repo_root / "morningglory" / "fqdagsterconfig" / "dagster.yaml"
