@@ -66,6 +66,7 @@ Dagster 盘后桥接口径当前新增两条 ready asset：
 其中：
 
 - `stock_data_job` 默认由工作日 `16:00` schedule 驱动；可用 `FQ_STOCK_DATA_CRON` 覆盖。生产口径为 100 `0 19 * * 1-5`、116 `0 16 * * 1-5`，给 116 的 bulk 留出完成窗口，避免同一 TDX 出口 IP 的 bulk 窗口重叠
+- `stock_postclose_repair_job` 的盘后 schedule 默认工作日 `17:30`，可用 `FQ_STOCK_POSTCLOSE_REPAIR_EVENING_CRON` 覆盖；生产口径为 100 `30 20 * * 1-5`（在 19:00 bulk 之后）、116 默认。盘前 `08:30` schedule 不变
 - `etf_data_job` 仍由工作日 `16:00` schedule 驱动
 - `stock_day` 落库后检查相对上一交易日文档覆盖率（低于 98% 失败）；`stock_min` 依赖 `stock_day`，按当日日线 universe 检查五个分钟周期。`stock_postclose_ready_asset` 写 marker 前再做 15 日全量审计和分批修复
 - `stock_postclose_ready` 是 Gantt / Daily Screening 盘后链路的正式股票侧就绪信号
