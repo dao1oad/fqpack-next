@@ -110,6 +110,41 @@ def test_stock_data_schedule_uses_machine_cron_override(monkeypatch):
     assert module.etf_data_schedule.cron_schedule == "0 16 * * 1-5"
 
 
+def _prepare_repair_schedule_import(monkeypatch):
+    _prepare_schedule_import(monkeypatch)
+    jobs = ModuleType("fqdagster.defs.jobs.market_data_repair")
+    jobs.stock_postclose_repair_job = SimpleNamespace(name="stock_postclose_repair_job")
+    monkeypatch.setitem(sys.modules, "fqdagster.defs.jobs.market_data_repair", jobs)
+    sys.modules.pop("fqdagster.defs.schedules.market_data_repair", None)
+
+
+def test_stock_postclose_repair_evening_schedule_uses_machine_cron_override(
+    monkeypatch,
+):
+    _prepare_repair_schedule_import(monkeypatch)
+    monkeypatch.setenv("FQ_STOCK_POSTCLOSE_REPAIR_EVENING_CRON", "30 20 * * 1-5")
+
+    module = importlib.import_module("fqdagster.defs.schedules.market_data_repair")
+
+    assert (
+        module.stock_postclose_repair_evening_schedule.cron_schedule == "30 20 * * 1-5"
+    )
+    assert (
+        module.stock_postclose_repair_preopen_schedule.cron_schedule == "30 8 * * 1-5"
+    )
+
+
+def test_stock_postclose_repair_evening_schedule_defaults_to_1730(monkeypatch):
+    _prepare_repair_schedule_import(monkeypatch)
+    monkeypatch.delenv("FQ_STOCK_POSTCLOSE_REPAIR_EVENING_CRON", raising=False)
+
+    module = importlib.import_module("fqdagster.defs.schedules.market_data_repair")
+
+    assert (
+        module.stock_postclose_repair_evening_schedule.cron_schedule == "30 17 * * 1-5"
+    )
+
+
 def test_dagster_instance_disables_resume_for_default_run_launcher():
     repo_root = Path(__file__).resolve().parents[2]
     config_path = repo_root / "morningglory" / "fqdagsterconfig" / "dagster.yaml"
