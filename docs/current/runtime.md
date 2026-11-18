@@ -100,7 +100,7 @@
 - `stock_day` 落库后除样本新鲜度外还检查相对上一交易日的全市场文档覆盖率，低于 98% 直接失败；`stock_min` 依赖 `stock_day`，按当日日线 universe 检查五个分钟周期。资产内会对缺失代码做分批定向修复并重新审计，不再以 `doc_count >= 3000` 作为唯一门禁。
 - 盘后 `stock_postclose_ready_asset` 在 15 日审计失败后执行全量 per-symbol 修复（默认不限 50 只，按 200 只分批，每 code ≤2 次）；修复按 `issue.date` 定向抓取并 upsert 日线/分钟，不依赖“库内最后日期 → 今天”的增量路径。每批后重新审计，最多 3 轮；marker payload 的 `repair` 记录 attempted/errors/rounds/incomplete。修复不成功时保持 fail-closed。
 - Dagster `stock_postclose_repair_job` 在交易日 `17:30` 与次日 `08:30` 各运行一次：若最新已完成交易日的 stock marker 已存在则 no-op；否则执行同一套全量缺口修复并补写 marker。QFQ worker 在 60 秒内消费新 marker，盘前修复可在开盘前推进 stock snapshot。
-- 两机共用 TDX 出口 IP；`stock_data_schedule` 支持 `FQ_STOCK_DATA_CRON` 覆盖。正式口径为 100 使用 `0 17 * * 1-5`、116 使用默认 `0 16 * * 1-5`，避免两个 `stock_day`/`stock_min` bulk job 在同一窗口触发 TDX per-IP 限流。
+- 两机共用 TDX 出口 IP；`stock_data_schedule` 支持 `FQ_STOCK_DATA_CRON` 覆盖。正式口径为 100 使用 `0 19 * * 1-5`、116 使用默认 `0 16 * * 1-5`，给 116 的 bulk job 留出完成窗口，避免两个 `stock_day`/`stock_min` bulk job 在同一窗口触发 TDX per-IP 限流。
 - `stock_data?realtimeCache=1` 只允许“仅当前交易日 override 缺失”或“全部为近期窗口之外的历史缺口”回退；回退响应带 `data_quality.status=degraded`。近期多日缺口直接 503。
 - `adj_refresh_worker` 在 active stock/etf QFQ snapshot `factor_asof` 落后上一交易日时跳过 override 写入，并 emit `qfq_snapshot_stale` runtime event。
 - `/api/ops/kline-health` 的 `qfq_readiness` 段同时检查 active snapshot 追平 marker 与当前持仓/must_pool 的 1min realtime cache 覆盖率；同一 code 存在多个 adjustment-version key 时按最新 bar 日期判断，不把旧版本 key 误报为 stale。
