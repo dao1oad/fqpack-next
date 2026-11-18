@@ -709,6 +709,52 @@ def test_stock_market_data_repair_processes_more_than_50_codes(monkeypatch):
     assert result["skipped_reason"] is None
 
 
+def test_stock_market_data_repair_targets_exact_daily_date(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    calls = []
+
+    result = module.repair_stock_market_data_gaps(
+        {
+            "issues": [
+                {
+                    "date": "2026-11-17",
+                    "missing_market_day": False,
+                    "missing_day": ["600185"],
+                    "missing_min": {},
+                }
+            ]
+        },
+        day_date_sync=lambda code, date: calls.append((code, date)),
+    )
+
+    assert calls == [("600185", "2026-11-17")]
+    assert result["attempted_codes"] == ["600185"]
+
+
+def test_stock_market_data_repair_targets_exact_minute_date(monkeypatch):
+    module = _import_market_data_module(monkeypatch)
+    calls = []
+
+    result = module.repair_stock_market_data_gaps(
+        {
+            "issues": [
+                {
+                    "date": "2026-11-17",
+                    "missing_market_day": False,
+                    "missing_day": [],
+                    "missing_min": {"1min": ["600185"], "5min": ["600185"]},
+                }
+            ]
+        },
+        min_date_sync=lambda code, date, frequencies: calls.append(
+            (code, date, tuple(frequencies))
+        ),
+    )
+
+    assert calls == [("600185", "2026-11-17", ("1min", "5min"))]
+    assert result["attempted_codes"] == ["600185"]
+
+
 def test_prelisting_qasu_failure_requires_no_existing_history(monkeypatch):
     module = _import_market_data_module(monkeypatch)
 

@@ -670,7 +670,7 @@ docker exec fqnext_20260223-fq_mongodb-1 mongosh --quiet --eval 'const c=db.getS
 - TDX 会在首个历史 bar 出现前把发行期证券放进 `stock_list`。QASU 对这类空结果打印 `ERROR CODE`；Dagster 仅在代码没有任何历史日线且仍为 TDX 发行期占位（或盘中当天 `N` 股）时豁免，已有历史或应有数据的代码仍会令任务失败
 - 当前默认 run launcher 不支持 crash resume，因此 run worker 崩溃后由 monitoring 将该 run 标记为失败；股票与 ETF 长任务通过 job tag 把单次最长运行时间设为 8 小时，并把自动失败重试限制为 2 次。容器重启后应确认失败 run 已结束、后续重试 run 的 compute log 继续增长，不能只看 UI 的 `STARTED`
 - 宿主机代理软件建议启用"绕过中国大陆"分流或在使用系统链路时关闭 TUN 模式；即使代理未关，修复后的选点/超时也能在慢链路下工作
-- 补缺口：不要让两台机器同时 launch。单机执行 `ensure_stock_postclose_ready('YYYY-MM-DD')`（或对应 `stock_data_job`）；修复按全量缺失 code 分批遍历、每批后重新审计，最多 3 轮。完成后核对 marker coverage、`stock_day` / `stock_min` 的 `max(date)`，再等 `qfq_worker` 推进并重启 consumer
+- 补缺口：不要让两台机器同时 launch。单机执行 `ensure_stock_postclose_ready('YYYY-MM-DD')`（或对应 `stock_data_job`）；修复按全量缺失 code 分批遍历，并按审计的 `issue.date` 定向抓取日线/分钟后 upsert，因此能回填“最新日期之前”的历史洞；每批后重新审计，最多 3 轮。完成后核对 marker coverage、`stock_day` / `stock_min` 的 `max(date)`，再等 `qfq_worker` 推进并重启 consumer
 
 ## ETF 日线启动时报 `IndexKeySpecsConflict`
 
