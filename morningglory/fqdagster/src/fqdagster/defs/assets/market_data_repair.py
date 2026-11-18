@@ -25,6 +25,107 @@ def _default_min_sync(code: str) -> None:
     QA_SU_save_single_stock_min(code, "tdx")
 
 
+def _default_day_date_sync(code: str, trade_date: str) -> None:
+    """Fetch and upsert one exact daily date.
+
+    QASU's single-stock helper only advances from the latest stored date. When
+    the missing date sits *behind* that date, the helper can never fill it.
+    """
+
+    from QUANTAXIS.QAFetch.QATdx import QA_fetch_get_stock_day
+    from QUANTAXIS.QAUtil import QA_util_to_json_from_pandas
+
+    from freshquant.db import DBQuantAxis
+
+    expected = str(trade_date)[:10]
+    data = QA_fetch_get_stock_day(code, expected, expected, "00")
+    if data is None or bool(getattr(data, "empty", False)):
+        raise RuntimeError(f"empty TDX daily result for {code} {expected}")
+    documents = QA_util_to_json_from_pandas(data)
+    collection = DBQuantAxis["stock_day"]
+    written = 0
+    for document in documents or []:
+        if not isinstance(document, Mapping):
+            continue
+        payload = dict(document)
+        payload.pop("_id", None)
+        if str(payload.get("date") or "")[:10] != expected:
+            continue
+        collection.update_one(
+            {
+                "code": str(payload.get("code") or code),
+                "date": expected,
+            },
+            {"$set": payload},
+            upsert=True,
+        )
+        written += 1
+    if written == 0:
+        raise RuntimeError(f"TDX daily result had no {expected} row for {code}")
+
+
+def _default_min_date_sync(
+    code: str,
+    trade_date: str,
+    frequencies: Sequence[str],
+) -> None:
+    """Fetch and upsert exact minute bars for one date and frequency set."""
+
+    from QUANTAXIS.QAFetch.QATdx import QA_fetch_get_stock_min
+    from QUANTAXIS.QAUtil import QA_util_to_json_from_pandas
+
+    from freshquant.db import DBQuantAxis
+
+    expected = str(trade_date)[:10]
+    collection = DBQuantAxis["stock_min"]
+    written = 0
+    failures: list[str] = []
+    for frequency in frequencies:
+        try:
+            data = QA_fetch_get_stock_min(
+                code,
+                f"{expected} 00:00:00",
+                f"{expected} 23:59:59",
+                frequency,
+            )
+        except Exception as exc:  # noqa: BLE001 - repair reports per frequency
+            failures.append(f"{frequency}: {exc}")
+            continue
+        if data is None or bool(getattr(data, "empty", False)):
+            failures.append(f"{frequency}: empty")
+            continue
+        documents = QA_util_to_json_from_pandas(data)
+        frequency_written = 0
+        for document in documents or []:
+            if not isinstance(document, Mapping):
+                continue
+            payload = dict(document)
+            payload.pop("_id", None)
+            if str(payload.get("date") or "")[:10] != expected:
+                continue
+            collection.update_one(
+                {
+                    "code": str(payload.get("code") or code),
+                    "datetime": str(payload.get("datetime") or ""),
+                    "type": str(payload.get("type") or frequency),
+                },
+                {"$set": payload},
+                upsert=True,
+            )
+            frequency_written += 1
+            written += 1
+        if frequency_written == 0:
+            failures.append(f"{frequency}: no {expected} rows")
+    if written == 0:
+        raise RuntimeError(
+            f"empty TDX minute result for {code} {expected}: {failures[-3:]}"
+        )
+    if failures:
+        raise RuntimeError(
+            f"incomplete TDX minute result for {code} {expected}: {failures[-3:]}"
+        )
+
+
 def _issue_codes(issues: Sequence[Mapping[str, Any]]) -> tuple[set[str], set[str]]:
     day_codes: set[str] = set()
     min_codes: set[str] = set()
@@ -39,11 +140,39 @@ def _issue_codes(issues: Sequence[Mapping[str, Any]]) -> tuple[set[str], set[str
     return day_codes, min_codes
 
 
+def _issue_targets(
+    issues: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, set[str]], dict[str, dict[str, set[str]]]]:
+    day_targets: dict[str, set[str]] = {}
+    min_targets: dict[str, dict[str, set[str]]] = {}
+    for issue in issues:
+        date = str(issue.get("date") or "").strip()[:10]
+        if not date:
+            continue
+        for code in issue.get("missing_day") or ():
+            normalized = str(code).strip()
+            if normalized:
+                day_targets.setdefault(normalized, set()).add(date)
+        for frequency, codes in (issue.get("missing_min") or {}).items():
+            normalized_frequency = str(frequency).strip()
+            if not normalized_frequency:
+                continue
+            for code in codes or ():
+                normalized = str(code).strip()
+                if normalized:
+                    min_targets.setdefault(normalized, {}).setdefault(date, set()).add(
+                        normalized_frequency
+                    )
+    return day_targets, min_targets
+
+
 def repair_stock_market_data_gaps(
     report: Mapping[str, Any],
     *,
     day_sync: Callable[[str], None] | None = None,
     min_sync: Callable[[str], None] | None = None,
+    day_date_sync: Callable[[str, str], None] | None = None,
+    min_date_sync: Callable[[str, str, Sequence[str]], None] | None = None,
     max_codes: int | None = None,
     attempts: int = MAX_STOCK_REPAIR_ATTEMPTS,
     retry_delay_s: float = 0.0,
@@ -52,11 +181,13 @@ def repair_stock_market_data_gaps(
     code_pause_s: float = 0.0,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Attempt bounded per-symbol repair for recent stock data gaps.
+    """Attempt per-symbol repair for recent stock data gaps.
 
-    The audit remains the source of truth. This helper only retries the missing
-    symbols through QASU's single-symbol entry points; callers must re-run the
-    audit before publishing ``stock_postclose_ready``.
+    When the audit report includes ``issue.date``, missing daily and minute
+    bars are fetched for that exact date. This is required for holes behind the
+    latest stored date, which QASU's single-stock incremental helper cannot
+    reach. Reports without dates retain the legacy code-only callback path for
+    backward compatibility.
 
     ``max_codes=None`` (the default) processes every missing code in batches.
     An explicit cap is retained for controlled one-shot diagnostics; in that
@@ -83,8 +214,9 @@ def repair_stock_market_data_gaps(
             "batch_count": 0,
         }
 
+    day_targets, min_targets = _issue_targets(issues)
     day_codes, min_codes = _issue_codes(issues)
-    candidates = sorted(day_codes | min_codes)
+    candidates = sorted(set(day_targets) | set(min_targets) | day_codes | min_codes)
     if not candidates:
         return {
             "attempted_codes": [],
@@ -103,36 +235,74 @@ def repair_stock_market_data_gaps(
             selected = candidates[:limit]
             truncated = True
 
+    if day_date_sync is None and day_sync is None:
+        day_date_sync = _default_day_date_sync
+    if min_date_sync is None and min_sync is None:
+        min_date_sync = _default_min_date_sync
     day_sync = day_sync or _default_day_sync
     min_sync = min_sync or _default_min_sync
+
     errors: list[dict[str, str]] = []
     attempted: list[str] = []
     max_attempts = max(int(attempts), 1)
     effective_batch_size = max(int(batch_size), 1)
     batch_count = 0
 
+    def _attempt(
+        *,
+        code: str,
+        date: str,
+        kind: str,
+        frequencies: Sequence[str] | None = None,
+    ) -> None:
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if kind == "day":
+                    if date and day_date_sync is not None:
+                        day_date_sync(code, date)
+                    else:
+                        day_sync(code)
+                elif date and min_date_sync is not None:
+                    min_date_sync(code, date, list(frequencies or ()))
+                else:
+                    min_sync(code)
+                return
+            except Exception as exc:  # noqa: BLE001 - repair is best effort
+                errors.append(
+                    {
+                        "code": code,
+                        "date": date,
+                        "attempt": str(attempt),
+                        "error": str(exc),
+                    }
+                )
+                if attempt < max_attempts and retry_delay_s > 0:
+                    sleep_fn(float(retry_delay_s))
+
     for start in range(0, len(selected), effective_batch_size):
         batch = selected[start : start + effective_batch_size]
         batch_count += 1
         for code in batch:
             attempted.append(code)
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    if code in day_codes:
-                        day_sync(code)
-                    if code in min_codes:
-                        min_sync(code)
-                    break
-                except Exception as exc:  # noqa: BLE001 - repair is best effort
-                    errors.append(
-                        {
-                            "code": code,
-                            "attempt": str(attempt),
-                            "error": str(exc),
-                        }
+            dates = sorted(day_targets.get(code, ()))
+            if dates:
+                for date in dates:
+                    _attempt(code=code, date=date, kind="day")
+            elif code in day_codes:
+                _attempt(code=code, date="", kind="day")
+
+            minute_dates = min_targets.get(code, {})
+            if minute_dates:
+                for date, frequencies in sorted(minute_dates.items()):
+                    _attempt(
+                        code=code,
+                        date=date,
+                        kind="minute",
+                        frequencies=sorted(frequencies),
                     )
-                    if attempt < max_attempts and retry_delay_s > 0:
-                        sleep_fn(float(retry_delay_s))
+            elif code in min_codes:
+                _attempt(code=code, date="", kind="minute")
+
             if code_pause_s > 0:
                 sleep_fn(float(code_pause_s))
         if batch_pause_s > 0 and start + effective_batch_size < len(selected):
@@ -155,6 +325,8 @@ def repair_stock_market_data_until_clean(
     max_rounds: int = 3,
     day_sync: Callable[[str], None] | None = None,
     min_sync: Callable[[str], None] | None = None,
+    day_date_sync: Callable[[str, str], None] | None = None,
+    min_date_sync: Callable[[str, str, Sequence[str]], None] | None = None,
     max_codes: int | None = None,
     attempts: int = MAX_STOCK_REPAIR_ATTEMPTS,
     retry_delay_s: float = 0.0,
@@ -190,6 +362,8 @@ def repair_stock_market_data_until_clean(
             integrity,
             day_sync=day_sync,
             min_sync=min_sync,
+            day_date_sync=day_date_sync,
+            min_date_sync=min_date_sync,
             max_codes=max_codes,
             attempts=attempts,
             retry_delay_s=retry_delay_s,

@@ -38,6 +38,7 @@ STOCK_MIN_FREQUENCIES: tuple[str, ...] = (
 STOCK_INTEGRITY_LOOKBACK_TRADE_DAYS = 15
 STOCK_INTEGRITY_CODE_CHUNK_SIZE = 250
 STOCK_REPAIR_CANDIDATE_LIMIT = 100
+MINUTE_VOLUME_EPSILON = 1e-10
 
 # ETF 全市场约 1675 只, 正常交易日 index_day 当日文档数约 1650。
 ETF_DAY_MIN_DOCS = 1000
@@ -556,6 +557,9 @@ def collect_stock_market_data_issues(
         trade_date: {str(frequence): set() for frequence in frequencies}
         for trade_date in audited_dates
     }
+    real_minute_codes_by_date: dict[str, set[str]] = {
+        trade_date: set() for trade_date in audited_dates
+    }
     start_stamp = _date_start_stamp(audited_dates[0])
     end_stamp = _date_start_stamp(expected) + 86400
 
@@ -568,7 +572,13 @@ def collect_stock_market_data_issues(
                     "type": {"$in": list(frequencies)},
                 }
             },
-            {"$group": {"_id": {"date": "$date", "code": "$code", "type": "$type"}}},
+            {
+                "$group": {
+                    "_id": {"date": "$date", "code": "$code", "type": "$type"},
+                    "max_vol": {"$max": "$vol"},
+                    "max_amount": {"$max": "$amount"},
+                }
+            },
         ]
         for row in min_coll.aggregate(pipeline, allowDiskUse=True):
             identity = row.get("_id") or {}
@@ -578,6 +588,17 @@ def collect_stock_market_data_issues(
             date_frequencies = minute_codes_by_date.get(trade_date)
             if date_frequencies is not None and frequence in date_frequencies:
                 date_frequencies[frequence].add(code)
+            max_vol = row.get("max_vol")
+            max_amount = row.get("max_amount")
+            if max_vol is None and max_amount is None:
+                is_real = True
+            else:
+                is_real = (
+                    float(max_vol or 0.0) > MINUTE_VOLUME_EPSILON
+                    or float(max_amount or 0.0) > MINUTE_VOLUME_EPSILON
+                )
+            if is_real and trade_date in real_minute_codes_by_date:
+                real_minute_codes_by_date[trade_date].add(code)
 
     issues = []
     missing_market_day_total = 0
@@ -594,9 +615,9 @@ def collect_stock_market_data_issues(
         day_codes = day_codes_by_date[trade_date]
         real_day_codes = day_codes - placeholder_codes_by_date[trade_date]
         minute_by_frequency = minute_codes_by_date[trade_date]
-        minute_union = set().union(*minute_by_frequency.values())
-        missing_market_day = not day_codes and not minute_union
-        missing_day = sorted(minute_union - day_codes)
+        real_minute_union = real_minute_codes_by_date[trade_date]
+        missing_market_day = not day_codes and not real_minute_union
+        missing_day = sorted(real_minute_union - day_codes)
         missing_min = {
             frequence: sorted(real_day_codes - minute_by_frequency[str(frequence)])
             for frequence in frequencies

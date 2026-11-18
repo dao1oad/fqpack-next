@@ -616,6 +616,71 @@ def test_stock_market_data_collect_can_return_full_missing_lists():
     assert len(default_report["issues"][0]["missing_day"]) == 100
 
 
+def test_stock_market_data_ignores_suspended_minute_placeholders_for_missing_day():
+    module = _load_module()
+    date = "2026-07-20"
+    day = FakeIntegrityCollection(find_documents=[_stock_day_document("000001", date)])
+    stock_list = FakeIntegrityCollection(
+        distinct_values={"code": ["000001", "600185", "688121"]}
+    )
+    rows = []
+    for code in ("000001", "600185", "688121"):
+        for frequence in module.STOCK_MIN_FREQUENCIES:
+            placeholder = code != "000001"
+            rows.append(
+                {
+                    "_id": {"date": date, "code": code, "type": frequence},
+                    "max_vol": 5.877471754e-39 if placeholder else 1000.0,
+                    "max_amount": 5.877471754e-39 if placeholder else 10200.0,
+                }
+            )
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    report = module.collect_stock_market_data_issues(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date=date,
+        lookback_trade_days=1,
+        candidate_limit=None,
+        trade_dates_provider=lambda: [date],
+    )
+
+    assert report["missing_day_total"] == 0
+    assert report["issues"] == []
+
+
+def test_stock_market_data_keeps_real_minute_only_code_as_missing_day():
+    module = _load_module()
+    date = "2026-07-20"
+    day = FakeIntegrityCollection(find_documents=[_stock_day_document("000001", date)])
+    stock_list = FakeIntegrityCollection(distinct_values={"code": ["000001", "600185"]})
+    rows = []
+    for code in ("000001", "600185"):
+        for frequence in module.STOCK_MIN_FREQUENCIES:
+            rows.append(
+                {
+                    "_id": {"date": date, "code": code, "type": frequence},
+                    "max_vol": 1000.0,
+                    "max_amount": 10200.0,
+                }
+            )
+    minute = FakeIntegrityCollection(aggregate_rows=rows)
+
+    report = module.collect_stock_market_data_issues(
+        day_collection=day,
+        min_collection=minute,
+        stock_list_collection=stock_list,
+        expected_trade_date=date,
+        lookback_trade_days=1,
+        candidate_limit=None,
+        trade_dates_provider=lambda: [date],
+    )
+
+    assert report["missing_day_total"] == 1
+    assert report["issues"][0]["missing_day"] == ["600185"]
+
+
 def test_stock_market_data_consistency_rejects_fully_missing_trade_date():
     module = _load_module()
     dates = ["2026-07-17", "2026-07-20"]
